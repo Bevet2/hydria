@@ -1,0 +1,36 @@
+{
+  "name": "hydria-backend",
+  "version": "1.0.0",
+  "description": "Hydria V1 backend orchestrator",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "eval:chat-stress": "node scripts/chatStressEval.mjs",
+    "eval:agentic-smoke": "node scripts/agenticSmokeEval.mjs",
+    "eval:continuity": "node scripts/projectContinuityEval.mjs",
+    "eval:system": "node scripts/projectSystemEval.mjs",
+    "eval:quality": "node scripts/projectQualityEval.mjs",
+    "eval:domains": "node scripts/domainBenchmarkEval.mjs",
+    "eval:realworld": "node scripts/realworldBenchmarkEval.mjs"
+  },
+  "dependencies": {
+    "adm-zip": "^0.5.16",
+    "better-sqlite3": "^11.7.0",
+    "cheerio": "^1.1.2",
+    "cors": "^2.8.5",
+    "docx": "^9.5.1",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "mammoth": "^1.8.1",
+    "multer": "^2.0.2",
+    "pdf-parse": "^1.1.1",
+    "pdfkit": "^0.17.2",
+    "playwright": "^1.52.0",
+    "pptxgenjs": "^4.0.1",
+    "tesseract.js": "^6.0.1",
+    "word-extractor": "^1.0.4",
+    "xlsx": "^0.18.5"
+  }
+}

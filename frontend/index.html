@@ -1,0 +1,370 @@
+﻿<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Hydria</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <section class="panel brand-panel">
+          <div class="brand-row">
+            <div>
+              <p class="eyebrow">Hydria OS</p>
+              <h1>Hydria</h1>
+            </div>
+            <span class="badge">Live</span>
+          </div>
+          <p class="muted">
+            Create something usable, see it instantly, and keep improving it without leaving your space.
+          </p>
+        </section>
+
+        <section class="panel">
+          <div class="section-header">
+            <h2>Projects</h2>
+            <div class="button-row">
+              <span class="tiny" id="project-count">0</span>
+              <button id="new-project-button" class="secondary-button" type="button">
+                New project
+              </button>
+            </div>
+          </div>
+          <div id="project-list" class="conversation-list"></div>
+        </section>
+
+        <section class="panel">
+          <div class="section-header">
+            <h2 id="conversation-header-title">Project chats</h2>
+            <div class="button-row">
+              <button id="new-conversation-button" class="secondary-button">
+                New chat
+              </button>
+              <button id="clear-conversation-button" class="ghost-button">
+                Clear
+              </button>
+            </div>
+          </div>
+          <div id="conversation-list" class="conversation-list"></div>
+        </section>
+
+        <details class="panel utility-panel">
+          <summary>Settings</summary>
+          <div class="section-header">
+            <h2>Users</h2>
+            <span class="tiny" id="user-count">0</span>
+          </div>
+          <div class="user-creator">
+            <input id="new-user-input" type="text" placeholder="New username" />
+            <button id="create-user-button" class="secondary-button">Create</button>
+          </div>
+          <select id="user-select"></select>
+
+          <div class="section-header nested-settings">
+            <h2>Preferences</h2>
+          </div>
+          <div class="preferences-grid">
+            <label>
+              <span>Language</span>
+              <input id="pref-language" type="text" placeholder="fr, en..." />
+            </label>
+            <label>
+              <span>Tone</span>
+              <input id="pref-tone" type="text" placeholder="concise, formal..." />
+            </label>
+            <label>
+              <span>Format</span>
+              <input
+                id="pref-format"
+                type="text"
+                placeholder="bullets, prose, tables..."
+              />
+            </label>
+          </div>
+          <button id="save-preferences-button" class="primary-button">
+            Save preferences
+          </button>
+        </details>
+      </aside>
+
+      <main class="workspace">
+        <header class="topbar topbar-system" aria-hidden="true">
+          <div class="topbar-copy">
+            <p class="eyebrow">Hydria</p>
+            <strong id="status-text">Opening your workspace...</strong>
+          </div>
+          <div class="topbar-actions">
+            <button id="copilot-toggle-button" class="secondary-button" type="button">
+              Ask Hydria
+            </button>
+            <div class="status-group">
+            <span id="strategy-pill" class="badge subtle">free-first</span>
+            <span id="provider-pill" class="badge subtle">LLM: pending</span>
+            </div>
+          </div>
+        </header>
+
+        <div id="workspace-switcher" class="workspace-switcher"></div>
+        <section id="workspace-panel-root" class="panel work-object-panel workspace-panel">
+          <div class="workspace-shell-header">
+            <div class="workspace-title-group">
+              <p id="workspace-context-label" class="eyebrow hidden">Working on</p>
+              <h2 id="workspace-title">Nothing open yet</h2>
+              <p id="workspace-subtitle" class="muted workspace-subtitle">
+                Ask Hydria below to create something. It will open here automatically.
+              </p>
+              <div id="workspace-operating-strip" class="workspace-operating-strip hidden">
+                <span id="workspace-operating-mode" class="workspace-operating-chip">Object</span>
+                <span id="workspace-operating-role" class="workspace-operating-chip subtle">Project context</span>
+                <span id="workspace-operating-risk" class="workspace-operating-chip subtle">Next step</span>
+              </div>
+            </div>
+            <div class="workspace-shell-actions">
+              <div id="workspace-mode-nav" class="workspace-mode-nav"></div>
+              <button
+                id="workspace-project-context-toggle"
+                class="secondary-button hidden"
+                type="button"
+              >
+                Hide project
+              </button>
+              <button id="workspace-save-button" class="primary-button workspace-save-button" type="button">
+                Save
+              </button>
+              <div id="workspace-view-status" class="workspace-view-status">Ready</div>
+            </div>
+          </div>
+          <div id="workspace-project-badge" class="detail-item active-object-badge hidden">
+            No active project
+          </div>
+          <span id="work-object-kind" class="tiny hidden">None</span>
+          <p id="work-object-empty" class="tiny muted">
+            Select a project to open its workspace.
+          </p>
+          <div id="workspace-project-meta" class="detail-stack hidden"></div>
+          <div id="workspace-dimensions" class="token-list hidden"></div>
+          <div id="work-object-meta" class="detail-stack hidden"></div>
+          <div id="workspace-breadcrumb" class="workspace-breadcrumb"></div>
+          <div id="workspace-project-map" class="workspace-project-map hidden"></div>
+          <div id="workspace-action-guide" class="workspace-action-guide hidden">
+            <div class="workspace-action-guide-copy">
+              <strong id="workspace-action-guide-title">Modify this directly</strong>
+              <p id="workspace-action-guide-text" class="muted">
+                Pick what you want to change, edit it here, or ask Hydria to continue the current project.
+              </p>
+            </div>
+            <div id="workspace-action-guide-steps" class="workspace-flow-chip-list"></div>
+            <div class="workspace-action-guide-actions">
+              <button id="workspace-edit-now-button" class="primary-button" type="button">Modify now</button>
+              <button id="workspace-ask-hydria-button" class="secondary-button" type="button">Ask Hydria</button>
+              <button id="workspace-save-now-button" class="secondary-button" type="button">Save now</button>
+            </div>
+          </div>
+          <section id="workspace-launcher" class="workspace-launcher hidden"></section>
+          <div id="workspace-layout" class="workspace-layout">
+            <aside class="workspace-sidebar">
+              <div class="workspace-nav-group">
+                <label class="composer-label">Contents</label>
+                <div id="workspace-object-list" class="workspace-nav-list"></div>
+              </div>
+              <div class="workspace-nav-group">
+                <label class="composer-label">View</label>
+                <div id="workspace-dimension-nav" class="workspace-chip-list"></div>
+              </div>
+              <div class="workspace-nav-group">
+                <label id="workspace-file-label" class="composer-label" for="work-object-file-select">Open</label>
+                <select id="work-object-file-select"></select>
+              </div>
+            </aside>
+            <div class="workspace-main">
+              <div class="workspace-toolbar">
+                <div id="workspace-surface-nav" class="workspace-chip-list workspace-surface-nav"></div>
+              </div>
+              <div class="workspace-stage">
+                <section class="workspace-preview-pane">
+                  <div id="workspace-preview" class="workspace-preview"></div>
+                </section>
+                <aside class="workspace-editor-drawer">
+                  <div class="workspace-editor-nav">
+                    <div class="workspace-nav-group">
+                      <label id="workspace-outline-label" class="composer-label">Outline</label>
+                      <div id="workspace-section-list" class="workspace-nav-list"></div>
+                    </div>
+                    <div class="workspace-nav-group">
+                      <label id="workspace-block-label" class="composer-label">Focus area</label>
+                      <div id="workspace-block-list" class="workspace-nav-list"></div>
+                    </div>
+                  </div>
+                  <div class="workspace-editor-pane">
+                    <label id="workspace-editor-label" class="composer-label" for="work-object-editor">Edit</label>
+                    <div id="workspace-structured-editor" class="workspace-structured-editor hidden"></div>
+                    <textarea
+                      id="work-object-editor"
+                      rows="14"
+                      placeholder="No editable content selected."
+                    ></textarea>
+                    <label class="composer-label" for="work-object-improve-prompt">
+                      Ask Hydria to improve this
+                    </label>
+                    <input
+                      id="work-object-improve-prompt"
+                      type="text"
+                      placeholder="Ex: make this clearer and more concrete"
+                    />
+                    <div class="composer-actions">
+                      <button id="save-work-object-button" class="primary-button" type="button">
+                        Save
+                      </button>
+                      <button id="improve-work-object-button" class="secondary-button" type="button">
+                        Refine
+                      </button>
+                    </div>
+                  </div>
+                </aside>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="assistant-dock" class="assistant-dock hidden">
+          <section id="copilot-panel" class="composer-panel copilot-panel hidden">
+            <form id="chat-form">
+              <div class="copilot-header">
+                <div class="copilot-heading">
+                  <strong id="assistant-role-heading">Hydria</strong>
+                  <p id="assistant-helper-text" class="assistant-helper">
+                    Work on what is open here.
+                  </p>
+                </div>
+                <p id="assistant-status-text" class="assistant-status">Ready when you are.</p>
+              </div>
+              <section id="chat-thread" class="chat-thread hidden"></section>
+              <label class="composer-label" for="prompt-input">Your request</label>
+              <div id="active-work-object-badge" class="detail-item active-object-badge">
+                No active project yet
+              </div>
+              <textarea
+                id="prompt-input"
+                rows="5"
+                placeholder="Tell Hydria what to create, add, improve or fix in the current project."
+              ></textarea>
+              <div class="attachment-toolbar">
+                <label class="secondary-button file-trigger" for="attachment-input">
+                  Attach files
+                </label>
+                <input
+                  id="attachment-input"
+                  type="file"
+                  multiple
+                />
+                <button id="clear-attachments-button" class="ghost-button" type="button">
+                  Clear files
+                </button>
+              </div>
+              <p class="tiny attachment-help">
+                The assistant works on the project you currently have open.
+              </p>
+              <div id="attachment-list" class="attachment-list"></div>
+              <div class="composer-actions">
+                <span id="loader" class="loader hidden">Processing...</span>
+                <button id="send-button" class="primary-button" type="submit">
+                  Send
+                </button>
+              </div>
+            </form>
+          </section>
+        </section>
+
+        <details id="run-details" class="details-panel">
+          <summary>Behind the scenes</summary>
+          <div class="details-grid">
+            <div>
+              <span class="detail-label">Classification</span>
+              <p id="detail-classification">-</p>
+            </div>
+            <div>
+              <span class="detail-label">Strategy</span>
+              <p id="detail-strategy">-</p>
+            </div>
+            <div>
+              <span class="detail-label">Task pack</span>
+              <div id="detail-task-pack" class="detail-stack"></div>
+            </div>
+            <div>
+              <span class="detail-label">Routing</span>
+              <div id="detail-routing" class="detail-stack"></div>
+            </div>
+            <div>
+              <span class="detail-label">Pending follow-ups</span>
+              <div id="detail-follow-ups" class="detail-stack"></div>
+            </div>
+            <div>
+              <span class="detail-label">Judge</span>
+              <div id="detail-judge" class="detail-stack"></div>
+            </div>
+            <div>
+              <span class="detail-label">Models used</span>
+              <div id="detail-models" class="token-list"></div>
+            </div>
+            <div>
+              <span class="detail-label">APIs used</span>
+              <div id="detail-apis" class="token-list"></div>
+            </div>
+            <div>
+              <span class="detail-label">Tools used</span>
+              <div id="detail-tools" class="token-list"></div>
+            </div>
+            <div>
+              <span class="detail-label">Memory used</span>
+              <div id="detail-memory" class="detail-stack"></div>
+            </div>
+            <div>
+              <span class="detail-label">Execution plan</span>
+              <div id="detail-plan" class="detail-stack"></div>
+            </div>
+            <div>
+              <span class="detail-label">Candidates</span>
+              <div id="detail-candidates" class="detail-stack"></div>
+            </div>
+            <div>
+              <span class="detail-label">Sources used</span>
+              <div id="detail-sources" class="detail-stack"></div>
+            </div>
+            <div>
+              <span class="detail-label">Attachments</span>
+              <div id="detail-attachments" class="detail-stack"></div>
+            </div>
+            <div>
+              <span class="detail-label">Attachment evidence</span>
+              <div id="detail-evidence" class="detail-stack"></div>
+            </div>
+            <div>
+              <span class="detail-label">Delivery</span>
+              <div id="detail-delivery" class="detail-stack"></div>
+            </div>
+            <div>
+              <span class="detail-label">Artifacts & exports</span>
+              <div id="detail-artifacts" class="detail-stack"></div>
+            </div>
+            <div>
+              <span class="detail-label">Duration</span>
+              <p id="detail-duration">-</p>
+            </div>
+          </div>
+        </details>
+      </main>
+    </div>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
+

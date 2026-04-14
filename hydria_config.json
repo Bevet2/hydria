@@ -1,0 +1,52 @@
+{
+  "models": {
+    "prompt_engineer": {
+      "id": "mistralai/Mistral-7B-Instruct-v0.3",
+      "path": "hydria_models/mistralai__Mistral-7B-Instruct-v0.3",
+      "type": "llm"
+    },
+    "orchestrator": {
+      "id": "Qwen/Qwen2.5-7B-Instruct",
+      "path": "hydria_models/Qwen__Qwen2.5-7B-Instruct",
+      "type": "llm"
+    },
+    "coder": {
+      "id": "deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct",
+      "path": "hydria_models/deepseek-ai__DeepSeek-Coder-V2-Lite-Instruct",
+      "type": "llm"
+    },
+    "vision": {
+      "id": "llava-hf/llava-v1.6-mistral-7b-hf",
+      "path": "hydria_models/llava-hf__llava-v1.6-mistral-7b-hf",
+      "type": "vision-llm"
+    },
+    "audio_stt": {
+      "id": "openai/whisper-large-v3",
+      "path": "hydria_models/openai__whisper-large-v3",
+      "type": "asr"
+    },
+    "image_gen": {
+      "id": "stabilityai/sdxl-turbo",
+      "path": "hydria_models/stabilityai__sdxl-turbo",
+      "type": "diffusion"
+    },
+    "embedder": {
+      "id": "intfloat/multilingual-e5-large",
+      "path": "hydria_models/intfloat__multilingual-e5-large",
+      "type": "embedding"
+    }
+  },
+  "runtime": {
+    "device": "cpu",
+    "dtype": "float32",
+    "max_new_tokens": 64,
+    "temperature": 0.7,
+    "top_p": 0.9,
+    "local_files_only": true,
+    "use_prompt_engineer": false
+  },
+  "logging": {
+    "dir": "logs",
+    "level": "INFO"
+  }
+}
