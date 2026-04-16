@@ -212,7 +212,13 @@ async function executeLlmStep(step, contextMessages) {
 }
 
 class HydriaBrain {
-  async processChat({ userId, conversationId, prompt, attachments = [] }) {
+  async processChat({
+    userId,
+    conversationId,
+    prompt,
+    attachments = [],
+    skipUserMessagePersist = false
+  }) {
     const startedAt = Date.now();
     if (!userId) {
       throw new AppError("userId is required", 400);
@@ -270,13 +276,15 @@ class HydriaBrain {
     let preferencesUsed = {};
 
     try {
-      saveMessage({
-        conversationId: conversation.id,
-        role: "user",
-        content: buildUserMessageContent(effectivePrompt, attachments),
-        classification,
-        routeUsed: classification
-      });
+      if (!skipUserMessagePersist) {
+        saveMessage({
+          conversationId: conversation.id,
+          role: "user",
+          content: buildUserMessageContent(effectivePrompt, attachments),
+          classification,
+          routeUsed: classification
+        });
+      }
       conversation =
         maybeUpdateConversationTitle(conversation.id, effectivePrompt) || conversation;
 
