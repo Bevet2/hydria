@@ -60,6 +60,193 @@ function friendlyPathLabel(filePath = "") {
   return `${parts[parts.length - 2]} / ${parts[parts.length - 1]}`;
 }
 
+const SPREADSHEET_HISTORY_LIMIT = 80;
+const spreadsheetHistoryStore = new Map();
+const spreadsheetShortcutCleanupStore = new Map();
+const spreadsheetSelectionStore = new Map();
+const spreadsheetClipboardStore = new Map();
+
+function cloneSpreadsheetSnapshot(model = {}) {
+  return JSON.parse(JSON.stringify(model || {}));
+}
+
+function areSpreadsheetSnapshotsEqual(left = {}, right = {}) {
+  return JSON.stringify(left || {}) === JSON.stringify(right || {});
+}
+
+const SPREADSHEET_NUMBER_FORMATS = new Set(["number", "currency", "percent", "date"]);
+const SPREADSHEET_HORIZONTAL_ALIGNMENTS = new Set(["left", "center", "right"]);
+const SPREADSHEET_VERTICAL_ALIGNMENTS = new Set(["top", "middle", "bottom"]);
+const SPREADSHEET_BORDER_EDGES = ["top", "right", "bottom", "left"];
+
+function normalizeSpreadsheetColor(value = "") {
+  const text = String(value || "").trim();
+  const match = text.match(/^#?([0-9a-f]{3}|[0-9a-f]{6})$/i);
+  if (!match) {
+    return "";
+  }
+  const hex = match[1].length === 3
+    ? match[1].split("").map((char) => `${char}${char}`).join("")
+    : match[1];
+  return `#${hex.toLowerCase()}`;
+}
+
+function normalizeSpreadsheetBorderSpec(border = {}) {
+  if (!border || typeof border !== "object" || Array.isArray(border)) {
+    return null;
+  }
+  const normalized = {};
+  SPREADSHEET_BORDER_EDGES.forEach((edge) => {
+    if (border[edge]) {
+      normalized[edge] = true;
+    }
+  });
+  if (!SPREADSHEET_BORDER_EDGES.some((edge) => normalized[edge])) {
+    return null;
+  }
+  const color = normalizeSpreadsheetColor(border.color) || "#202124";
+  return { ...normalized, color };
+}
+
+function normalizeSpreadsheetCellFormat(format = {}) {
+  if (typeof format === "string") {
+    return SPREADSHEET_NUMBER_FORMATS.has(format) ? { numberFormat: format } : {};
+  }
+  if (!format || typeof format !== "object" || Array.isArray(format)) {
+    return {};
+  }
+
+  const normalized = {};
+  const numberFormat = String(format.numberFormat || format.format || "");
+  if (SPREADSHEET_NUMBER_FORMATS.has(numberFormat)) {
+    normalized.numberFormat = numberFormat;
+  }
+  ["bold", "italic", "underline"].forEach((flag) => {
+    if (format[flag]) {
+      normalized[flag] = true;
+    }
+  });
+  const horizontalAlign = String(format.horizontalAlign || format.align || "");
+  if (SPREADSHEET_HORIZONTAL_ALIGNMENTS.has(horizontalAlign)) {
+    normalized.horizontalAlign = horizontalAlign;
+  }
+  const verticalAlign = String(format.verticalAlign || "");
+  if (SPREADSHEET_VERTICAL_ALIGNMENTS.has(verticalAlign)) {
+    normalized.verticalAlign = verticalAlign;
+  }
+  const fontSize = Number(format.fontSize);
+  if (Number.isFinite(fontSize)) {
+    normalized.fontSize = Math.max(8, Math.min(36, Math.round(fontSize)));
+  }
+  const textColor = normalizeSpreadsheetColor(format.textColor);
+  if (textColor) {
+    normalized.textColor = textColor;
+  }
+  const fillColor = normalizeSpreadsheetColor(format.fillColor);
+  if (fillColor) {
+    normalized.fillColor = fillColor;
+  }
+  const border = normalizeSpreadsheetBorderSpec(format.border);
+  if (border) {
+    normalized.border = border;
+  }
+  return normalized;
+}
+
+function isSpreadsheetCellFormatEmpty(format = {}) {
+  return Object.keys(normalizeSpreadsheetCellFormat(format)).length === 0;
+}
+
+function getSpreadsheetHistoryKey(workObject = null, filePath = "") {
+  const objectKey = workObject?.id || workObject?.objectId || workObject?.title || "workspace";
+  const pathKey = normalizePath(filePath || workObject?.primaryFile || "sheet");
+  return `${objectKey}::${pathKey}`;
+}
+
+function clampSpreadsheetIndex(value = 0, max = 0) {
+  const parsed = Number(value);
+  return Math.max(0, Math.min(Number.isFinite(parsed) ? Math.trunc(parsed) : 0, Math.max(0, max)));
+}
+
+function normalizeSpreadsheetSelectionState(selection = {}, rowCount = 1, columnCount = 1) {
+  const maxRowIndex = Math.max(0, rowCount - 1);
+  const maxColumnIndex = Math.max(0, columnCount - 1);
+  const active = selection?.activeSelection || {};
+  const range = selection?.selectionRange || {};
+  const activeSelection = {
+    rowIndex: clampSpreadsheetIndex(active.rowIndex, maxRowIndex),
+    columnIndex: clampSpreadsheetIndex(active.columnIndex, maxColumnIndex)
+  };
+
+  return {
+    activeSelection,
+    selectionRange: {
+      startRowIndex: clampSpreadsheetIndex(range.startRowIndex ?? activeSelection.rowIndex, maxRowIndex),
+      startColumnIndex: clampSpreadsheetIndex(range.startColumnIndex ?? activeSelection.columnIndex, maxColumnIndex),
+      endRowIndex: clampSpreadsheetIndex(range.endRowIndex ?? activeSelection.rowIndex, maxRowIndex),
+      endColumnIndex: clampSpreadsheetIndex(range.endColumnIndex ?? activeSelection.columnIndex, maxColumnIndex)
+    }
+  };
+}
+
+function saveSpreadsheetSelectionState(historyKey = "", selection = {}, rowCount = 1, columnCount = 1) {
+  spreadsheetSelectionStore.set(
+    historyKey || "workspace::sheet",
+    normalizeSpreadsheetSelectionState(selection, rowCount, columnCount)
+  );
+}
+
+function getSpreadsheetHistoryState(historyKey = "", currentSnapshot = {}) {
+  const key = historyKey || "workspace::sheet";
+  let state = spreadsheetHistoryStore.get(key);
+  if (!state) {
+    state = {
+      past: [],
+      future: [],
+      current: cloneSpreadsheetSnapshot(currentSnapshot)
+    };
+    spreadsheetHistoryStore.set(key, state);
+    return state;
+  }
+
+  if (!areSpreadsheetSnapshotsEqual(state.current, currentSnapshot)) {
+    state.past = [];
+    state.future = [];
+    state.current = cloneSpreadsheetSnapshot(currentSnapshot);
+  }
+
+  return state;
+}
+
+function registerSpreadsheetShortcutHandler(historyKey = "", previewShell = null, handlers = null) {
+  const key = historyKey || "workspace::sheet";
+  spreadsheetShortcutCleanupStore.get(key)?.();
+  spreadsheetShortcutCleanupStore.delete(key);
+
+  const normalizedHandlers =
+    typeof handlers === "function"
+      ? { keydown: handlers }
+      : handlers && typeof handlers === "object"
+        ? handlers
+        : {};
+  const registeredHandlers = Object.entries(normalizedHandlers).filter(
+    ([, handler]) => typeof handler === "function"
+  );
+
+  if (!previewShell || !registeredHandlers.length) {
+    return;
+  }
+
+  registeredHandlers.forEach(([eventName, handler]) => {
+    document.addEventListener(eventName, handler, true);
+  });
+  spreadsheetShortcutCleanupStore.set(key, () => {
+    registeredHandlers.forEach(([eventName, handler]) => {
+      document.removeEventListener(eventName, handler, true);
+    });
+  });
+}
+
 function getDocumentWorkspacePreviewProfile(workObject = null) {
   const familyId = workObject?.workspaceFamilyId || "";
   const profileMap = {
@@ -2328,6 +2515,9 @@ function renderSpreadsheetClonePreview(
   let workbookModel = normalizeSpreadsheetPreviewModel(model, {
     defaultSheetName: profile?.sheetName || "Sheet 1"
   });
+  const historyKey = getSpreadsheetHistoryKey(workObject, filePath);
+  const initialHistorySnapshot = cloneSpreadsheetSnapshot(workbookModel);
+  const historyState = getSpreadsheetHistoryState(historyKey, initialHistorySnapshot);
   const activeSheet = workbookModel.activeSheet;
   const minVisibleColumns = Math.max(activeSheet.columns.length, 10);
   const minVisibleRows = Math.max(activeSheet.rows.length + 1, 24);
@@ -2338,7 +2528,11 @@ function renderSpreadsheetClonePreview(
         : activeSheet.rows[rowIndex - 1]?.[columnIndex] || ""
     )
   );
-
+  const initialSelectionState = normalizeSpreadsheetSelectionState(
+    spreadsheetSelectionStore.get(historyKey),
+    sheetGrid.length,
+    sheetGrid[0]?.length || 1
+  );
   const columnLetter = (index) => {
     let value = index + 1;
     let label = "";
@@ -2489,7 +2683,21 @@ function renderSpreadsheetClonePreview(
     const parts = [];
     let depth = 0;
     let current = "";
-    for (const char of String(value || "")) {
+    let inQuotes = false;
+    const source = String(value || "");
+    for (let index = 0; index < source.length; index += 1) {
+      const char = source[index];
+      const next = source[index + 1];
+      if (char === "\"") {
+        current += char;
+        if (inQuotes && next === "\"") {
+          current += next;
+          index += 1;
+          continue;
+        }
+        inQuotes = !inQuotes;
+        continue;
+      }
       if (char === "(") {
         depth += 1;
         current += char;
@@ -2500,7 +2708,7 @@ function renderSpreadsheetClonePreview(
         current += char;
         continue;
       }
-      if (char === "," && depth === 0) {
+      if ((char === "," || char === ";") && depth === 0 && !inQuotes) {
         parts.push(current.trim());
         current = "";
         continue;
@@ -2513,26 +2721,37 @@ function renderSpreadsheetClonePreview(
     return parts;
   };
 
-  const collectRangeValues = (range = "", stack = new Set()) => {
+  const getRangeBoundsFromAddress = (range = "") => {
     const [start, end] = String(range || "").split(":");
     const startCoords = addressToCoords(start);
     const endCoords = addressToCoords(end);
     if (!startCoords || !endCoords) {
+      return null;
+    }
+    return {
+      minRow: Math.min(startCoords.rowIndex, endCoords.rowIndex),
+      maxRow: Math.max(startCoords.rowIndex, endCoords.rowIndex),
+      minColumn: Math.min(startCoords.columnIndex, endCoords.columnIndex),
+      maxColumn: Math.max(startCoords.columnIndex, endCoords.columnIndex)
+    };
+  };
+
+  const collectRangeMatrix = (range = "", stack = new Set()) => {
+    const bounds = getRangeBoundsFromAddress(range);
+    if (!bounds) {
       return [];
     }
-    const minRow = Math.min(startCoords.rowIndex, endCoords.rowIndex);
-    const maxRow = Math.max(startCoords.rowIndex, endCoords.rowIndex);
-    const minColumn = Math.min(startCoords.columnIndex, endCoords.columnIndex);
-    const maxColumn = Math.max(startCoords.columnIndex, endCoords.columnIndex);
-    const values = [];
-    for (let rowIndex = minRow; rowIndex <= maxRow; rowIndex += 1) {
-      for (let columnIndex = minColumn; columnIndex <= maxColumn; columnIndex += 1) {
-        const evaluated = evaluateCellValue(rowIndex, columnIndex, stack);
-        values.push(evaluated);
-      }
-    }
-    return values;
+    return Array.from({ length: bounds.maxRow - bounds.minRow + 1 }, (_, rowOffset) =>
+      Array.from({ length: bounds.maxColumn - bounds.minColumn + 1 }, (_, columnOffset) =>
+        evaluateCellValue(bounds.minRow + rowOffset, bounds.minColumn + columnOffset, stack)
+      )
+    );
   };
+
+  const flattenFormulaMatrix = (matrix = []) =>
+    matrix.flatMap((row) => (Array.isArray(row) ? row : [row]));
+
+  const collectRangeValues = (range = "", stack = new Set()) => flattenFormulaMatrix(collectRangeMatrix(range, stack));
 
   const formatFormulaResult = (value) => {
     if (typeof value === "number" && Number.isFinite(value)) {
@@ -2563,7 +2782,7 @@ function renderSpreadsheetClonePreview(
         return "";
       }
       if (/^".*"$/.test(trimmed)) {
-        return trimmed.slice(1, -1).replace(/\\"/g, "\"");
+        return trimmed.slice(1, -1).replace(/""/g, "\"").replace(/\\"/g, "\"");
       }
       if (/^\$?[A-Z]+\$?\d+:\$?[A-Z]+\$?\d+$/i.test(trimmed)) {
         return collectRangeValues(trimmed, stack);
@@ -2601,6 +2820,16 @@ function renderSpreadsheetClonePreview(
       const normalizedValue = typeof value === "number" ? value : String(value ?? "").trim();
       const operatorMatch = rawCriterion.match(/^(<=|>=|<>|=|<|>)(.*)$/);
       if (!operatorMatch) {
+        if (/[*?]/.test(rawCriterion)) {
+          const pattern = new RegExp(
+            `^${rawCriterion
+              .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+              .replace(/\*/g, ".*")
+              .replace(/\?/g, ".")}$`,
+            "i"
+          );
+          return pattern.test(String(normalizedValue));
+        }
         return String(normalizedValue).toLowerCase() === rawCriterion.toLowerCase();
       }
       const [, operator, operandSource] = operatorMatch;
@@ -2628,8 +2857,114 @@ function renderSpreadsheetClonePreview(
       }
     };
 
+    const resolveCriterionArgument = (criterionArg = "") => {
+      const trimmed = String(criterionArg ?? "").trim();
+      if (!trimmed) {
+        return "";
+      }
+      if (/^".*"$/.test(trimmed)) {
+        return trimmed.slice(1, -1).replace(/""/g, "\"").replace(/\\"/g, "\"");
+      }
+      if (/^(<=|>=|<>|=|<|>)/.test(trimmed)) {
+        return trimmed;
+      }
+      const evaluated = evaluateFormulaArgument(trimmed);
+      return Array.isArray(evaluated) ? coerceText(evaluated[0]) : coerceText(evaluated);
+    };
+
+    const valuesForFormulaArgument = (arg = "") => {
+      const evaluated = evaluateFormulaArgument(arg);
+      return Array.isArray(evaluated) ? evaluated : [evaluated];
+    };
+
+    const matrixForFormulaArgument = (arg = "") => {
+      const trimmed = String(arg || "").trim();
+      if (/^\$?[A-Z]+\$?\d+:\$?[A-Z]+\$?\d+$/i.test(trimmed)) {
+        return collectRangeMatrix(trimmed, stack);
+      }
+      const evaluated = evaluateFormulaArgument(trimmed);
+      return Array.isArray(evaluated) ? [evaluated] : [[evaluated]];
+    };
+
+    const serializeFormulaMatrix = (matrix = []) => {
+      const rows = Array.isArray(matrix?.[0]) ? matrix : [matrix];
+      return serializeFormulaValue(rows.map((row) => row.map((entry) => coerceText(entry)).join(", ")).join("; "));
+    };
+
+    const evaluateCriteriaMask = (includeArg = "", rowCount = 0) => {
+      const trimmed = String(includeArg || "").trim();
+      const comparisonMatch = trimmed.match(/^(\$?[A-Z]+\$?\d+:\$?[A-Z]+\$?\d+)\s*(<=|>=|<>|=|<|>)\s*(.+)$/i);
+      if (comparisonMatch) {
+        const [, rangeAddress, operator, criterionSource] = comparisonMatch;
+        const criterion = `${operator}${resolveCriterionArgument(criterionSource)}`;
+        return collectRangeValues(rangeAddress, stack).slice(0, rowCount).map((entry) => matchesCriterion(entry, criterion));
+      }
+      const includeValues = valuesForFormulaArgument(trimmed);
+      return Array.from({ length: rowCount }, (_, index) => coerceBoolean(includeValues[index] ?? includeValues[0]));
+    };
+
+    const padFormulaNumber = (value = 0, length = 2) => String(Math.trunc(Math.abs(value))).padStart(length, "0");
+
+    const dateToFormulaText = (date) => {
+      if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+        return "";
+      }
+      return `${date.getFullYear()}-${padFormulaNumber(date.getMonth() + 1)}-${padFormulaNumber(date.getDate())}`;
+    };
+
+    const parseFormulaDate = (value) => {
+      if (value instanceof Date) {
+        return value;
+      }
+      const numeric = coerceNumeric(value);
+      if (Number.isFinite(numeric) && numeric > 20000 && numeric < 80000) {
+        const date = new Date(Date.UTC(1899, 11, 30));
+        date.setUTCDate(date.getUTCDate() + Math.trunc(numeric));
+        return date;
+      }
+      const parsed = new Date(coerceText(value));
+      return Number.isNaN(parsed.getTime()) ? null : parsed;
+    };
+
+    const valueFromText = (value = "") => {
+      const text = coerceText(value).trim();
+      const percent = text.endsWith("%");
+      const cleaned = text.replace(/[%\s\u00a0]/g, "").replace(/[€$£¥]/g, "").replace(",", ".");
+      const numeric = Number(cleaned);
+      if (!Number.isFinite(numeric)) {
+        return Number.NaN;
+      }
+      return percent ? numeric / 100 : numeric;
+    };
+
+    const formatTextValue = (value, format = "") => {
+      const formatText = coerceText(format);
+      const numeric = coerceNumeric(value);
+      const dateValue = parseFormulaDate(value);
+      if (/y{2,4}|d{1,2}|m{1,2}/i.test(formatText) && dateValue) {
+        return formatText
+          .replace(/yyyy/gi, String(dateValue.getFullYear()))
+          .replace(/yy/gi, String(dateValue.getFullYear()).slice(-2))
+          .replace(/mm/g, padFormulaNumber(dateValue.getMonth() + 1))
+          .replace(/m/g, String(dateValue.getMonth() + 1))
+          .replace(/dd/gi, padFormulaNumber(dateValue.getDate()))
+          .replace(/d/gi, String(dateValue.getDate()));
+      }
+      if (Number.isFinite(numeric)) {
+        const decimalMatch = formatText.match(/0\.([0]+)/);
+        const decimals = decimalMatch ? decimalMatch[1].length : 0;
+        const scaled = formatText.includes("%") ? numeric * 100 : numeric;
+        const formatted = decimals ? scaled.toFixed(decimals) : String(Math.round(scaled));
+        if (/[$€]/.test(formatText)) {
+          return `${formatted} EUR`;
+        }
+        return formatText.includes("%") ? `${formatted}%` : formatted;
+      }
+      return coerceText(value);
+    };
+
     const functionPattern =
-      /(SUM|SUMIF|COUNTIF|AVERAGE|AVG|MIN|MAX|COUNT|ABS|ROUND|ROUNDUP|ROUNDDOWN|IF|IFERROR|AND|OR|NOT|CONCAT|LEN|UPPER|LOWER|VLOOKUP|XLOOKUP)\(([^()]*)\)/i;
+      /(SUMIFS|SUMIF|COUNTIFS|COUNTIF|AVERAGEIFS|AVERAGEIF|AVERAGE|AVG|SUBTOTAL|FILTER|SORT|UNIQUE|INDEX|MATCH|TODAY|NOW|DATE|TEXT|LEFT|RIGHT|MID|TRIM|VALUE|MIN|MAX|COUNT|ABS|ROUNDUP|ROUNDDOWN|ROUND|IFERROR|IF|AND|OR|NOT|CONCAT|LEN|UPPER|LOWER|VLOOKUP|XLOOKUP)\(([^()]*)\)/i;
     while (functionPattern.test(expr)) {
       expr = expr.replace(functionPattern, (_, rawName, argsSource) => {
         const fn = String(rawName || "").toUpperCase();
@@ -2640,14 +2975,10 @@ function renderSpreadsheetClonePreview(
           case "SUM":
             return serializeFormulaValue(values.reduce((sum, value) => sum + value, 0));
           case "SUMIF": {
-            const criteriaRange = Array.isArray(evaluateFormulaArgument(args[0]))
-              ? evaluateFormulaArgument(args[0])
-              : [evaluateFormulaArgument(args[0])];
-            const criterion = args[1] || "";
+            const criteriaRange = valuesForFormulaArgument(args[0]);
+            const criterion = resolveCriterionArgument(args[1] || "");
             const sumValues = args.length >= 3
-              ? Array.isArray(evaluateFormulaArgument(args[2]))
-                ? evaluateFormulaArgument(args[2])
-                : [evaluateFormulaArgument(args[2])]
+              ? valuesForFormulaArgument(args[2])
               : criteriaRange;
             let total = 0;
             criteriaRange.forEach((entry, index) => {
@@ -2657,12 +2988,71 @@ function renderSpreadsheetClonePreview(
             });
             return serializeFormulaValue(total);
           }
+          case "SUMIFS": {
+            const sumValues = valuesForFormulaArgument(args[0]);
+            const criteriaPairs = [];
+            for (let index = 1; index < args.length; index += 2) {
+              criteriaPairs.push({
+                range: valuesForFormulaArgument(args[index]),
+                criterion: resolveCriterionArgument(args[index + 1] || "")
+              });
+            }
+            const total = sumValues.reduce((sum, value, index) => {
+              const matches = criteriaPairs.every((pair) => matchesCriterion(pair.range[index], pair.criterion));
+              return matches ? sum + normalizeNumeric(value) : sum;
+            }, 0);
+            return serializeFormulaValue(total);
+          }
           case "COUNTIF": {
-            const criteriaRange = Array.isArray(evaluateFormulaArgument(args[0]))
-              ? evaluateFormulaArgument(args[0])
-              : [evaluateFormulaArgument(args[0])];
-            const criterion = args[1] || "";
+            const criteriaRange = valuesForFormulaArgument(args[0]);
+            const criterion = resolveCriterionArgument(args[1] || "");
             return serializeFormulaValue(criteriaRange.filter((entry) => matchesCriterion(entry, criterion)).length);
+          }
+          case "COUNTIFS": {
+            const criteriaPairs = [];
+            for (let index = 0; index < args.length; index += 2) {
+              criteriaPairs.push({
+                range: valuesForFormulaArgument(args[index]),
+                criterion: resolveCriterionArgument(args[index + 1] || "")
+              });
+            }
+            const length = Math.max(0, ...criteriaPairs.map((pair) => pair.range.length));
+            let count = 0;
+            for (let index = 0; index < length; index += 1) {
+              if (criteriaPairs.every((pair) => matchesCriterion(pair.range[index], pair.criterion))) {
+                count += 1;
+              }
+            }
+            return serializeFormulaValue(count);
+          }
+          case "AVERAGEIF": {
+            const criteriaRange = valuesForFormulaArgument(args[0]);
+            const criterion = resolveCriterionArgument(args[1] || "");
+            const averageValues = args.length >= 3 ? valuesForFormulaArgument(args[2]) : criteriaRange;
+            const matchedValues = averageValues
+              .filter((value, index) => matchesCriterion(criteriaRange[index], criterion))
+              .map((value) => coerceNumeric(value))
+              .filter((value) => Number.isFinite(value));
+            return serializeFormulaValue(
+              matchedValues.length ? matchedValues.reduce((sum, value) => sum + value, 0) / matchedValues.length : 0
+            );
+          }
+          case "AVERAGEIFS": {
+            const averageValues = valuesForFormulaArgument(args[0]);
+            const criteriaPairs = [];
+            for (let index = 1; index < args.length; index += 2) {
+              criteriaPairs.push({
+                range: valuesForFormulaArgument(args[index]),
+                criterion: resolveCriterionArgument(args[index + 1] || "")
+              });
+            }
+            const matchedValues = averageValues
+              .filter((value, index) => criteriaPairs.every((pair) => matchesCriterion(pair.range[index], pair.criterion)))
+              .map((value) => coerceNumeric(value))
+              .filter((value) => Number.isFinite(value));
+            return serializeFormulaValue(
+              matchedValues.length ? matchedValues.reduce((sum, value) => sum + value, 0) / matchedValues.length : 0
+            );
           }
           case "AVERAGE":
           case "AVG":
@@ -2675,6 +3065,137 @@ function renderSpreadsheetClonePreview(
             return serializeFormulaValue(values.length ? Math.max(...values) : 0);
           case "COUNT":
             return serializeFormulaValue(values.length);
+          case "SUBTOTAL": {
+            const functionNumber = Math.trunc(coerceNumeric(evaluateFormulaArgument(args[0])) || 0) % 100;
+            const subtotalValues = collectAggregateValues(args.slice(1));
+            switch (functionNumber) {
+              case 1:
+                return serializeFormulaValue(
+                  subtotalValues.length
+                    ? subtotalValues.reduce((sum, value) => sum + value, 0) / subtotalValues.length
+                    : 0
+                );
+              case 2:
+                return serializeFormulaValue(subtotalValues.length);
+              case 3: {
+                const countAValues = args.slice(1).flatMap((arg) => valuesForFormulaArgument(arg));
+                return serializeFormulaValue(countAValues.filter((entry) => String(entry ?? "").trim()).length);
+              }
+              case 4:
+                return serializeFormulaValue(subtotalValues.length ? Math.max(...subtotalValues) : 0);
+              case 5:
+                return serializeFormulaValue(subtotalValues.length ? Math.min(...subtotalValues) : 0);
+              case 9:
+              default:
+                return serializeFormulaValue(subtotalValues.reduce((sum, value) => sum + value, 0));
+            }
+          }
+          case "INDEX": {
+            const matrix = matrixForFormulaArgument(args[0]);
+            const rowNumber = Math.trunc(coerceNumeric(evaluateFormulaArgument(args[1])) || 0);
+            const columnNumber = Math.trunc(coerceNumeric(evaluateFormulaArgument(args[2])) || 1);
+            if (!matrix.length) {
+              return serializeFormulaValue("#REF!");
+            }
+            if (rowNumber === 0) {
+              return serializeFormulaMatrix(matrix.map((row) => [row[Math.max(0, columnNumber - 1)] ?? ""]));
+            }
+            if (columnNumber === 0) {
+              return serializeFormulaMatrix([matrix[Math.max(0, rowNumber - 1)] || []]);
+            }
+            return serializeFormulaValue(matrix[rowNumber - 1]?.[columnNumber - 1] ?? "#REF!");
+          }
+          case "MATCH": {
+            const lookupValue = evaluateFormulaArgument(args[0]);
+            const lookupValues = valuesForFormulaArgument(args[1]);
+            const matchType = args[2] === undefined ? 0 : Math.trunc(coerceNumeric(evaluateFormulaArgument(args[2])) || 0);
+            if (matchType === 0) {
+              const exactIndex = lookupValues.findIndex(
+                (entry) => String(entry ?? "").toLowerCase() === String(lookupValue ?? "").toLowerCase()
+              );
+              return serializeFormulaValue(exactIndex >= 0 ? exactIndex + 1 : "#N/A");
+            }
+            const lookupNumeric = coerceNumeric(lookupValue);
+            const matches = lookupValues
+              .map((entry, index) => ({ value: coerceNumeric(entry), index }))
+              .filter((entry) => Number.isFinite(entry.value));
+            const candidate = matchType < 0
+              ? matches.filter((entry) => entry.value >= lookupNumeric).sort((left, right) => left.value - right.value)[0]
+              : matches.filter((entry) => entry.value <= lookupNumeric).sort((left, right) => right.value - left.value)[0];
+            return serializeFormulaValue(candidate ? candidate.index + 1 : "#N/A");
+          }
+          case "FILTER": {
+            const matrix = matrixForFormulaArgument(args[0]);
+            const mask = evaluateCriteriaMask(args[1], matrix.length);
+            const filtered = matrix.filter((row, index) => mask[index]);
+            if (!filtered.length) {
+              return serializeFormulaValue(args[2] !== undefined ? evaluateFormulaArgument(args[2]) : "#CALC!");
+            }
+            return serializeFormulaMatrix(filtered);
+          }
+          case "SORT": {
+            const matrix = matrixForFormulaArgument(args[0]);
+            const sortIndex = Math.max(1, Math.trunc(coerceNumeric(evaluateFormulaArgument(args[1])) || 1)) - 1;
+            const sortOrder = Math.trunc(coerceNumeric(evaluateFormulaArgument(args[2])) || 1);
+            const sorted = [...matrix].sort((leftRow, rightRow) => {
+              const left = leftRow[sortIndex] ?? "";
+              const right = rightRow[sortIndex] ?? "";
+              const result = String(left).localeCompare(String(right), "fr", { numeric: true, sensitivity: "base" });
+              return sortOrder < 0 ? -result : result;
+            });
+            return serializeFormulaMatrix(sorted);
+          }
+          case "UNIQUE": {
+            const matrix = matrixForFormulaArgument(args[0]);
+            const seen = new Set();
+            const uniqueRows = matrix.filter((row) => {
+              const key = row.map((entry) => String(entry ?? "").toLowerCase()).join("\u001f");
+              if (seen.has(key)) {
+                return false;
+              }
+              seen.add(key);
+              return true;
+            });
+            return serializeFormulaMatrix(uniqueRows);
+          }
+          case "TODAY":
+            return serializeFormulaValue(dateToFormulaText(new Date()));
+          case "NOW": {
+            const now = new Date();
+            return serializeFormulaValue(
+              `${dateToFormulaText(now)} ${padFormulaNumber(now.getHours())}:${padFormulaNumber(now.getMinutes())}`
+            );
+          }
+          case "DATE": {
+            const year = Math.trunc(coerceNumeric(evaluateFormulaArgument(args[0])) || 0);
+            const month = Math.trunc(coerceNumeric(evaluateFormulaArgument(args[1])) || 1);
+            const day = Math.trunc(coerceNumeric(evaluateFormulaArgument(args[2])) || 1);
+            return serializeFormulaValue(dateToFormulaText(new Date(year, month - 1, day)));
+          }
+          case "TEXT":
+            return serializeFormulaValue(formatTextValue(evaluateFormulaArgument(args[0]), evaluateFormulaArgument(args[1])));
+          case "LEFT": {
+            const text = coerceText(evaluateFormulaArgument(args[0]));
+            const length = args[1] === undefined ? 1 : Math.max(0, Math.trunc(coerceNumeric(evaluateFormulaArgument(args[1])) || 0));
+            return serializeFormulaValue(text.slice(0, length));
+          }
+          case "RIGHT": {
+            const text = coerceText(evaluateFormulaArgument(args[0]));
+            const length = args[1] === undefined ? 1 : Math.max(0, Math.trunc(coerceNumeric(evaluateFormulaArgument(args[1])) || 0));
+            return serializeFormulaValue(text.slice(Math.max(0, text.length - length)));
+          }
+          case "MID": {
+            const text = coerceText(evaluateFormulaArgument(args[0]));
+            const start = Math.max(1, Math.trunc(coerceNumeric(evaluateFormulaArgument(args[1])) || 1));
+            const length = Math.max(0, Math.trunc(coerceNumeric(evaluateFormulaArgument(args[2])) || 0));
+            return serializeFormulaValue(text.slice(start - 1, start - 1 + length));
+          }
+          case "TRIM":
+            return serializeFormulaValue(coerceText(evaluateFormulaArgument(args[0])).replace(/\s+/g, " ").trim());
+          case "VALUE": {
+            const parsed = valueFromText(evaluateFormulaArgument(args[0]));
+            return serializeFormulaValue(Number.isFinite(parsed) ? parsed : "#VALUE!");
+          }
           case "ABS": {
             const source = coerceNumeric(evaluateFormulaArgument(args[0]));
             return serializeFormulaValue(Number.isFinite(source) ? Math.abs(source) : 0);
@@ -2730,7 +3251,7 @@ function renderSpreadsheetClonePreview(
             const columnOffset = Math.max(1, Math.trunc(coerceNumeric(evaluateFormulaArgument(args[2])) || 1)) - 1;
             const exactMatch = args[3] === undefined ? true : coerceBoolean(evaluateFormulaArgument(args[3]));
             if (!tableValues.length) {
-              return "#N/A";
+              return serializeFormulaValue("#N/A");
             }
             const rows = [];
             const [rangeStart, rangeEnd] = String(args[1] || "").split(":");
@@ -2782,7 +3303,7 @@ function renderSpreadsheetClonePreview(
 
     expr = normalizeFormulaExpression(expr);
     const sanitized = expr
-      .replace(/"[^"\\]*(?:\\.[^"\\]*)*"/g, "\"\"")
+      .replace(/"[^"\\]*(?:\\.[^"\\]*)*"/g, "0")
       .replace(/\btrue\b/gi, "1")
       .replace(/\bfalse\b/gi, "0");
 
@@ -2792,7 +3313,13 @@ function renderSpreadsheetClonePreview(
 
     try {
       const result = Function(`"use strict"; return (${expr});`)();
-      return Number.isFinite(result) ? result : "#ERROR!";
+      if (typeof result === "number") {
+        return Number.isFinite(result) ? result : "#ERROR!";
+      }
+      if (typeof result === "string" || typeof result === "boolean") {
+        return result;
+      }
+      return result ?? "";
     } catch {
       return "#ERROR!";
     }
@@ -2825,14 +3352,28 @@ function renderSpreadsheetClonePreview(
 
   const menuBar = document.createElement("div");
   menuBar.className = "workspace-sheet-menubar";
+  const sheetMenuButtons = new Map();
   ["File", "Edit", "View", "Insert", "Format", "Data", "Tools", "Extensions", "Help"].forEach((label) => {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "workspace-sheet-menu-button";
     button.textContent = label;
+    button.setAttribute("aria-haspopup", "menu");
+    sheetMenuButtons.set(label, button);
     menuBar.appendChild(button);
   });
   previewShell.appendChild(menuBar);
+  const sheetMenuPanel = document.createElement("div");
+  sheetMenuPanel.className = "workspace-sheet-menu-panel";
+  sheetMenuPanel.hidden = true;
+  sheetMenuPanel.setAttribute("role", "menu");
+  previewShell.appendChild(sheetMenuPanel);
+  const xlsxImportInput = document.createElement("input");
+  xlsxImportInput.type = "file";
+  xlsxImportInput.className = "workspace-sheet-xlsx-input";
+  xlsxImportInput.accept = ".xlsx,.xlsm,.xlsb,.xls";
+  xlsxImportInput.hidden = true;
+  previewShell.appendChild(xlsxImportInput);
 
   const topBar = document.createElement("div");
   topBar.className = "workspace-sheet-topbar";
@@ -2855,7 +3396,7 @@ function renderSpreadsheetClonePreview(
   topBar.append(titleGroup, topTabs);
   previewShell.appendChild(topBar);
 
-  let activeSelection = { rowIndex: 0, columnIndex: 0 };
+  let activeSelection = { ...initialSelectionState.activeSelection };
   let commitHandle = null;
   let suppressFormulaActivation = false;
   let fillDragState = {
@@ -2875,13 +3416,14 @@ function renderSpreadsheetClonePreview(
     selectionStart: 0,
     selectionEnd: 0
   };
-
-  let selectionRange = {
-    startRowIndex: 0,
-    startColumnIndex: 0,
-    endRowIndex: 0,
-    endColumnIndex: 0
+  let cellTextEditState = {
+    active: false,
+    rowIndex: -1,
+    columnIndex: -1
   };
+  let preserveRangeOnNextFocus = false;
+
+  let selectionRange = { ...initialSelectionState.selectionRange };
   let selectionDragState = {
     active: false,
     anchorRowIndex: 0,
@@ -2896,10 +3438,119 @@ function renderSpreadsheetClonePreview(
     startSize: 0
   };
 
+  const saveCurrentSelectionState = () => {
+    saveSpreadsheetSelectionState(
+      historyKey,
+      { activeSelection, selectionRange },
+      sheetGrid.length,
+      sheetGrid[0]?.length || 1
+    );
+  };
+
   const getWorkbookActiveSheet = () =>
     workbookModel.sheets.find((sheet) => sheet.id === workbookModel.activeSheetId) || workbookModel.sheets[0];
 
   const getActiveSheetState = () => getWorkbookActiveSheet();
+
+  const getWorkbookSnapshot = (sourceModel = workbookModel) =>
+    cloneSpreadsheetSnapshot(
+      normalizeSpreadsheetPreviewModel(sourceModel, {
+        defaultSheetName: profile?.sheetName || "Sheet 1"
+      })
+    );
+
+  let editHistorySnapshot = null;
+  let suppressRerenderBlurCommit = false;
+
+  const recordSpreadsheetHistory = (beforeSnapshot = null, afterModel = workbookModel) => {
+    const before = cloneSpreadsheetSnapshot(beforeSnapshot || historyState.current || workbookModel);
+    const after = getWorkbookSnapshot(afterModel);
+    if (areSpreadsheetSnapshotsEqual(before, after)) {
+      historyState.current = after;
+      return false;
+    }
+
+    historyState.past.push(before);
+    if (historyState.past.length > SPREADSHEET_HISTORY_LIMIT) {
+      historyState.past.splice(0, historyState.past.length - SPREADSHEET_HISTORY_LIMIT);
+    }
+    historyState.future = [];
+    historyState.current = after;
+    return true;
+  };
+
+  const beginSpreadsheetHistoryTransaction = () => {
+    if (!editHistorySnapshot) {
+      persistGridIntoActiveSheet();
+      editHistorySnapshot = getWorkbookSnapshot();
+    }
+    return editHistorySnapshot;
+  };
+
+  const clearScheduledCommit = () => {
+    if (commitHandle) {
+      window.clearTimeout(commitHandle);
+      commitHandle = null;
+    }
+  };
+
+  const applySpreadsheetHistorySnapshot = (snapshot = {}) => {
+    clearScheduledCommit();
+    editHistorySnapshot = null;
+    workbookModel = normalizeSpreadsheetPreviewModel(cloneSpreadsheetSnapshot(snapshot), {
+      defaultSheetName: profile?.sheetName || "Sheet 1"
+    });
+    historyState.current = getWorkbookSnapshot(workbookModel);
+    suppressRerenderBlurCommit = true;
+    try {
+      container.innerHTML = "";
+      renderSpreadsheetClonePreview(container, {
+        model: cloneSpreadsheetSnapshot(workbookModel),
+        profile,
+        workObject,
+        filePath,
+        onGridEdit
+      });
+      onGridEdit?.(workbookModel, { refreshWorkspace: false });
+    } finally {
+      suppressRerenderBlurCommit = false;
+    }
+  };
+
+  const undoSpreadsheetAction = () => {
+    clearScheduledCommit();
+    if (editHistorySnapshot) {
+      const previousEditSnapshot = cloneSpreadsheetSnapshot(editHistorySnapshot);
+      persistGridIntoActiveSheet();
+      const currentEditSnapshot = getWorkbookSnapshot();
+      editHistorySnapshot = null;
+      if (!areSpreadsheetSnapshotsEqual(previousEditSnapshot, currentEditSnapshot)) {
+        historyState.future.push(currentEditSnapshot);
+        applySpreadsheetHistorySnapshot(previousEditSnapshot);
+        return;
+      }
+    }
+    if (!historyState.past.length) {
+      return;
+    }
+    const previousSnapshot = historyState.past.pop();
+    historyState.future.push(getWorkbookSnapshot(historyState.current));
+    applySpreadsheetHistorySnapshot(previousSnapshot);
+  };
+
+  const redoSpreadsheetAction = () => {
+    clearScheduledCommit();
+    editHistorySnapshot = null;
+    if (!historyState.future.length) {
+      return;
+    }
+    const nextSnapshot = historyState.future.pop();
+    historyState.past.push(getWorkbookSnapshot(historyState.current));
+    if (historyState.past.length > SPREADSHEET_HISTORY_LIMIT) {
+      historyState.past.splice(0, historyState.past.length - SPREADSHEET_HISTORY_LIMIT);
+    }
+    applySpreadsheetHistorySnapshot(nextSnapshot);
+  };
 
   const persistGridIntoActiveSheet = () => {
     const trimmed = trimGridToModel();
@@ -2912,10 +3563,20 @@ function renderSpreadsheetClonePreview(
     return workbookModel;
   };
 
-  const persistWorkbookState = (refreshWorkspace = false) => {
+  const persistWorkbookState = (
+    refreshWorkspace = false,
+    { trackHistory = true, beforeSnapshot = null, updateHistoryBaseline = true } = {}
+  ) => {
+    saveCurrentSelectionState();
     workbookModel = normalizeSpreadsheetPreviewModel(workbookModel, {
       defaultSheetName: profile?.sheetName || "Sheet 1"
     });
+    if (trackHistory) {
+      recordSpreadsheetHistory(beforeSnapshot || historyState.current, workbookModel);
+      editHistorySnapshot = null;
+    } else if (updateHistoryBaseline) {
+      historyState.current = getWorkbookSnapshot(workbookModel);
+    }
     onGridEdit?.(workbookModel, { refreshWorkspace });
     return workbookModel;
   };
@@ -2934,8 +3595,18 @@ function renderSpreadsheetClonePreview(
     });
   };
 
-  const commitModel = (refreshWorkspace = false) => {
+  const commitModel = (
+    refreshWorkspace = false,
+    { trackHistory = true, beforeSnapshot = null, updateHistoryBaseline = true } = {}
+  ) => {
+    saveCurrentSelectionState();
     const nextModel = persistGridIntoActiveSheet();
+    if (trackHistory) {
+      recordSpreadsheetHistory(beforeSnapshot || editHistorySnapshot || historyState.current, nextModel);
+      editHistorySnapshot = null;
+    } else if (updateHistoryBaseline) {
+      historyState.current = getWorkbookSnapshot(nextModel);
+    }
     onGridEdit?.(nextModel, { refreshWorkspace });
   };
 
@@ -2944,7 +3615,7 @@ function renderSpreadsheetClonePreview(
       window.clearTimeout(commitHandle);
     }
     commitHandle = window.setTimeout(() => {
-      commitModel(false);
+      commitModel(false, { trackHistory: false, updateHistoryBaseline: false });
       commitHandle = null;
     }, 140);
   };
@@ -2978,6 +3649,7 @@ function renderSpreadsheetClonePreview(
       endRowIndex,
       endColumnIndex
     };
+    saveCurrentSelectionState();
   };
 
   const forEachSelectedCell = (callback) => {
@@ -2989,56 +3661,549 @@ function renderSpreadsheetClonePreview(
     }
   };
 
+  const getLastUsedCell = () => {
+    let rowIndex = 0;
+    let columnIndex = 0;
+    sheetGrid.forEach((row, currentRowIndex) => {
+      row.forEach((value, currentColumnIndex) => {
+        if (String(value || "").trim()) {
+          rowIndex = Math.max(rowIndex, currentRowIndex);
+          columnIndex = Math.max(columnIndex, currentColumnIndex);
+        }
+      });
+    });
+    return { rowIndex, columnIndex };
+  };
+
+  const getRowLastUsedColumn = (rowIndex = activeSelection.rowIndex) => {
+    const row = sheetGrid[rowIndex] || [];
+    for (let columnIndex = row.length - 1; columnIndex >= 0; columnIndex -= 1) {
+      if (String(row[columnIndex] || "").trim()) {
+        return columnIndex;
+      }
+    }
+    return Math.max(0, row.length - 1);
+  };
+
   const getCellFormatKey = (rowIndex = 0, columnIndex = 0) => `${rowIndex}:${columnIndex}`;
 
   const getCellFormat = (rowIndex = 0, columnIndex = 0) =>
-    String(getActiveSheetState().cellFormats?.[getCellFormatKey(rowIndex, columnIndex)] || "");
+    normalizeSpreadsheetCellFormat(getActiveSheetState().cellFormats?.[getCellFormatKey(rowIndex, columnIndex)] || {});
 
-  const setSelectedRangeFormat = (format = "") => {
+  const setCellFormat = (rowIndex = 0, columnIndex = 0, format = {}) => {
     const currentSheet = getActiveSheetState();
     if (!currentSheet.cellFormats || typeof currentSheet.cellFormats !== "object") {
       currentSheet.cellFormats = {};
     }
+    const key = getCellFormatKey(rowIndex, columnIndex);
+    const normalized = normalizeSpreadsheetCellFormat(format);
+    if (!isSpreadsheetCellFormatEmpty(normalized)) {
+      currentSheet.cellFormats[key] = normalized;
+    } else {
+      delete currentSheet.cellFormats[key];
+    }
+  };
+
+  const updateSelectedCellFormats = (updater) => {
+    if (typeof updater !== "function") {
+      return;
+    }
+    clearScheduledCommit();
+    persistGridIntoActiveSheet();
+    const beforeSnapshot = getWorkbookSnapshot();
     forEachSelectedCell((rowIndex, columnIndex) => {
-      const key = getCellFormatKey(rowIndex, columnIndex);
-      if (format) {
-        currentSheet.cellFormats[key] = format;
-      } else {
-        delete currentSheet.cellFormats[key];
-      }
+      const nextFormat = normalizeSpreadsheetCellFormat(updater(getCellFormat(rowIndex, columnIndex), rowIndex, columnIndex));
+      setCellFormat(rowIndex, columnIndex, nextFormat);
     });
-    commitModel(false);
-    refreshGridValues();
+    commitModel(false, { beforeSnapshot });
+    refreshGridValues({ preserveActiveEditor: false });
+  };
+
+  const setSelectedRangeFormat = (format = "") => {
+    updateSelectedCellFormats((currentFormat) => {
+      const nextFormat = { ...currentFormat };
+      if (format) {
+        nextFormat.numberFormat = format;
+      } else {
+        delete nextFormat.numberFormat;
+      }
+      return nextFormat;
+    });
+  };
+
+  const toggleSelectedTextStyle = (style = "") => {
+    if (!["bold", "italic", "underline"].includes(style)) {
+      return;
+    }
+    const nextValue = !getCellFormat(activeSelection.rowIndex, activeSelection.columnIndex)[style];
+    updateSelectedCellFormats((currentFormat) => ({
+      ...currentFormat,
+      [style]: nextValue
+    }));
+  };
+
+  const setSelectedHorizontalAlign = (alignment = "") => {
+    updateSelectedCellFormats((currentFormat) => {
+      const nextFormat = { ...currentFormat };
+      if (SPREADSHEET_HORIZONTAL_ALIGNMENTS.has(alignment)) {
+        nextFormat.horizontalAlign = alignment;
+      } else {
+        delete nextFormat.horizontalAlign;
+      }
+      return nextFormat;
+    });
+  };
+
+  const setSelectedVerticalAlign = (alignment = "") => {
+    updateSelectedCellFormats((currentFormat) => {
+      const nextFormat = { ...currentFormat };
+      if (SPREADSHEET_VERTICAL_ALIGNMENTS.has(alignment)) {
+        nextFormat.verticalAlign = alignment;
+      } else {
+        delete nextFormat.verticalAlign;
+      }
+      return nextFormat;
+    });
+  };
+
+  const setSelectedFontSize = (fontSize = 11) => {
+    updateSelectedCellFormats((currentFormat) => ({
+      ...currentFormat,
+      fontSize
+    }));
+  };
+
+  const adjustSelectedFontSize = (delta = 0) => {
+    const currentSize = getCellFormat(activeSelection.rowIndex, activeSelection.columnIndex).fontSize || 11;
+    setSelectedFontSize(currentSize + delta);
+  };
+
+  const setSelectedTextColor = (color = "") => {
+    updateSelectedCellFormats((currentFormat) => {
+      const nextFormat = { ...currentFormat };
+      const normalizedColor = normalizeSpreadsheetColor(color);
+      if (normalizedColor) {
+        nextFormat.textColor = normalizedColor;
+      } else {
+        delete nextFormat.textColor;
+      }
+      return nextFormat;
+    });
+  };
+
+  const setSelectedFillColor = (color = "") => {
+    updateSelectedCellFormats((currentFormat) => {
+      const nextFormat = { ...currentFormat };
+      const normalizedColor = normalizeSpreadsheetColor(color);
+      if (normalizedColor) {
+        nextFormat.fillColor = normalizedColor;
+      } else {
+        delete nextFormat.fillColor;
+      }
+      return nextFormat;
+    });
+  };
+
+  const setSelectedBorder = (kind = "all") => {
+    const { minRow, maxRow, minColumn, maxColumn } = getSelectionBounds();
+    updateSelectedCellFormats((currentFormat, rowIndex, columnIndex) => {
+      const nextFormat = { ...currentFormat };
+      if (kind === "clear") {
+        delete nextFormat.border;
+        return nextFormat;
+      }
+
+      const border = { ...(nextFormat.border || {}), color: "#202124" };
+      if (kind === "all") {
+        SPREADSHEET_BORDER_EDGES.forEach((edge) => {
+          border[edge] = true;
+        });
+      } else if (kind === "outer") {
+        if (rowIndex === minRow) {
+          border.top = true;
+        }
+        if (rowIndex === maxRow) {
+          border.bottom = true;
+        }
+        if (columnIndex === minColumn) {
+          border.left = true;
+        }
+        if (columnIndex === maxColumn) {
+          border.right = true;
+        }
+      } else if (SPREADSHEET_BORDER_EDGES.includes(kind)) {
+        border[kind] = true;
+      }
+      nextFormat.border = border;
+      return nextFormat;
+    });
+  };
+
+  const clearSelectedFormatting = () => {
+    updateSelectedCellFormats(() => ({}));
+  };
+
+  const escapeClipboardHtml = (value = "") =>
+    String(value ?? "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll("\"", "&quot;");
+
+  const serializeClipboardCell = (value = "") => {
+    const text = String(value ?? "");
+    return /[\t\r\n"]/.test(text) ? `"${text.replaceAll("\"", "\"\"")}"` : text;
+  };
+
+  const serializeClipboardMatrix = (matrix = []) =>
+    matrix.map((row) => row.map(serializeClipboardCell).join("\t")).join("\r\n");
+
+  const serializeClipboardHtml = (matrix = []) =>
+    `<table>${matrix
+      .map((row) => `<tr>${row.map((cell) => `<td>${escapeClipboardHtml(cell)}</td>`).join("")}</tr>`)
+      .join("")}</table>`;
+
+  const detectClipboardDelimiter = (text = "") => {
+    if (text.includes("\t")) {
+      return "\t";
+    }
+    const firstLine = text
+      .split(/\n/)
+      .find((line) => String(line || "").trim().length);
+    if (firstLine && firstLine.includes(",") && !firstLine.trim().startsWith("=")) {
+      return ",";
+    }
+    return "\t";
+  };
+
+  const parseClipboardText = (text = "") => {
+    const source = String(text ?? "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+    if (!source.length) {
+      return [];
+    }
+    const delimiter = detectClipboardDelimiter(source);
+    const rows = [];
+    let row = [];
+    let cell = "";
+    let inQuotes = false;
+
+    for (let index = 0; index < source.length; index += 1) {
+      const char = source[index];
+      const next = source[index + 1];
+      if (char === "\"") {
+        if (inQuotes && next === "\"") {
+          cell += "\"";
+          index += 1;
+        } else {
+          inQuotes = !inQuotes;
+        }
+        continue;
+      }
+      if (char === delimiter && !inQuotes) {
+        row.push(cell);
+        cell = "";
+        continue;
+      }
+      if (char === "\n" && !inQuotes) {
+        row.push(cell);
+        rows.push(row);
+        row = [];
+        cell = "";
+        continue;
+      }
+      cell += char;
+    }
+
+    row.push(cell);
+    rows.push(row);
+    while (rows.length > 1 && rows[rows.length - 1].length === 1 && rows[rows.length - 1][0] === "") {
+      rows.pop();
+    }
+
+    const width = Math.max(1, ...rows.map((entry) => entry.length));
+    return rows.map((entry) => Array.from({ length: width }, (_, index) => entry[index] ?? ""));
+  };
+
+  const getStoredClipboardPayload = () => spreadsheetClipboardStore.get(historyKey) || null;
+
+  const setStoredClipboardPayload = (payload = null) => {
+    if (payload) {
+      spreadsheetClipboardStore.set(historyKey, payload);
+    } else {
+      spreadsheetClipboardStore.delete(historyKey);
+    }
+  };
+
+  const buildClipboardPayload = (mode = "copy") => {
+    const { minRow, maxRow, minColumn, maxColumn } = getSelectionBounds();
+    const matrix = [];
+    const formats = [];
+    for (let rowIndex = minRow; rowIndex <= maxRow; rowIndex += 1) {
+      const row = [];
+      const formatRow = [];
+      for (let columnIndex = minColumn; columnIndex <= maxColumn; columnIndex += 1) {
+        row.push(getRawCellValue(rowIndex, columnIndex));
+        formatRow.push(getCellFormat(rowIndex, columnIndex));
+      }
+      matrix.push(row);
+      formats.push(formatRow);
+    }
+    const text = serializeClipboardMatrix(matrix);
+    return {
+      kind: "hydria-sheet-clipboard",
+      mode,
+      source: {
+        sheetId: workbookModel.activeSheetId,
+        minRow,
+        minColumn,
+        rowCount: maxRow - minRow + 1,
+        columnCount: maxColumn - minColumn + 1
+      },
+      matrix,
+      formats,
+      text,
+      html: serializeClipboardHtml(matrix)
+    };
+  };
+
+  const writeClipboardPayload = (payload = null, clipboardData = null) => {
+    if (!payload) {
+      return false;
+    }
+    setStoredClipboardPayload(payload);
+    syncSelectionUi();
+    if (clipboardData) {
+      clipboardData.setData("text/plain", payload.text);
+      clipboardData.setData("text/html", payload.html);
+      return true;
+    }
+    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(payload.text).catch(() => {});
+    }
+    return true;
+  };
+
+  const copySelectedCells = (clipboardData = null, { mode = "copy" } = {}) =>
+    writeClipboardPayload(buildClipboardPayload(mode), clipboardData);
+
+  const cutSelectedCells = (clipboardData = null) => {
+    clearScheduledCommit();
+    copySelectedCells(clipboardData, { mode: "cut" });
+    persistGridIntoActiveSheet();
+    const beforeSnapshot = getWorkbookSnapshot();
+    forEachSelectedCell((rowIndex, columnIndex) => {
+      setRawCellValue(rowIndex, columnIndex, "");
+    });
+    commitModel(false, { beforeSnapshot });
+    refreshGridValues({ preserveActiveEditor: false });
+    return true;
+  };
+
+  const clearSelectedCells = () => {
+    clearScheduledCommit();
+    setStoredClipboardPayload(null);
+    persistGridIntoActiveSheet();
+    const beforeSnapshot = getWorkbookSnapshot();
+    forEachSelectedCell((rowIndex, columnIndex) => {
+      setRawCellValue(rowIndex, columnIndex, "");
+    });
+    commitModel(false, { beforeSnapshot });
+    refreshGridValues({ preserveActiveEditor: false });
+    return true;
+  };
+
+  const getClipboardPayloadForText = (text = "") => {
+    const payload = getStoredClipboardPayload();
+    if (payload && (!text || payload.text === text)) {
+      return payload;
+    }
+    return null;
+  };
+
+  const pasteClipboardMatrix = (matrix = [], payload = null) => {
+    const sourceHeight = matrix.length;
+    const sourceWidth = Math.max(0, ...matrix.map((row) => row.length));
+    if (!sourceHeight || !sourceWidth) {
+      return false;
+    }
+
+    clearScheduledCommit();
+    persistGridIntoActiveSheet();
+    const beforeSnapshot = getWorkbookSnapshot();
+    const { minRow, maxRow, minColumn, maxColumn } = getSelectionBounds();
+    const selectionHeight = maxRow - minRow + 1;
+    const selectionWidth = maxColumn - minColumn + 1;
+    const pasteHeight = selectionHeight > 1 || selectionWidth > 1
+      ? Math.max(selectionHeight, sourceHeight)
+      : sourceHeight;
+    const pasteWidth = selectionHeight > 1 || selectionWidth > 1
+      ? Math.max(selectionWidth, sourceWidth)
+      : sourceWidth;
+    const internalClipboard = payload?.kind === "hydria-sheet-clipboard";
+
+    ensureGridSize(minRow + pasteHeight, minColumn + pasteWidth);
+    for (let rowOffset = 0; rowOffset < pasteHeight; rowOffset += 1) {
+      for (let columnOffset = 0; columnOffset < pasteWidth; columnOffset += 1) {
+        const sourceRowOffset = rowOffset % sourceHeight;
+        const sourceColumnOffset = columnOffset % sourceWidth;
+        const targetRowIndex = minRow + rowOffset;
+        const targetColumnIndex = minColumn + columnOffset;
+        const sourceValue = String(matrix[sourceRowOffset]?.[sourceColumnOffset] ?? "");
+        const sourceRowIndex = (payload?.source?.minRow ?? minRow) + sourceRowOffset;
+        const sourceColumnIndex = (payload?.source?.minColumn ?? minColumn) + sourceColumnOffset;
+        const nextValue =
+          internalClipboard && payload.mode !== "cut" && sourceValue.startsWith("=")
+            ? shiftFormulaReferences(
+                sourceValue,
+                targetRowIndex - sourceRowIndex,
+                targetColumnIndex - sourceColumnIndex
+              )
+            : sourceValue;
+        setRawCellValue(targetRowIndex, targetColumnIndex, nextValue);
+        if (internalClipboard && payload.formats) {
+          setCellFormat(targetRowIndex, targetColumnIndex, payload.formats[sourceRowOffset]?.[sourceColumnOffset] || "");
+        }
+      }
+    }
+
+    activeSelection = { rowIndex: minRow, columnIndex: minColumn };
+    setSelectionRange({
+      startRowIndex: minRow,
+      startColumnIndex: minColumn,
+      endRowIndex: minRow + pasteHeight - 1,
+      endColumnIndex: minColumn + pasteWidth - 1
+    });
+    if (payload?.mode === "cut") {
+      setStoredClipboardPayload(null);
+    }
+    commitModel(false, { beforeSnapshot });
+    refreshGridValues({ preserveActiveEditor: false });
+    return true;
+  };
+
+  const pasteClipboardText = (text = "", payload = null) => {
+    const clipboardPayload = payload || getClipboardPayloadForText(text);
+    if (!clipboardPayload && text) {
+      setStoredClipboardPayload(null);
+    }
+    const matrix = clipboardPayload?.matrix || parseClipboardText(text);
+    return pasteClipboardMatrix(matrix, clipboardPayload);
+  };
+
+  const readSystemClipboardText = async () => {
+    try {
+      if (typeof navigator !== "undefined" && navigator.clipboard?.readText) {
+        return await navigator.clipboard.readText();
+      }
+    } catch {
+      // The internal clipboard fallback still covers toolbar paste after in-app copy/cut.
+    }
+    return "";
+  };
+
+  const pasteFromClipboard = async (clipboardData = null) => {
+    const eventText = clipboardData?.getData?.("text/plain") || "";
+    if (eventText) {
+      return pasteClipboardText(eventText, getClipboardPayloadForText(eventText));
+    }
+    if (clipboardData) {
+      return pasteClipboardText("", getStoredClipboardPayload());
+    }
+    const systemText = await readSystemClipboardText();
+    return pasteClipboardText(systemText, getClipboardPayloadForText(systemText) || (!systemText ? getStoredClipboardPayload() : null));
+  };
+
+  const shouldUseNativeTextClipboard = (event) => {
+    const target = event.target;
+    if (!target || !previewShell.contains(target)) {
+      return false;
+    }
+    if (target === formulaInput || target === nameBox || target.isContentEditable) {
+      return true;
+    }
+    if (target.matches?.("textarea")) {
+      return true;
+    }
+    if (target.matches?.("input") && !target.classList.contains("workspace-sheet-cell-input")) {
+      return true;
+    }
+    if (target.classList?.contains("workspace-sheet-cell-input")) {
+      const isCellTextEdit =
+        cellTextEditState.active &&
+        Number(target.dataset.rowIndex || -1) === cellTextEditState.rowIndex &&
+        Number(target.dataset.columnIndex || -1) === cellTextEditState.columnIndex;
+      if (!isCellTextEdit) {
+        return false;
+      }
+      return event.type === "paste" || Number(target.selectionStart ?? 0) !== Number(target.selectionEnd ?? 0);
+    }
+    return false;
   };
 
   const formatCellDisplayValue = (value, rowIndex = 0, columnIndex = 0) => {
     const format = getCellFormat(rowIndex, columnIndex);
+    const numberFormat = format.numberFormat || "";
     const normalizedValue = typeof value === "string" ? value : formatFormulaResult(value);
-    if (!format || normalizedValue.startsWith("#")) {
+    if (!numberFormat || normalizedValue.startsWith("#")) {
       return normalizedValue;
     }
 
     const numeric = Number(String(normalizedValue || "").replace(",", "."));
-    if (format === "number" && Number.isFinite(numeric)) {
+    if (numberFormat === "number" && Number.isFinite(numeric)) {
       return new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 }).format(numeric);
     }
-    if (format === "currency" && Number.isFinite(numeric)) {
+    if (numberFormat === "currency" && Number.isFinite(numeric)) {
       return new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" }).format(numeric);
     }
-    if (format === "percent" && Number.isFinite(numeric)) {
+    if (numberFormat === "percent" && Number.isFinite(numeric)) {
       return new Intl.NumberFormat("fr-FR", {
         style: "percent",
         minimumFractionDigits: 0,
         maximumFractionDigits: 2
       }).format(numeric);
     }
-    if (format === "date") {
+    if (numberFormat === "date") {
       const dateValue = new Date(normalizedValue);
       if (!Number.isNaN(dateValue.getTime())) {
         return new Intl.DateTimeFormat("fr-FR").format(dateValue);
       }
     }
     return normalizedValue;
+  };
+
+  const applyCellVisualFormat = (input, wrapper, rowIndex = 0, columnIndex = 0) => {
+    const format = getCellFormat(rowIndex, columnIndex);
+    input.style.fontWeight = format.bold ? "700" : "";
+    input.style.fontStyle = format.italic ? "italic" : "";
+    input.style.textDecoration = format.underline ? "underline" : "";
+    input.style.textAlign = format.horizontalAlign || "";
+    input.style.fontSize = format.fontSize ? `${format.fontSize}px` : "";
+    input.style.setProperty("--sheet-cell-color", format.textColor || "#202124");
+    input.style.setProperty("--sheet-cell-fill", format.fillColor || "transparent");
+    wrapper.style.verticalAlign =
+      format.verticalAlign === "middle" ? "middle" : format.verticalAlign === "bottom" ? "bottom" : "top";
+    wrapper.style.borderTop = "";
+    wrapper.style.borderRight = "";
+    wrapper.style.borderBottom = "";
+    wrapper.style.borderLeft = "";
+
+    const border = normalizeSpreadsheetBorderSpec(format.border);
+    if (!border) {
+      return;
+    }
+    const borderStyle = `2px solid ${border.color || "#202124"}`;
+    if (border.top) {
+      wrapper.style.borderTop = borderStyle;
+    }
+    if (border.right) {
+      wrapper.style.borderRight = borderStyle;
+    }
+    if (border.bottom) {
+      wrapper.style.borderBottom = borderStyle;
+    }
+    if (border.left) {
+      wrapper.style.borderLeft = borderStyle;
+    }
   };
 
   const getColumnWidth = (columnIndex = 0) => {
@@ -3281,6 +4446,7 @@ function renderSpreadsheetClonePreview(
       rowIndex: selectionRange.endRowIndex,
       columnIndex: selectionRange.endColumnIndex
     };
+    saveCurrentSelectionState();
     syncSelectionUi();
   };
 
@@ -3391,6 +4557,7 @@ function renderSpreadsheetClonePreview(
     if (!formulaEditIsActive()) {
       return false;
     }
+    beginSpreadsheetHistoryTransaction();
     const address = `${columnLetter(columnIndex)}${rowIndex + 1}`;
     const editor = formulaEditState.input;
     const baseValue = String(getRawCellValue(formulaEditState.rowIndex, formulaEditState.columnIndex) || "=");
@@ -3411,6 +4578,7 @@ function renderSpreadsheetClonePreview(
       rowIndex: formulaEditState.rowIndex,
       columnIndex: formulaEditState.columnIndex
     };
+    saveCurrentSelectionState();
 
     scheduleCommit();
     refreshGridValues();
@@ -3434,6 +4602,850 @@ function renderSpreadsheetClonePreview(
     return insertCellReferenceIntoFormula(rowIndex, columnIndex);
   };
 
+  const insertFormulaInActiveCell = (name = "SUM", refreshWorkspace = true) => {
+    setRawCellValue(activeSelection.rowIndex, activeSelection.columnIndex, buildColumnFormula(name));
+    commitModel(refreshWorkspace);
+    refreshGridValues({ preserveActiveEditor: false });
+  };
+
+  const compareDataValues = (leftValue = "", rightValue = "", direction = "asc") => {
+    const leftText = String(leftValue ?? "").trim();
+    const rightText = String(rightValue ?? "").trim();
+    if (!leftText && !rightText) {
+      return 0;
+    }
+    if (!leftText) {
+      return 1;
+    }
+    if (!rightText) {
+      return -1;
+    }
+    const leftNumber = Number(leftText.replace(",", "."));
+    const rightNumber = Number(rightText.replace(",", "."));
+    let result = 0;
+    if (Number.isFinite(leftNumber) && Number.isFinite(rightNumber)) {
+      result = leftNumber - rightNumber;
+    } else {
+      const leftDate = Date.parse(leftText);
+      const rightDate = Date.parse(rightText);
+      if (!Number.isNaN(leftDate) && !Number.isNaN(rightDate)) {
+        result = leftDate - rightDate;
+      } else {
+        result = leftText.localeCompare(rightText, "fr", { numeric: true, sensitivity: "base" });
+      }
+    }
+    return direction === "desc" ? -result : result;
+  };
+
+  const getDefaultDataBounds = () => {
+    const lastUsedCell = getLastUsedCell();
+    return {
+      minRow: Math.min(1, Math.max(0, lastUsedCell.rowIndex)),
+      maxRow: Math.max(1, lastUsedCell.rowIndex),
+      minColumn: 0,
+      maxColumn: Math.max(0, lastUsedCell.columnIndex, activeSelection.columnIndex)
+    };
+  };
+
+  const getDataSelectionBounds = ({ preferTable = false, skipHeader = true } = {}) => {
+    const bounds = getSelectionBounds();
+    const hasRangeSelection = bounds.maxRow > bounds.minRow || bounds.maxColumn > bounds.minColumn;
+    const nextBounds = preferTable && !hasRangeSelection ? getDefaultDataBounds() : { ...bounds };
+    if (skipHeader && nextBounds.minRow === 0 && nextBounds.maxRow > 0) {
+      nextBounds.minRow = 1;
+    }
+    return nextBounds;
+  };
+
+  const readDataRangeRow = (rowIndex = 0, minColumn = 0, maxColumn = 0) => ({
+    values: Array.from({ length: maxColumn - minColumn + 1 }, (_, offset) =>
+      getRawCellValue(rowIndex, minColumn + offset)
+    ),
+    formats: Array.from({ length: maxColumn - minColumn + 1 }, (_, offset) =>
+      getCellFormat(rowIndex, minColumn + offset)
+    )
+  });
+
+  const writeDataRangeRow = (rowIndex = 0, minColumn = 0, row = {}) => {
+    (row.values || []).forEach((value, offset) => {
+      setRawCellValue(rowIndex, minColumn + offset, value);
+      setCellFormat(rowIndex, minColumn + offset, row.formats?.[offset] || {});
+    });
+  };
+
+  const clearDataRange = (minRow = 0, maxRow = 0, minColumn = 0, maxColumn = 0) => {
+    for (let rowIndex = minRow; rowIndex <= maxRow; rowIndex += 1) {
+      for (let columnIndex = minColumn; columnIndex <= maxColumn; columnIndex += 1) {
+        setRawCellValue(rowIndex, columnIndex, "");
+        setCellFormat(rowIndex, columnIndex, {});
+      }
+    }
+  };
+
+  const sortActiveColumn = (direction = "asc") => {
+    const { minRow, maxRow, minColumn, maxColumn } = getDataSelectionBounds({
+      preferTable: true,
+      skipHeader: true
+    });
+    if (maxRow <= minRow || activeSelection.columnIndex < minColumn || activeSelection.columnIndex > maxColumn) {
+      return false;
+    }
+    clearScheduledCommit();
+    persistGridIntoActiveSheet();
+    const beforeSnapshot = getWorkbookSnapshot();
+    const sortColumnOffset = activeSelection.columnIndex - minColumn;
+    const rows = Array.from({ length: maxRow - minRow + 1 }, (_, offset) => {
+      const rowIndex = minRow + offset;
+      return {
+        originalIndex: rowIndex,
+        ...readDataRangeRow(rowIndex, minColumn, maxColumn)
+      };
+    });
+    rows.sort((leftRow, rightRow) => {
+      const result = compareDataValues(leftRow.values[sortColumnOffset], rightRow.values[sortColumnOffset], direction);
+      return result || leftRow.originalIndex - rightRow.originalIndex;
+    });
+    rows.forEach((row, offset) => {
+      writeDataRangeRow(minRow + offset, minColumn, row);
+    });
+    getActiveSheetState().sort = { columnIndex: activeSelection.columnIndex, direction };
+    commitModel(false, { beforeSnapshot });
+    refreshGridValues({ preserveActiveEditor: false });
+    return true;
+  };
+
+  const filterBySelectedValue = () => {
+    const nextModel = persistGridIntoActiveSheet();
+    const nextActiveSheet = getWorkbookActiveSheet();
+    nextActiveSheet.filterQuery = getRawCellValue(activeSelection.rowIndex, activeSelection.columnIndex);
+    nextActiveSheet.filterColumnIndex = activeSelection.columnIndex;
+    workbookModel = nextModel;
+    persistWorkbookState(false);
+    rerenderPreview({ persistGrid: false });
+  };
+
+  const removeDuplicateRows = () => {
+    const { minRow, maxRow, minColumn, maxColumn } = getDataSelectionBounds({
+      preferTable: true,
+      skipHeader: true
+    });
+    if (maxRow <= minRow) {
+      return false;
+    }
+    clearScheduledCommit();
+    persistGridIntoActiveSheet();
+    const beforeSnapshot = getWorkbookSnapshot();
+    const seenRows = new Set();
+    const uniqueRows = [];
+    for (let rowIndex = minRow; rowIndex <= maxRow; rowIndex += 1) {
+      const row = readDataRangeRow(rowIndex, minColumn, maxColumn);
+      const key = row.values.map((value) => String(value ?? "").trim().toLocaleLowerCase("fr")).join("\u001f");
+      if (seenRows.has(key)) {
+        continue;
+      }
+      seenRows.add(key);
+      uniqueRows.push(row);
+    }
+    uniqueRows.forEach((row, offset) => writeDataRangeRow(minRow + offset, minColumn, row));
+    clearDataRange(minRow + uniqueRows.length, maxRow, minColumn, maxColumn);
+    setSelectionRange({
+      startRowIndex: minRow,
+      startColumnIndex: minColumn,
+      endRowIndex: Math.max(minRow, minRow + uniqueRows.length - 1),
+      endColumnIndex: maxColumn
+    });
+    activeSelection = { rowIndex: minRow, columnIndex: minColumn };
+    commitModel(false, { beforeSnapshot });
+    refreshGridValues({ preserveActiveEditor: false });
+    return true;
+  };
+
+  const transformSelectedTextCells = (transformer) => {
+    if (typeof transformer !== "function") {
+      return false;
+    }
+    const { minRow, maxRow, minColumn, maxColumn } = getSelectionBounds();
+    clearScheduledCommit();
+    persistGridIntoActiveSheet();
+    const beforeSnapshot = getWorkbookSnapshot();
+    for (let rowIndex = minRow; rowIndex <= maxRow; rowIndex += 1) {
+      for (let columnIndex = minColumn; columnIndex <= maxColumn; columnIndex += 1) {
+        const value = getRawCellValue(rowIndex, columnIndex);
+        if (String(value || "").startsWith("=")) {
+          continue;
+        }
+        setRawCellValue(rowIndex, columnIndex, transformer(value));
+      }
+    }
+    commitModel(false, { beforeSnapshot });
+    refreshGridValues({ preserveActiveEditor: false });
+    return true;
+  };
+
+  const trimSelectedWhitespace = () =>
+    transformSelectedTextCells((value) => String(value ?? "").replace(/\u00a0/g, " ").trim());
+
+  const cleanSelectedText = () =>
+    transformSelectedTextCells((value) =>
+      String(value ?? "")
+        .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "")
+        .replace(/\u00a0/g, " ")
+        .replace(/[ \t]+/g, " ")
+        .trim()
+    );
+
+  const delimiterFromPromptValue = (value = "") => {
+    const normalized = String(value || "").trim().toLowerCase();
+    if (!normalized) {
+      return "";
+    }
+    if (["tab", "\\t"].includes(normalized)) {
+      return "\t";
+    }
+    if (["space", " "].includes(normalized)) {
+      return " ";
+    }
+    if (["comma", ","].includes(normalized)) {
+      return ",";
+    }
+    if (["semicolon", ";"].includes(normalized)) {
+      return ";";
+    }
+    return String(value).slice(0, 1);
+  };
+
+  const splitTextToColumns = () => {
+    const delimiterInput = window.prompt("Delimiter: comma, semicolon, tab, space or custom", ",");
+    if (delimiterInput === null) {
+      return false;
+    }
+    const delimiter = delimiterFromPromptValue(delimiterInput);
+    if (!delimiter) {
+      return false;
+    }
+    const { minRow, maxRow, minColumn } = getSelectionBounds();
+    const sourceColumn = minColumn;
+    const splitRows = Array.from({ length: maxRow - minRow + 1 }, (_, offset) => {
+      const rowIndex = minRow + offset;
+      return {
+        rowIndex,
+        parts: String(getRawCellValue(rowIndex, sourceColumn) ?? "").split(delimiter),
+        format: getCellFormat(rowIndex, sourceColumn)
+      };
+    });
+    const maxParts = Math.max(1, ...splitRows.map((row) => row.parts.length));
+    clearScheduledCommit();
+    persistGridIntoActiveSheet();
+    const beforeSnapshot = getWorkbookSnapshot();
+    ensureGridSize(maxRow + 1, sourceColumn + maxParts);
+    splitRows.forEach(({ rowIndex, parts, format }) => {
+      for (let offset = 0; offset < maxParts; offset += 1) {
+        setRawCellValue(rowIndex, sourceColumn + offset, parts[offset] ?? "");
+        setCellFormat(rowIndex, sourceColumn + offset, format);
+      }
+    });
+    setSelectionRange({
+      startRowIndex: minRow,
+      startColumnIndex: sourceColumn,
+      endRowIndex: maxRow,
+      endColumnIndex: sourceColumn + maxParts - 1
+    });
+    activeSelection = { rowIndex: minRow, columnIndex: sourceColumn };
+    commitModel(false, { beforeSnapshot });
+    refreshGridValues({ preserveActiveEditor: false });
+    return true;
+  };
+
+  const transposeSelectionRange = () => {
+    const { minRow, maxRow, minColumn, maxColumn } = getSelectionBounds();
+    if (minRow === maxRow && minColumn === maxColumn) {
+      return false;
+    }
+    const height = maxRow - minRow + 1;
+    const width = maxColumn - minColumn + 1;
+    const matrix = Array.from({ length: height }, (_, rowOffset) =>
+      Array.from({ length: width }, (_, columnOffset) => ({
+        value: getRawCellValue(minRow + rowOffset, minColumn + columnOffset),
+        format: getCellFormat(minRow + rowOffset, minColumn + columnOffset)
+      }))
+    );
+    clearScheduledCommit();
+    persistGridIntoActiveSheet();
+    const beforeSnapshot = getWorkbookSnapshot();
+    clearDataRange(minRow, maxRow, minColumn, maxColumn);
+    ensureGridSize(minRow + width, minColumn + height);
+    for (let rowOffset = 0; rowOffset < width; rowOffset += 1) {
+      for (let columnOffset = 0; columnOffset < height; columnOffset += 1) {
+        const source = matrix[columnOffset][rowOffset];
+        setRawCellValue(minRow + rowOffset, minColumn + columnOffset, source.value);
+        setCellFormat(minRow + rowOffset, minColumn + columnOffset, source.format);
+      }
+    }
+    setSelectionRange({
+      startRowIndex: minRow,
+      startColumnIndex: minColumn,
+      endRowIndex: minRow + width - 1,
+      endColumnIndex: minColumn + height - 1
+    });
+    activeSelection = { rowIndex: minRow, columnIndex: minColumn };
+    commitModel(false, { beforeSnapshot });
+    refreshGridValues({ preserveActiveEditor: false });
+    return true;
+  };
+
+  const filterActiveColumn = () => {
+    const nextQuery = window.prompt("Filter query", getActiveSheetState().filterQuery || "");
+    if (nextQuery === null) {
+      return;
+    }
+    const nextModel = persistGridIntoActiveSheet();
+    const nextActiveSheet = getWorkbookActiveSheet();
+    nextActiveSheet.filterQuery = String(nextQuery || "");
+    nextActiveSheet.filterColumnIndex = activeSelection.columnIndex;
+    workbookModel = nextModel;
+    persistWorkbookState(false);
+    rerenderPreview({ persistGrid: false });
+  };
+
+  const clearActiveFilter = () => {
+    const nextModel = persistGridIntoActiveSheet();
+    const nextActiveSheet = getWorkbookActiveSheet();
+    nextActiveSheet.filterQuery = "";
+    nextActiveSheet.filterColumnIndex = -1;
+    workbookModel = nextModel;
+    persistWorkbookState(false);
+    rerenderPreview({ persistGrid: false });
+  };
+
+  const freezeRowsToSelection = () => {
+    const nextModel = persistGridIntoActiveSheet();
+    const nextActiveSheet = getWorkbookActiveSheet();
+    nextActiveSheet.frozenRows = activeSelection.rowIndex + 1;
+    workbookModel = nextModel;
+    persistWorkbookState(false);
+    rerenderPreview({ persistGrid: false });
+  };
+
+  const freezeColumnsToSelection = () => {
+    const nextModel = persistGridIntoActiveSheet();
+    const nextActiveSheet = getWorkbookActiveSheet();
+    nextActiveSheet.frozenColumns = activeSelection.columnIndex + 1;
+    workbookModel = nextModel;
+    persistWorkbookState(false);
+    rerenderPreview({ persistGrid: false });
+  };
+
+  const unfreezeSheet = () => {
+    const nextModel = persistGridIntoActiveSheet();
+    const nextActiveSheet = getWorkbookActiveSheet();
+    nextActiveSheet.frozenRows = 0;
+    nextActiveSheet.frozenColumns = 0;
+    workbookModel = nextModel;
+    persistWorkbookState(false);
+    rerenderPreview({ persistGrid: false });
+  };
+
+  const insertRowAtSelection = (offset = 1) => {
+    const insertIndex = clamp(activeSelection.rowIndex + offset, 0, sheetGrid.length);
+    sheetGrid.splice(insertIndex, 0, Array.from({ length: sheetGrid[0].length }, () => ""));
+    activeSelection = {
+      rowIndex: insertIndex,
+      columnIndex: activeSelection.columnIndex
+    };
+    setSelectionRange({
+      startRowIndex: activeSelection.rowIndex,
+      startColumnIndex: activeSelection.columnIndex,
+      endRowIndex: activeSelection.rowIndex,
+      endColumnIndex: activeSelection.columnIndex
+    });
+    commitModel(true);
+    rerenderPreview();
+  };
+
+  const insertColumnAtSelection = (offset = 1) => {
+    const insertIndex = clamp(activeSelection.columnIndex + offset, 0, (sheetGrid[0] || []).length);
+    sheetGrid = sheetGrid.map((row) => {
+      const nextRow = [...row];
+      nextRow.splice(insertIndex, 0, "");
+      return nextRow;
+    });
+    activeSelection = {
+      rowIndex: activeSelection.rowIndex,
+      columnIndex: insertIndex
+    };
+    setSelectionRange({
+      startRowIndex: activeSelection.rowIndex,
+      startColumnIndex: activeSelection.columnIndex,
+      endRowIndex: activeSelection.rowIndex,
+      endColumnIndex: activeSelection.columnIndex
+    });
+    commitModel(true);
+    rerenderPreview();
+  };
+
+  const deleteActiveRow = () => {
+    if (sheetGrid.length <= 1) {
+      return;
+    }
+    sheetGrid.splice(activeSelection.rowIndex, 1);
+    activeSelection = {
+      rowIndex: Math.max(0, Math.min(activeSelection.rowIndex, sheetGrid.length - 1)),
+      columnIndex: activeSelection.columnIndex
+    };
+    setSelectionRange({
+      startRowIndex: activeSelection.rowIndex,
+      startColumnIndex: activeSelection.columnIndex,
+      endRowIndex: activeSelection.rowIndex,
+      endColumnIndex: activeSelection.columnIndex
+    });
+    commitModel(true);
+    rerenderPreview();
+  };
+
+  const deleteActiveColumn = () => {
+    if ((sheetGrid[0] || []).length <= 1) {
+      return;
+    }
+    sheetGrid = sheetGrid.map((row) => {
+      const nextRow = [...row];
+      nextRow.splice(activeSelection.columnIndex, 1);
+      return nextRow;
+    });
+    activeSelection = {
+      rowIndex: activeSelection.rowIndex,
+      columnIndex: Math.max(0, Math.min(activeSelection.columnIndex, sheetGrid[0].length - 1))
+    };
+    setSelectionRange({
+      startRowIndex: activeSelection.rowIndex,
+      startColumnIndex: activeSelection.columnIndex,
+      endRowIndex: activeSelection.rowIndex,
+      endColumnIndex: activeSelection.columnIndex
+    });
+    commitModel(true);
+    rerenderPreview();
+  };
+
+  const createSheetFromActive = ({ duplicate = false } = {}) => {
+    persistGridIntoActiveSheet();
+    const sourceSheet = getActiveSheetState();
+    const nextIndex = workbookModel.sheets.length + 1;
+    const nextSheet = duplicate
+      ? {
+          ...cloneSpreadsheetSnapshot(sourceSheet),
+          id: `sheet-${Date.now()}`,
+          name: `${sourceSheet.name || "Sheet"} copy`
+        }
+      : {
+          id: `sheet-${Date.now()}`,
+          name: `Sheet ${nextIndex}`,
+          columns: Array.from({ length: Math.max(3, sourceSheet.columns?.length || 3) }, (_, index) => `Column ${index + 1}`),
+          rows: [["", "", ""]],
+          columnWidths: {},
+          rowHeights: {},
+          merges: [],
+          cellFormats: {},
+          filterQuery: "",
+          filterColumnIndex: -1,
+          sort: null,
+          frozenRows: 0,
+          frozenColumns: 0
+        };
+    workbookModel.sheets.push(nextSheet);
+    workbookModel.activeSheetId = nextSheet.id;
+    persistWorkbookState(false);
+    rerenderPreview({ persistGrid: false });
+  };
+
+  const renameActiveSheet = () => {
+    const activeSheetState = getActiveSheetState();
+    const nextName = window.prompt("Sheet name", activeSheetState.name || "Sheet");
+    if (!nextName) {
+      return;
+    }
+    activeSheetState.name = String(nextName).trim() || activeSheetState.name;
+    persistWorkbookState(false);
+    rerenderPreview({ persistGrid: false });
+  };
+
+  const deleteActiveSheet = () => {
+    if (workbookModel.sheets.length <= 1) {
+      return;
+    }
+    const activeIndex = workbookModel.sheets.findIndex((sheet) => sheet.id === workbookModel.activeSheetId);
+    const nextIndex = Math.max(0, activeIndex - 1);
+    workbookModel.sheets.splice(Math.max(0, activeIndex), 1);
+    workbookModel.activeSheetId = workbookModel.sheets[nextIndex]?.id || workbookModel.sheets[0]?.id;
+    persistWorkbookState(false);
+    rerenderPreview({ persistGrid: false });
+  };
+
+  const serializeCsvCell = (value = "") => {
+    const text = String(value ?? "");
+    return /[,"\r\n]/.test(text) ? `"${text.replaceAll("\"", "\"\"")}"` : text;
+  };
+
+  const readSheetApiError = async (response) => {
+    try {
+      const payload = await response.clone().json();
+      return payload?.error || payload?.message || response.statusText || "Request failed";
+    } catch {
+      const text = await response.text().catch(() => "");
+      return text || response.statusText || "Request failed";
+    }
+  };
+
+  const buildWorkbookDownloadName = () => {
+    const baseName =
+      String(workObject?.title || friendlyPathLabel(filePath) || getWorkbookActiveSheet()?.name || "hydria-sheet")
+        .trim()
+        .replace(/\.[^.]+$/, "")
+        .replace(/[\\/:*?"<>|]+/g, "-")
+        .replace(/[^\w.-]+/g, "-") || "hydria-sheet";
+    return `${baseName}.xlsx`;
+  };
+
+  const downloadBlobFile = (blob, filename = "hydria-sheet.xlsx") => {
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+  };
+
+  const exportWorkbookAsXlsx = async () => {
+    try {
+      const nextModel = persistGridIntoActiveSheet();
+      workbookModel = nextModel;
+      const filename = buildWorkbookDownloadName();
+      const response = await fetch("/api/sheets/export-xlsx", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          filename,
+          model: getWorkbookSnapshot(nextModel)
+        })
+      });
+      if (!response.ok) {
+        throw new Error(await readSheetApiError(response));
+      }
+      const blob = await response.blob();
+      if (!blob.size) {
+        throw new Error("The XLSX export is empty.");
+      }
+      downloadBlobFile(blob, filename);
+    } catch (error) {
+      window.alert(`XLSX export failed: ${error.message || error}`);
+    }
+  };
+
+  const importWorkbookFromXlsxFile = async (file) => {
+    if (!file) {
+      return;
+    }
+
+    try {
+      clearScheduledCommit();
+      editHistorySnapshot = null;
+      const beforeSnapshot = getWorkbookSnapshot(persistGridIntoActiveSheet());
+      const formData = new FormData();
+      formData.append("workbook", file);
+      const response = await fetch("/api/sheets/import-xlsx", {
+        method: "POST",
+        body: formData
+      });
+      if (!response.ok) {
+        throw new Error(await readSheetApiError(response));
+      }
+      const payload = await response.json();
+      if (!payload?.success || !payload.model) {
+        throw new Error("The server did not return a workbook.");
+      }
+
+      workbookModel = normalizeSpreadsheetPreviewModel(payload.model, {
+        defaultSheetName: profile?.sheetName || "Sheet 1"
+      });
+      recordSpreadsheetHistory(beforeSnapshot, workbookModel);
+      const activeImportedSheet = workbookModel.activeSheet || workbookModel.sheets[0];
+      saveSpreadsheetSelectionState(
+        historyKey,
+        {
+          activeSelection: { rowIndex: 0, columnIndex: 0 },
+          selectionRange: {
+            startRowIndex: 0,
+            startColumnIndex: 0,
+            endRowIndex: 0,
+            endColumnIndex: 0
+          }
+        },
+        Math.max(1, (activeImportedSheet?.rows?.length || 0) + 1),
+        Math.max(1, activeImportedSheet?.columns?.length || 1)
+      );
+
+      suppressRerenderBlurCommit = true;
+      try {
+        container.innerHTML = "";
+        renderSpreadsheetClonePreview(container, {
+          model: cloneSpreadsheetSnapshot(workbookModel),
+          profile,
+          workObject,
+          filePath,
+          onGridEdit
+        });
+        onGridEdit?.(workbookModel, { refreshWorkspace: false });
+      } finally {
+        suppressRerenderBlurCommit = false;
+      }
+    } catch (error) {
+      window.alert(`XLSX import failed: ${error.message || error}`);
+    }
+  };
+
+  const openXlsxImportDialog = () => {
+    xlsxImportInput.value = "";
+    xlsxImportInput.click();
+  };
+
+  xlsxImportInput.addEventListener("change", () => {
+    const [file] = Array.from(xlsxImportInput.files || []);
+    xlsxImportInput.value = "";
+    importWorkbookFromXlsxFile(file);
+  });
+
+  const downloadActiveSheetCsv = () => {
+    const nextModel = persistGridIntoActiveSheet();
+    const activeSheetState = getWorkbookActiveSheet();
+    workbookModel = nextModel;
+    const rows = [activeSheetState.columns, ...(activeSheetState.rows || [])];
+    const csv = rows.map((row) => row.map(serializeCsvCell).join(",")).join("\r\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const link = document.createElement("a");
+    const safeName = String(activeSheetState.name || "sheet").trim().replace(/[^\w.-]+/g, "-") || "sheet";
+    link.href = URL.createObjectURL(blob);
+    link.download = `${safeName}.csv`;
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+  };
+
+  const recalculateSheet = () => {
+    persistGridIntoActiveSheet();
+    refreshGridValues({ preserveActiveEditor: false });
+  };
+
+  const showSheetStatus = () => {
+    const activeSheetState = getActiveSheetState();
+    window.alert(`${activeSheetState.name || "Sheet"}\n${activeSheetState.rows.length + 1} rows\n${activeSheetState.columns.length} columns`);
+  };
+
+  let sheetMenuOutsidePointerHandler = null;
+
+  const closeSheetMenu = () => {
+    sheetMenuPanel.hidden = true;
+    sheetMenuPanel.innerHTML = "";
+    sheetMenuButtons.forEach((button) => button.classList.remove("is-open"));
+    if (sheetMenuOutsidePointerHandler) {
+      document.removeEventListener("mousedown", sheetMenuOutsidePointerHandler);
+      sheetMenuOutsidePointerHandler = null;
+    }
+  };
+
+  const makeSheetMenuItems = (menuId = "") => {
+    const oneSheetOnly = workbookModel.sheets.length <= 1;
+    switch (menuId) {
+      case "File":
+        return [
+          { label: "New sheet", onSelect: () => createSheetFromActive() },
+          { label: "Duplicate sheet", onSelect: () => createSheetFromActive({ duplicate: true }) },
+          { label: "Rename sheet", onSelect: renameActiveSheet },
+          { label: "Delete sheet", onSelect: deleteActiveSheet, disabled: oneSheetOnly },
+          { separator: true },
+          { label: "Import XLSX", onSelect: openXlsxImportDialog },
+          { label: "Export XLSX", onSelect: exportWorkbookAsXlsx },
+          { label: "Download CSV", onSelect: downloadActiveSheetCsv }
+        ];
+      case "Edit":
+        return [
+          { label: "Undo", onSelect: undoSpreadsheetAction },
+          { label: "Redo", onSelect: redoSpreadsheetAction },
+          { separator: true },
+          { label: "Cut", onSelect: () => cutSelectedCells() },
+          { label: "Copy", onSelect: () => copySelectedCells() },
+          { label: "Paste", onSelect: () => pasteFromClipboard() },
+          { separator: true },
+          { label: "Clear contents", onSelect: clearSelectedCells },
+          { label: "Fill down", onSelect: () => fillSelectionFromEdge("down") },
+          { label: "Fill right", onSelect: () => fillSelectionFromEdge("right") }
+        ];
+      case "View":
+        return [
+          { label: "Freeze to current row", onSelect: freezeRowsToSelection },
+          { label: "Freeze to current column", onSelect: freezeColumnsToSelection },
+          { label: "Unfreeze", onSelect: unfreezeSheet },
+          { separator: true },
+          { label: "Go to A1", onSelect: () => focusKeyboardSelection(0, 0) },
+          {
+            label: "Go to last cell",
+            onSelect: () => {
+              const lastUsedCell = getLastUsedCell();
+              focusKeyboardSelection(lastUsedCell.rowIndex, lastUsedCell.columnIndex);
+            }
+          }
+        ];
+      case "Insert":
+        return [
+          { label: "Row above", onSelect: () => insertRowAtSelection(0) },
+          { label: "Row below", onSelect: () => insertRowAtSelection(1) },
+          { label: "Column left", onSelect: () => insertColumnAtSelection(0) },
+          { label: "Column right", onSelect: () => insertColumnAtSelection(1) },
+          { separator: true },
+          { label: "New sheet", onSelect: () => createSheetFromActive() }
+        ];
+      case "Format":
+        return [
+          { label: "Bold", onSelect: () => toggleSelectedTextStyle("bold") },
+          { label: "Italic", onSelect: () => toggleSelectedTextStyle("italic") },
+          { label: "Underline", onSelect: () => toggleSelectedTextStyle("underline") },
+          { separator: true },
+          { label: "Number", onSelect: () => setSelectedRangeFormat("number") },
+          { label: "Currency", onSelect: () => setSelectedRangeFormat("currency") },
+          { label: "Percent", onSelect: () => setSelectedRangeFormat("percent") },
+          { label: "Date", onSelect: () => setSelectedRangeFormat("date") },
+          { label: "Clear number format", onSelect: () => setSelectedRangeFormat("") },
+          { separator: true },
+          { label: "Align left", onSelect: () => setSelectedHorizontalAlign("left") },
+          { label: "Align center", onSelect: () => setSelectedHorizontalAlign("center") },
+          { label: "Align right", onSelect: () => setSelectedHorizontalAlign("right") },
+          { label: "Align top", onSelect: () => setSelectedVerticalAlign("top") },
+          { label: "Align middle", onSelect: () => setSelectedVerticalAlign("middle") },
+          { label: "Align bottom", onSelect: () => setSelectedVerticalAlign("bottom") },
+          { separator: true },
+          { label: "Font size +", onSelect: () => adjustSelectedFontSize(1) },
+          { label: "Font size -", onSelect: () => adjustSelectedFontSize(-1) },
+          { label: "Text black", onSelect: () => setSelectedTextColor("#202124") },
+          { label: "Text red", onSelect: () => setSelectedTextColor("#c5221f") },
+          { label: "Text blue", onSelect: () => setSelectedTextColor("#1a73e8") },
+          { label: "Fill yellow", onSelect: () => setSelectedFillColor("#fff2cc") },
+          { label: "Fill green", onSelect: () => setSelectedFillColor("#d9ead3") },
+          { label: "Fill blue", onSelect: () => setSelectedFillColor("#d9eaf7") },
+          { separator: true },
+          { label: "All borders", onSelect: () => setSelectedBorder("all") },
+          { label: "Outer border", onSelect: () => setSelectedBorder("outer") },
+          { label: "Bottom border", onSelect: () => setSelectedBorder("bottom") },
+          { label: "Clear borders", onSelect: () => setSelectedBorder("clear") },
+          { separator: true },
+          { label: "Merge cells", onSelect: mergeSelectionRange },
+          { label: "Unmerge cells", onSelect: unmergeSelectionRange },
+          { separator: true },
+          { label: "Clear all formatting", onSelect: clearSelectedFormatting }
+        ];
+      case "Data":
+        return [
+          { label: "Sort A-Z", onSelect: () => sortActiveColumn("asc") },
+          { label: "Sort Z-A", onSelect: () => sortActiveColumn("desc") },
+          { separator: true },
+          { label: "Create filter", onSelect: filterActiveColumn },
+          { label: "Filter by selected value", onSelect: filterBySelectedValue },
+          { label: "Clear filter", onSelect: clearActiveFilter },
+          { separator: true },
+          { label: "Remove duplicates", onSelect: removeDuplicateRows },
+          { label: "Trim whitespace", onSelect: trimSelectedWhitespace },
+          { label: "Clean text", onSelect: cleanSelectedText },
+          { label: "Text to columns", onSelect: splitTextToColumns },
+          { label: "Transpose range", onSelect: transposeSelectionRange }
+        ];
+      case "Tools":
+        return [
+          { label: "SUM", onSelect: () => insertFormulaInActiveCell("SUM") },
+          { label: "AVERAGE", onSelect: () => insertFormulaInActiveCell("AVERAGE") },
+          { label: "MIN", onSelect: () => insertFormulaInActiveCell("MIN") },
+          { label: "MAX", onSelect: () => insertFormulaInActiveCell("MAX") },
+          { label: "COUNT", onSelect: () => insertFormulaInActiveCell("COUNT") },
+          { separator: true },
+          { label: "Recalculate formulas", onSelect: recalculateSheet }
+        ];
+      case "Extensions":
+        return [
+          { label: "Recalculate formulas", onSelect: recalculateSheet },
+          {
+            label: "Clear clipboard outline",
+            onSelect: () => {
+              setStoredClipboardPayload(null);
+              syncSelectionUi();
+            }
+          }
+        ];
+      case "Help":
+        return [
+          { label: "Sheet status", onSelect: showSheetStatus },
+          { label: "Select used range", onSelect: selectUsedRange }
+        ];
+      default:
+        return [];
+    }
+  };
+
+  const openSheetMenu = (menuId = "", button = null) => {
+    const items = makeSheetMenuItems(menuId);
+    if (!button || !items.length) {
+      closeSheetMenu();
+      return;
+    }
+    sheetMenuPanel.innerHTML = "";
+    sheetMenuButtons.forEach((entry) => entry.classList.toggle("is-open", entry === button));
+    items.forEach((item) => {
+      if (item.separator) {
+        const separator = document.createElement("div");
+        separator.className = "workspace-sheet-menu-separator";
+        sheetMenuPanel.appendChild(separator);
+        return;
+      }
+      const action = document.createElement("button");
+      action.type = "button";
+      action.className = "workspace-sheet-menu-action";
+      action.textContent = item.label;
+      action.disabled = Boolean(item.disabled);
+      action.addEventListener("click", () => {
+        if (item.disabled) {
+          return;
+        }
+        closeSheetMenu();
+        item.onSelect?.();
+      });
+      sheetMenuPanel.appendChild(action);
+    });
+    const shellRect = previewShell.getBoundingClientRect();
+    const buttonRect = button.getBoundingClientRect();
+    sheetMenuPanel.hidden = false;
+    sheetMenuPanel.style.left = `${buttonRect.left - shellRect.left}px`;
+    sheetMenuPanel.style.top = `${buttonRect.bottom - shellRect.top + 4}px`;
+    if (sheetMenuOutsidePointerHandler) {
+      document.removeEventListener("mousedown", sheetMenuOutsidePointerHandler);
+    }
+    sheetMenuOutsidePointerHandler = (event) => {
+      if (!sheetMenuPanel.contains(event.target) && !button.contains(event.target)) {
+        closeSheetMenu();
+      }
+    };
+    window.setTimeout(() => {
+      if (sheetMenuOutsidePointerHandler) {
+        document.addEventListener("mousedown", sheetMenuOutsidePointerHandler);
+      }
+    }, 0);
+  };
+
+  sheetMenuButtons.forEach((button, menuId) => {
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!sheetMenuPanel.hidden && button.classList.contains("is-open")) {
+        closeSheetMenu();
+        return;
+      }
+      openSheetMenu(menuId, button);
+    });
+  });
+
   const toolbar = document.createElement("div");
   toolbar.className = "workspace-sheet-toolbar";
   const toolbarGroupEdit = document.createElement("div");
@@ -3452,153 +5464,97 @@ function renderSpreadsheetClonePreview(
     button.addEventListener("click", onClick);
     return button;
   };
+  const makeToolbarSelect = (label = "", options = [], onChange = null) => {
+    const select = document.createElement("select");
+    select.className = "workspace-sheet-toolbar-select";
+    select.title = label;
+    options.forEach((option) => {
+      const entry = document.createElement("option");
+      entry.value = option.value;
+      entry.textContent = option.label;
+      select.appendChild(entry);
+    });
+    select.addEventListener("change", () => {
+      onChange?.(select.value);
+      select.selectedIndex = 0;
+    });
+    return select;
+  };
+  const makeToolbarColorInput = (label = "", initialValue = "#ffffff", onChange = null) => {
+    const input = document.createElement("input");
+    input.type = "color";
+    input.className = "workspace-sheet-toolbar-color";
+    input.title = label;
+    input.value = normalizeSpreadsheetColor(initialValue) || "#ffffff";
+    input.addEventListener("change", () => {
+      onChange?.(input.value);
+    });
+    return input;
+  };
   toolbarGroupEdit.append(
-    makeToolbarButton("Undo", () => document.execCommand("undo")),
-    makeToolbarButton("Redo", () => document.execCommand("redo")),
-    makeToolbarButton("SUM", () => {
-      setRawCellValue(activeSelection.rowIndex, activeSelection.columnIndex, buildColumnFormula("SUM"));
-      commitModel(true);
-    }, true),
-    makeToolbarButton("AVG", () => {
-      setRawCellValue(activeSelection.rowIndex, activeSelection.columnIndex, buildColumnFormula("AVERAGE"));
-      commitModel(true);
+    makeToolbarButton("Undo", undoSpreadsheetAction),
+    makeToolbarButton("Redo", redoSpreadsheetAction),
+    makeToolbarButton("Cut", () => cutSelectedCells()),
+    makeToolbarButton("Copy", () => copySelectedCells()),
+    makeToolbarButton("Paste", () => {
+      pasteFromClipboard();
     }),
-    makeToolbarButton("MIN", () => {
-      setRawCellValue(activeSelection.rowIndex, activeSelection.columnIndex, buildColumnFormula("MIN"));
-      commitModel(true);
-    }),
-    makeToolbarButton("MAX", () => {
-      setRawCellValue(activeSelection.rowIndex, activeSelection.columnIndex, buildColumnFormula("MAX"));
-      commitModel(true);
-    }),
-    makeToolbarButton("COUNT", () => {
-      setRawCellValue(activeSelection.rowIndex, activeSelection.columnIndex, buildColumnFormula("COUNT"));
-      commitModel(true);
-    })
+    makeToolbarButton("SUM", () => insertFormulaInActiveCell("SUM"), true),
+    makeToolbarButton("AVG", () => insertFormulaInActiveCell("AVERAGE")),
+    makeToolbarButton("MIN", () => insertFormulaInActiveCell("MIN")),
+    makeToolbarButton("MAX", () => insertFormulaInActiveCell("MAX")),
+    makeToolbarButton("COUNT", () => insertFormulaInActiveCell("COUNT"))
   );
   toolbarGroupFormat.append(
+    makeToolbarButton("B", () => toggleSelectedTextStyle("bold")),
+    makeToolbarButton("I", () => toggleSelectedTextStyle("italic")),
+    makeToolbarButton("U", () => toggleSelectedTextStyle("underline")),
+    makeToolbarButton("L", () => setSelectedHorizontalAlign("left")),
+    makeToolbarButton("C", () => setSelectedHorizontalAlign("center")),
+    makeToolbarButton("R", () => setSelectedHorizontalAlign("right")),
+    makeToolbarSelect(
+      "Font size",
+      [
+        { value: "", label: "11" },
+        { value: "9", label: "9" },
+        { value: "10", label: "10" },
+        { value: "11", label: "11" },
+        { value: "12", label: "12" },
+        { value: "14", label: "14" },
+        { value: "16", label: "16" },
+        { value: "18", label: "18" },
+        { value: "24", label: "24" }
+      ],
+      (value) => value && setSelectedFontSize(Number(value))
+    ),
+    makeToolbarColorInput("Text color", "#202124", setSelectedTextColor),
+    makeToolbarColorInput("Fill color", "#fff2cc", setSelectedFillColor),
+    makeToolbarButton("Border", () => setSelectedBorder("all")),
     makeToolbarButton("123", () => setSelectedRangeFormat("number")),
     makeToolbarButton("EUR", () => setSelectedRangeFormat("currency")),
     makeToolbarButton("%", () => setSelectedRangeFormat("percent")),
     makeToolbarButton("Date", () => setSelectedRangeFormat("date")),
-    makeToolbarButton("Clear", () => setSelectedRangeFormat(""))
+    makeToolbarButton("Clear", clearSelectedFormatting)
   );
   toolbarGroupData.append(
-    makeToolbarButton("Sort A-Z", () => {
-      const nextModel = persistGridIntoActiveSheet();
-      const nextActiveSheet = getWorkbookActiveSheet();
-      nextActiveSheet.rows.sort((leftRow, rightRow) =>
-        String(leftRow[activeSelection.columnIndex] || "").localeCompare(String(rightRow[activeSelection.columnIndex] || ""), "fr", {
-          numeric: true,
-          sensitivity: "base"
-        })
-      );
-      nextActiveSheet.sort = { columnIndex: activeSelection.columnIndex, direction: "asc" };
-      workbookModel = nextModel;
-      persistWorkbookState(false);
-      rerenderPreview({ persistGrid: false });
-    }),
-    makeToolbarButton("Sort Z-A", () => {
-      const nextModel = persistGridIntoActiveSheet();
-      const nextActiveSheet = getWorkbookActiveSheet();
-      nextActiveSheet.rows.sort((leftRow, rightRow) =>
-        String(rightRow[activeSelection.columnIndex] || "").localeCompare(String(leftRow[activeSelection.columnIndex] || ""), "fr", {
-          numeric: true,
-          sensitivity: "base"
-        })
-      );
-      nextActiveSheet.sort = { columnIndex: activeSelection.columnIndex, direction: "desc" };
-      workbookModel = nextModel;
-      persistWorkbookState(false);
-      rerenderPreview({ persistGrid: false });
-    }),
-    makeToolbarButton("Filter", () => {
-      const nextQuery = window.prompt("Filter query", getActiveSheetState().filterQuery || "");
-      if (nextQuery === null) {
-        return;
-      }
-      const nextModel = persistGridIntoActiveSheet();
-      const nextActiveSheet = getWorkbookActiveSheet();
-      nextActiveSheet.filterQuery = String(nextQuery || "");
-      nextActiveSheet.filterColumnIndex = activeSelection.columnIndex;
-      workbookModel = nextModel;
-      persistWorkbookState(false);
-      rerenderPreview({ persistGrid: false });
-    }),
-    makeToolbarButton("Clear filter", () => {
-      const nextModel = persistGridIntoActiveSheet();
-      const nextActiveSheet = getWorkbookActiveSheet();
-      nextActiveSheet.filterQuery = "";
-      nextActiveSheet.filterColumnIndex = -1;
-      workbookModel = nextModel;
-      persistWorkbookState(false);
-      rerenderPreview({ persistGrid: false });
-    }),
-    makeToolbarButton("Freeze row", () => {
-      const nextModel = persistGridIntoActiveSheet();
-      const nextActiveSheet = getWorkbookActiveSheet();
-      nextActiveSheet.frozenRows = activeSelection.rowIndex + 1;
-      workbookModel = nextModel;
-      persistWorkbookState(false);
-      rerenderPreview({ persistGrid: false });
-    }),
-    makeToolbarButton("Freeze col", () => {
-      const nextModel = persistGridIntoActiveSheet();
-      const nextActiveSheet = getWorkbookActiveSheet();
-      nextActiveSheet.frozenColumns = activeSelection.columnIndex + 1;
-      workbookModel = nextModel;
-      persistWorkbookState(false);
-      rerenderPreview({ persistGrid: false });
-    }),
-    makeToolbarButton("Unfreeze", () => {
-      const nextModel = persistGridIntoActiveSheet();
-      const nextActiveSheet = getWorkbookActiveSheet();
-      nextActiveSheet.frozenRows = 0;
-      nextActiveSheet.frozenColumns = 0;
-      workbookModel = nextModel;
-      persistWorkbookState(false);
-      rerenderPreview({ persistGrid: false });
-    })
+    makeToolbarButton("Sort A-Z", () => sortActiveColumn("asc")),
+    makeToolbarButton("Sort Z-A", () => sortActiveColumn("desc")),
+    makeToolbarButton("Filter", filterActiveColumn),
+    makeToolbarButton("Filter value", filterBySelectedValue),
+    makeToolbarButton("Clear filter", clearActiveFilter),
+    makeToolbarButton("Dedupe", removeDuplicateRows),
+    makeToolbarButton("Trim", trimSelectedWhitespace),
+    makeToolbarButton("Split", splitTextToColumns),
+    makeToolbarButton("Transpose", transposeSelectionRange),
+    makeToolbarButton("Freeze row", freezeRowsToSelection),
+    makeToolbarButton("Freeze col", freezeColumnsToSelection),
+    makeToolbarButton("Unfreeze", unfreezeSheet)
   );
   toolbarGroupStructure.append(
-    makeToolbarButton("Insert row", () => {
-      sheetGrid.splice(activeSelection.rowIndex + 1, 0, Array.from({ length: sheetGrid[0].length }, () => ""));
-      commitModel(true);
-    }),
-    makeToolbarButton("Insert column", () => {
-      sheetGrid = sheetGrid.map((row) => {
-        const nextRow = [...row];
-        nextRow.splice(activeSelection.columnIndex + 1, 0, "");
-        return nextRow;
-      });
-      commitModel(true);
-    }),
-    makeToolbarButton("Delete row", () => {
-      if (sheetGrid.length <= 1) {
-        return;
-      }
-      sheetGrid.splice(activeSelection.rowIndex, 1);
-      activeSelection = {
-        rowIndex: Math.max(0, Math.min(activeSelection.rowIndex, sheetGrid.length - 1)),
-        columnIndex: activeSelection.columnIndex
-      };
-      commitModel(true);
-    }),
-    makeToolbarButton("Delete column", () => {
-      if ((sheetGrid[0] || []).length <= 1) {
-        return;
-      }
-      sheetGrid = sheetGrid.map((row) => {
-        const nextRow = [...row];
-        nextRow.splice(activeSelection.columnIndex, 1);
-        return nextRow;
-      });
-      activeSelection = {
-        rowIndex: activeSelection.rowIndex,
-        columnIndex: Math.max(0, Math.min(activeSelection.columnIndex, sheetGrid[0].length - 1))
-      };
-      commitModel(true);
-    }),
+    makeToolbarButton("Insert row", () => insertRowAtSelection(1)),
+    makeToolbarButton("Insert column", () => insertColumnAtSelection(1)),
+    makeToolbarButton("Delete row", deleteActiveRow),
+    makeToolbarButton("Delete column", deleteActiveColumn),
     makeToolbarButton("Merge", mergeSelectionRange),
     makeToolbarButton("Unmerge", unmergeSelectionRange)
   );
@@ -3629,10 +5585,13 @@ function renderSpreadsheetClonePreview(
   fillHandle.className = "workspace-sheet-fill-handle";
   fillHandle.setAttribute("aria-label", "Fill selection");
   fillHandle.textContent = "";
+  const clipboardOutline = document.createElement("div");
+  clipboardOutline.className = "workspace-sheet-clipboard-outline";
+  clipboardOutline.setAttribute("aria-hidden", "true");
   const contextMenu = document.createElement("div");
   contextMenu.className = "workspace-sheet-context-menu";
   contextMenu.hidden = true;
-  gridShell.append(table, fillHandle, contextMenu);
+  gridShell.append(table, clipboardOutline, fillHandle, contextMenu);
 
   const closeContextMenu = () => {
     contextMenu.hidden = true;
@@ -3666,22 +5625,302 @@ function renderSpreadsheetClonePreview(
     }, 0);
   };
 
-  const focusSelection = (rowIndex = 0, columnIndex = 0, { suppressFormulaEdit = false } = {}) => {
+  const focusSelection = (
+    rowIndex = 0,
+    columnIndex = 0,
+    { suppressFormulaEdit = false, preserveRange = false } = {}
+  ) => {
+    cellTextEditState = { active: false, rowIndex: -1, columnIndex: -1 };
     activeSelection = {
       rowIndex: Math.max(0, Math.min(rowIndex, sheetGrid.length - 1)),
       columnIndex: Math.max(0, Math.min(columnIndex, sheetGrid[0].length - 1))
     };
+    if (!preserveRange) {
+      selectionRange = {
+        startRowIndex: activeSelection.rowIndex,
+        startColumnIndex: activeSelection.columnIndex,
+        endRowIndex: activeSelection.rowIndex,
+        endColumnIndex: activeSelection.columnIndex
+      };
+    }
+    saveCurrentSelectionState();
     suppressFormulaActivation = suppressFormulaEdit;
     syncSelectionUi();
     const target = table.querySelector(`[data-sheet-grid-cell="${activeSelection.rowIndex}:${activeSelection.columnIndex}"]`);
+    preserveRangeOnNextFocus = preserveRange;
     target?.focus();
   };
 
   const moveSelection = (rowDelta = 0, columnDelta = 0) => {
-    focusSelection(activeSelection.rowIndex + rowDelta, activeSelection.columnIndex + columnDelta);
+    focusSelection(activeSelection.rowIndex + rowDelta, activeSelection.columnIndex + columnDelta, {
+      suppressFormulaEdit: true
+    });
+  };
+
+  const getCellInput = (rowIndex = activeSelection.rowIndex, columnIndex = activeSelection.columnIndex) =>
+    table.querySelector(`[data-sheet-grid-cell="${rowIndex}:${columnIndex}"]`);
+
+  const focusKeyboardSelection = (rowIndex = activeSelection.rowIndex, columnIndex = activeSelection.columnIndex) => {
+    focusSelection(rowIndex, columnIndex, { suppressFormulaEdit: true });
+  };
+
+  const extendKeyboardSelection = (rowIndex = activeSelection.rowIndex, columnIndex = activeSelection.columnIndex) => {
+    const nextRowIndex = clamp(rowIndex, 0, sheetGrid.length - 1);
+    const nextColumnIndex = clamp(columnIndex, 0, (sheetGrid[0] || []).length - 1);
+    activeSelection = { rowIndex: nextRowIndex, columnIndex: nextColumnIndex };
+    setSelectionRange({
+      startRowIndex: selectionRange.startRowIndex,
+      startColumnIndex: selectionRange.startColumnIndex,
+      endRowIndex: nextRowIndex,
+      endColumnIndex: nextColumnIndex
+    });
+    preserveRangeOnNextFocus = true;
+    suppressFormulaActivation = true;
+    syncSelectionUi();
+    getCellInput(nextRowIndex, nextColumnIndex)?.focus();
+  };
+
+  const moveKeyboardSelection = (rowIndex = activeSelection.rowIndex, columnIndex = activeSelection.columnIndex, { extend = false } = {}) => {
+    if (extend) {
+      extendKeyboardSelection(rowIndex, columnIndex);
+      return;
+    }
+    focusKeyboardSelection(rowIndex, columnIndex);
+  };
+
+  const findDataBoundary = (rowDelta = 0, columnDelta = 0) => {
+    const rowLimit = rowDelta > 0 ? sheetGrid.length - 1 : 0;
+    const columnLimit = columnDelta > 0 ? (sheetGrid[0] || []).length - 1 : 0;
+    const isFilled = (rowIndex, columnIndex) => String(getRawCellValue(rowIndex, columnIndex) || "").trim().length > 0;
+
+    if (rowDelta) {
+      let rowIndex = activeSelection.rowIndex;
+      const columnIndex = activeSelection.columnIndex;
+      const startsFilled = isFilled(rowIndex, columnIndex);
+      while (rowIndex !== rowLimit) {
+        const nextRowIndex = rowIndex + rowDelta;
+        const nextFilled = isFilled(nextRowIndex, columnIndex);
+        if (startsFilled && !nextFilled) {
+          return { rowIndex, columnIndex };
+        }
+        if (!startsFilled && nextFilled) {
+          return { rowIndex: nextRowIndex, columnIndex };
+        }
+        rowIndex = nextRowIndex;
+      }
+      return { rowIndex: rowLimit, columnIndex };
+    }
+
+    let columnIndex = activeSelection.columnIndex;
+    const rowIndex = activeSelection.rowIndex;
+    const startsFilled = isFilled(rowIndex, columnIndex);
+    while (columnIndex !== columnLimit) {
+      const nextColumnIndex = columnIndex + columnDelta;
+      const nextFilled = isFilled(rowIndex, nextColumnIndex);
+      if (startsFilled && !nextFilled) {
+        return { rowIndex, columnIndex };
+      }
+      if (!startsFilled && nextFilled) {
+        return { rowIndex, columnIndex: nextColumnIndex };
+      }
+      columnIndex = nextColumnIndex;
+    }
+    return { rowIndex, columnIndex: columnLimit };
+  };
+
+  const selectUsedRange = () => {
+    const lastUsedCell = getLastUsedCell();
+    activeSelection = { rowIndex: 0, columnIndex: 0 };
+    setSelectionRange({
+      startRowIndex: 0,
+      startColumnIndex: 0,
+      endRowIndex: lastUsedCell.rowIndex,
+      endColumnIndex: lastUsedCell.columnIndex
+    });
+    preserveRangeOnNextFocus = true;
+    suppressFormulaActivation = true;
+    syncSelectionUi();
+    getCellInput(0, 0)?.focus();
+  };
+
+  const selectAllVisibleCells = () => {
+    activeSelection = { rowIndex: 0, columnIndex: 0 };
+    setSelectionRange({
+      startRowIndex: 0,
+      startColumnIndex: 0,
+      endRowIndex: sheetGrid.length - 1,
+      endColumnIndex: (sheetGrid[0] || []).length - 1
+    });
+    preserveRangeOnNextFocus = true;
+    suppressFormulaActivation = true;
+    syncSelectionUi();
+    getCellInput(0, 0)?.focus();
+  };
+
+  const selectActiveColumn = () => {
+    setSelectionRange({
+      startRowIndex: 0,
+      startColumnIndex: activeSelection.columnIndex,
+      endRowIndex: sheetGrid.length - 1,
+      endColumnIndex: activeSelection.columnIndex
+    });
+    preserveRangeOnNextFocus = true;
+    suppressFormulaActivation = true;
+    syncSelectionUi();
+    getCellInput(activeSelection.rowIndex, activeSelection.columnIndex)?.focus();
+  };
+
+  const selectActiveRow = () => {
+    setSelectionRange({
+      startRowIndex: activeSelection.rowIndex,
+      startColumnIndex: 0,
+      endRowIndex: activeSelection.rowIndex,
+      endColumnIndex: (sheetGrid[0] || []).length - 1
+    });
+    preserveRangeOnNextFocus = true;
+    suppressFormulaActivation = true;
+    syncSelectionUi();
+    getCellInput(activeSelection.rowIndex, activeSelection.columnIndex)?.focus();
+  };
+
+  const beginCellTextEdit = ({ initialValue = null, selectAll = false } = {}) => {
+    const input = getCellInput();
+    if (!input) {
+      return false;
+    }
+    clearScheduledCommit();
+    setStoredClipboardPayload(null);
+    beginSpreadsheetHistoryTransaction();
+    cellTextEditState = {
+      active: true,
+      rowIndex: activeSelection.rowIndex,
+      columnIndex: activeSelection.columnIndex
+    };
+    const nextValue = initialValue === null ? getRawCellValue(activeSelection.rowIndex, activeSelection.columnIndex) : initialValue;
+    setRawCellValue(activeSelection.rowIndex, activeSelection.columnIndex, nextValue);
+    input.focus();
+    input.value = nextValue;
+    formulaInput.value = nextValue;
+    syncFormulaEditorState({
+      mode: "cell",
+      rowIndex: activeSelection.rowIndex,
+      columnIndex: activeSelection.columnIndex,
+      input
+    });
+    if (typeof input.setSelectionRange === "function") {
+      if (selectAll) {
+        input.setSelectionRange(0, input.value.length);
+      } else {
+        input.setSelectionRange(input.value.length, input.value.length);
+      }
+    }
+    if (initialValue !== null) {
+      scheduleCommit();
+    }
+    return true;
+  };
+
+  const commitActiveCellTextEdit = () => {
+    if (!cellTextEditState.active) {
+      return false;
+    }
+    clearScheduledCommit();
+    const input = getCellInput(cellTextEditState.rowIndex, cellTextEditState.columnIndex);
+    if (input) {
+      setRawCellValue(cellTextEditState.rowIndex, cellTextEditState.columnIndex, input.value);
+    }
+    cellTextEditState = { active: false, rowIndex: -1, columnIndex: -1 };
+    commitModel(false, { beforeSnapshot: editHistorySnapshot });
+    refreshGridValues({ preserveActiveEditor: false });
+    return true;
+  };
+
+  const cancelActiveCellTextEdit = () => {
+    if (!cellTextEditState.active) {
+      return false;
+    }
+    clearScheduledCommit();
+    const snapshot = editHistorySnapshot ? cloneSpreadsheetSnapshot(editHistorySnapshot) : null;
+    cellTextEditState = { active: false, rowIndex: -1, columnIndex: -1 };
+    if (snapshot) {
+      applySpreadsheetHistorySnapshot(snapshot);
+    } else {
+      refreshGridValues({ preserveActiveEditor: false });
+    }
+    return true;
+  };
+
+  const fillSelectionFromEdge = (direction = "down") => {
+    const { minRow, maxRow, minColumn, maxColumn } = getSelectionBounds();
+    const vertical = direction === "down";
+    if ((vertical && maxRow <= minRow) || (!vertical && maxColumn <= minColumn)) {
+      return false;
+    }
+    clearScheduledCommit();
+    setStoredClipboardPayload(null);
+    persistGridIntoActiveSheet();
+    const beforeSnapshot = getWorkbookSnapshot();
+    for (let rowIndex = minRow; rowIndex <= maxRow; rowIndex += 1) {
+      for (let columnIndex = minColumn; columnIndex <= maxColumn; columnIndex += 1) {
+        if ((vertical && rowIndex === minRow) || (!vertical && columnIndex === minColumn)) {
+          continue;
+        }
+        const sourceRowIndex = vertical ? minRow : rowIndex;
+        const sourceColumnIndex = vertical ? columnIndex : minColumn;
+        const sourceValue = getRawCellValue(sourceRowIndex, sourceColumnIndex);
+        const nextValue = sourceValue.startsWith("=")
+          ? shiftFormulaReferences(sourceValue, rowIndex - sourceRowIndex, columnIndex - sourceColumnIndex)
+          : sourceValue;
+        setRawCellValue(rowIndex, columnIndex, nextValue);
+        setCellFormat(rowIndex, columnIndex, getCellFormat(sourceRowIndex, sourceColumnIndex));
+      }
+    }
+    commitModel(false, { beforeSnapshot });
+    refreshGridValues({ preserveActiveEditor: false });
+    return true;
+  };
+
+  const syncClipboardOutlineUi = () => {
+    const payload = getStoredClipboardPayload();
+    const source = payload?.source;
+    if (
+      !source ||
+      payload.kind !== "hydria-sheet-clipboard" ||
+      source.sheetId !== workbookModel.activeSheetId ||
+      source.rowCount <= 0 ||
+      source.columnCount <= 0
+    ) {
+      clipboardOutline.hidden = true;
+      return;
+    }
+
+    const startCell = table.querySelector(`[data-sheet-grid-cell="${source.minRow}:${source.minColumn}"]`);
+    const endCell = table.querySelector(
+      `[data-sheet-grid-cell="${source.minRow + source.rowCount - 1}:${source.minColumn + source.columnCount - 1}"]`
+    );
+    if (!startCell || !endCell) {
+      clipboardOutline.hidden = true;
+      return;
+    }
+
+    const startRect = startCell.getBoundingClientRect();
+    const endRect = endCell.getBoundingClientRect();
+    const shellRect = gridShell.getBoundingClientRect();
+    const left = Math.min(startRect.left, endRect.left) - shellRect.left + gridShell.scrollLeft - 1;
+    const top = Math.min(startRect.top, endRect.top) - shellRect.top + gridShell.scrollTop - 1;
+    const width = Math.abs(endRect.right - startRect.left) + 2;
+    const height = Math.abs(endRect.bottom - startRect.top) + 2;
+
+    clipboardOutline.hidden = false;
+    clipboardOutline.className = `workspace-sheet-clipboard-outline${payload.mode === "cut" ? " is-cut" : ""}`;
+    clipboardOutline.style.left = `${left}px`;
+    clipboardOutline.style.top = `${top}px`;
+    clipboardOutline.style.width = `${Math.max(8, width)}px`;
+    clipboardOutline.style.height = `${Math.max(8, height)}px`;
   };
 
   const syncSelectionUi = () => {
+    saveCurrentSelectionState();
     nameBox.value = `${columnLetter(activeSelection.columnIndex)}${activeSelection.rowIndex + 1}`;
     const rawValue = getRawCellValue(activeSelection.rowIndex, activeSelection.columnIndex);
     if (document.activeElement !== formulaInput || formulaInput.value !== rawValue) {
@@ -3711,6 +5950,7 @@ function renderSpreadsheetClonePreview(
     table
       .querySelector(`[data-sheet-row-label="${activeSelection.rowIndex}"]`)
       ?.classList.add("is-selected");
+    syncClipboardOutlineUi();
     updateFormulaReferenceHighlights();
     const rangeTarget = table.querySelector(`[data-sheet-grid-cell="${maxRow}:${maxColumn}"]`);
     const targetRect = rangeTarget?.getBoundingClientRect();
@@ -3724,11 +5964,12 @@ function renderSpreadsheetClonePreview(
     }
   };
 
-  const refreshGridValues = () => {
+  const refreshGridValues = ({ preserveActiveEditor = true } = {}) => {
     table.querySelectorAll("[data-sheet-grid-cell]").forEach((input) => {
       const rowIndex = Number(input.dataset.rowIndex || 0);
       const columnIndex = Number(input.dataset.columnIndex || 0);
       if (
+        preserveActiveEditor &&
         rowIndex === activeSelection.rowIndex &&
         columnIndex === activeSelection.columnIndex &&
         document.activeElement === input
@@ -3743,6 +5984,10 @@ function renderSpreadsheetClonePreview(
         columnIndex
       );
       input.value = displayValue;
+      const wrapper = input.closest("td");
+      if (wrapper) {
+        applyCellVisualFormat(input, wrapper, rowIndex, columnIndex);
+      }
     });
     applyFilterVisibility();
     applyFreezeState();
@@ -3884,6 +6129,20 @@ function renderSpreadsheetClonePreview(
       syncSelectionUi();
       openContextMenu(event.clientX, event.clientY, [
         {
+          label: "Cut",
+          onSelect: () => cutSelectedCells()
+        },
+        {
+          label: "Copy",
+          onSelect: () => copySelectedCells()
+        },
+        {
+          label: "Paste",
+          onSelect: () => {
+            pasteFromClipboard();
+          }
+        },
+        {
           label: "Insert column right",
           onSelect: () => {
             sheetGrid = sheetGrid.map((row) => {
@@ -3978,6 +6237,20 @@ function renderSpreadsheetClonePreview(
       syncSelectionUi();
       openContextMenu(event.clientX, event.clientY, [
         {
+          label: "Cut",
+          onSelect: () => cutSelectedCells()
+        },
+        {
+          label: "Copy",
+          onSelect: () => copySelectedCells()
+        },
+        {
+          label: "Paste",
+          onSelect: () => {
+            pasteFromClipboard();
+          }
+        },
+        {
           label: "Insert row below",
           onSelect: () => {
             sheetGrid.splice(rowIndex + 1, 0, Array.from({ length: sheetGrid[0].length }, () => ""));
@@ -4051,6 +6324,8 @@ function renderSpreadsheetClonePreview(
         rowIndex,
         columnIndex
       );
+      applyCellVisualFormat(input, td, rowIndex, columnIndex);
+      let preserveFormulaDisplayOnBlur = false;
       if (merge && isMergeAnchor(rowIndex, columnIndex)) {
         input.style.minHeight = `${Array.from({ length: merge.rowSpan }, (_, offset) => getRowHeight(rowIndex + offset)).reduce((sum, value) => sum + value, 0) - 2}px`;
       }
@@ -4062,6 +6337,7 @@ function renderSpreadsheetClonePreview(
           return;
         }
         if (event.detail >= 2) {
+          cellTextEditState = { active: true, rowIndex, columnIndex };
           setSelectionRange({
             startRowIndex: rowIndex,
             startColumnIndex: columnIndex,
@@ -4094,7 +6370,7 @@ function renderSpreadsheetClonePreview(
         };
         document.addEventListener("mousemove", handleSelectionDragMove);
         document.addEventListener("mouseup", handleSelectionDragEnd);
-        focusSelection(rowIndex, columnIndex, { suppressFormulaEdit: true });
+        focusSelection(rowIndex, columnIndex, { suppressFormulaEdit: true, preserveRange: true });
       });
       input.addEventListener("contextmenu", (event) => {
         event.preventDefault();
@@ -4116,6 +6392,20 @@ function renderSpreadsheetClonePreview(
         }
         openContextMenu(event.clientX, event.clientY, [
           {
+            label: "Cut",
+            onSelect: () => cutSelectedCells()
+          },
+          {
+            label: "Copy",
+            onSelect: () => copySelectedCells()
+          },
+          {
+            label: "Paste",
+            onSelect: () => {
+              pasteFromClipboard();
+            }
+          },
+          {
             label: "Merge selected cells",
             onSelect: mergeSelectionRange
           },
@@ -4125,13 +6415,15 @@ function renderSpreadsheetClonePreview(
           },
           {
             label: "Clear contents",
-            onSelect: () => {
-              forEachSelectedCell((selectedRowIndex, selectedColumnIndex) => {
-                setRawCellValue(selectedRowIndex, selectedColumnIndex, "");
-              });
-              commitModel(false);
-              refreshGridValues();
-            }
+            onSelect: clearSelectedCells
+          },
+          {
+            label: "Bold",
+            onSelect: () => toggleSelectedTextStyle("bold")
+          },
+          {
+            label: "Italic",
+            onSelect: () => toggleSelectedTextStyle("italic")
           },
           {
             label: "Format number",
@@ -4148,13 +6440,23 @@ function renderSpreadsheetClonePreview(
           {
             label: "Format date",
             onSelect: () => setSelectedRangeFormat("date")
+          },
+          {
+            label: "Fill yellow",
+            onSelect: () => setSelectedFillColor("#fff2cc")
+          },
+          {
+            label: "All borders",
+            onSelect: () => setSelectedBorder("all")
           }
         ]);
       });
       input.addEventListener("focus", () => {
+        beginSpreadsheetHistoryTransaction();
         activeSelection = { rowIndex, columnIndex };
         const rawCellValue = getRawCellValue(rowIndex, columnIndex);
         if (suppressFormulaActivation) {
+          preserveFormulaDisplayOnBlur = rawCellValue.startsWith("=");
           input.value = rawCellValue.startsWith("=")
             ? formatFormulaResult(evaluateCellValue(rowIndex, columnIndex))
             : rawCellValue;
@@ -4168,10 +6470,11 @@ function renderSpreadsheetClonePreview(
           };
           suppressFormulaActivation = false;
         } else {
+          preserveFormulaDisplayOnBlur = false;
           input.value = rawCellValue;
           syncFormulaEditorState({ mode: "cell", rowIndex, columnIndex, input });
         }
-        if (!selectionDragState.active) {
+        if (!selectionDragState.active && !preserveRangeOnNextFocus) {
           setSelectionRange({
             startRowIndex: rowIndex,
             startColumnIndex: columnIndex,
@@ -4179,9 +6482,12 @@ function renderSpreadsheetClonePreview(
             endColumnIndex: columnIndex
           });
         }
+        preserveRangeOnNextFocus = false;
         syncSelectionUi();
       });
       input.addEventListener("input", (event) => {
+        beginSpreadsheetHistoryTransaction();
+        preserveFormulaDisplayOnBlur = false;
         setRawCellValue(rowIndex, columnIndex, event.target.value);
         syncFormulaEditorState({ mode: "cell", rowIndex, columnIndex, input: event.target });
         if (activeSelection.rowIndex === rowIndex && activeSelection.columnIndex === columnIndex) {
@@ -4192,14 +6498,32 @@ function renderSpreadsheetClonePreview(
       });
       ["click", "keyup", "select"].forEach((eventName) => {
         input.addEventListener(eventName, () => {
+          if (preserveFormulaDisplayOnBlur) {
+            return;
+          }
           syncFormulaEditorState({ mode: "cell", rowIndex, columnIndex, input });
         });
       });
       input.addEventListener("blur", () => {
-        setRawCellValue(rowIndex, columnIndex, input.value);
+        if (suppressRerenderBlurCommit || !previewShell.isConnected) {
+          preserveFormulaDisplayOnBlur = false;
+          return;
+        }
+        if (
+          !preserveFormulaDisplayOnBlur ||
+          (cellTextEditState.active &&
+            cellTextEditState.rowIndex === rowIndex &&
+            cellTextEditState.columnIndex === columnIndex)
+        ) {
+          setRawCellValue(rowIndex, columnIndex, input.value);
+        }
+        preserveFormulaDisplayOnBlur = false;
         syncFormulaEditorState({ mode: "cell", rowIndex, columnIndex, input });
-        commitModel(false);
+        commitModel(false, { beforeSnapshot: editHistorySnapshot });
         refreshGridValues();
+        if (cellTextEditState.rowIndex === rowIndex && cellTextEditState.columnIndex === columnIndex) {
+          cellTextEditState = { active: false, rowIndex: -1, columnIndex: -1 };
+        }
       });
       input.addEventListener("keydown", (event) => {
         if (event.key === "Enter") {
@@ -4262,6 +6586,7 @@ function renderSpreadsheetClonePreview(
   });
 
   formulaInput.addEventListener("input", (event) => {
+    beginSpreadsheetHistoryTransaction();
     setRawCellValue(activeSelection.rowIndex, activeSelection.columnIndex, event.target.value);
     syncFormulaEditorState({
       mode: "formula",
@@ -4273,6 +6598,7 @@ function renderSpreadsheetClonePreview(
     refreshGridValues();
   });
   formulaInput.addEventListener("focus", (event) => {
+    beginSpreadsheetHistoryTransaction();
     syncFormulaEditorState({
       mode: "formula",
       rowIndex: activeSelection.rowIndex,
@@ -4294,19 +6620,272 @@ function renderSpreadsheetClonePreview(
   formulaInput.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
       event.preventDefault();
-      commitModel(false);
+      commitModel(false, { beforeSnapshot: editHistorySnapshot });
       focusSelection(activeSelection.rowIndex, activeSelection.columnIndex, { suppressFormulaEdit: true });
     }
   });
   formulaInput.addEventListener("blur", () => {
+    if (suppressRerenderBlurCommit || !previewShell.isConnected) {
+      return;
+    }
     syncFormulaEditorState({
       mode: "formula",
       rowIndex: activeSelection.rowIndex,
       columnIndex: activeSelection.columnIndex,
       input: formulaInput
     });
-    commitModel(false);
+    commitModel(false, { beforeSnapshot: editHistorySnapshot });
     refreshGridValues();
+  });
+
+  const sheetIsKeyboardContext = (event) => {
+    const eventPath = typeof event.composedPath === "function" ? event.composedPath() : [];
+    const targetIsInsideSheet =
+      eventPath.includes(previewShell) || previewShell.contains(event.target);
+    return (
+      previewShell.isConnected &&
+      (targetIsInsideSheet ||
+        previewShell.contains(document.activeElement) ||
+        document.activeElement === document.body)
+    );
+  };
+
+  const stopSpreadsheetClipboardEvent = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation?.();
+  };
+
+  const stopSpreadsheetKeyboardEvent = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation?.();
+  };
+
+  const shouldUseNativeSpreadsheetKeyboard = (event) => {
+    const target = event.target;
+    if (!target || !previewShell.contains(target)) {
+      return false;
+    }
+    if (target === formulaInput || target === nameBox || target.isContentEditable) {
+      return true;
+    }
+    if (target.matches?.("textarea")) {
+      return true;
+    }
+    if (target.matches?.("input") && !target.classList.contains("workspace-sheet-cell-input")) {
+      return true;
+    }
+    return false;
+  };
+
+  const getKeyboardMoveTarget = (event) => {
+    const pageStep = Math.max(1, Math.floor((gridShell.clientHeight || 340) / Math.max(1, getRowHeight(activeSelection.rowIndex))) - 2);
+    const lastUsedCell = getLastUsedCell();
+    switch (event.key) {
+      case "ArrowUp":
+        return event.ctrlKey || event.metaKey
+          ? findDataBoundary(-1, 0)
+          : { rowIndex: activeSelection.rowIndex - 1, columnIndex: activeSelection.columnIndex };
+      case "ArrowDown":
+        return event.ctrlKey || event.metaKey
+          ? findDataBoundary(1, 0)
+          : { rowIndex: activeSelection.rowIndex + 1, columnIndex: activeSelection.columnIndex };
+      case "ArrowLeft":
+        return event.ctrlKey || event.metaKey
+          ? findDataBoundary(0, -1)
+          : { rowIndex: activeSelection.rowIndex, columnIndex: activeSelection.columnIndex - 1 };
+      case "ArrowRight":
+        return event.ctrlKey || event.metaKey
+          ? findDataBoundary(0, 1)
+          : { rowIndex: activeSelection.rowIndex, columnIndex: activeSelection.columnIndex + 1 };
+      case "Home":
+        return event.ctrlKey || event.metaKey
+          ? { rowIndex: 0, columnIndex: 0 }
+          : { rowIndex: activeSelection.rowIndex, columnIndex: 0 };
+      case "End":
+        return event.ctrlKey || event.metaKey
+          ? lastUsedCell
+          : { rowIndex: activeSelection.rowIndex, columnIndex: getRowLastUsedColumn(activeSelection.rowIndex) };
+      case "PageUp":
+        return { rowIndex: activeSelection.rowIndex - pageStep, columnIndex: activeSelection.columnIndex };
+      case "PageDown":
+        return { rowIndex: activeSelection.rowIndex + pageStep, columnIndex: activeSelection.columnIndex };
+      default:
+        return null;
+    }
+  };
+
+  const handleSpreadsheetKeyboardShortcut = (event) => {
+    if (cellTextEditState.active) {
+      if (event.key === "Escape") {
+        stopSpreadsheetKeyboardEvent(event);
+        cancelActiveCellTextEdit();
+        return true;
+      }
+      if (event.key === "Enter") {
+        stopSpreadsheetKeyboardEvent(event);
+        const rowDelta = event.shiftKey ? -1 : 1;
+        commitActiveCellTextEdit();
+        focusKeyboardSelection(activeSelection.rowIndex + rowDelta, activeSelection.columnIndex);
+        return true;
+      }
+      if (event.key === "Tab") {
+        stopSpreadsheetKeyboardEvent(event);
+        const columnDelta = event.shiftKey ? -1 : 1;
+        commitActiveCellTextEdit();
+        focusKeyboardSelection(activeSelection.rowIndex, activeSelection.columnIndex + columnDelta);
+        return true;
+      }
+      return false;
+    }
+
+    if (shouldUseNativeSpreadsheetKeyboard(event)) {
+      return false;
+    }
+
+    if (event.key === "Escape" && !sheetMenuPanel.hidden) {
+      stopSpreadsheetKeyboardEvent(event);
+      closeSheetMenu();
+      return true;
+    }
+
+    if (event.key === "Escape" && getStoredClipboardPayload()) {
+      stopSpreadsheetKeyboardEvent(event);
+      setStoredClipboardPayload(null);
+      syncSelectionUi();
+      return true;
+    }
+
+    const key = String(event.key || "").toLowerCase();
+    const hasCommandModifier = event.ctrlKey || event.metaKey;
+
+    if (hasCommandModifier) {
+      if (key === "z" && !event.shiftKey) {
+        stopSpreadsheetKeyboardEvent(event);
+        undoSpreadsheetAction();
+        return true;
+      }
+      if (key === "y" || (key === "z" && event.shiftKey)) {
+        stopSpreadsheetKeyboardEvent(event);
+        redoSpreadsheetAction();
+        return true;
+      }
+      if (key === "a") {
+        stopSpreadsheetKeyboardEvent(event);
+        selectUsedRange();
+        return true;
+      }
+      if (event.code === "Space") {
+        stopSpreadsheetKeyboardEvent(event);
+        if (event.shiftKey) {
+          selectAllVisibleCells();
+        } else {
+          selectActiveColumn();
+        }
+        return true;
+      }
+      if (key === "d") {
+        stopSpreadsheetKeyboardEvent(event);
+        fillSelectionFromEdge("down");
+        return true;
+      }
+      if (key === "r") {
+        stopSpreadsheetKeyboardEvent(event);
+        fillSelectionFromEdge("right");
+        return true;
+      }
+      if (key === "b") {
+        stopSpreadsheetKeyboardEvent(event);
+        toggleSelectedTextStyle("bold");
+        return true;
+      }
+      if (key === "i") {
+        stopSpreadsheetKeyboardEvent(event);
+        toggleSelectedTextStyle("italic");
+        return true;
+      }
+      if (key === "u") {
+        stopSpreadsheetKeyboardEvent(event);
+        toggleSelectedTextStyle("underline");
+        return true;
+      }
+    }
+
+    if (!hasCommandModifier && event.shiftKey && event.code === "Space") {
+      stopSpreadsheetKeyboardEvent(event);
+      selectActiveRow();
+      return true;
+    }
+
+    const moveTarget = getKeyboardMoveTarget(event);
+    if (moveTarget) {
+      stopSpreadsheetKeyboardEvent(event);
+      moveKeyboardSelection(moveTarget.rowIndex, moveTarget.columnIndex, { extend: event.shiftKey });
+      return true;
+    }
+
+    if (event.key === "Enter") {
+      stopSpreadsheetKeyboardEvent(event);
+      focusKeyboardSelection(activeSelection.rowIndex + (event.shiftKey ? -1 : 1), activeSelection.columnIndex);
+      return true;
+    }
+
+    if (event.key === "Tab") {
+      stopSpreadsheetKeyboardEvent(event);
+      focusKeyboardSelection(activeSelection.rowIndex, activeSelection.columnIndex + (event.shiftKey ? -1 : 1));
+      return true;
+    }
+
+    if (event.key === "Delete" || event.key === "Backspace") {
+      stopSpreadsheetKeyboardEvent(event);
+      clearSelectedCells();
+      return true;
+    }
+
+    if (event.key === "F2") {
+      stopSpreadsheetKeyboardEvent(event);
+      beginCellTextEdit();
+      return true;
+    }
+
+    if (!event.altKey && !hasCommandModifier && event.key.length === 1) {
+      stopSpreadsheetKeyboardEvent(event);
+      beginCellTextEdit({ initialValue: event.key });
+      return true;
+    }
+
+    return false;
+  };
+
+  registerSpreadsheetShortcutHandler(historyKey, previewShell, {
+    keydown: (event) => {
+      if (!sheetIsKeyboardContext(event)) {
+        return;
+      }
+      handleSpreadsheetKeyboardShortcut(event);
+    },
+    copy: (event) => {
+      if (!sheetIsKeyboardContext(event) || shouldUseNativeTextClipboard(event)) {
+        return;
+      }
+      stopSpreadsheetClipboardEvent(event);
+      copySelectedCells(event.clipboardData);
+    },
+    cut: (event) => {
+      if (!sheetIsKeyboardContext(event) || shouldUseNativeTextClipboard(event)) {
+        return;
+      }
+      stopSpreadsheetClipboardEvent(event);
+      cutSelectedCells(event.clipboardData);
+    },
+    paste: (event) => {
+      if (!sheetIsKeyboardContext(event) || shouldUseNativeTextClipboard(event)) {
+        return;
+      }
+      stopSpreadsheetClipboardEvent(event);
+      pasteFromClipboard(event.clipboardData);
+    }
   });
 
   const bottomBar = document.createElement("div");
@@ -4351,7 +6930,7 @@ function renderSpreadsheetClonePreview(
       }
       persistGridIntoActiveSheet();
       workbookModel.activeSheetId = sheet.id;
-      persistWorkbookState(false);
+      persistWorkbookState(false, { trackHistory: false });
       rerenderPreview({ persistGrid: false });
     });
     sheetTab.addEventListener("dblclick", () => {

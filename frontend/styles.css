@@ -3206,6 +3206,7 @@ textarea {
 }
 
 .workspace-sheet-app {
+  position: relative;
   display: grid;
   gap: 0;
   border: 1px solid #dadce0;
@@ -3267,15 +3268,83 @@ textarea {
 }
 
 .workspace-sheet-menu-button:hover,
+.workspace-sheet-menu-button.is-open,
 .workspace-sheet-toolbar-button:hover,
 .workspace-sheet-tab-pill:hover,
 .workspace-sheet-add-button:hover {
   background: rgba(32, 33, 36, 0.06);
 }
 
+.workspace-sheet-menu-panel {
+  position: absolute;
+  z-index: 30;
+  display: grid;
+  min-width: 190px;
+  padding: 6px;
+  border: 1px solid #dadce0;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 12px 28px rgba(60, 64, 67, 0.18);
+}
+
+.workspace-sheet-menu-panel[hidden] {
+  display: none;
+}
+
+.workspace-sheet-menu-action {
+  appearance: none;
+  width: 100%;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #202124;
+  cursor: pointer;
+  font: inherit;
+  padding: 0.45rem 0.6rem;
+  text-align: left;
+}
+
+.workspace-sheet-menu-action:hover,
+.workspace-sheet-menu-action:focus {
+  outline: none;
+  background: rgba(26, 115, 232, 0.08);
+}
+
+.workspace-sheet-menu-action:disabled {
+  color: #9aa0a6;
+  cursor: not-allowed;
+}
+
+.workspace-sheet-menu-separator {
+  height: 1px;
+  margin: 6px 4px;
+  background: #eceff1;
+}
+
 .workspace-sheet-toolbar-button {
   border-color: #dadce0;
   background: #ffffff;
+}
+
+.workspace-sheet-toolbar-select,
+.workspace-sheet-toolbar-color {
+  min-height: 34px;
+  border: 1px solid #dadce0;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #202124;
+  font: inherit;
+}
+
+.workspace-sheet-toolbar-select {
+  min-width: 56px;
+  padding: 0.35rem 0.45rem;
+}
+
+.workspace-sheet-toolbar-color {
+  width: 36px;
+  padding: 3px;
+  cursor: pointer;
 }
 
 .workspace-sheet-toolbar-button.accent {
@@ -3356,8 +3425,8 @@ textarea {
   min-height: 34px;
   border: 0;
   border-radius: 0;
-  background: transparent;
-  color: #202124;
+  background: var(--sheet-cell-fill, transparent);
+  color: var(--sheet-cell-color, #202124);
   font: inherit;
   padding: 0.45rem 0.55rem;
 }
@@ -3369,28 +3438,65 @@ textarea {
 .workspace-sheet-header-cell-input:focus,
 .workspace-sheet-cell-input:focus {
   outline: none;
-  background: rgba(26, 115, 232, 0.05);
+  background:
+    linear-gradient(rgba(26, 115, 232, 0.05), rgba(26, 115, 232, 0.05)),
+    var(--sheet-cell-fill, transparent);
 }
 
 .workspace-sheet-header-cell-input.is-selected,
 .workspace-sheet-cell-input.is-selected {
-  background: rgba(26, 115, 232, 0.12);
+  background:
+    linear-gradient(rgba(26, 115, 232, 0.12), rgba(26, 115, 232, 0.12)),
+    var(--sheet-cell-fill, transparent);
   box-shadow: inset 0 0 0 2px rgba(26, 115, 232, 0.45);
 }
 
 .workspace-sheet-cell-input.is-range-selected {
-  background: rgba(26, 115, 232, 0.08);
+  background:
+    linear-gradient(rgba(26, 115, 232, 0.08), rgba(26, 115, 232, 0.08)),
+    var(--sheet-cell-fill, transparent);
   box-shadow: inset 0 0 0 1px rgba(26, 115, 232, 0.24);
 }
 
 .workspace-sheet-cell-input.is-formula-reference {
-  background: rgba(15, 157, 88, 0.12);
+  background:
+    linear-gradient(rgba(15, 157, 88, 0.12), rgba(15, 157, 88, 0.12)),
+    var(--sheet-cell-fill, transparent);
   box-shadow: inset 0 0 0 2px rgba(15, 157, 88, 0.42);
 }
 
 .workspace-sheet-cell-input.is-fill-preview {
-  background: rgba(26, 115, 232, 0.08);
+  background:
+    linear-gradient(rgba(26, 115, 232, 0.08), rgba(26, 115, 232, 0.08)),
+    var(--sheet-cell-fill, transparent);
   box-shadow: inset 0 0 0 2px rgba(26, 115, 232, 0.28);
+}
+
+.workspace-sheet-clipboard-outline {
+  position: absolute;
+  z-index: 8;
+  pointer-events: none;
+  box-sizing: border-box;
+  border: 2px dashed #188038;
+  border-radius: 2px;
+  background: rgba(24, 128, 56, 0.04);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.9);
+  animation: workspace-sheet-clipboard-march 0.85s linear infinite;
+}
+
+.workspace-sheet-clipboard-outline.is-cut {
+  border-color: #f29900;
+  background: rgba(242, 153, 0, 0.06);
+}
+
+.workspace-sheet-clipboard-outline[hidden] {
+  display: none;
+}
+
+@keyframes workspace-sheet-clipboard-march {
+  50% {
+    border-style: dotted;
+  }
 }
 
 .workspace-sheet-fill-handle {
@@ -4337,8 +4443,8 @@ textarea {
   min-height: 38px;
   border: 0;
   border-radius: 0;
-  background: transparent;
-  color: #202124;
+  background: var(--sheet-cell-fill, transparent);
+  color: var(--sheet-cell-color, #202124);
   padding: 0.55rem 0.65rem;
 }
 
@@ -4350,22 +4456,30 @@ textarea {
 .workspace-sheet-header-input:focus,
 .workspace-sheet-cell-input:focus {
   outline: none;
-  background: rgba(26, 115, 232, 0.06);
+  background:
+    linear-gradient(rgba(26, 115, 232, 0.06), rgba(26, 115, 232, 0.06)),
+    var(--sheet-cell-fill, transparent);
 }
 
 .workspace-sheet-header-input.is-selected,
 .workspace-sheet-cell-input.is-selected {
-  background: rgba(26, 115, 232, 0.12);
+  background:
+    linear-gradient(rgba(26, 115, 232, 0.12), rgba(26, 115, 232, 0.12)),
+    var(--sheet-cell-fill, transparent);
   box-shadow: inset 0 0 0 2px rgba(26, 115, 232, 0.42);
 }
 
 .workspace-sheet-cell-input.is-range-selected {
-  background: rgba(26, 115, 232, 0.08);
+  background:
+    linear-gradient(rgba(26, 115, 232, 0.08), rgba(26, 115, 232, 0.08)),
+    var(--sheet-cell-fill, transparent);
   box-shadow: inset 0 0 0 1px rgba(26, 115, 232, 0.24);
 }
 
 .workspace-sheet-cell-input.is-formula-reference {
-  background: rgba(15, 157, 88, 0.12);
+  background:
+    linear-gradient(rgba(15, 157, 88, 0.12), rgba(15, 157, 88, 0.12)),
+    var(--sheet-cell-fill, transparent);
   box-shadow: inset 0 0 0 2px rgba(15, 157, 88, 0.42);
 }
 

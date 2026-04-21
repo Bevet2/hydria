@@ -15,13 +15,14 @@ import chatRouter from "./routes/chat.js";
 import artifactsRouter from "./routes/artifacts.js";
 import workObjectsRouter from "./routes/workObjects.js";
 import projectsRouter from "./routes/projects.js";
+import sheetsRouter from "./routes/sheets.js";
 
 initDatabase();
 
 const app = express();
 
 app.use(cors());
-app.use(express.json({ limit: "1mb" }));
+app.use(express.json({ limit: "10mb" }));
 
 app.use("/api/health", healthRouter);
 app.use("/api/config", configRouter);
@@ -33,6 +34,7 @@ app.use("/api/chat", chatRouter);
 app.use("/api/artifacts", artifactsRouter);
 app.use("/api/work-objects", workObjectsRouter);
 app.use("/api/projects", projectsRouter);
+app.use("/api/sheets", sheetsRouter);
 
 app.get("/favicon.ico", (req, res) => {
   res.sendFile(path.join(config.paths.frontendDir, "favicon.svg"));
