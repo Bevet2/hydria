@@ -2,6 +2,7 @@ import { Router } from "express";
 import multer from "multer";
 import XLSX from "xlsx";
 import AdmZip from "adm-zip";
+import PDFDocument from "pdfkit";
 import { AppError } from "../utils/errors.js";
 
 const router = Router();
@@ -230,12 +231,13 @@ function rowHeightFromXlsx(row = {}) {
   return Number.isFinite(height) && height > 0 ? Math.round(Math.min(Math.max(height, 28), 240)) : null;
 }
 
-function worksheetToHydriaSheet(worksheet, sheetName = "Sheet", index = 0) {
+function worksheetToHydriaSheet(worksheet, sheetName = "Sheet", index = 0, { hidden = false } = {}) {
   const range = worksheet?.["!ref"] ? XLSX.utils.decode_range(worksheet["!ref"]) : null;
   if (!range) {
     return {
       id: `sheet-${index + 1}`,
       name: sheetName || `Sheet ${index + 1}`,
+      hidden: Boolean(hidden),
       columns: [...DEFAULT_COLUMNS],
       rows: [["", "", ""]],
       columnWidths: {},
@@ -309,6 +311,7 @@ function worksheetToHydriaSheet(worksheet, sheetName = "Sheet", index = 0) {
   return {
     id: `sheet-${index + 1}`,
     name: sheetName || `Sheet ${index + 1}`,
+    hidden: Boolean(hidden),
     columns,
     rows,
     columnWidths,
@@ -319,8 +322,11 @@ function worksheetToHydriaSheet(worksheet, sheetName = "Sheet", index = 0) {
 }
 
 function workbookToHydriaModel(workbook) {
+  const workbookSheetMeta = Array.isArray(workbook?.Workbook?.Sheets) ? workbook.Workbook.Sheets : [];
   const sheets = (workbook.SheetNames || []).map((sheetName, index) =>
-    worksheetToHydriaSheet(workbook.Sheets[sheetName], sheetName, index)
+    worksheetToHydriaSheet(workbook.Sheets[sheetName], sheetName, index, {
+      hidden: Number(workbookSheetMeta[index]?.Hidden || 0) > 0
+    })
   );
   const safeSheets = sheets.length
     ? sheets
@@ -328,6 +334,7 @@ function workbookToHydriaModel(workbook) {
         {
           id: "sheet-1",
           name: "Sheet 1",
+          hidden: false,
           columns: [...DEFAULT_COLUMNS],
           rows: [["", "", ""]],
           columnWidths: {},
@@ -359,6 +366,7 @@ function normalizeHydriaSheet(sheet = {}, index = 0) {
   return {
     id: String(sheet.id || `sheet-${index + 1}`),
     name: String(sheet.name || `Sheet ${index + 1}`),
+    hidden: Boolean(sheet.hidden),
     columns,
     rows,
     columnWidths:
@@ -1065,17 +1073,107 @@ function applyXlsxStyleFormatsToHydriaModel(buffer, model = {}) {
 function hydriaModelToWorkbook(model = {}) {
   const normalized = normalizeHydriaWorkbook(model);
   const workbook = XLSX.utils.book_new();
+  const workbookSheets = [];
   workbook.Workbook = {
     ...(workbook.Workbook || {}),
     CalcPr: {
       fullCalcOnLoad: true
-    }
+    },
+    Sheets: workbookSheets
   };
   const usedNames = new Set();
   normalized.sheets.forEach((sheet) => {
-    XLSX.utils.book_append_sheet(workbook, hydriaSheetToWorksheet(sheet), uniqueSheetName(sheet.name, usedNames));
+    const sheetName = uniqueSheetName(sheet.name, usedNames);
+    workbookSheets.push({
+      name: sheetName,
+      Hidden: sheet.hidden ? 1 : 0
+    });
+    XLSX.utils.book_append_sheet(workbook, hydriaSheetToWorksheet(sheet), sheetName);
   });
   return workbook;
+}
+
+function buildSheetPdfBuffer(model = {}, sheetId = "") {
+  const normalized = normalizeHydriaWorkbook(model);
+  const sheet = normalized.sheets.find((entry) => entry.id === sheetId) || normalized.sheets[0];
+
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({
+      margin: 32,
+      size: "A4",
+      layout: "landscape"
+    });
+    const chunks = [];
+    doc.on("data", (chunk) => chunks.push(chunk));
+    doc.on("end", () => resolve(Buffer.concat(chunks)));
+    doc.on("error", reject);
+
+    const columns = Array.isArray(sheet?.columns) && sheet.columns.length ? sheet.columns : [...DEFAULT_COLUMNS];
+    const rows = Array.isArray(sheet?.rows) && sheet.rows.length ? sheet.rows : [["", "", ""]];
+    const maxColumns = Math.min(columns.length, 8);
+    const visibleColumns = columns.slice(0, maxColumns);
+    const pageWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+    const tableTop = 88;
+    const rowHeight = 20;
+    const footerHeight = 34;
+    const rowsPerPage = Math.max(10, Math.floor((doc.page.height - tableTop - footerHeight) / rowHeight) - 1);
+    const columnWidth = pageWidth / Math.max(1, visibleColumns.length);
+
+    const drawHeader = (startRowIndex = 0) => {
+      doc.fontSize(16).font("Helvetica-Bold").fillColor("#111827").text(sheet?.name || "Sheet", doc.page.margins.left, 28);
+      doc.fontSize(9).font("Helvetica").fillColor("#6b7280");
+      doc.text(
+        `${rows.length + 1} rows | ${columns.length} columns${columns.length > maxColumns ? ` | PDF shows first ${maxColumns} columns` : ""}`,
+        doc.page.margins.left,
+        48
+      );
+      const headerY = tableTop;
+      visibleColumns.forEach((label, columnIndex) => {
+        const x = doc.page.margins.left + columnIndex * columnWidth;
+        doc
+          .rect(x, headerY, columnWidth, rowHeight)
+          .fillAndStroke("#f3f4f6", "#d1d5db");
+        doc
+          .fillColor("#111827")
+          .font("Helvetica-Bold")
+          .fontSize(8)
+          .text(String(label || `Column ${columnIndex + 1}`), x + 4, headerY + 6, {
+            width: columnWidth - 8,
+            height: rowHeight - 8,
+            ellipsis: true
+          });
+      });
+      doc.fillColor("#111827").font("Helvetica").fontSize(8);
+      return headerY + rowHeight;
+    };
+
+    for (let pageRowIndex = 0; pageRowIndex < rows.length; pageRowIndex += rowsPerPage) {
+      if (pageRowIndex > 0) {
+        doc.addPage();
+      }
+      let cursorY = drawHeader(pageRowIndex);
+      rows.slice(pageRowIndex, pageRowIndex + rowsPerPage).forEach((row) => {
+        visibleColumns.forEach((_, columnIndex) => {
+          const x = doc.page.margins.left + columnIndex * columnWidth;
+          doc
+            .rect(x, cursorY, columnWidth, rowHeight)
+            .stroke("#e5e7eb");
+          doc
+            .fillColor("#111827")
+            .font("Helvetica")
+            .fontSize(8)
+            .text(normalizeCellText(row?.[columnIndex]), x + 4, cursorY + 6, {
+              width: columnWidth - 8,
+              height: rowHeight - 8,
+              ellipsis: true
+            });
+        });
+        cursorY += rowHeight;
+      });
+    }
+
+    doc.end();
+  });
 }
 
 function safeDownloadFilename(value = "hydria-sheet.xlsx") {
@@ -1084,6 +1182,14 @@ function safeDownloadFilename(value = "hydria-sheet.xlsx") {
     .replace(/[\\/:*?"<>|]+/g, "-")
     .replace(/\s+/g, " ");
   return (name || "hydria-sheet.xlsx").toLowerCase().endsWith(".xlsx") ? name : `${name || "hydria-sheet"}.xlsx`;
+}
+
+function safePdfFilename(value = "hydria-sheet.pdf") {
+  const name = String(value || "hydria-sheet.pdf")
+    .trim()
+    .replace(/[\\/:*?"<>|]+/g, "-")
+    .replace(/\s+/g, " ");
+  return (name || "hydria-sheet.pdf").toLowerCase().endsWith(".pdf") ? name : `${name || "hydria-sheet"}.pdf`;
 }
 
 router.post("/import-xlsx", upload.single("workbook"), (req, res, next) => {
@@ -1123,6 +1229,21 @@ router.post("/export-xlsx", (req, res, next) => {
 
     res.setHeader("Content-Type", XLSX_MIME_TYPE);
     res.setHeader("Content-Disposition", `attachment; filename="${safeDownloadFilename(req.body?.filename)}"`);
+    res.send(buffer);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/export-pdf", async (req, res, next) => {
+  try {
+    const normalizedModel = normalizeHydriaWorkbook(req.body?.model || {});
+    const targetSheetId =
+      normalizedModel.sheets.some((sheet) => sheet.id === req.body?.sheetId) ? String(req.body?.sheetId) : normalizedModel.activeSheetId;
+    const buffer = await buildSheetPdfBuffer(normalizedModel, targetSheetId);
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${safePdfFilename(req.body?.filename)}"`);
     res.send(buffer);
   } catch (error) {
     next(error);
