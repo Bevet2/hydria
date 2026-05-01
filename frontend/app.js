@@ -541,9 +541,12 @@ function updateSpreadsheetDraftFromPreview(model = {}, options = {}) {
     forceEditMode: false,
     refreshWorkspace: Boolean(options.refreshWorkspace),
     suppressPreviewRefresh:
-      isDatasetWorkspace() &&
-      state.currentSurfaceId !== "edit" &&
-      !options.refreshWorkspace
+      Boolean(options.suppressPreviewRefresh) ||
+      (
+        isDatasetWorkspace() &&
+        state.currentSurfaceId !== "edit" &&
+        !options.refreshWorkspace
+      )
   });
 }
 
@@ -1843,6 +1846,195 @@ function serializeCsvMatrix(rows = []) {
     .join("\n");
 }
 
+function normalizeSpreadsheetDataValidationRule(rule = {}) {
+  if (!rule || typeof rule !== "object" || Array.isArray(rule)) {
+    return null;
+  }
+  const rawType = String(rule.type || rule.kind || "list").trim();
+  const type = rawType.toLowerCase() === "textlength" ? "textLength" : rawType.toLowerCase();
+  if (!["list", "whole", "decimal", "date", "textLength"].includes(type)) {
+    return null;
+  }
+  const operator = ["between", "notBetween", "equal", "notEqual", "greaterThan", "lessThan", "greaterOrEqual", "lessOrEqual"]
+    .includes(String(rule.operator || "between"))
+    ? String(rule.operator || "between")
+    : "between";
+  return {
+    type,
+    operator,
+    allowBlank: rule.allowBlank !== false,
+    showDropdown: rule.showDropdown !== false,
+    source: String(rule.source || rule.values || ""),
+    minimum: String(rule.minimum ?? rule.min ?? ""),
+    maximum: String(rule.maximum ?? rule.max ?? ""),
+    message: String(rule.message || rule.error || "")
+  };
+}
+
+function normalizeSpreadsheetDataValidations(validations = {}) {
+  if (!validations || typeof validations !== "object" || Array.isArray(validations)) {
+    return {};
+  }
+  return Object.fromEntries(
+    Object.entries(validations)
+      .map(([key, value]) => [String(key), normalizeSpreadsheetDataValidationRule(value)])
+      .filter(([, value]) => Boolean(value))
+  );
+}
+
+const SPREADSHEET_BUILTIN_FORMULA_NAMES = new Set([
+  "ABS",
+  "AND",
+  "AVERAGE",
+  "AVERAGEIF",
+  "AVERAGEIFS",
+  "AVG",
+  "CONCAT",
+  "COUNT",
+  "COUNTA",
+  "COUNTBLANK",
+  "COUNTIF",
+  "COUNTIFS",
+  "DATE",
+  "FILTER",
+  "FALSE",
+  "IF",
+  "IFERROR",
+  "INDEX",
+  "LEFT",
+  "LEN",
+  "LOWER",
+  "MATCH",
+  "MAX",
+  "MID",
+  "MIN",
+  "MEDIAN",
+  "NOT",
+  "NOW",
+  "OR",
+  "PRODUCT",
+  "RIGHT",
+  "ROUND",
+  "ROUNDDOWN",
+  "ROUNDUP",
+  "SORT",
+  "SUBTOTAL",
+  "SUM",
+  "SUMIF",
+  "SUMIFS",
+  "TEXT",
+  "TODAY",
+  "TRIM",
+  "TRUE",
+  "UNIQUE",
+  "UPPER",
+  "VALUE",
+  "VLOOKUP",
+  "XLOOKUP"
+]);
+
+function isSpreadsheetDefinedNameValid(name = "") {
+  const text = String(name || "").trim();
+  if (!/^[A-Za-z_][A-Za-z0-9_.]*$/.test(text)) {
+    return false;
+  }
+  if (/^\$?[A-Z]+\$?\d+$/i.test(text) || /^\$?[A-Z]+\$?\d+:\$?[A-Z]+\$?\d+$/i.test(text)) {
+    return false;
+  }
+  return !SPREADSHEET_BUILTIN_FORMULA_NAMES.has(text.toUpperCase());
+}
+
+function normalizeSpreadsheetNamedRange(namedRange = {}, index = 0) {
+  if (!namedRange || typeof namedRange !== "object" || Array.isArray(namedRange)) {
+    return null;
+  }
+  const name = String(namedRange.name || namedRange.label || "").trim();
+  const range = String(namedRange.range || namedRange.ref || namedRange.address || "")
+    .trim()
+    .replace(/^=/, "");
+  if (!isSpreadsheetDefinedNameValid(name) || !range) {
+    return null;
+  }
+  const sheetId = String(namedRange.sheetId || namedRange.sheet || "").trim();
+  return {
+    id: String(namedRange.id || `named-range-${index + 1}`),
+    name,
+    range,
+    sheetId,
+    scope: String(namedRange.scope || (sheetId ? "sheet" : "workbook")),
+    comment: String(namedRange.comment || namedRange.description || "")
+  };
+}
+
+function normalizeSpreadsheetNamedRanges(namedRanges = []) {
+  if (!Array.isArray(namedRanges)) {
+    return [];
+  }
+  const seen = new Set();
+  return namedRanges
+    .map((namedRange, index) => normalizeSpreadsheetNamedRange(namedRange, index))
+    .filter((namedRange) => {
+      if (!namedRange) {
+        return false;
+      }
+      const key = `${namedRange.sheetId || "workbook"}:${namedRange.name.toLowerCase()}`;
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
+}
+
+const SPREADSHEET_TABLE_STYLES = ["blue", "green", "orange", "purple", "gray"];
+const SPREADSHEET_TABLE_TOTAL_FUNCTIONS = new Set(["sum", "average", "count", "min", "max", "none"]);
+
+function normalizeSpreadsheetColor(value = "") {
+  const text = String(value || "").trim();
+  const match = text.match(/^#?([0-9a-f]{3}|[0-9a-f]{6})$/i);
+  if (!match) {
+    return "";
+  }
+  const hex = match[1].length === 3
+    ? match[1].split("").map((char) => `${char}${char}`).join("")
+    : match[1];
+  return `#${hex.toLowerCase()}`;
+}
+
+function normalizeSpreadsheetConditionalFormatRule(rule = {}, index = 0) {
+  if (!rule || typeof rule !== "object" || Array.isArray(rule)) {
+    return null;
+  }
+  const type = String(rule.type || rule.kind || "greaterThan").trim();
+  if (!["greaterThan", "lessThan", "between", "equal", "textContains", "duplicate"].includes(type)) {
+    return null;
+  }
+  const range = String(rule.range || rule.ref || "").trim();
+  if (!range) {
+    return null;
+  }
+  return {
+    id: String(rule.id || `conditional-format-${index + 1}`),
+    type,
+    range,
+    value1: String(rule.value1 ?? rule.value ?? ""),
+    value2: String(rule.value2 ?? ""),
+    fillColor: normalizeSpreadsheetColor(rule.fillColor || rule.color || "") || "#fff2cc",
+    textColor: normalizeSpreadsheetColor(rule.textColor || "") || "#202124",
+    bold: Boolean(rule.bold),
+    label: String(rule.label || "")
+  };
+}
+
+function normalizeSpreadsheetConditionalFormats(rules = []) {
+  if (!Array.isArray(rules)) {
+    return [];
+  }
+  return rules
+    .map((rule, index) => normalizeSpreadsheetConditionalFormatRule(rule, index))
+    .filter(Boolean);
+}
+
 function normalizeSpreadsheetModel(model = {}) {
   const normalizeSheet = (sheet = {}, index = 0) => {
     const columns = Array.isArray(sheet.columns) && sheet.columns.length
@@ -1888,8 +2080,130 @@ function normalizeSpreadsheetModel(model = {}) {
         sheet.cellFormats && typeof sheet.cellFormats === "object" && !Array.isArray(sheet.cellFormats)
           ? { ...sheet.cellFormats }
           : {},
+      cellNotes:
+        sheet.cellNotes && typeof sheet.cellNotes === "object" && !Array.isArray(sheet.cellNotes)
+          ? { ...sheet.cellNotes }
+          : {},
+      dataValidations: normalizeSpreadsheetDataValidations(sheet.dataValidations || sheet.validations),
+      conditionalFormats: normalizeSpreadsheetConditionalFormats(sheet.conditionalFormats || sheet.conditionalFormatting),
+      tables: Array.isArray(sheet.tables)
+        ? sheet.tables
+            .filter((table) => table && typeof table === "object")
+            .map((table, tableIndex) => {
+              const startRowIndex = Math.max(0, Number(table.startRowIndex ?? table.minRow ?? 0));
+              const endRowIndex = Math.max(startRowIndex, Number(table.endRowIndex ?? table.maxRow ?? startRowIndex));
+              const startColumnIndex = Math.max(0, Number(table.startColumnIndex ?? table.minColumn ?? 0));
+              const endColumnIndex = Math.max(startColumnIndex, Number(table.endColumnIndex ?? table.maxColumn ?? startColumnIndex));
+              return {
+                id: String(table.id || `sheet-table-${tableIndex + 1}`),
+                name: String(table.name || table.title || `Table${tableIndex + 1}`),
+                startRowIndex,
+                endRowIndex,
+                startColumnIndex,
+                endColumnIndex,
+                style: SPREADSHEET_TABLE_STYLES.includes(String(table.style || "").toLowerCase())
+                  ? String(table.style || "").toLowerCase()
+                  : "blue",
+                showHeaderRow: table.showHeaderRow !== false,
+                showBandedRows: table.showBandedRows !== false,
+                showBandedColumns: Boolean(table.showBandedColumns),
+                showFirstColumn: Boolean(table.showFirstColumn),
+                showLastColumn: Boolean(table.showLastColumn),
+                showFilterButtons: table.showFilterButtons !== false,
+                showTotalRow: Boolean(table.showTotalRow),
+                totalFunctions:
+                  table.totalFunctions && typeof table.totalFunctions === "object" && !Array.isArray(table.totalFunctions)
+                    ? Object.fromEntries(
+                        Object.entries(table.totalFunctions).map(([key, value]) => [
+                          String(key),
+                          SPREADSHEET_TABLE_TOTAL_FUNCTIONS.has(String(value || "").toLowerCase())
+                            ? String(value || "").toLowerCase()
+                            : "sum"
+                        ])
+                      )
+                    : {}
+              };
+            })
+        : [],
+      pivotTables: Array.isArray(sheet.pivotTables)
+        ? sheet.pivotTables
+            .filter((pivotTable) => pivotTable && typeof pivotTable === "object")
+            .map((pivotTable, pivotIndex) => ({
+              id: String(pivotTable.id || `sheet-pivot-${pivotIndex + 1}`),
+              name: String(pivotTable.name || pivotTable.title || `PivotTable${pivotIndex + 1}`),
+              sourceSheetId: String(pivotTable.sourceSheetId || pivotTable.sheetId || ""),
+              sourceTableId: String(pivotTable.sourceTableId || pivotTable.tableId || ""),
+              sourceRange: String(pivotTable.sourceRange || pivotTable.range || ""),
+              renderedRange: String(pivotTable.renderedRange || ""),
+              rowField: String(pivotTable.rowField || ""),
+              columnField: String(pivotTable.columnField || ""),
+              valueField: String(pivotTable.valueField || ""),
+              aggregate: String(pivotTable.aggregate || pivotTable.summary || "sum"),
+              anchorRowIndex: Math.max(0, Number(pivotTable.anchorRowIndex ?? pivotTable.rowIndex ?? 0)),
+              anchorColumnIndex: Math.max(0, Number(pivotTable.anchorColumnIndex ?? pivotTable.columnIndex ?? 0)),
+              lastRefreshedAt: String(pivotTable.lastRefreshedAt || "")
+            }))
+        : [],
+      charts: Array.isArray(sheet.charts)
+        ? sheet.charts
+            .filter((chart) => chart && typeof chart === "object")
+            .map((chart, chartIndex) => ({
+              id: String(chart.id || `sheet-chart-${chartIndex + 1}`),
+              title: String(chart.title || `Chart ${chartIndex + 1}`),
+              kind: String(chart.kind || "column"),
+              range: String(chart.range || ""),
+              seriesName: String(chart.seriesName || chart.series || ""),
+              secondarySeriesName: String(chart.secondarySeriesName || chart.secondarySeries || ""),
+              x: Math.max(16, Number(chart.x ?? chart.left ?? 212) || 212),
+              y: Math.max(16, Number(chart.y ?? chart.top ?? 52) || 52),
+              width: Math.max(280, Number(chart.width || 432) || 432),
+              height: Math.max(180, Number(chart.height || 284) || 284),
+              showLegend: chart.showLegend !== false,
+              points: Array.isArray(chart.points)
+                ? chart.points.map((point, pointIndex) => ({
+                    label: String(point?.label || point?.name || `Point ${pointIndex + 1}`),
+                    value: String(point?.value ?? point?.y ?? ""),
+                    xValue: String(point?.xValue ?? point?.x ?? ""),
+                    yValue: String(point?.yValue ?? point?.y ?? point?.value ?? ""),
+                    sizeValue: String(point?.sizeValue ?? point?.size ?? point?.z ?? ""),
+                    secondaryValue: String(point?.secondaryValue ?? point?.secondary ?? "")
+                  }))
+                : []
+            }))
+        : [],
+      sparklines:
+        sheet.sparklines && typeof sheet.sparklines === "object" && !Array.isArray(sheet.sparklines)
+          ? { ...sheet.sparklines }
+          : {},
+      slicers: Array.isArray(sheet.slicers)
+        ? sheet.slicers
+            .filter((slicer) => slicer && typeof slicer === "object")
+            .map((slicer, slicerIndex) => ({
+              id: String(slicer.id || `sheet-slicer-${slicerIndex + 1}`),
+              title: String(slicer.title || slicer.label || `Slicer ${slicerIndex + 1}`),
+              columnIndex: Math.max(0, Number(slicer.columnIndex || 0)),
+              selectedValue: String(slicer.selectedValue || "")
+            }))
+        : [],
       filterQuery: String(sheet.filterQuery || ""),
       filterColumnIndex: Number.isInteger(sheet.filterColumnIndex) ? Number(sheet.filterColumnIndex) : -1,
+      tableFilters:
+        sheet.tableFilters && typeof sheet.tableFilters === "object" && !Array.isArray(sheet.tableFilters)
+          ? Object.fromEntries(
+              Object.entries(sheet.tableFilters)
+                .filter(([, filter]) => filter && typeof filter === "object" && !Array.isArray(filter))
+                .map(([key, filter]) => [
+                  String(key),
+                  {
+                    query: String(filter.query || ""),
+                    active: Boolean(filter.active),
+                    selectedValues: Array.isArray(filter.selectedValues)
+                      ? Array.from(new Set(filter.selectedValues.map((value) => String(value ?? ""))))
+                      : []
+                  }
+                ])
+            )
+          : {},
       sort:
         sheet.sort && Number.isInteger(sheet.sort.columnIndex)
           ? {
@@ -1897,6 +2211,22 @@ function normalizeSpreadsheetModel(model = {}) {
               direction: sheet.sort.direction === "desc" ? "desc" : "asc"
             }
           : null,
+      hidden: Boolean(sheet.hidden),
+      protected: Boolean(sheet.protected),
+      protectedRanges: Array.isArray(sheet.protectedRanges)
+        ? sheet.protectedRanges
+            .filter((range) => range && typeof range === "object")
+            .map((range, rangeIndex) => ({
+              id: String(range.id || `protected-range-${rangeIndex + 1}`),
+              startRowIndex: Math.max(0, Number(range.startRowIndex ?? range.minRow ?? 0)),
+              endRowIndex: Math.max(0, Number(range.endRowIndex ?? range.maxRow ?? range.startRowIndex ?? range.minRow ?? 0)),
+              startColumnIndex: Math.max(0, Number(range.startColumnIndex ?? range.minColumn ?? 0)),
+              endColumnIndex: Math.max(0, Number(range.endColumnIndex ?? range.maxColumn ?? range.startColumnIndex ?? range.minColumn ?? 0)),
+              label: String(range.label || "")
+            }))
+        : [],
+      zoomLevel: Math.max(0.5, Math.min(2, Number(sheet.zoomLevel || 1) || 1)),
+      showGridlines: sheet.showGridlines !== false,
       frozenRows: Math.max(0, Number(sheet.frozenRows || 0)),
       frozenColumns: Math.max(0, Number(sheet.frozenColumns || 0))
     };
@@ -1909,11 +2239,16 @@ function normalizeSpreadsheetModel(model = {}) {
     ? model.activeSheetId
     : sheets[0].id;
   const activeSheet = sheets.find((sheet) => sheet.id === activeSheetId) || sheets[0];
+  const validSheetIds = new Set(sheets.map((sheet) => sheet.id));
+  const namedRanges = normalizeSpreadsheetNamedRanges(model.namedRanges || model.names).filter(
+    (namedRange) => !namedRange.sheetId || validSheetIds.has(namedRange.sheetId)
+  );
 
   return {
     kind: "hydria-sheet",
     version: 1,
     ...model,
+    namedRanges,
     sheets,
     activeSheetId,
     activeSheet,
@@ -1978,6 +2313,7 @@ function buildSpreadsheetContent(model = {}) {
       kind: "hydria-sheet",
       version: 1,
       activeSheetId: normalized.activeSheetId,
+      namedRanges: normalized.namedRanges,
       sheets: normalized.sheets.map((sheet) => ({
         id: sheet.id,
         name: sheet.name,
@@ -1987,9 +2323,23 @@ function buildSpreadsheetContent(model = {}) {
         rowHeights: sheet.rowHeights,
         merges: sheet.merges,
         cellFormats: sheet.cellFormats,
+        cellNotes: sheet.cellNotes,
+        dataValidations: sheet.dataValidations,
+        conditionalFormats: sheet.conditionalFormats,
+        tables: sheet.tables,
+        pivotTables: sheet.pivotTables,
+        charts: sheet.charts,
+        sparklines: sheet.sparklines,
+        slicers: sheet.slicers,
         filterQuery: sheet.filterQuery,
         filterColumnIndex: sheet.filterColumnIndex,
+        tableFilters: sheet.tableFilters,
         sort: sheet.sort,
+        hidden: sheet.hidden,
+        protected: sheet.protected,
+        protectedRanges: sheet.protectedRanges,
+        zoomLevel: sheet.zoomLevel,
+        showGridlines: sheet.showGridlines,
         frozenRows: sheet.frozenRows,
         frozenColumns: sheet.frozenColumns
       }))
@@ -2007,6 +2357,12 @@ function buildSpreadsheetContent(model = {}) {
       Object.keys(currentActiveSheet.rowHeights || {}).length ||
       (currentActiveSheet.merges || []).length ||
       Object.keys(currentActiveSheet.cellFormats || {}).length ||
+      Object.keys(currentActiveSheet.dataValidations || {}).length ||
+      (currentActiveSheet.conditionalFormats || []).length ||
+      (currentModel.namedRanges || []).length ||
+      (currentActiveSheet.tables || []).length ||
+      (currentActiveSheet.pivotTables || []).length ||
+      Object.keys(currentActiveSheet.tableFilters || {}).length ||
       currentActiveSheet.filterQuery ||
       currentActiveSheet.frozenRows ||
       currentActiveSheet.frozenColumns

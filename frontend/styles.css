@@ -3239,20 +3239,94 @@ textarea {
 }
 
 .workspace-sheet-topbar {
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(260px, 520px) minmax(220px, 1fr);
+  align-items: center;
+  gap: 12px;
+  min-height: 50px;
+  padding: 6px 12px;
   border-bottom: 1px solid #eceff1;
-  background: #f8f9fa;
+  background: #f5f6f8;
 }
 
 .workspace-sheet-title-group {
   display: grid;
   gap: 2px;
+  min-width: 0;
+}
+
+.workspace-sheet-title-group strong,
+.workspace-sheet-title-group .tiny {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-sheet-command-search {
+  justify-self: center;
+  width: min(100%, 520px);
+  height: 34px;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  align-items: center;
+  border: 1px solid #dadce0;
+  border-radius: 5px;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(60, 64, 67, 0.08);
+  color: #5f6368;
+}
+
+.workspace-sheet-command-search:focus-within {
+  border-color: rgba(26, 115, 232, 0.52);
+  box-shadow: 0 0 0 2px rgba(26, 115, 232, 0.12);
+}
+
+.workspace-sheet-command-search-icon {
+  display: grid;
+  place-items: center;
+  color: #5f6368;
+}
+
+.workspace-sheet-command-search-icon::before {
+  content: "";
+  width: 11px;
+  height: 11px;
+  border: 1.6px solid currentColor;
+  border-radius: 999px;
+  box-shadow: 5px 5px 0 -3px currentColor;
+  transform: rotate(-45deg);
+}
+
+.workspace-sheet-command-search input {
+  min-width: 0;
+  width: 100%;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: #202124;
+  font: inherit;
+  font-size: 12px;
+  padding: 0 10px 0 0;
+}
+
+.workspace-sheet-command-search-status {
+  margin-right: 8px;
+  color: #5f6368;
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.workspace-sheet-command-search.has-find-matches .workspace-sheet-command-search-status {
+  color: #174ea6;
 }
 
 .workspace-sheet-topbar-actions {
   display: flex;
   align-items: center;
   gap: 10px;
+  justify-content: flex-end;
+  min-width: 0;
 }
 
 .workspace-sheet-topbar-button {
@@ -3275,10 +3349,10 @@ textarea {
 .workspace-sheet-toolbar {
   display: flex;
   align-items: stretch;
-  gap: 14px;
-  padding: 10px 12px 8px;
-  border-bottom: 1px solid #eceff1;
-  background: #f8f9fb;
+  gap: 10px;
+  padding: 6px 10px;
+  border-bottom: 1px solid #e5e7eb;
+  background: #f7f8fa;
   overflow-x: auto;
 }
 
@@ -3295,10 +3369,11 @@ textarea {
 }
 
 .workspace-sheet-ribbon-popup .workspace-sheet-toolbar {
-  border: 1px solid #dadce0;
-  border-radius: 0 0 14px 14px;
-  box-shadow: 0 18px 36px rgba(60, 64, 67, 0.18);
-  max-height: min(340px, calc(100vh - 180px));
+  border: 1px solid #dfe3e8;
+  border-top: 0;
+  border-radius: 0 0 8px 8px;
+  box-shadow: 0 10px 22px rgba(60, 64, 67, 0.12);
+  max-height: min(96px, calc(100vh - 150px));
   overflow: auto;
 }
 
@@ -3326,7 +3401,8 @@ textarea {
 .workspace-sheet-menu-button {
   border-bottom: 2px solid transparent;
   border-radius: 0;
-  padding: 0.8rem 0.75rem 0.65rem;
+  padding: 0.55rem 0.75rem 0.5rem;
+  font-size: 12px;
 }
 
 .workspace-sheet-menu-button:hover {
@@ -3345,29 +3421,209 @@ textarea {
   z-index: 1605;
   display: grid;
   min-width: 190px;
-  padding: 6px;
+  padding: 5px;
   border: 1px solid #dadce0;
-  border-radius: 8px;
+  border-radius: 7px;
   background: #ffffff;
-  box-shadow: 0 12px 28px rgba(60, 64, 67, 0.18);
+  box-shadow: 0 10px 24px rgba(60, 64, 67, 0.16);
   overflow: auto;
+  overscroll-behavior: contain;
 }
 
 .workspace-sheet-menu-panel[hidden] {
   display: none;
 }
 
+.workspace-sheet-menu-panel.is-context-menu {
+  min-width: 220px;
+  padding: 8px;
+  border-radius: 12px;
+  box-shadow: 0 18px 36px rgba(60, 64, 67, 0.2);
+}
+
+.workspace-sheet-menu-panel.is-chart-gallery {
+  min-width: min(760px, calc(100vw - 16px));
+  max-width: min(760px, calc(100vw - 16px));
+  padding: 10px;
+  border-radius: 14px;
+  box-shadow: 0 22px 44px rgba(60, 64, 67, 0.22);
+  overflow: hidden;
+  scrollbar-gutter: stable;
+}
+
+.workspace-sheet-menu-panel.is-color-palette {
+  min-width: 304px;
+  max-width: min(304px, calc(100vw - 16px));
+  padding: 10px;
+  gap: 8px;
+  border-radius: 7px;
+  overflow: auto;
+}
+
+.workspace-sheet-menu-panel.is-table-filter {
+  min-width: 304px;
+  max-width: min(340px, calc(100vw - 16px));
+  padding: 0;
+  border-radius: 8px;
+  overflow: auto;
+}
+
+.workspace-sheet-table-filter-menu {
+  display: grid;
+  gap: 0;
+  padding: 8px;
+  color: #202124;
+  font-size: 12px;
+}
+
+.workspace-sheet-table-filter-command {
+  appearance: none;
+  width: 100%;
+  min-height: 30px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #202124;
+  cursor: pointer;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  font: inherit;
+  padding: 0.35rem 0.5rem;
+  text-align: left;
+}
+
+.workspace-sheet-table-filter-command-icon {
+  color: #1a73e8;
+}
+
+.workspace-sheet-table-filter-command-icon svg {
+  width: 15px;
+  height: 15px;
+}
+
+.workspace-sheet-table-filter-command:hover,
+.workspace-sheet-table-filter-command:focus {
+  outline: none;
+  background: rgba(26, 115, 232, 0.08);
+}
+
+.workspace-sheet-table-filter-command:disabled {
+  color: #b0b6bd;
+  cursor: not-allowed;
+}
+
+.workspace-sheet-table-filter-command:disabled .workspace-sheet-table-filter-command-icon {
+  color: #b0b6bd;
+}
+
+.workspace-sheet-table-filter-search {
+  width: 100%;
+  height: 34px;
+  margin: 4px 0 8px;
+  border: 1px solid #c7cdd4;
+  border-radius: 4px;
+  background: #ffffff;
+  color: #202124;
+  font: inherit;
+  padding: 0 0.65rem;
+}
+
+.workspace-sheet-table-filter-values {
+  display: grid;
+  gap: 2px;
+  max-height: 190px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.workspace-sheet-table-filter-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  padding: 0.2rem 0.35rem;
+  border-radius: 4px;
+  color: #202124;
+  cursor: pointer;
+}
+
+.workspace-sheet-table-filter-check:hover {
+  background: rgba(26, 115, 232, 0.07);
+}
+
+.workspace-sheet-table-filter-check input {
+  width: 15px;
+  height: 15px;
+  accent-color: #188038;
+}
+
+.workspace-sheet-table-filter-empty {
+  padding: 0.35rem;
+  color: #6b7280;
+}
+
+.workspace-sheet-table-filter-actions {
+  display: flex;
+  justify-content: flex-start;
+  padding: 12px 0 2px;
+}
+
+.workspace-sheet-table-filter-apply {
+  min-height: 32px;
+  border: 0;
+  border-radius: 3px;
+  background: #188038;
+  color: #ffffff;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+  padding: 0 16px;
+}
+
 .workspace-sheet-menu-action {
   appearance: none;
   width: 100%;
   border: 0;
-  border-radius: 6px;
+  border-radius: 5px;
   background: transparent;
   color: #202124;
   cursor: pointer;
   font: inherit;
-  padding: 0.45rem 0.6rem;
+  font-size: 12px;
+  min-height: 30px;
+  padding: 0.26rem 0.44rem;
   text-align: left;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+}
+
+.workspace-sheet-menu-panel.is-context-menu .workspace-sheet-menu-action {
+  padding: 0.4rem 0.55rem;
+}
+
+.workspace-sheet-menu-action-icon {
+  width: 22px;
+  height: 22px;
+  border: 1px solid #e1e5ea;
+  border-radius: 5px;
+  background: #f8fafc;
+  color: #1a73e8;
+}
+
+.workspace-sheet-menu-action-icon svg {
+  width: 15px;
+  height: 15px;
+  stroke-width: 1.9;
+}
+
+.workspace-sheet-menu-action-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .workspace-sheet-menu-action:hover,
@@ -3381,20 +3637,161 @@ textarea {
   cursor: not-allowed;
 }
 
+.workspace-sheet-menu-action:disabled .workspace-sheet-menu-action-icon {
+  color: #9aa0a6;
+}
+
 .workspace-sheet-menu-separator {
   height: 1px;
-  margin: 6px 4px;
+  margin: 5px 2px;
   background: #eceff1;
+}
+
+.workspace-sheet-color-title {
+  color: #202124;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.workspace-sheet-color-grid {
+  display: grid;
+  grid-template-columns: repeat(10, 20px);
+  gap: 8px 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #dadce0;
+}
+
+.workspace-sheet-color-grid.is-standard {
+  padding-bottom: 4px;
+}
+
+.workspace-sheet-color-swatch {
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border: 1px solid rgba(32, 33, 36, 0.18);
+  border-radius: 0;
+  cursor: pointer;
+  padding: 0;
+}
+
+.workspace-sheet-color-swatch:hover,
+.workspace-sheet-color-swatch:focus {
+  outline: 2px solid rgba(26, 115, 232, 0.32);
+  outline-offset: 1px;
+}
+
+.workspace-sheet-color-action {
+  appearance: none;
+  width: 100%;
+  min-height: 36px;
+  border: 0;
+  border-top: 1px solid #dadce0;
+  background: transparent;
+  color: #202124;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 0.42rem 0.2rem;
+  text-align: left;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.workspace-sheet-color-action:hover,
+.workspace-sheet-color-action:focus {
+  outline: none;
+  background: rgba(26, 115, 232, 0.08);
+}
+
+.workspace-sheet-color-action-icon {
+  width: 20px;
+  height: 20px;
+  border: 1px solid #dfe3e8;
+  border-radius: 4px;
+  display: inline-grid;
+  place-items: center;
+  color: #4b5563;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.workspace-sheet-chart-gallery {
+  display: grid;
+  gap: 12px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+  scrollbar-gutter: stable;
+}
+
+.workspace-sheet-chart-gallery-section {
+  display: grid;
+  gap: 8px;
+}
+
+.workspace-sheet-chart-gallery-title {
+  color: #202124;
+  font-size: 0.95rem;
+  font-weight: 600;
+  padding: 0 4px;
+}
+
+.workspace-sheet-chart-gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+  gap: 8px;
+}
+
+.workspace-sheet-chart-gallery-item {
+  appearance: none;
+  border: 1px solid rgba(32, 33, 36, 0.1);
+  border-radius: 10px;
+  background: #ffffff;
+  color: #202124;
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.workspace-sheet-chart-gallery-item:hover,
+.workspace-sheet-chart-gallery-item:focus {
+  outline: none;
+  border-color: rgba(26, 115, 232, 0.35);
+  background: rgba(26, 115, 232, 0.04);
+}
+
+.workspace-sheet-chart-gallery-preview {
+  min-height: 82px;
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.workspace-sheet-chart-gallery-label {
+  font-size: 0.76rem;
+  line-height: 1.2;
 }
 
 .workspace-sheet-toolbar-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  min-height: 34px;
-  border-color: #dadce0;
+  gap: 5px;
+  min-height: 30px;
+  border-color: #dfe3e8;
+  border-radius: 6px;
   background: #ffffff;
+  font-size: 12px;
+  padding: 0.28rem 0.58rem;
 }
 
 .workspace-sheet-toolbar-button:disabled {
@@ -3403,42 +3800,79 @@ textarea {
   cursor: not-allowed;
 }
 
+.workspace-sheet-toolbar-icon,
+.workspace-sheet-toolbar-chevron,
+.workspace-sheet-menu-action-icon,
+.workspace-sheet-table-filter-command-icon,
+.workspace-sheet-table-filter-button-icon {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  color: currentColor;
+}
+
+.workspace-sheet-toolbar-icon svg,
+.workspace-sheet-toolbar-chevron svg,
+.workspace-sheet-menu-action-icon svg,
+.workspace-sheet-table-filter-command-icon svg,
+.workspace-sheet-table-filter-button-icon svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.workspace-sheet-toolbar-icon {
+  color: #1a73e8;
+}
+
+.workspace-sheet-toolbar-button:disabled .workspace-sheet-toolbar-icon {
+  color: #9aa0a6;
+}
+
+.workspace-sheet-toolbar-chevron svg {
+  width: 12px;
+  height: 12px;
+  stroke-width: 2.2;
+}
+
 .workspace-sheet-toolbar-button.large {
-  min-width: 92px;
-  min-height: 72px;
-  padding: 0.55rem 0.8rem;
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: center;
+  min-width: 0;
+  min-height: 30px;
+  padding: 0.28rem 0.68rem;
+  flex-direction: row;
 }
 
 .workspace-sheet-toolbar-button.menu {
-  justify-content: space-between;
+  justify-content: center;
 }
 
 .workspace-sheet-toolbar-button-label {
   line-height: 1.15;
+  white-space: nowrap;
 }
 
 .workspace-sheet-toolbar-button.large .workspace-sheet-toolbar-button-label {
-  white-space: normal;
-  text-align: left;
+  white-space: nowrap;
+  text-align: center;
 }
 
 .workspace-sheet-toolbar-button-caret {
-  color: #5f6368;
-  font-size: 0.7rem;
-  line-height: 1;
+  display: none;
 }
 
-.workspace-sheet-toolbar-select,
-.workspace-sheet-toolbar-color {
+.workspace-sheet-toolbar-select {
   min-height: 34px;
   border: 1px solid #dadce0;
   border-radius: 8px;
   background: #ffffff;
   color: #202124;
   font: inherit;
+  font-size: 12px;
 }
 
 .workspace-sheet-toolbar-select {
@@ -3446,29 +3880,73 @@ textarea {
   padding: 0.35rem 0.45rem;
 }
 
-.workspace-sheet-toolbar-color {
-  width: 36px;
-  padding: 3px;
+.workspace-sheet-toolbar-color-button {
+  appearance: none;
+  width: 30px;
+  min-width: 30px;
+  min-height: 30px;
+  border: 1px solid #dfe3e8;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #202124;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) 4px;
+  align-items: center;
+  justify-items: center;
+  padding: 3px 5px;
   cursor: pointer;
+}
+
+.workspace-sheet-toolbar-color-button:hover,
+.workspace-sheet-toolbar-color-button.is-open {
+  border-color: rgba(26, 115, 232, 0.35);
+  background: rgba(26, 115, 232, 0.08);
+}
+
+.workspace-sheet-toolbar-color-glyph {
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.workspace-sheet-toolbar-color-swatch {
+  width: 100%;
+  height: 4px;
+  border-radius: 999px;
+  border: 1px solid rgba(32, 33, 36, 0.1);
+}
+
+.workspace-sheet-toolbar-color-swatch.is-empty {
+  background:
+    linear-gradient(135deg, transparent 45%, #c5221f 47%, #c5221f 53%, transparent 55%),
+    #ffffff;
+}
+
+.workspace-sheet-native-color-input {
+  position: fixed;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .workspace-sheet-toolbar-row {
   display: flex;
-  gap: 6px;
+  gap: 5px;
   align-items: center;
 }
 
 .workspace-sheet-toolbar-stack {
-  display: grid;
-  gap: 6px;
-  align-content: start;
+  display: flex;
+  gap: 5px;
+  align-items: center;
 }
 
 .workspace-sheet-toolbar-group {
   display: grid;
-  gap: 8px;
+  gap: 3px;
   min-width: fit-content;
-  padding-right: 14px;
+  padding-right: 10px;
   border-right: 1px solid #dfe3e7;
 }
 
@@ -3479,13 +3957,16 @@ textarea {
 
 .workspace-sheet-toolbar-group-body {
   display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  min-height: 76px;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
 }
 
 .workspace-sheet-toolbar-group-label {
   color: #5f6368;
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   text-align: center;
 }
 
@@ -3555,6 +4036,20 @@ textarea {
   color: #1a73e8;
 }
 
+.workspace-sheet-grid-content {
+  position: relative;
+  width: max-content;
+  min-width: 100%;
+  min-height: 100%;
+}
+
+.workspace-sheet-chart-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 11;
+  pointer-events: none;
+}
+
 .workspace-sheet-chart-strip {
   display: grid;
   gap: 10px;
@@ -3578,16 +4073,152 @@ textarea {
   gap: 10px;
 }
 
-.workspace-sheet-chart-canvas {
-  min-height: 96px;
-  display: flex;
-  align-items: end;
+.workspace-sheet-chart-object {
+  position: absolute;
+  z-index: 12;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto auto;
   gap: 8px;
+  padding: 10px 12px 12px;
+  border: 1px solid rgba(32, 33, 36, 0.18);
+  border-radius: 6px;
+  background: #ffffff;
+  box-shadow: 0 12px 32px rgba(60, 64, 67, 0.16);
+  pointer-events: auto;
+  overflow: hidden;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+  contain: layout paint;
+  will-change: transform, width, height;
+}
+
+.workspace-sheet-chart-object:focus-visible {
+  outline: 2px solid rgba(26, 115, 232, 0.3);
+  outline-offset: 0;
+}
+
+.workspace-sheet-chart-object.is-dragging {
+  cursor: grabbing;
+  box-shadow: 0 18px 40px rgba(60, 64, 67, 0.22);
+}
+
+.workspace-sheet-chart-toolbar,
+.workspace-sheet-chart-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.workspace-sheet-chart-kind {
+  text-transform: uppercase;
+  color: #7b8794;
+  letter-spacing: 0.08em;
+}
+
+.workspace-sheet-chart-icon-button {
+  position: relative;
+  z-index: 5;
+  width: 26px;
+  height: 26px;
+  border: 1px solid #d7dbe3;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #5f6368;
+  font: inherit;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.workspace-sheet-chart-icon-button:hover {
+  border-color: rgba(26, 115, 232, 0.32);
+  color: #1a73e8;
+}
+
+.workspace-sheet-chart-drag-edge {
+  position: absolute;
+  z-index: 4;
+  pointer-events: auto;
+  background: transparent;
+  cursor: grab;
+}
+
+.workspace-sheet-chart-drag-edge.is-top {
+  top: 0;
+  left: 0;
+  right: 34px;
+  height: 14px;
+}
+
+.workspace-sheet-chart-drag-edge.is-right {
+  top: 34px;
+  right: 0;
+  bottom: 28px;
+  width: 14px;
+}
+
+.workspace-sheet-chart-drag-edge.is-bottom {
+  left: 0;
+  right: 28px;
+  bottom: 0;
+  height: 14px;
+}
+
+.workspace-sheet-chart-drag-edge.is-left {
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 14px;
+}
+
+.workspace-sheet-chart-object.is-dragging .workspace-sheet-chart-drag-edge {
+  cursor: grabbing;
+}
+
+.workspace-sheet-chart-title {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #3c4043;
+  text-align: center;
+  cursor: text;
+}
+
+.workspace-sheet-chart-stage {
+  min-height: 0;
+  display: flex;
+  align-items: stretch;
+}
+
+.workspace-sheet-chart-canvas {
+  min-height: 110px;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #fbfcfe 0%, #f5f7fb 100%);
+  padding: 8px;
+  display: flex;
+  align-items: stretch;
+  justify-content: stretch;
+  overflow: hidden;
+}
+
+.workspace-sheet-chart-canvas.is-floating {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  padding: 12px;
+  border-radius: 4px;
+  border: 1px solid rgba(223, 227, 232, 0.75);
 }
 
 .workspace-sheet-chart-svg {
   width: 100%;
-  height: 96px;
+  height: 100%;
+  display: block;
+}
+
+.workspace-sheet-chart-svg.is-polar {
+  padding: 8px;
 }
 
 .workspace-sheet-chart-bar-group {
@@ -3614,6 +4245,110 @@ textarea {
   width: 100%;
   min-height: 8px;
   background: linear-gradient(180deg, #1a73e8, #0f9d58);
+}
+
+.workspace-sheet-chart-polar {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 92px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.workspace-sheet-chart-polar-ring,
+.workspace-sheet-chart-polar-inner-ring {
+  border-radius: 999px;
+}
+
+.workspace-sheet-chart-polar-ring {
+  width: min(92px, 100%);
+  height: min(92px, 100%);
+}
+
+.workspace-sheet-chart-polar.is-donut .workspace-sheet-chart-polar-hole {
+  position: absolute;
+  width: 42%;
+  height: 42%;
+  border-radius: 999px;
+  background: #ffffff;
+}
+
+.workspace-sheet-chart-polar.is-sunburst .workspace-sheet-chart-polar-inner-ring {
+  position: absolute;
+  width: 46%;
+  height: 46%;
+  box-shadow: inset 0 0 0 10px #ffffff;
+}
+
+.workspace-sheet-chart-treemap {
+  width: 100%;
+  min-height: 92px;
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.workspace-sheet-chart-treemap-tile {
+  min-height: 34px;
+  border-radius: 8px;
+}
+
+.workspace-sheet-chart-funnel {
+  width: 100%;
+  min-height: 92px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+}
+
+.workspace-sheet-chart-funnel-step {
+  height: 12px;
+  border-radius: 999px;
+  margin: 0 auto;
+}
+
+.workspace-sheet-chart-legend {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  min-height: 20px;
+}
+
+.workspace-sheet-chart-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #5f6368;
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+.workspace-sheet-chart-legend-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex: 0 0 auto;
+}
+
+.workspace-sheet-chart-resize-handle {
+  position: absolute;
+  z-index: 6;
+  right: 6px;
+  bottom: 6px;
+  width: 14px;
+  height: 14px;
+  border: none;
+  border-right: 2px solid rgba(95, 99, 104, 0.5);
+  border-bottom: 2px solid rgba(95, 99, 104, 0.5);
+  background: transparent;
+  cursor: nwse-resize;
+  touch-action: none;
+  padding: 0;
 }
 
 body.workspace-sheet-expanded {
@@ -3669,6 +4404,12 @@ body.workspace-sheet-expanded {
   transform-origin: top left;
   overflow: hidden;
   box-shadow: 0 24px 56px rgba(60, 64, 67, 0.28);
+}
+
+.workspace-sheet-app.is-expanded .workspace-sheet-menu-button,
+.workspace-sheet-app.is-expanded .workspace-sheet-toolbar-button,
+.workspace-sheet-app.is-expanded .workspace-sheet-toolbar-select {
+  font-size: 15px;
 }
 
 .workspace-sheet-app.is-expanded .workspace-sheet-grid-shell {
@@ -3816,6 +4557,194 @@ body.workspace-sheet-expanded {
   cursor: not-allowed;
 }
 
+.workspace-sheet-grid-table td.is-sheet-table-cell {
+  border-bottom-color: rgba(26, 115, 232, 0.2);
+}
+
+.workspace-sheet-grid-table td.is-sheet-table-cell .workspace-sheet-cell-input {
+  --sheet-cell-fill: #ffffff;
+}
+
+.workspace-sheet-grid-table td.is-sheet-table-banded .workspace-sheet-cell-input {
+  --sheet-cell-fill: #eef5ff;
+}
+
+.workspace-sheet-grid-table td.is-sheet-table-banded-column .workspace-sheet-cell-input {
+  --sheet-cell-fill: #f6f9ff;
+}
+
+.workspace-sheet-grid-table td.is-sheet-table-first-column .workspace-sheet-cell-input,
+.workspace-sheet-grid-table td.is-sheet-table-last-column .workspace-sheet-cell-input {
+  font-weight: 700;
+}
+
+.workspace-sheet-grid-table td.is-sheet-table-header .workspace-sheet-cell-input {
+  --sheet-cell-fill: #1a73e8;
+  --sheet-cell-color: #ffffff;
+  font-weight: 700;
+}
+
+.workspace-sheet-grid-table td.has-sheet-table-filter-button .workspace-sheet-cell-input {
+  padding-right: 28px;
+}
+
+.workspace-sheet-grid-table td.has-sheet-validation-dropdown .workspace-sheet-cell-input {
+  padding-right: 28px;
+}
+
+.workspace-sheet-grid-table td.has-data-validation::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  border-top: 8px solid #188038;
+  border-right: 8px solid transparent;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.workspace-sheet-grid-table td.is-sheet-validation-invalid .workspace-sheet-cell-input {
+  box-shadow: inset 0 0 0 2px rgba(197, 34, 31, 0.78);
+}
+
+.workspace-sheet-grid-table td.has-conditional-format .workspace-sheet-cell-input {
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.02)),
+    var(--sheet-cell-fill, transparent);
+}
+
+.workspace-sheet-validation-dropdown-button {
+  position: absolute;
+  right: 3px;
+  top: 50%;
+  z-index: 3;
+  width: 20px;
+  height: 20px;
+  transform: translateY(-50%);
+  border: 1px solid rgba(95, 99, 104, 0.18);
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #3c4043;
+  cursor: pointer;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+}
+
+.workspace-sheet-validation-dropdown-button:hover,
+.workspace-sheet-validation-dropdown-button.is-open {
+  border-color: rgba(26, 115, 232, 0.45);
+  color: #1a73e8;
+}
+
+.workspace-sheet-validation-dropdown-icon svg {
+  width: 13px;
+  height: 13px;
+  stroke-width: 2.2;
+}
+
+.workspace-sheet-table-filter-button {
+  position: absolute;
+  right: 3px;
+  top: 50%;
+  z-index: 3;
+  width: 20px;
+  height: 20px;
+  transform: translateY(-50%);
+  border: 1px solid rgba(255, 255, 255, 0.58);
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.22);
+  color: #ffffff;
+  font-size: 0.7rem;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+}
+
+.workspace-sheet-table-filter-button-icon svg {
+  width: 13px;
+  height: 13px;
+  stroke-width: 2.2;
+}
+
+.workspace-sheet-table-filter-button:hover,
+.workspace-sheet-table-filter-button.is-open,
+.workspace-sheet-table-filter-button.is-active {
+  background: rgba(255, 255, 255, 0.88);
+  color: #174ea6;
+}
+
+.workspace-sheet-grid-table td.is-sheet-table-total .workspace-sheet-cell-input {
+  --sheet-cell-fill: #d8e9ff;
+  font-weight: 700;
+}
+
+.workspace-sheet-grid-table td[data-sheet-table-style="green"].is-sheet-table-header .workspace-sheet-cell-input {
+  --sheet-cell-fill: #188038;
+}
+
+.workspace-sheet-grid-table td[data-sheet-table-style="green"].is-sheet-table-banded .workspace-sheet-cell-input {
+  --sheet-cell-fill: #e6f4ea;
+}
+
+.workspace-sheet-grid-table td[data-sheet-table-style="green"].is-sheet-table-banded-column .workspace-sheet-cell-input {
+  --sheet-cell-fill: #f3fbf5;
+}
+
+.workspace-sheet-grid-table td[data-sheet-table-style="orange"].is-sheet-table-header .workspace-sheet-cell-input {
+  --sheet-cell-fill: #c26401;
+}
+
+.workspace-sheet-grid-table td[data-sheet-table-style="orange"].is-sheet-table-banded .workspace-sheet-cell-input {
+  --sheet-cell-fill: #fff4e5;
+}
+
+.workspace-sheet-grid-table td[data-sheet-table-style="orange"].is-sheet-table-banded-column .workspace-sheet-cell-input {
+  --sheet-cell-fill: #fff9ef;
+}
+
+.workspace-sheet-grid-table td[data-sheet-table-style="purple"].is-sheet-table-header .workspace-sheet-cell-input {
+  --sheet-cell-fill: #6f42c1;
+}
+
+.workspace-sheet-grid-table td[data-sheet-table-style="purple"].is-sheet-table-banded .workspace-sheet-cell-input {
+  --sheet-cell-fill: #f1eafe;
+}
+
+.workspace-sheet-grid-table td[data-sheet-table-style="purple"].is-sheet-table-banded-column .workspace-sheet-cell-input {
+  --sheet-cell-fill: #f8f3ff;
+}
+
+.workspace-sheet-grid-table td[data-sheet-table-style="gray"].is-sheet-table-header .workspace-sheet-cell-input {
+  --sheet-cell-fill: #5f6368;
+}
+
+.workspace-sheet-grid-table td[data-sheet-table-style="gray"].is-sheet-table-banded .workspace-sheet-cell-input {
+  --sheet-cell-fill: #f1f3f4;
+}
+
+.workspace-sheet-grid-table td[data-sheet-table-style="gray"].is-sheet-table-banded-column .workspace-sheet-cell-input {
+  --sheet-cell-fill: #f8f9fa;
+}
+
+.workspace-sheet-grid-table td.is-sheet-pivot-cell {
+  border-bottom-color: rgba(95, 99, 104, 0.16);
+}
+
+.workspace-sheet-grid-table td.is-sheet-pivot-header .workspace-sheet-cell-input {
+  --sheet-cell-fill: #f1f3f4;
+  font-weight: 700;
+}
+
+.workspace-sheet-grid-table td.is-sheet-pivot-total .workspace-sheet-cell-input {
+  --sheet-cell-fill: #e8f0fe;
+  font-weight: 700;
+}
+
 .workspace-sheet-grid-table td.has-note::after {
   content: "";
   position: absolute;
@@ -3867,6 +4796,7 @@ body.workspace-sheet-expanded {
   cursor: crosshair;
   z-index: 8;
   padding: 0;
+  transform: translate(-50%, -50%);
 }
 
 .workspace-sheet-fill-handle:disabled {
@@ -3901,6 +4831,15 @@ body.workspace-sheet-expanded {
 
 .workspace-sheet-context-action:hover {
   background: rgba(26, 115, 232, 0.08);
+}
+
+.workspace-sheet-context-action:disabled {
+  color: #9aa0a6;
+  cursor: not-allowed;
+}
+
+.workspace-sheet-context-action:disabled:hover {
+  background: transparent;
 }
 
 .workspace-sheet-column-resize-handle,
@@ -3962,6 +4901,21 @@ body.workspace-sheet-expanded {
 .workspace-sheet-tab-pill-ghost {
   color: #5f6368;
   background: #f8f9fa;
+}
+
+@media (max-width: 900px) {
+  .workspace-sheet-topbar {
+    grid-template-columns: minmax(140px, 1fr) minmax(180px, 1.4fr);
+  }
+
+  .workspace-sheet-command-search {
+    justify-self: stretch;
+  }
+
+  .workspace-sheet-topbar-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+  }
 }
 
 @media print {
