@@ -2152,6 +2152,7 @@ function normalizeSpreadsheetModel(model = {}) {
               title: String(chart.title || `Chart ${chartIndex + 1}`),
               kind: String(chart.kind || "column"),
               range: String(chart.range || ""),
+              sourceTableId: String(chart.sourceTableId || chart.tableId || ""),
               seriesName: String(chart.seriesName || chart.series || ""),
               secondarySeriesName: String(chart.secondarySeriesName || chart.secondarySeries || ""),
               x: Math.max(16, Number(chart.x ?? chart.left ?? 212) || 212),
@@ -3332,7 +3333,14 @@ function isInlineDatasetPreviewEditingActive() {
   }
 
   const activeElement = document.activeElement;
-  return Boolean(activeElement && preview.contains(activeElement));
+  const expandedSheet = document.querySelector(".workspace-sheet-modal-overlay .workspace-sheet-app.is-expanded");
+  return Boolean(
+    activeElement &&
+      (
+        preview.contains(activeElement) ||
+        expandedSheet?.contains(activeElement)
+      )
+  );
 }
 
 function isInlinePreviewEditingActive() {

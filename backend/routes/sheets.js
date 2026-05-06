@@ -19,9 +19,34 @@ const NUMBER_FORMATS = new Set(["number", "currency", "percent", "date"]);
 const HORIZONTAL_ALIGNMENTS = new Set(["left", "center", "right"]);
 const VERTICAL_ALIGNMENTS = new Set(["top", "middle", "bottom"]);
 const BORDER_EDGES = ["top", "right", "bottom", "left"];
+const BORDER_STYLES = new Set(["thin", "medium", "thick", "dashed", "dotted", "double"]);
 const TABLE_STYLES = new Set(["blue", "green", "orange", "purple", "gray"]);
 const TABLE_TOTAL_FUNCTIONS = new Set(["sum", "average", "count", "min", "max", "none"]);
 const PIVOT_AGGREGATES = new Set(["sum", "count", "average", "min", "max"]);
+const CHART_KINDS = new Set([
+  "column",
+  "stacked-column",
+  "percent-column",
+  "line",
+  "line-markers",
+  "combo",
+  "scatter",
+  "bubble",
+  "radar",
+  "pie",
+  "donut",
+  "sunburst",
+  "bar",
+  "stacked-bar",
+  "percent-bar",
+  "histogram",
+  "box",
+  "waterfall",
+  "area",
+  "stacked-area",
+  "funnel",
+  "treemap"
+]);
 const DATA_VALIDATION_TYPES = new Set(["list", "whole", "decimal", "date", "textLength"]);
 const DATA_VALIDATION_OPERATORS = new Set([
   "between",
@@ -34,6 +59,59 @@ const DATA_VALIDATION_OPERATORS = new Set([
   "lessOrEqual"
 ]);
 const CONDITIONAL_FORMAT_TYPES = new Set(["greaterThan", "lessThan", "between", "equal", "textContains", "duplicate"]);
+const XLSX_FORMULA_NAME_ALIASES = {
+  SI: "IF",
+  SIERREUR: "IFERROR",
+  ET: "AND",
+  OU: "OR",
+  NON: "NOT",
+  VRAI: "TRUE",
+  FAUX: "FALSE",
+  SOMME: "SUM",
+  "SOMME.SI": "SUMIF",
+  "SOMME.SI.ENS": "SUMIFS",
+  MOYENNE: "AVERAGE",
+  "MOYENNE.SI": "AVERAGEIF",
+  "MOYENNE.SI.ENS": "AVERAGEIFS",
+  NB: "COUNT",
+  NBVAL: "COUNTA",
+  "NB.VIDE": "COUNTBLANK",
+  "NB.SI": "COUNTIF",
+  "NB.SI.ENS": "COUNTIFS",
+  AUJOURDHUI: "TODAY",
+  MAINTENANT: "NOW",
+  TEXTE: "TEXT",
+  GAUCHE: "LEFT",
+  DROITE: "RIGHT",
+  STXT: "MID",
+  SUPPRESPACE: "TRIM",
+  VALEUR: "VALUE",
+  FILTRE: "FILTER",
+  TRIER: "SORT",
+  UNIQUE: "UNIQUE",
+  EQUIV: "MATCH",
+  RECHERCHEV: "VLOOKUP",
+  RECHERCHEX: "XLOOKUP",
+  "SOUS.TOTAL": "SUBTOTAL",
+  ARRONDI: "ROUND",
+  "ARRONDI.INF": "ROUNDDOWN",
+  "ARRONDI.SUP": "ROUNDUP",
+  PRODUIT: "PRODUCT",
+  CONCATENER: "CONCAT"
+};
+const XLSX_ZERO_ARGUMENT_FORMULAS = new Set(["NOW", "TODAY", "TRUE", "FALSE", "RAND"]);
+const XLSX_TABLE_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.table+xml";
+const XLSX_DRAWING_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.drawing+xml";
+const XLSX_CHART_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.drawingml.chart+xml";
+const XLSX_RELATIONSHIPS_XML =
+  '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>';
+const XLSX_DRAWING_RELATIONSHIP_TYPE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing";
+const XLSX_CHART_RELATIONSHIP_TYPE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart";
+const XLSX_EMUS_PER_PIXEL = 9525;
+const HYDRIA_ROW_HEADER_WIDTH = 52;
+const HYDRIA_COLUMN_HEADER_HEIGHT = 34;
+const HYDRIA_DEFAULT_COLUMN_WIDTH = 132;
+const HYDRIA_DEFAULT_ROW_HEIGHT = 34;
 const BUILTIN_FORMULA_NAMES = new Set([
   "ABS",
   "AND",
@@ -159,6 +237,7 @@ function normalizeHydriaBorder(border = {}) {
     return null;
   }
   normalized.color = normalizeHexColor(border.color) || "#202124";
+  normalized.style = BORDER_STYLES.has(border.style) ? border.style : "medium";
   return normalized;
 }
 
@@ -286,6 +365,67 @@ function normalizeHydriaPivotTables(pivotTables = []) {
         lastRefreshedAt: String(pivotTable.lastRefreshedAt || "")
       };
     });
+}
+
+function normalizeHydriaChartPoint(point = {}, index = 0) {
+  if (typeof point === "string" || typeof point === "number") {
+    return {
+      label: `Point ${index + 1}`,
+      value: String(point ?? ""),
+      xValue: "",
+      yValue: String(point ?? ""),
+      sizeValue: "",
+      secondaryValue: ""
+    };
+  }
+  if (!point || typeof point !== "object" || Array.isArray(point)) {
+    return null;
+  }
+  return {
+    label: String(point.label || point.name || `Point ${index + 1}`),
+    value: String(point.value ?? point.y ?? ""),
+    xValue: String(point.xValue ?? point.x ?? ""),
+    yValue: String(point.yValue ?? point.y ?? point.value ?? ""),
+    sizeValue: String(point.sizeValue ?? point.size ?? point.z ?? ""),
+    secondaryValue: String(point.secondaryValue ?? point.secondary ?? "")
+  };
+}
+
+function normalizeHydriaChartMetric(value = 0, fallback = 0, { min = 0, max = Number.POSITIVE_INFINITY } = {}) {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) {
+    return fallback;
+  }
+  return Math.max(min, Math.min(numericValue, max));
+}
+
+function normalizeHydriaCharts(charts = []) {
+  if (!Array.isArray(charts)) {
+    return [];
+  }
+  return charts
+    .filter((chart) => chart && typeof chart === "object" && !Array.isArray(chart))
+    .map((chart, index) => {
+      const kind = String(chart.kind || "").trim().toLowerCase();
+      return {
+        id: String(chart.id || `sheet-chart-${index + 1}`),
+        title: String(chart.title || `Chart ${index + 1}`),
+        kind: CHART_KINDS.has(kind) ? kind : "column",
+        range: String(chart.range || ""),
+        sourceTableId: String(chart.sourceTableId || chart.tableId || ""),
+        seriesName: String(chart.seriesName || chart.series || ""),
+        secondarySeriesName: String(chart.secondarySeriesName || chart.secondarySeries || ""),
+        x: normalizeHydriaChartMetric(chart.x ?? chart.left, 212, { min: 0, max: 100000 }),
+        y: normalizeHydriaChartMetric(chart.y ?? chart.top, 52, { min: 0, max: 100000 }),
+        width: normalizeHydriaChartMetric(chart.width, 432, { min: 120, max: 100000 }),
+        height: normalizeHydriaChartMetric(chart.height, 284, { min: 100, max: 100000 }),
+        showLegend: chart.showLegend !== false,
+        points: Array.isArray(chart.points)
+          ? chart.points.map((point, pointIndex) => normalizeHydriaChartPoint(point, pointIndex)).filter(Boolean)
+          : []
+      };
+    })
+    .filter((chart) => chart.points.length);
 }
 
 function normalizeHydriaTableFilters(tableFilters = {}) {
@@ -578,6 +718,7 @@ function worksheetToHydriaSheet(worksheet, sheetName = "Sheet", index = 0, { hid
       merges: [],
       cellFormats: {},
       tables: [],
+      charts: [],
       pivotTables: [],
       tableFilters: {},
       dataValidations: {},
@@ -733,6 +874,7 @@ function workbookToHydriaModel(workbook) {
           merges: [],
           cellFormats: {},
           tables: [],
+          charts: [],
           pivotTables: [],
           tableFilters: {},
           dataValidations: {},
@@ -777,6 +919,7 @@ function normalizeHydriaSheet(sheet = {}, index = 0) {
     merges: Array.isArray(sheet.merges) ? sheet.merges : [],
     cellFormats: normalizeHydriaCellFormats(sheet.cellFormats),
     tables: normalizeHydriaTables(sheet.tables),
+    charts: normalizeHydriaCharts(sheet.charts),
     pivotTables: normalizeHydriaPivotTables(sheet.pivotTables),
     tableFilters: normalizeHydriaTableFilters(sheet.tableFilters),
     dataValidations: normalizeHydriaDataValidations(sheet.dataValidations || sheet.validations),
@@ -911,11 +1054,17 @@ function writeHydriaCellValue(worksheet, address, value = "", format = {}, { she
   const numberFormat = normalizedFormat.numberFormat || "";
   const text = normalizeCellText(value);
   if (text.startsWith("=") && text.length > 1) {
-    worksheet[address] = {
-      t: "n",
-      f: normalizeHydriaFormulaForXlsx(text.slice(1), sheet, tables),
-      v: 0
-    };
+    const formula = normalizeHydriaFormulaForXlsx(text.slice(1), sheet, tables);
+    worksheet[address] = isHydriaFormulaSafeForXlsx(formula)
+      ? {
+          t: "n",
+          f: formula,
+          v: 0
+        }
+      : {
+          t: "s",
+          v: text
+        };
   } else if (isSimpleXlsxNumberText(text)) {
     worksheet[address] = {
       t: "n",
@@ -951,6 +1100,26 @@ function getHydriaTableHeaderNames(sheet = {}, table = {}) {
     const header = table.showHeaderRow === false ? "" : getHydriaGridCellText(sheet, bounds.startRowIndex, columnIndex);
     return String(header || `Column ${offset + 1}`).trim() || `Column ${offset + 1}`;
   });
+}
+
+function getHydriaExportCellText(sheet = {}, tables = [], rowIndex = 0, columnIndex = 0, value = "") {
+  const headerTable = normalizeHydriaTables(tables).find((table) => {
+    if (table.showHeaderRow === false) {
+      return false;
+    }
+    const bounds = normalizeHydriaStructureBounds(table);
+    return (
+      rowIndex === bounds.startRowIndex &&
+      columnIndex >= bounds.startColumnIndex &&
+      columnIndex <= bounds.endColumnIndex
+    );
+  });
+  if (!headerTable) {
+    return value;
+  }
+  const bounds = normalizeHydriaStructureBounds(headerTable);
+  const headerNames = uniqueXlsxTableColumnNames(getHydriaTableHeaderNames(sheet, headerTable));
+  return headerNames[columnIndex - bounds.startColumnIndex] || `Column ${columnIndex - bounds.startColumnIndex + 1}`;
 }
 
 function hydriaStructuredReferenceToXlsxRange(sheet = {}, tables = [], tableName = "", selector = "") {
@@ -1042,7 +1211,72 @@ function normalizeHydriaFormulaForXlsx(formula = "", sheet = {}, tables = []) {
         (match, tableName, selector) =>
           hydriaStructuredReferenceToXlsxRange(sheet, tables, tableName, selector) || match
       )
+      .replace(/\b([A-Za-zÀ-ÖØ-öø-ÿ_][A-Za-zÀ-ÖØ-öø-ÿ0-9_.]*)\s*(?=\()/g, (match, name) => {
+        const normalizedName = String(name || "").toUpperCase();
+        return XLSX_FORMULA_NAME_ALIASES[normalizedName] || normalizedName;
+      })
   );
+}
+
+function formulaOutsideQuotes(formula = "") {
+  let output = "";
+  let inQuotes = false;
+  const source = String(formula || "");
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index];
+    const next = source[index + 1];
+    if (char === "\"") {
+      if (inQuotes && next === "\"") {
+        index += 1;
+        continue;
+      }
+      inQuotes = !inQuotes;
+      output += " ";
+      continue;
+    }
+    output += inQuotes ? " " : char;
+  }
+  return output;
+}
+
+function hasBalancedFormulaParentheses(formula = "") {
+  let depth = 0;
+  for (const char of formulaOutsideQuotes(formula)) {
+    if (char === "(") {
+      depth += 1;
+    } else if (char === ")") {
+      depth -= 1;
+      if (depth < 0) {
+        return false;
+      }
+    }
+  }
+  return depth === 0;
+}
+
+function isHydriaFormulaSafeForXlsx(formula = "") {
+  const text = String(formula || "").trim();
+  if (!text || /[\u0000-\u001f]/.test(text)) {
+    return false;
+  }
+  if (!hasBalancedFormulaParentheses(text)) {
+    return false;
+  }
+  const outside = formulaOutsideQuotes(text);
+  if (/[A-Za-z_][A-Za-z0-9_.]*\[[^\]]+\]/.test(outside)) {
+    return false;
+  }
+  if (/\)\s*(?:\$?[A-Z]{1,3}\$?\d+|[A-Z_][A-Z0-9_.]*|\d|\")/i.test(outside)) {
+    return false;
+  }
+  let emptyCallMatch;
+  const emptyCallPattern = /\b([A-Z][A-Z0-9_.]*)\s*\(\s*\)/gi;
+  while ((emptyCallMatch = emptyCallPattern.exec(outside))) {
+    if (!XLSX_ZERO_ARGUMENT_FORMULAS.has(emptyCallMatch[1].toUpperCase())) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function hydriaBoundsToXlsxRef(bounds = {}) {
@@ -1163,10 +1397,11 @@ function hydriaSheetToWorksheet(sheet = {}) {
     Array.from({ length: columnCount }, (_, columnIndex) => normalizeCellText(row?.[columnIndex])).forEach(
       (value, columnIndex) => {
         const address = XLSX.utils.encode_cell({ r: rowIndex, c: columnIndex });
+        const exportValue = getHydriaExportCellText(sheet, normalizedTables, rowIndex, columnIndex, value);
         writeHydriaCellValue(
           worksheet,
           address,
-          value,
+          exportValue,
           hydriaCellFormatForXlsxExport(sheet, normalizedTables, rowIndex, columnIndex),
           { sheet, tables: normalizedTables }
         );
@@ -1343,8 +1578,9 @@ function xlsxStyleBorderXml(format = {}) {
     return "";
   }
   const color = hexToXlsxRgb(border.color) || "FF202124";
+  const style = BORDER_STYLES.has(border.style) ? border.style : "medium";
   const edgeXml = (edge) =>
-    border[edge] ? `<${edge} style="thin"><color rgb="${color}"/></${edge}>` : `<${edge}/>`;
+    border[edge] ? `<${edge} style="${style}"><color rgb="${color}"/></${edge}>` : `<${edge}/>`;
   return `<border>${["left", "right", "top", "bottom"].map(edgeXml).join("")}<diagonal/></border>`;
 }
 
@@ -1613,7 +1849,7 @@ function createHydriaXlsxTableXml({ tableId = 1, tableName = "Table1", table = {
   ].join("");
 }
 
-function appendXlsxContentTypeOverrides(zip, partNames = []) {
+function appendXlsxContentTypeOverrides(zip, partNames = [], contentType = XLSX_TABLE_CONTENT_TYPE) {
   if (!partNames.length) {
     return;
   }
@@ -1626,7 +1862,7 @@ function appendXlsxContentTypeOverrides(zip, partNames = []) {
     .filter((partName) => !xml.includes(`PartName="${partName}"`))
     .map(
       (partName) =>
-        `<Override PartName="${partName}" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.table+xml"/>`
+        `<Override PartName="${partName}" ContentType="${contentType}"/>`
     );
   if (!overrides.length) {
     return;
@@ -1640,12 +1876,35 @@ function nextRelationshipId(relationshipsXml = "") {
   return `rId${ids.length ? Math.max(...ids) + 1 : 1}`;
 }
 
+function addRelationshipXml(relationshipsXml = XLSX_RELATIONSHIPS_XML, { type = "", target = "" } = {}) {
+  const relationshipId = nextRelationshipId(relationshipsXml);
+  const relationship = `<Relationship Id="${relationshipId}" Type="${escapeXmlAttribute(type)}" Target="${escapeXmlAttribute(target)}"/>`;
+  return {
+    relationshipId,
+    xml: relationshipsXml.replace(/<\/Relationships>\s*$/i, `${relationship}</Relationships>`)
+  };
+}
+
+function readOrCreateXlsxRelationships(zip, relPath = "") {
+  const entry = zip.getEntry(relPath);
+  return entry ? entry.getData().toString("utf8") : XLSX_RELATIONSHIPS_XML;
+}
+
+function updateOrAddXlsxFile(zip, path = "", xml = "") {
+  const buffer = Buffer.from(xml, "utf8");
+  if (zip.getEntry(path)) {
+    zip.updateFile(path, buffer);
+  } else {
+    zip.addFile(path, buffer);
+  }
+}
+
 function addWorksheetTableRelationships(zip, sheetIndex = 0, tablePartNames = []) {
   const relPath = `xl/worksheets/_rels/sheet${sheetIndex + 1}.xml.rels`;
   const existingEntry = zip.getEntry(relPath);
   let xml = existingEntry
     ? existingEntry.getData().toString("utf8")
-    : '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>';
+    : XLSX_RELATIONSHIPS_XML;
   const relationshipIds = [];
   tablePartNames.forEach((partName) => {
     const relationshipId = nextRelationshipId(xml);
@@ -1733,6 +1992,749 @@ function applyHydriaTablesToXlsxBuffer(buffer, model = {}) {
 
   appendXlsxContentTypeOverrides(zip, tablePartNames);
   return tablePartNames.length ? zip.toBuffer() : buffer;
+}
+
+function hydriaChartNumericValue(value = "") {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+  const text = String(value ?? "").trim();
+  if (!text) {
+    return null;
+  }
+  const normalized = text
+    .replace(/\s+/g, "")
+    .replace(",", ".")
+    .replace(/[^0-9.+\-eE]/g, "");
+  if (!normalized || !/[0-9]/.test(normalized)) {
+    return null;
+  }
+  const numericValue = Number(normalized);
+  return Number.isFinite(numericValue) ? numericValue : null;
+}
+
+function xlsxChartNumberText(value = 0) {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) {
+    return "0";
+  }
+  if (Number.isInteger(numericValue)) {
+    return String(numericValue);
+  }
+  return String(Math.abs(numericValue) < 1e12 ? Number(numericValue.toFixed(12)) : numericValue);
+}
+
+function stripHydriaChartSheetPrefix(range = "") {
+  const text = String(range || "").trim();
+  if (!text.includes("!")) {
+    return text;
+  }
+  return text.slice(text.lastIndexOf("!") + 1);
+}
+
+function hydriaChartRangeBounds(range = "") {
+  const cleanRange = stripHydriaChartSheetPrefix(range).replace(/\$/g, "");
+  const [start, end = start] = cleanRange.split(":");
+  try {
+    const startCell = XLSX.utils.decode_cell(start);
+    const endCell = XLSX.utils.decode_cell(end);
+    return {
+      minRow: Math.min(startCell.r, endCell.r),
+      maxRow: Math.max(startCell.r, endCell.r),
+      minColumn: Math.min(startCell.c, endCell.c),
+      maxColumn: Math.max(startCell.c, endCell.c)
+    };
+  } catch {
+    return null;
+  }
+}
+
+function hydriaChartAbsoluteCellRef(rowIndex = 0, columnIndex = 0) {
+  const row = Number(rowIndex);
+  const column = Number(columnIndex);
+  if (!Number.isInteger(row) || !Number.isInteger(column) || row < 0 || column < 0) {
+    return "";
+  }
+  return `$${XLSX.utils.encode_col(column)}$${row + 1}`;
+}
+
+function hydriaChartAbsoluteRangeRef(bounds = {}) {
+  const start = hydriaChartAbsoluteCellRef(bounds.minRow, bounds.minColumn);
+  const end = hydriaChartAbsoluteCellRef(bounds.maxRow, bounds.maxColumn);
+  return start === end ? start : `${start}:${end}`;
+}
+
+function hydriaChartSheetRangeFormula(sheetName = "Sheet", bounds = null) {
+  if (!bounds) {
+    return "";
+  }
+  return `${quoteXlsxSheetName(sheetName)}!${hydriaChartAbsoluteRangeRef(bounds)}`;
+}
+
+function readHydriaSheetCell(sheet = {}, rowIndex = 0, columnIndex = 0) {
+  return normalizeCellText(rowIndex === 0 ? sheet.columns?.[columnIndex] : sheet.rows?.[rowIndex - 1]?.[columnIndex]);
+}
+
+function hydriaChartColumnHasNumericData(sheet = {}, rowIndexes = [], columnIndex = 0) {
+  return rowIndexes.some((rowIndex) => hydriaChartNumericValue(readHydriaSheetCell(sheet, rowIndex, columnIndex)) !== null);
+}
+
+function hydriaChartSelectionDescriptor(sheet = {}, bounds = null) {
+  if (!bounds) {
+    return null;
+  }
+  const width = bounds.maxColumn - bounds.minColumn + 1;
+  const height = bounds.maxRow - bounds.minRow + 1;
+  const hasHeaderRow = bounds.minRow === 0 && height >= 2;
+  const startRowIndex = hasHeaderRow ? bounds.minRow + 1 : bounds.minRow;
+  const dataRowIndexes = Array.from(
+    { length: Math.max(0, bounds.maxRow - startRowIndex + 1) },
+    (_, offset) => startRowIndex + offset
+  );
+  const columnIndexes = Array.from({ length: width }, (_, offset) => bounds.minColumn + offset);
+  const numericColumns = columnIndexes.filter((columnIndex) =>
+    hydriaChartColumnHasNumericData(sheet, dataRowIndexes, columnIndex)
+  );
+  const firstTextColumn = columnIndexes.find((columnIndex) =>
+    dataRowIndexes.some((rowIndex) => {
+      const raw = readHydriaSheetCell(sheet, rowIndex, columnIndex);
+      return String(raw || "").trim() && hydriaChartNumericValue(raw) === null;
+    })
+  );
+  const labelColumnIndex = firstTextColumn ?? (width >= 2 ? bounds.minColumn : null);
+  const valueColumns = numericColumns.filter((columnIndex) => columnIndex !== labelColumnIndex);
+  return {
+    ...bounds,
+    width,
+    height,
+    hasHeaderRow,
+    startRowIndex,
+    dataRowIndexes,
+    columnIndexes,
+    numericColumns,
+    valueColumns,
+    labelColumnIndex
+  };
+}
+
+function hydriaChartSourceBounds(chart = {}, sheet = {}) {
+  const table = chart.sourceTableId
+    ? normalizeHydriaTables(sheet.tables).find((candidate) => candidate.id === chart.sourceTableId)
+    : null;
+  if (table) {
+    const bounds = normalizeHydriaStructureBounds(table);
+    return {
+      minRow: bounds.startRowIndex,
+      maxRow: bounds.endRowIndex,
+      minColumn: bounds.startColumnIndex,
+      maxColumn: bounds.endColumnIndex
+    };
+  }
+  return hydriaChartRangeBounds(chart.range);
+}
+
+function hydriaChartDataRangeFormula(sheetName = "Sheet", minRow = 0, maxRow = 0, columnIndex = 0) {
+  const column = Number(columnIndex);
+  if (maxRow < minRow || !Number.isInteger(column) || column < 0) {
+    return "";
+  }
+  return hydriaChartSheetRangeFormula(sheetName, {
+    minRow,
+    maxRow,
+    minColumn: column,
+    maxColumn: column
+  });
+}
+
+function hydriaChartCellFormula(sheetName = "Sheet", rowIndex = 0, columnIndex = 0) {
+  const row = Number(rowIndex);
+  const column = Number(columnIndex);
+  if (!Number.isInteger(row) || !Number.isInteger(column) || row < 0 || column < 0) {
+    return "";
+  }
+  return `${quoteXlsxSheetName(sheetName)}!${hydriaChartAbsoluteCellRef(row, column)}`;
+}
+
+function hydriaChartSeriesReferences(chart = {}, sheet = {}, sheetName = "Sheet") {
+  const kind = String(chart.kind || "column").toLowerCase();
+  if (["histogram", "box"].includes(kind)) {
+    return {};
+  }
+  const descriptor = hydriaChartSelectionDescriptor(sheet, hydriaChartSourceBounds(chart, sheet));
+  if (!descriptor || !descriptor.dataRowIndexes.length || descriptor.height === 1) {
+    return {};
+  }
+
+  if (["scatter", "radar", "bubble"].includes(kind)) {
+    const numericColumns = descriptor.numericColumns.length ? descriptor.numericColumns : descriptor.columnIndexes;
+    const useRowIndexForXAxis = numericColumns.length <= 1;
+    const xColumn = useRowIndexForXAxis ? null : (numericColumns[0] ?? descriptor.minColumn);
+    let yColumn = useRowIndexForXAxis
+      ? (numericColumns[0] ?? descriptor.minColumn)
+      : (numericColumns[1] ?? descriptor.columnIndexes.find((columnIndex) => columnIndex !== xColumn) ?? xColumn);
+    if (xColumn !== null && yColumn === xColumn && descriptor.columnIndexes.length > 1) {
+      yColumn = descriptor.columnIndexes.find((columnIndex) => columnIndex !== xColumn) ?? yColumn;
+    }
+    const sizeColumn = kind === "bubble"
+      ? numericColumns.find((columnIndex) => columnIndex !== xColumn && columnIndex !== yColumn) ?? null
+      : null;
+    return {
+      primaryNameRef: descriptor.hasHeaderRow ? hydriaChartCellFormula(sheetName, descriptor.minRow, yColumn) : "",
+      xValuesRef: xColumn === null ? "" : hydriaChartDataRangeFormula(sheetName, descriptor.startRowIndex, descriptor.maxRow, xColumn),
+      yValuesRef: hydriaChartDataRangeFormula(sheetName, descriptor.startRowIndex, descriptor.maxRow, yColumn),
+      bubbleSizesRef: sizeColumn === null ? "" : hydriaChartDataRangeFormula(sheetName, descriptor.startRowIndex, descriptor.maxRow, sizeColumn)
+    };
+  }
+
+  const primaryColumn =
+    descriptor.valueColumns[0] ??
+    descriptor.numericColumns[0] ??
+    Math.min(descriptor.maxColumn, descriptor.minColumn + 1);
+  const secondaryColumn = descriptor.valueColumns[1] ?? null;
+  const labelColumn =
+    descriptor.labelColumnIndex !== null &&
+    descriptor.labelColumnIndex !== primaryColumn
+      ? descriptor.labelColumnIndex
+      : null;
+
+  return {
+    primaryNameRef: descriptor.hasHeaderRow ? hydriaChartCellFormula(sheetName, descriptor.minRow, primaryColumn) : "",
+    secondaryNameRef:
+      secondaryColumn !== null && descriptor.hasHeaderRow
+        ? hydriaChartCellFormula(sheetName, descriptor.minRow, secondaryColumn)
+        : "",
+    categoriesRef:
+      labelColumn !== null
+        ? hydriaChartDataRangeFormula(sheetName, descriptor.startRowIndex, descriptor.maxRow, labelColumn)
+        : "",
+    primaryValuesRef: hydriaChartDataRangeFormula(sheetName, descriptor.startRowIndex, descriptor.maxRow, primaryColumn),
+    secondaryValuesRef:
+      secondaryColumn !== null
+        ? hydriaChartDataRangeFormula(sheetName, descriptor.startRowIndex, descriptor.maxRow, secondaryColumn)
+        : ""
+  };
+}
+
+function hydriaChartSeries(chart = {}, sheet = {}, sheetName = "Sheet") {
+  const points = (Array.isArray(chart.points) ? chart.points : [])
+    .map((point, index) => {
+      const primary = hydriaChartNumericValue(point.value);
+      const secondary = hydriaChartNumericValue(point.secondaryValue);
+      const yValue = hydriaChartNumericValue(point.yValue || point.value);
+      const xValue = hydriaChartNumericValue(point.xValue) ?? index + 1;
+      const sizeValue = hydriaChartNumericValue(point.sizeValue);
+      return {
+        label: String(point.label || `Point ${index + 1}`),
+        primary,
+        secondary,
+        xValue,
+        yValue,
+        sizeValue
+      };
+    })
+    .filter((point) => point.primary !== null || point.yValue !== null);
+  const categories = points.map((point, index) => point.label || `Point ${index + 1}`);
+  const primaryValues = points.map((point) => point.primary ?? point.yValue ?? 0);
+  const secondaryValues = points.map((point) => point.secondary).filter((value) => value !== null);
+  const hasSecondary = secondaryValues.length === points.length && points.length > 0;
+  return {
+    points,
+    categories,
+    primaryValues,
+    secondaryValues: hasSecondary ? points.map((point) => point.secondary ?? 0) : [],
+    xValues: points.map((point) => point.xValue ?? 0),
+    yValues: points.map((point) => point.yValue ?? point.primary ?? 0),
+    bubbleSizes: points.map((point) => point.sizeValue ?? 1),
+    hasSecondary,
+    references: hydriaChartSeriesReferences(chart, sheet, sheetName)
+  };
+}
+
+function xlsxChartStringLiteral(values = []) {
+  const points = values
+    .map((value, index) => `<c:pt idx="${index}"><c:v>${escapeXmlText(value)}</c:v></c:pt>`)
+    .join("");
+  return `<c:strLit><c:ptCount val="${values.length}"/>${points}</c:strLit>`;
+}
+
+function xlsxChartNumberLiteral(values = []) {
+  const points = values
+    .map((value, index) => `<c:pt idx="${index}"><c:v>${xlsxChartNumberText(value)}</c:v></c:pt>`)
+    .join("");
+  return `<c:numLit><c:formatCode>General</c:formatCode><c:ptCount val="${values.length}"/>${points}</c:numLit>`;
+}
+
+function xlsxChartStringCache(values = []) {
+  const points = values
+    .map((value, index) => `<c:pt idx="${index}"><c:v>${escapeXmlText(value)}</c:v></c:pt>`)
+    .join("");
+  return `<c:strCache><c:ptCount val="${values.length}"/>${points}</c:strCache>`;
+}
+
+function xlsxChartNumberCache(values = []) {
+  const points = values
+    .map((value, index) => `<c:pt idx="${index}"><c:v>${xlsxChartNumberText(value)}</c:v></c:pt>`)
+    .join("");
+  return `<c:numCache><c:formatCode>General</c:formatCode><c:ptCount val="${values.length}"/>${points}</c:numCache>`;
+}
+
+function xlsxChartStringData(values = [], reference = "") {
+  return reference
+    ? `<c:strRef><c:f>${escapeXmlText(reference)}</c:f>${xlsxChartStringCache(values)}</c:strRef>`
+    : xlsxChartStringLiteral(values);
+}
+
+function xlsxChartNumberData(values = [], reference = "") {
+  return reference
+    ? `<c:numRef><c:f>${escapeXmlText(reference)}</c:f>${xlsxChartNumberCache(values)}</c:numRef>`
+    : xlsxChartNumberLiteral(values);
+}
+
+function xlsxChartSeriesNameXml(name = "Series", reference = "") {
+  if (reference) {
+    return `<c:tx><c:strRef><c:f>${escapeXmlText(reference)}</c:f>${xlsxChartStringCache([name || "Series"])}</c:strRef></c:tx>`;
+  }
+  return `<c:tx><c:v>${escapeXmlText(name || "Series")}</c:v></c:tx>`;
+}
+
+function xlsxChartTitleXml(title = "Chart") {
+  return [
+    "<c:title>",
+    "<c:tx><c:rich><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr lang=\"en-US\" sz=\"1400\"/>",
+    `<a:t>${escapeXmlText(title || "Chart")}</a:t>`,
+    "</a:r></a:p></c:rich></c:tx>",
+    "<c:layout/><c:overlay val=\"0\"/>",
+    "</c:title>"
+  ].join("");
+}
+
+function xlsxChartSeriesXml({
+  index = 0,
+  name = "Series",
+  nameRef = "",
+  categories = [],
+  categoriesRef = "",
+  values = [],
+  valuesRef = "",
+  chartType = "bar",
+  xValues = [],
+  xValuesRef = "",
+  yValues = [],
+  yValuesRef = "",
+  bubbleSizes = [],
+  bubbleSizesRef = "",
+  markers = false
+} = {}) {
+  const base = [`<c:idx val="${index}"/>`, `<c:order val="${index}"/>`, xlsxChartSeriesNameXml(name || `Series ${index + 1}`, nameRef)];
+  if (chartType === "scatter") {
+    return [
+      "<c:ser>",
+      ...base,
+      `<c:marker><c:symbol val="${markers ? "circle" : "auto"}"/></c:marker>`,
+      `<c:xVal>${xlsxChartNumberData(xValues, xValuesRef)}</c:xVal>`,
+      `<c:yVal>${xlsxChartNumberData(yValues, yValuesRef)}</c:yVal>`,
+      "</c:ser>"
+    ].join("");
+  }
+  if (chartType === "bubble") {
+    return [
+      "<c:ser>",
+      ...base,
+      "<c:invertIfNegative val=\"0\"/>",
+      `<c:xVal>${xlsxChartNumberData(xValues, xValuesRef)}</c:xVal>`,
+      `<c:yVal>${xlsxChartNumberData(yValues, yValuesRef)}</c:yVal>`,
+      `<c:bubbleSize>${xlsxChartNumberData(bubbleSizes, bubbleSizesRef)}</c:bubbleSize>`,
+      "</c:ser>"
+    ].join("");
+  }
+  return [
+    "<c:ser>",
+    ...base,
+    chartType === "line" ? `<c:marker><c:symbol val="${markers ? "circle" : "none"}"/></c:marker>` : "",
+    `<c:cat>${xlsxChartStringData(categories, categoriesRef)}</c:cat>`,
+    `<c:val>${xlsxChartNumberData(values, valuesRef)}</c:val>`,
+    chartType === "line" ? "<c:smooth val=\"0\"/>" : "",
+    "</c:ser>"
+  ].join("");
+}
+
+function xlsxChartAxesXml({ catAxId = 50010001, valAxId = 50010002, horizontal = false, scatter = false } = {}) {
+  if (scatter) {
+    return [
+      `<c:valAx><c:axId val="${catAxId}"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="b"/><c:majorGridlines/><c:numFmt formatCode="General" sourceLinked="1"/><c:majorTickMark val="out"/><c:minorTickMark val="none"/><c:tickLblPos val="nextTo"/><c:crossAx val="${valAxId}"/><c:crosses val="autoZero"/></c:valAx>`,
+      `<c:valAx><c:axId val="${valAxId}"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="l"/><c:majorGridlines/><c:numFmt formatCode="General" sourceLinked="1"/><c:majorTickMark val="out"/><c:minorTickMark val="none"/><c:tickLblPos val="nextTo"/><c:crossAx val="${catAxId}"/><c:crosses val="autoZero"/></c:valAx>`
+    ].join("");
+  }
+  const catAxisPosition = horizontal ? "l" : "b";
+  const valueAxisPosition = horizontal ? "b" : "l";
+  return [
+    `<c:catAx><c:axId val="${catAxId}"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="${catAxisPosition}"/><c:majorTickMark val="out"/><c:minorTickMark val="none"/><c:tickLblPos val="nextTo"/><c:crossAx val="${valAxId}"/><c:crosses val="autoZero"/><c:auto val="1"/><c:lblAlgn val="ctr"/><c:lblOffset val="100"/><c:noMultiLvlLbl val="0"/></c:catAx>`,
+    `<c:valAx><c:axId val="${valAxId}"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="${valueAxisPosition}"/><c:majorGridlines/><c:numFmt formatCode="General" sourceLinked="1"/><c:majorTickMark val="out"/><c:minorTickMark val="none"/><c:tickLblPos val="nextTo"/><c:crossAx val="${catAxId}"/><c:crosses val="autoZero"/><c:crossBetween val="between"/></c:valAx>`
+  ].join("");
+}
+
+function hydriaChartGrouping(kind = "") {
+  if (String(kind).includes("percent")) {
+    return "percentStacked";
+  }
+  if (String(kind).includes("stacked")) {
+    return "stacked";
+  }
+  return "clustered";
+}
+
+function hydriaChartPlotAreaXml(chart = {}, chartIndex = 1, sheet = {}, sheetName = "Sheet") {
+  const series = hydriaChartSeries(chart, sheet, sheetName);
+  if (!series.points.length) {
+    return "";
+  }
+  const kind = String(chart.kind || "column");
+  const catAxId = 50010000 + chartIndex * 2 + 1;
+  const valAxId = 50010000 + chartIndex * 2 + 2;
+  const primaryName = chart.seriesName || String(chart.title || "").split(/\s+by\s+/i)[0] || "Series 1";
+  const secondaryName = chart.secondarySeriesName || "Series 2";
+  const refs = series.references || {};
+  const standardSeries = [
+    xlsxChartSeriesXml({
+      index: 0,
+      name: primaryName,
+      nameRef: refs.primaryNameRef,
+      categories: series.categories,
+      categoriesRef: refs.categoriesRef,
+      values: series.primaryValues,
+      valuesRef: refs.primaryValuesRef,
+      chartType: "line",
+      markers: kind === "line-markers"
+    }),
+    ...(series.hasSecondary
+      ? [
+          xlsxChartSeriesXml({
+            index: 1,
+            name: secondaryName,
+            nameRef: refs.secondaryNameRef,
+            categories: series.categories,
+            categoriesRef: refs.categoriesRef,
+            values: series.secondaryValues,
+            valuesRef: refs.secondaryValuesRef,
+            chartType: "line",
+            markers: kind === "line-markers"
+          })
+        ]
+      : [])
+  ];
+
+  if (["pie", "sunburst", "treemap", "funnel"].includes(kind)) {
+    return `<c:layout/><c:pieChart><c:varyColors val="1"/>${xlsxChartSeriesXml({
+      index: 0,
+      name: primaryName,
+      nameRef: refs.primaryNameRef,
+      categories: series.categories,
+      categoriesRef: refs.categoriesRef,
+      values: series.primaryValues,
+      valuesRef: refs.primaryValuesRef,
+      chartType: "pie"
+    })}<c:firstSliceAng val="0"/></c:pieChart>`;
+  }
+
+  if (kind === "donut") {
+    return `<c:layout/><c:doughnutChart><c:varyColors val="1"/>${xlsxChartSeriesXml({
+      index: 0,
+      name: primaryName,
+      nameRef: refs.primaryNameRef,
+      categories: series.categories,
+      categoriesRef: refs.categoriesRef,
+      values: series.primaryValues,
+      valuesRef: refs.primaryValuesRef,
+      chartType: "pie"
+    })}<c:firstSliceAng val="0"/><c:holeSize val="55"/></c:doughnutChart>`;
+  }
+
+  if (["scatter", "radar"].includes(kind)) {
+    const scatterSeries = xlsxChartSeriesXml({
+      index: 0,
+      name: primaryName,
+      nameRef: refs.primaryNameRef,
+      chartType: "scatter",
+      xValues: series.xValues,
+      xValuesRef: refs.xValuesRef,
+      yValues: series.yValues,
+      yValuesRef: refs.yValuesRef,
+      markers: true
+    });
+    return `<c:layout/><c:scatterChart><c:scatterStyle val="marker"/><c:varyColors val="0"/>${scatterSeries}<c:axId val="${catAxId}"/><c:axId val="${valAxId}"/></c:scatterChart>${xlsxChartAxesXml({ catAxId, valAxId, scatter: true })}`;
+  }
+
+  if (kind === "bubble") {
+    const bubbleSeries = xlsxChartSeriesXml({
+      index: 0,
+      name: primaryName,
+      nameRef: refs.primaryNameRef,
+      chartType: "bubble",
+      xValues: series.xValues,
+      xValuesRef: refs.xValuesRef,
+      yValues: series.yValues,
+      yValuesRef: refs.yValuesRef,
+      bubbleSizes: series.bubbleSizes,
+      bubbleSizesRef: refs.bubbleSizesRef
+    });
+    return `<c:layout/><c:bubbleChart><c:varyColors val="0"/>${bubbleSeries}<c:bubbleScale val="100"/><c:showNegBubbles val="0"/><c:axId val="${catAxId}"/><c:axId val="${valAxId}"/></c:bubbleChart>${xlsxChartAxesXml({ catAxId, valAxId, scatter: true })}`;
+  }
+
+  if (["line", "line-markers"].includes(kind)) {
+    return `<c:layout/><c:lineChart><c:grouping val="standard"/><c:varyColors val="0"/>${standardSeries.join("")}<c:axId val="${catAxId}"/><c:axId val="${valAxId}"/></c:lineChart>${xlsxChartAxesXml({ catAxId, valAxId })}`;
+  }
+
+  if (["area", "stacked-area"].includes(kind)) {
+    const areaSeries = [
+      xlsxChartSeriesXml({
+        index: 0,
+        name: primaryName,
+        nameRef: refs.primaryNameRef,
+        categories: series.categories,
+        categoriesRef: refs.categoriesRef,
+        values: series.primaryValues,
+        valuesRef: refs.primaryValuesRef,
+        chartType: "area"
+      }),
+      ...(series.hasSecondary
+        ? [
+            xlsxChartSeriesXml({
+              index: 1,
+              name: secondaryName,
+              nameRef: refs.secondaryNameRef,
+              categories: series.categories,
+              categoriesRef: refs.categoriesRef,
+              values: series.secondaryValues,
+              valuesRef: refs.secondaryValuesRef,
+              chartType: "area"
+            })
+          ]
+        : [])
+    ].join("");
+    const grouping = kind === "stacked-area" ? "stacked" : "standard";
+    return `<c:layout/><c:areaChart><c:grouping val="${grouping}"/><c:varyColors val="0"/>${areaSeries}<c:axId val="${catAxId}"/><c:axId val="${valAxId}"/></c:areaChart>${xlsxChartAxesXml({ catAxId, valAxId })}`;
+  }
+
+  const horizontal = ["bar", "stacked-bar", "percent-bar"].includes(kind);
+  const grouping = hydriaChartGrouping(kind);
+  const barSeries = [
+    xlsxChartSeriesXml({
+      index: 0,
+      name: primaryName,
+      nameRef: refs.primaryNameRef,
+      categories: series.categories,
+      categoriesRef: refs.categoriesRef,
+      values: series.primaryValues,
+      valuesRef: refs.primaryValuesRef,
+      chartType: "bar"
+    }),
+    ...(series.hasSecondary
+      ? [
+          xlsxChartSeriesXml({
+            index: 1,
+            name: secondaryName,
+            nameRef: refs.secondaryNameRef,
+            categories: series.categories,
+            categoriesRef: refs.categoriesRef,
+            values: series.secondaryValues,
+            valuesRef: refs.secondaryValuesRef,
+            chartType: "bar"
+          })
+        ]
+      : [])
+  ].join("");
+  const overlap = grouping === "clustered" ? "" : "<c:overlap val=\"100\"/>";
+  return `<c:layout/><c:barChart><c:barDir val="${horizontal ? "bar" : "col"}"/><c:grouping val="${grouping}"/><c:varyColors val="${series.hasSecondary ? 0 : 1}"/>${barSeries}<c:dLbls><c:showLegendKey val="0"/><c:showVal val="0"/><c:showCatName val="0"/><c:showSerName val="0"/><c:showPercent val="0"/><c:showBubbleSize val="0"/></c:dLbls>${overlap}<c:axId val="${catAxId}"/><c:axId val="${valAxId}"/></c:barChart>${xlsxChartAxesXml({ catAxId, valAxId, horizontal })}`;
+}
+
+function buildHydriaChartXml(chart = {}, chartIndex = 1, sheet = {}, sheetName = "Sheet") {
+  const plotArea = hydriaChartPlotAreaXml(chart, chartIndex, sheet, sheetName);
+  if (!plotArea) {
+    return "";
+  }
+  const legend = chart.showLegend === false
+    ? ""
+    : "<c:legend><c:legendPos val=\"b\"/><c:layout/><c:overlay val=\"0\"/></c:legend>";
+  return [
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
+    '<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">',
+    '<c:date1904 val="0"/><c:lang val="en-US"/><c:roundedCorners val="0"/>',
+    "<c:chart>",
+    xlsxChartTitleXml(chart.title || `Chart ${chartIndex}`),
+    "<c:autoTitleDeleted val=\"0\"/>",
+    `<c:plotArea>${plotArea}</c:plotArea>`,
+    legend,
+    "<c:plotVisOnly val=\"1\"/><c:dispBlanksAs val=\"gap\"/><c:showDLblsOverMax val=\"0\"/>",
+    "</c:chart>",
+    '<c:printSettings><c:headerFooter/><c:pageMargins l="0.7" r="0.7" t="0.75" b="0.75" header="0.3" footer="0.3"/><c:pageSetup/></c:printSettings>',
+    "</c:chartSpace>"
+  ].join("");
+}
+
+function hydriaSheetDimensionPixels(sheet = {}, kind = "column", index = 0) {
+  const dimensions = kind === "row" ? sheet.rowHeights : sheet.columnWidths;
+  const fallback = kind === "row" ? HYDRIA_DEFAULT_ROW_HEIGHT : HYDRIA_DEFAULT_COLUMN_WIDTH;
+  const numericValue = Number(dimensions?.[String(index)]);
+  return Number.isFinite(numericValue) && numericValue > 0 ? numericValue : fallback;
+}
+
+function hydriaChartPixelToCellAnchor(offset = 0, sheet = {}, kind = "column") {
+  let remaining = Math.max(0, Number(offset) || 0);
+  let index = 0;
+  while (remaining >= hydriaSheetDimensionPixels(sheet, kind, index) && index < 16384) {
+    remaining -= hydriaSheetDimensionPixels(sheet, kind, index);
+    index += 1;
+  }
+  return {
+    index,
+    offset: Math.max(0, Math.round(remaining * XLSX_EMUS_PER_PIXEL))
+  };
+}
+
+function normalizeHydriaChartAnchor(chart = {}, sheet = {}) {
+  const left = Math.max(0, Number(chart.x) - HYDRIA_ROW_HEADER_WIDTH);
+  const top = Math.max(0, Number(chart.y) - HYDRIA_COLUMN_HEADER_HEIGHT);
+  const right = left + Math.max(120, Number(chart.width) || 432);
+  const bottom = top + Math.max(100, Number(chart.height) || 284);
+  const fromColumn = hydriaChartPixelToCellAnchor(left, sheet, "column");
+  const fromRow = hydriaChartPixelToCellAnchor(top, sheet, "row");
+  const toColumn = hydriaChartPixelToCellAnchor(right, sheet, "column");
+  const toRow = hydriaChartPixelToCellAnchor(bottom, sheet, "row");
+  if (toColumn.index === fromColumn.index && toColumn.offset <= fromColumn.offset) {
+    toColumn.index += 1;
+    toColumn.offset = 0;
+  }
+  if (toRow.index === fromRow.index && toRow.offset <= fromRow.offset) {
+    toRow.index += 1;
+    toRow.offset = 0;
+  }
+  return { fromColumn, fromRow, toColumn, toRow };
+}
+
+function buildHydriaDrawingXml(chartEntries = [], sheet = {}) {
+  const anchors = chartEntries
+    .map(({ chart, relationshipId, objectId }) => {
+      const anchor = normalizeHydriaChartAnchor(chart, sheet);
+      return [
+        '<xdr:twoCellAnchor editAs="oneCell">',
+        "<xdr:from>",
+        `<xdr:col>${anchor.fromColumn.index}</xdr:col><xdr:colOff>${anchor.fromColumn.offset}</xdr:colOff>`,
+        `<xdr:row>${anchor.fromRow.index}</xdr:row><xdr:rowOff>${anchor.fromRow.offset}</xdr:rowOff>`,
+        "</xdr:from>",
+        "<xdr:to>",
+        `<xdr:col>${anchor.toColumn.index}</xdr:col><xdr:colOff>${anchor.toColumn.offset}</xdr:colOff>`,
+        `<xdr:row>${anchor.toRow.index}</xdr:row><xdr:rowOff>${anchor.toRow.offset}</xdr:rowOff>`,
+        "</xdr:to>",
+        '<xdr:graphicFrame macro="">',
+        "<xdr:nvGraphicFramePr>",
+        `<xdr:cNvPr id="${objectId}" name="Chart ${objectId}"/>`,
+        "<xdr:cNvGraphicFramePr/>",
+        "</xdr:nvGraphicFramePr>",
+        '<xdr:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/></xdr:xfrm>',
+        '<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart">',
+        `<c:chart xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:id="${relationshipId}"/>`,
+        "</a:graphicData></a:graphic>",
+        "</xdr:graphicFrame>",
+        "<xdr:clientData/>",
+        "</xdr:twoCellAnchor>"
+      ].join("");
+    })
+    .join("");
+  return [
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
+    '<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">',
+    anchors,
+    "</xdr:wsDr>"
+  ].join("");
+}
+
+function insertWorksheetDrawing(sheetXml = "", relationshipId = "") {
+  if (!relationshipId) {
+    return sheetXml;
+  }
+  let xml = sheetXml.replace(/<drawing\b[\s\S]*?<\/drawing>/i, "").replace(/<drawing\b[^>]*\/>/i, "");
+  if (!/xmlns:r=/.test(xml)) {
+    xml = xml.replace(/<worksheet\b/i, '<worksheet xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"');
+  }
+  const drawingXml = `<drawing r:id="${relationshipId}"/>`;
+  const insertBefore = /<(legacyDrawing|drawingHF|picture|oleObjects|controls|webPublishItems|tableParts|extLst)\b/i.exec(xml);
+  if (insertBefore) {
+    return `${xml.slice(0, insertBefore.index)}${drawingXml}${xml.slice(insertBefore.index)}`;
+  }
+  return xml.replace(/<\/worksheet>\s*$/i, `${drawingXml}</worksheet>`);
+}
+
+function addWorksheetDrawingRelationship(zip, sheetIndex = 0, drawingPartName = "") {
+  const relPath = `xl/worksheets/_rels/sheet${sheetIndex + 1}.xml.rels`;
+  const { relationshipId, xml } = addRelationshipXml(readOrCreateXlsxRelationships(zip, relPath), {
+    type: XLSX_DRAWING_RELATIONSHIP_TYPE,
+    target: `../drawings/${drawingPartName.split("/").pop()}`
+  });
+  updateOrAddXlsxFile(zip, relPath, xml);
+  return relationshipId;
+}
+
+function applyHydriaChartsToXlsxBuffer(buffer, model = {}) {
+  const zip = new AdmZip(buffer);
+  const chartPartNames = [];
+  const drawingPartNames = [];
+  let nextChartId = 1;
+  let nextDrawingId = 1;
+  let changed = false;
+  const usedSheetNames = new Set();
+  const exportedSheetNames = (Array.isArray(model.sheets) ? model.sheets : []).map((sheet) =>
+    uniqueSheetName(sheet.name, usedSheetNames)
+  );
+
+  (Array.isArray(model.sheets) ? model.sheets : []).forEach((sheet, sheetIndex) => {
+    const charts = normalizeHydriaCharts(sheet.charts);
+    if (!charts.length) {
+      return;
+    }
+    const sheetPath = `xl/worksheets/sheet${sheetIndex + 1}.xml`;
+    const sheetEntry = zip.getEntry(sheetPath);
+    if (!sheetEntry) {
+      return;
+    }
+
+    let drawingRelationshipsXml = XLSX_RELATIONSHIPS_XML;
+    const chartEntries = [];
+    charts.forEach((chart) => {
+      const chartXml = buildHydriaChartXml(chart, nextChartId, sheet, exportedSheetNames[sheetIndex] || sheet.name || `Sheet ${sheetIndex + 1}`);
+      if (!chartXml) {
+        return;
+      }
+      const chartPartName = `/xl/charts/chart${nextChartId}.xml`;
+      const { relationshipId, xml } = addRelationshipXml(drawingRelationshipsXml, {
+        type: XLSX_CHART_RELATIONSHIP_TYPE,
+        target: `../charts/chart${nextChartId}.xml`
+      });
+      drawingRelationshipsXml = xml;
+      zip.addFile(`xl/charts/chart${nextChartId}.xml`, Buffer.from(chartXml, "utf8"));
+      chartPartNames.push(chartPartName);
+      chartEntries.push({ chart, relationshipId, objectId: nextChartId });
+      nextChartId += 1;
+    });
+    if (!chartEntries.length) {
+      return;
+    }
+
+    const drawingId = nextDrawingId;
+    nextDrawingId += 1;
+    const drawingPartName = `/xl/drawings/drawing${drawingId}.xml`;
+    zip.addFile(`xl/drawings/drawing${drawingId}.xml`, Buffer.from(buildHydriaDrawingXml(chartEntries, sheet), "utf8"));
+    zip.addFile(`xl/drawings/_rels/drawing${drawingId}.xml.rels`, Buffer.from(drawingRelationshipsXml, "utf8"));
+    drawingPartNames.push(drawingPartName);
+
+    const worksheetRelationshipId = addWorksheetDrawingRelationship(zip, sheetIndex, drawingPartName);
+    const sheetXml = sheetEntry.getData().toString("utf8");
+    zip.updateFile(sheetPath, Buffer.from(insertWorksheetDrawing(sheetXml, worksheetRelationshipId), "utf8"));
+    changed = true;
+  });
+
+  appendXlsxContentTypeOverrides(zip, drawingPartNames, XLSX_DRAWING_CONTENT_TYPE);
+  appendXlsxContentTypeOverrides(zip, chartPartNames, XLSX_CHART_CONTENT_TYPE);
+  return changed ? zip.toBuffer() : buffer;
 }
 
 function applyHydriaStylesToXlsxBuffer(buffer, model = {}) {
@@ -2132,6 +3134,7 @@ function hydriaFormatFromBorderXml(borderXml = "") {
     const edgeAttributes = parseXmlAttributes(edgeMatch?.[1] || edgeMatch?.[3] || "");
     if (edgeAttributes.style) {
       border[edge] = true;
+      border.style = BORDER_STYLES.has(edgeAttributes.style) ? edgeAttributes.style : border.style;
       const colorMatch = /<color\b[^>]*rgb="([^"]+)"/i.exec(edgeMatch?.[2] || "");
       border.color = xlsxColorToHex({ rgb: colorMatch?.[1] || "" }) || border.color;
     }
@@ -2530,7 +3533,8 @@ router.post("/export-xlsx", (req, res, next) => {
     const tableBuffer = applyHydriaTablesToXlsxBuffer(viewBuffer, normalizedModel);
     const styledBuffer = applyHydriaStylesToXlsxBuffer(tableBuffer, normalizedModel);
     const validationBuffer = applyHydriaDataValidationsToXlsxBuffer(styledBuffer, normalizedModel);
-    const buffer = applyHydriaConditionalFormatsToXlsxBuffer(validationBuffer, normalizedModel);
+    const conditionalBuffer = applyHydriaConditionalFormatsToXlsxBuffer(validationBuffer, normalizedModel);
+    const buffer = applyHydriaChartsToXlsxBuffer(conditionalBuffer, normalizedModel);
 
     res.setHeader("Content-Type", XLSX_MIME_TYPE);
     res.setHeader("Content-Disposition", `attachment; filename="${safeDownloadFilename(req.body?.filename)}"`);

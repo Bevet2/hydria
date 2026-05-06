@@ -3203,6 +3203,198 @@ textarea {
   color: #5f6368;
 }
 
+.workspace-sheet-formula-help {
+  position: fixed;
+  z-index: 1950;
+  width: min(340px, calc(100vw - 20px));
+  max-height: min(560px, calc(100vh - 20px));
+  overflow: auto;
+  border: 1px solid #dfe3e8;
+  background: #ffffff;
+  color: #202124;
+  box-shadow: 0 14px 30px rgba(60, 64, 67, 0.18);
+  font-size: 13px;
+}
+
+.workspace-sheet-formula-help[hidden] {
+  display: none;
+}
+
+.workspace-sheet-formula-help-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 40px;
+  padding: 8px 10px;
+  border-bottom: 1px solid #e8eaed;
+}
+
+.workspace-sheet-formula-help-header strong {
+  font-weight: 600;
+  color: #202124;
+}
+
+.workspace-sheet-formula-help-header strong::first-letter {
+  color: #188038;
+}
+
+.workspace-sheet-formula-help-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.workspace-sheet-formula-help-button {
+  appearance: none;
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #3c4043;
+  cursor: pointer;
+}
+
+.workspace-sheet-formula-help-button:hover,
+.workspace-sheet-formula-help-button:focus {
+  outline: none;
+  background: #f1f3f4;
+}
+
+.workspace-sheet-formula-help-icon svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.workspace-sheet-formula-help-body {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px 14px;
+}
+
+.workspace-sheet-formula-help:not(.is-expanded) .workspace-sheet-formula-help-body {
+  display: none;
+}
+
+.workspace-sheet-formula-help-body h4 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.workspace-sheet-formula-help-body p {
+  margin: 0;
+  line-height: 1.35;
+}
+
+.workspace-sheet-formula-help-body code {
+  display: block;
+  padding: 2px 0 4px;
+  color: #202124;
+  font-family: inherit;
+  white-space: normal;
+}
+
+.workspace-sheet-formula-help-args {
+  display: grid;
+  grid-template-columns: minmax(92px, auto) minmax(0, 1fr);
+  margin: 0;
+  background: #f8f9fa;
+}
+
+.workspace-sheet-formula-help-args dt,
+.workspace-sheet-formula-help-args dd {
+  min-height: 36px;
+  margin: 0;
+  padding: 8px 9px;
+  border-bottom: 1px solid #ffffff;
+}
+
+.workspace-sheet-formula-help-args dt {
+  background: #f1f3f4;
+  font-weight: 600;
+}
+
+.workspace-sheet-formula-help-args dt.is-active,
+.workspace-sheet-formula-help-args dd.is-active {
+  background: #e6f4ea;
+}
+
+.workspace-sheet-formula-help-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: #188038;
+  font-weight: 600;
+  padding-top: 4px;
+}
+
+.workspace-sheet-formula-help.is-collapsed {
+  width: 22px;
+  max-height: 22px;
+  overflow: visible;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.workspace-sheet-formula-help.is-collapsed .workspace-sheet-formula-help-header {
+  min-height: 0;
+  padding: 0;
+  border-bottom: 0;
+}
+
+.workspace-sheet-formula-help.is-collapsed .workspace-sheet-formula-help-header strong,
+.workspace-sheet-formula-help.is-collapsed .workspace-sheet-formula-help-body,
+.workspace-sheet-formula-help.is-collapsed .workspace-sheet-formula-help-button[aria-label="Fermer l'aide de formule"] {
+  display: none;
+}
+
+.workspace-sheet-formula-help.is-collapsed .workspace-sheet-formula-help-actions {
+  display: block;
+}
+
+.workspace-sheet-formula-help.is-collapsed .workspace-sheet-formula-help-button {
+  display: inline-grid;
+  box-sizing: border-box;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid #107c41;
+  border-radius: 50%;
+  background: #107c41;
+  color: #ffffff;
+  box-shadow: 0 1px 3px rgba(15, 109, 54, 0.24);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.workspace-sheet-formula-help.is-collapsed .workspace-sheet-formula-help-button:hover,
+.workspace-sheet-formula-help.is-collapsed .workspace-sheet-formula-help-button:focus {
+  background: #0f6d36;
+}
+
+.workspace-sheet-formula-help-mark {
+  display: block;
+  transform: translateY(-0.5px);
+}
+
+.workspace-sheet-formula-help.is-collapsed .workspace-sheet-formula-help-icon svg {
+  width: 18px;
+  height: 18px;
+  stroke-width: 2.2;
+}
+
 .workspace-sheet-action-bar {
   display: flex;
   flex-wrap: wrap;
@@ -3792,6 +3984,26 @@ textarea {
   background: #ffffff;
   font-size: 12px;
   padding: 0.28rem 0.58rem;
+}
+
+.workspace-sheet-toolbar-button.icon-only {
+  width: 34px;
+  min-width: 34px;
+  padding: 0.28rem;
+  gap: 0;
+}
+
+.workspace-sheet-toolbar-button.icon-only .workspace-sheet-toolbar-button-label,
+.workspace-sheet-toolbar-button.icon-only .workspace-sheet-toolbar-chevron {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .workspace-sheet-toolbar-button:disabled {
@@ -4417,6 +4629,251 @@ body.workspace-sheet-expanded {
   min-height: 0;
 }
 
+.workspace-sheet-function-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2100;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+}
+
+.workspace-sheet-function-dialog-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(32, 33, 36, 0.38);
+}
+
+.workspace-sheet-function-dialog {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-rows: auto auto auto minmax(190px, 1fr) auto auto;
+  gap: 16px;
+  width: min(620px, calc(100vw - 32px));
+  max-height: min(720px, calc(100vh - 32px));
+  border: 1px solid rgba(32, 33, 36, 0.14);
+  border-radius: 9px;
+  background: #ffffff;
+  color: #202124;
+  box-shadow: 0 24px 56px rgba(32, 33, 36, 0.28);
+  padding: 26px 30px 28px;
+}
+
+.workspace-sheet-function-dialog-header,
+.workspace-sheet-function-dialog-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.workspace-sheet-function-dialog-header h2 {
+  margin: 0;
+  color: #188038;
+  font-size: 26px;
+  font-weight: 650;
+  letter-spacing: 0;
+}
+
+.workspace-sheet-function-dialog-close {
+  appearance: none;
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #188038;
+  cursor: pointer;
+}
+
+.workspace-sheet-function-dialog-close:hover,
+.workspace-sheet-function-dialog-close:focus {
+  outline: none;
+  background: rgba(24, 128, 56, 0.08);
+}
+
+.workspace-sheet-function-close-icon svg,
+.workspace-sheet-function-search-icon svg {
+  display: block;
+  width: 19px;
+  height: 19px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.workspace-sheet-function-search {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  align-items: center;
+  height: 42px;
+  border: 1px solid #aeb4ba;
+  background: #ffffff;
+  color: #188038;
+  padding: 0 12px;
+}
+
+.workspace-sheet-function-search input {
+  min-width: 0;
+  border: 0;
+  outline: none;
+  color: #202124;
+  font: inherit;
+  font-size: 16px;
+}
+
+.workspace-sheet-function-category-label {
+  display: grid;
+  gap: 8px;
+  color: #202124;
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.workspace-sheet-function-category {
+  height: 42px;
+  border: 1px solid #aeb4ba;
+  background: #ffffff;
+  color: #202124;
+  font: inherit;
+  font-weight: 400;
+  padding: 0 10px;
+}
+
+.workspace-sheet-function-list {
+  min-height: 190px;
+  border: 1px solid #aeb4ba;
+  background: #ffffff;
+  overflow: auto;
+}
+
+.workspace-sheet-function-list-item {
+  appearance: none;
+  display: block;
+  width: 100%;
+  min-height: 38px;
+  border: 0;
+  background: transparent;
+  color: #202124;
+  cursor: pointer;
+  font: inherit;
+  padding: 0 14px;
+  text-align: left;
+}
+
+.workspace-sheet-function-list-item:hover,
+.workspace-sheet-function-list-item:focus,
+.workspace-sheet-function-list-item.is-active {
+  outline: none;
+  background: #e7e5e2;
+}
+
+.workspace-sheet-function-list-empty {
+  padding: 16px 14px;
+  color: #5f6368;
+}
+
+.workspace-sheet-function-details {
+  display: grid;
+  gap: 7px;
+  min-height: 76px;
+}
+
+.workspace-sheet-function-details strong {
+  font-size: 16px;
+}
+
+.workspace-sheet-function-details p {
+  margin: 0;
+  color: #3c4043;
+}
+
+.workspace-sheet-function-secondary,
+.workspace-sheet-function-primary {
+  appearance: none;
+  min-height: 38px;
+  border-radius: 5px;
+  cursor: pointer;
+  font: inherit;
+}
+
+.workspace-sheet-function-secondary {
+  border: 0;
+  background: transparent;
+  color: #188038;
+  text-decoration: underline;
+  padding: 0;
+}
+
+.workspace-sheet-function-primary {
+  border: 0;
+  background: #188038;
+  color: #ffffff;
+  font-weight: 700;
+  padding: 0 28px;
+}
+
+.workspace-sheet-function-primary:disabled {
+  background: #aeb4ba;
+  cursor: not-allowed;
+}
+
+.workspace-sheet-conditional-dialog {
+  max-width: 560px;
+}
+
+.workspace-sheet-conditional-form {
+  display: grid;
+  gap: 14px;
+}
+
+.workspace-sheet-conditional-field {
+  display: grid;
+  gap: 7px;
+  color: #202124;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.workspace-sheet-conditional-control {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid #c9ced6;
+  border-radius: 5px;
+  background: #ffffff;
+  color: #202124;
+  font: inherit;
+  font-size: 14px;
+  padding: 0 10px;
+}
+
+.workspace-sheet-conditional-control[type="color"] {
+  padding: 3px 6px;
+}
+
+.workspace-sheet-conditional-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #202124;
+  font-size: 14px;
+}
+
+.workspace-sheet-conditional-preview {
+  min-height: 42px;
+  border: 1px solid #dfe3e8;
+  border-radius: 5px;
+  display: grid;
+  align-items: center;
+  padding: 0 12px;
+  font-size: 14px;
+}
+
 .workspace-sheet-grid-shell {
   flex: 1 1 auto;
   min-height: 0;
@@ -4806,31 +5263,54 @@ body.workspace-sheet-expanded {
 }
 
 .workspace-sheet-context-menu {
-  position: absolute;
-  min-width: 180px;
+  position: fixed;
+  min-width: 280px;
+  max-width: min(340px, calc(100vw - 16px));
+  max-height: calc(100vh - 16px);
   border: 1px solid rgba(32, 33, 36, 0.14);
-  border-radius: 12px;
+  border-radius: 10px;
   background: #ffffff;
-  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.16);
-  padding: 0.35rem;
-  z-index: 12;
+  box-shadow: 0 16px 34px rgba(60, 64, 67, 0.22);
+  color: #3c4043;
+  display: grid;
+  padding: 7px 0;
+  overflow: visible;
+  z-index: 1900;
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.workspace-sheet-context-menu[hidden] {
+  display: none;
+}
+
+.workspace-sheet-context-item {
+  position: relative;
 }
 
 .workspace-sheet-context-action {
-  display: block;
+  appearance: none;
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) minmax(44px, auto);
+  align-items: center;
+  gap: 8px;
   width: 100%;
+  min-height: 34px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 0;
   background: transparent;
-  color: #202124;
+  color: inherit;
   text-align: left;
-  padding: 0.55rem 0.7rem;
+  padding: 0 12px 0 14px;
   font: inherit;
   cursor: pointer;
 }
 
-.workspace-sheet-context-action:hover {
-  background: rgba(26, 115, 232, 0.08);
+.workspace-sheet-context-action:hover,
+.workspace-sheet-context-action:focus,
+.workspace-sheet-context-item.is-open > .workspace-sheet-context-action {
+  outline: none;
+  background: #f1f3f4;
 }
 
 .workspace-sheet-context-action:disabled {
@@ -4840,6 +5320,167 @@ body.workspace-sheet-expanded {
 
 .workspace-sheet-context-action:disabled:hover {
   background: transparent;
+}
+
+.workspace-sheet-context-icon,
+.workspace-sheet-context-chevron {
+  display: inline-grid;
+  place-items: center;
+  color: #1a73e8;
+}
+
+.workspace-sheet-context-icon svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.workspace-sheet-context-chevron {
+  justify-self: end;
+  color: #5f6368;
+}
+
+.workspace-sheet-context-chevron svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.workspace-sheet-context-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-sheet-context-meta {
+  display: inline-flex;
+  justify-content: flex-end;
+  align-items: center;
+  min-width: 44px;
+  color: #5f6368;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.workspace-sheet-context-separator {
+  height: 1px;
+  margin: 5px 0;
+  background: #e8eaed;
+}
+
+.workspace-sheet-context-submenu {
+  position: fixed;
+  top: auto;
+  left: auto;
+  display: none;
+  min-width: 268px;
+  max-width: min(340px, calc(100vw - 16px));
+  max-height: calc(100vh - 16px);
+  padding: 7px 0;
+  border: 1px solid rgba(32, 33, 36, 0.14);
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 16px 34px rgba(60, 64, 67, 0.2);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.workspace-sheet-context-color-palette {
+  display: grid;
+  gap: 8px;
+  min-width: 300px;
+  padding: 8px 10px 10px;
+}
+
+.workspace-sheet-context-color-title {
+  color: #202124;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.workspace-sheet-context-color-grid {
+  display: grid;
+  grid-template-columns: repeat(10, 20px);
+  gap: 6px;
+}
+
+.workspace-sheet-context-color-grid.is-standard {
+  margin-bottom: 2px;
+}
+
+.workspace-sheet-context-color-swatch {
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border: 1px solid #c7cdd4;
+  border-radius: 0;
+  cursor: pointer;
+  padding: 0;
+}
+
+.workspace-sheet-context-color-swatch:hover,
+.workspace-sheet-context-color-swatch:focus {
+  outline: 2px solid rgba(26, 115, 232, 0.45);
+  outline-offset: 1px;
+}
+
+.workspace-sheet-context-palette-action {
+  appearance: none;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  border: 1px solid #dfe3e8;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #202124;
+  cursor: pointer;
+  font: inherit;
+  padding: 0 10px;
+  text-align: left;
+}
+
+.workspace-sheet-context-palette-action:hover,
+.workspace-sheet-context-palette-action:focus {
+  outline: none;
+  background: #f1f3f4;
+}
+
+.workspace-sheet-context-palette-action-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid #dfe3e8;
+  border-radius: 4px;
+  color: #1a73e8;
+  font-size: 11px;
+}
+
+.workspace-sheet-context-menu.opens-left .workspace-sheet-context-submenu {
+  right: auto;
+  left: auto;
+}
+
+.workspace-sheet-context-item.is-open > .workspace-sheet-context-submenu {
+  display: grid;
+}
+
+.workspace-sheet-context-action:disabled .workspace-sheet-context-icon,
+.workspace-sheet-context-action:disabled .workspace-sheet-context-chevron,
+.workspace-sheet-context-action:disabled .workspace-sheet-context-meta {
+  color: #b7bcc2;
 }
 
 .workspace-sheet-column-resize-handle,
@@ -4903,6 +5544,400 @@ body.workspace-sheet-expanded {
   background: #f8f9fa;
 }
 
+.workspace-sheet-print-root {
+  display: none;
+}
+
+.workspace-sheet-print-page {
+  box-sizing: border-box;
+  width: var(--sheet-print-page-width, 100%);
+  height: var(--sheet-print-page-height, auto);
+  min-height: var(--sheet-print-page-height, 100%);
+  display: flex;
+  flex-direction: column;
+  padding: var(--sheet-print-margin, 0);
+  background: #ffffff;
+  color: #202124;
+  font-family: Arial, sans-serif;
+}
+
+.workspace-sheet-print-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 16px;
+  color: #202124;
+}
+
+.workspace-sheet-print-header strong {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.workspace-sheet-print-header span {
+  color: #5f6368;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.workspace-sheet-print-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-top: auto;
+  padding-top: 12px;
+  color: #202124;
+  font-size: 10px;
+}
+
+.workspace-sheet-print-frame {
+  position: relative;
+  overflow: hidden;
+}
+
+.workspace-sheet-print-page.center-horizontal .workspace-sheet-print-frame {
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.workspace-sheet-print-page.center-vertical .workspace-sheet-print-frame {
+  margin-top: auto;
+  margin-bottom: auto;
+}
+
+.workspace-sheet-print-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: top left;
+  background: #ffffff;
+}
+
+.workspace-sheet-print-table {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border-collapse: collapse;
+  table-layout: fixed;
+  background: #ffffff;
+}
+
+.workspace-sheet-print-table td {
+  box-sizing: border-box;
+  min-width: 0;
+  padding: 4px 7px;
+  border: 1px solid #dfe3e8;
+  color: #202124;
+  font-size: 12px;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-sheet-print-table th {
+  box-sizing: border-box;
+  height: 24px;
+  padding: 3px 6px;
+  border: 1px solid #dfe3e8;
+  background: #f1f3f4;
+  color: #5f6368;
+  font-size: 11px;
+  font-weight: 650;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.workspace-sheet-print-page:not(.show-gridlines) .workspace-sheet-print-table td:not(.is-structured) {
+  border-color: transparent;
+}
+
+.workspace-sheet-print-page.is-black-and-white .workspace-sheet-print-table td,
+.workspace-sheet-print-page.is-black-and-white .workspace-sheet-print-table th {
+  background: #ffffff !important;
+  color: #000000 !important;
+}
+
+.workspace-sheet-print-page.is-black-and-white .workspace-sheet-print-chart,
+.workspace-sheet-print-page.is-black-and-white .workspace-sheet-print-chart * {
+  filter: grayscale(1);
+}
+
+.workspace-sheet-print-chart {
+  position: absolute;
+  z-index: 3;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 8px;
+  box-sizing: border-box;
+  padding: 14px 16px 12px;
+  border: 1px solid #d7dbe3;
+  background: #ffffff;
+  overflow: hidden;
+}
+
+.workspace-sheet-print-chart-title {
+  color: #3c4043;
+  font-size: 14px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.workspace-sheet-print-chart-stage {
+  min-height: 0;
+  display: flex;
+}
+
+.workspace-sheet-print-chart-stage .workspace-sheet-chart-svg {
+  width: 100%;
+  height: 100%;
+}
+
+.workspace-sheet-print-chart-legend {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: #5f6368;
+  font-size: 10px;
+}
+
+.workspace-sheet-print-chart-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.workspace-sheet-print-chart-legend-item span:first-child {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.workspace-sheet-print-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2600;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  background: #5f6368;
+  color: #ffffff;
+}
+
+.workspace-sheet-print-dialog-preview-pane {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 28px 28px, rgba(255, 255, 255, 0.08) 0 1px, transparent 1px),
+    #60666c;
+}
+
+.workspace-sheet-print-dialog-preview {
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  padding: 32px;
+}
+
+.workspace-sheet-print-dialog-preview-inner {
+  transform-origin: top left;
+  transition: transform 120ms ease;
+}
+
+.workspace-sheet-print-dialog-preview .workspace-sheet-print-page {
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.28), 0 18px 42px rgba(0, 0, 0, 0.25);
+}
+
+.workspace-sheet-print-dialog-panel {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 18px;
+  padding: 28px 26px;
+  background: #202124;
+  color: #ffffff;
+  box-shadow: -1px 0 0 rgba(255, 255, 255, 0.08);
+}
+
+.workspace-sheet-print-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.workspace-sheet-print-dialog-header h2 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 650;
+  letter-spacing: 0;
+}
+
+.workspace-sheet-print-dialog-header strong {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.workspace-sheet-print-dialog-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.workspace-sheet-print-setting {
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  color: #ffffff;
+  font-size: 13px;
+}
+
+.workspace-sheet-print-setting select {
+  width: 100%;
+  min-width: 0;
+  height: 38px;
+  border: 1px solid #5f6368;
+  border-radius: 7px;
+  background: #2b2c2f;
+  color: #ffffff;
+  font: inherit;
+  padding: 0 32px 0 12px;
+}
+
+.workspace-sheet-print-setting select:focus,
+.workspace-sheet-print-primary:focus,
+.workspace-sheet-print-secondary:focus,
+.workspace-sheet-print-dialog-zoom button:focus {
+  outline: 2px solid #a8c7fa;
+  outline-offset: 2px;
+}
+
+.workspace-sheet-print-more {
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  padding-top: 16px;
+}
+
+.workspace-sheet-print-more summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  color: #ffffff;
+  font-size: 13px;
+  list-style: none;
+  user-select: none;
+}
+
+.workspace-sheet-print-more summary::-webkit-details-marker {
+  display: none;
+}
+
+.workspace-sheet-print-more summary::after {
+  content: "v";
+  color: #bdc1c6;
+  font-size: 17px;
+}
+
+.workspace-sheet-print-more[open] summary::after {
+  content: "^";
+}
+
+.workspace-sheet-print-more-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-top: 18px;
+}
+
+.workspace-sheet-print-more-body h3 {
+  margin: 6px 0 -2px;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.workspace-sheet-print-checkbox {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  color: #ffffff;
+  font-size: 13px;
+}
+
+.workspace-sheet-print-checkbox input {
+  width: 16px;
+  height: 16px;
+  accent-color: #a8c7fa;
+}
+
+.workspace-sheet-print-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-top: 10px;
+}
+
+.workspace-sheet-print-primary,
+.workspace-sheet-print-secondary,
+.workspace-sheet-print-dialog-zoom button {
+  appearance: none;
+  border-radius: 999px;
+  cursor: pointer;
+  font: inherit;
+}
+
+.workspace-sheet-print-primary {
+  min-width: 104px;
+  border: 1px solid #a8c7fa;
+  background: #a8c7fa;
+  color: #174ea6;
+  padding: 10px 18px;
+  font-weight: 650;
+}
+
+.workspace-sheet-print-secondary {
+  min-width: 94px;
+  border: 1px solid #1a73e8;
+  background: transparent;
+  color: #a8c7fa;
+  padding: 10px 18px;
+}
+
+.workspace-sheet-print-dialog-zoom {
+  position: absolute;
+  left: 30px;
+  bottom: 30px;
+  display: inline-flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.workspace-sheet-print-dialog-zoom button {
+  width: 36px;
+  min-height: 36px;
+  border: 0;
+  background: #202124;
+  color: #ffffff;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.24);
+}
+
+.workspace-sheet-print-dialog-zoom button:first-child {
+  width: auto;
+  padding: 0 14px;
+}
+
 @media (max-width: 900px) {
   .workspace-sheet-topbar {
     grid-template-columns: minmax(140px, 1fr) minmax(180px, 1.4fr);
@@ -4919,21 +5954,62 @@ body.workspace-sheet-expanded {
 }
 
 @media print {
-  .workspace-sheet-menubar,
-  .workspace-sheet-toolbar,
-  .workspace-sheet-bottom-bar,
-  .workspace-sheet-find-bar,
-  .workspace-sheet-surface-shell {
+  @page {
+    margin: 0;
+  }
+
+  html {
+    width: auto !important;
+    min-height: 0 !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  body.is-sheet-printing {
+    background: #ffffff !important;
+    width: auto !important;
+    min-height: 0 !important;
+    height: auto !important;
+    margin: 0 !important;
+    overflow: visible !important;
+  }
+
+  body.is-sheet-printing::before {
     display: none !important;
   }
 
-  .workspace-sheet-grid-shell {
-    max-height: none;
-    overflow: visible;
+  body.is-sheet-printing > :not(.workspace-sheet-print-root) {
+    display: none !important;
   }
 
-  .workspace-sheet-grid-table {
-    zoom: 1 !important;
+  body.is-sheet-printing .workspace-sheet-print-root {
+    display: block !important;
+    box-sizing: border-box !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    padding: var(--sheet-print-margin, 0) !important;
+  }
+
+  body.is-sheet-printing .workspace-sheet-print-page {
+    display: block !important;
+    width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
+    padding: 0 !important;
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+
+  body.is-sheet-printing .workspace-sheet-print-header {
+    margin-bottom: 8px !important;
+  }
+
+  body.is-sheet-printing .workspace-sheet-print-footer {
+    margin-top: 8px !important;
+  }
+
+  body.is-sheet-printing .workspace-sheet-print-chart {
+    box-shadow: none !important;
   }
 }
 
@@ -4946,6 +6022,63 @@ body.workspace-sheet-expanded {
 .workspace-sheet-status {
   color: #5f6368;
   font-size: 0.82rem;
+}
+
+.workspace-sheet-bottom-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 14px;
+  min-width: 0;
+}
+
+.workspace-sheet-zoom-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #3c4043;
+  white-space: nowrap;
+}
+
+.workspace-sheet-zoom-button {
+  appearance: none;
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: #3c4043;
+  cursor: pointer;
+  font: inherit;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0;
+}
+
+.workspace-sheet-zoom-button:hover,
+.workspace-sheet-zoom-button:focus {
+  outline: none;
+  border-color: #dfe3e8;
+  background: #ffffff;
+}
+
+.workspace-sheet-zoom-button:disabled {
+  color: #b0b6bd;
+  cursor: not-allowed;
+}
+
+.workspace-sheet-zoom-select {
+  height: 28px;
+  min-width: 74px;
+  border: 1px solid #dfe3e8;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #202124;
+  font: inherit;
+  font-size: 12px;
+  padding: 0 6px;
 }
 
 .workspace-structured-toolbar {
