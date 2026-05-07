@@ -5066,6 +5066,16 @@ body.workspace-sheet-expanded {
   box-shadow: inset 0 0 0 2px rgba(197, 34, 31, 0.78);
 }
 
+.workspace-sheet-grid-table td.is-sheet-formula-incomplete .workspace-sheet-cell-input,
+.workspace-sheet-cell-input.is-formula-incomplete,
+.workspace-sheet-cell-input.is-formula-incomplete:focus,
+.workspace-sheet-cell-input.is-formula-incomplete.is-selected,
+.workspace-sheet-cell-input.is-formula-incomplete.is-range-selected {
+  outline: 2px dashed #d93025 !important;
+  outline-offset: -4px;
+  box-shadow: inset 0 0 0 1px rgba(217, 48, 37, 0.22) !important;
+}
+
 .workspace-sheet-grid-table td.has-conditional-format .workspace-sheet-cell-input {
   background:
     linear-gradient(rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.02)),
@@ -5260,6 +5270,61 @@ body.workspace-sheet-expanded {
   background: #9aa0a6;
   box-shadow: 0 0 0 1px rgba(95, 99, 104, 0.45);
   cursor: not-allowed;
+}
+
+.workspace-sheet-selection-move-frame {
+  position: absolute;
+  display: none;
+  box-sizing: border-box;
+  border: 2px solid rgba(26, 115, 232, 0.95);
+  border-radius: 2px;
+  pointer-events: none;
+  z-index: 7;
+}
+
+.workspace-sheet-selection-move-frame.is-moving {
+  border-style: dashed;
+  background: rgba(26, 115, 232, 0.04);
+  z-index: 9;
+}
+
+.workspace-sheet-selection-move-edge {
+  position: absolute;
+  pointer-events: auto;
+  cursor: move;
+  touch-action: none;
+}
+
+.workspace-sheet-selection-move-frame.is-disabled .workspace-sheet-selection-move-edge {
+  cursor: not-allowed;
+}
+
+.workspace-sheet-selection-move-edge.is-top {
+  top: -6px;
+  left: -3px;
+  right: -3px;
+  height: 10px;
+}
+
+.workspace-sheet-selection-move-edge.is-right {
+  top: -3px;
+  right: -6px;
+  bottom: -3px;
+  width: 10px;
+}
+
+.workspace-sheet-selection-move-edge.is-bottom {
+  right: -3px;
+  bottom: -6px;
+  left: -3px;
+  height: 10px;
+}
+
+.workspace-sheet-selection-move-edge.is-left {
+  top: -3px;
+  bottom: -3px;
+  left: -6px;
+  width: 10px;
 }
 
 .workspace-sheet-context-menu {
@@ -6959,6 +7024,15 @@ body.workspace-sheet-expanded {
     linear-gradient(rgba(15, 157, 88, 0.12), rgba(15, 157, 88, 0.12)),
     var(--sheet-cell-fill, transparent);
   box-shadow: inset 0 0 0 2px rgba(15, 157, 88, 0.42);
+}
+
+.workspace-sheet-cell-input.is-formula-incomplete,
+.workspace-sheet-cell-input.is-formula-incomplete:focus,
+.workspace-sheet-cell-input.is-formula-incomplete.is-selected,
+.workspace-sheet-cell-input.is-formula-incomplete.is-range-selected {
+  outline: 2px dashed #d93025 !important;
+  outline-offset: -4px;
+  box-shadow: inset 0 0 0 1px rgba(217, 48, 37, 0.22) !important;
 }
 
 .workspace-dashboard-bar-fill {

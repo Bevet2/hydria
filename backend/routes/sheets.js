@@ -3393,83 +3393,555 @@ function hydriaModelToWorkbook(model = {}) {
   return workbook;
 }
 
-function buildSheetPdfBuffer(model = {}, sheetId = "") {
+const PDF_CHART_PALETTE = ["#1a73e8", "#0f9d58", "#fbbc04", "#ea4335", "#7e57c2", "#00acc1", "#f4511e", "#5f6368"];
+const PDF_SHEET_PIXEL_TO_POINT = 0.56;
+const PDF_TABLE_PALETTES = {
+  blue: { header: "#4472c4", banded: "#d9eaf7", total: "#b4c7e7", border: "#8ea9db" },
+  green: { header: "#9bbb59", banded: "#eaf2dd", total: "#d8e4bc", border: "#a9d08e" },
+  orange: { header: "#ed7d31", banded: "#fce4d6", total: "#f8cbad", border: "#f4b183" },
+  purple: { header: "#8064a2", banded: "#e4dfec", total: "#d9d2e9", border: "#b4a7d6" },
+  gray: { header: "#5f6368", banded: "#f1f3f4", total: "#e8eaed", border: "#c7c9cc" }
+};
+const HYDRIA_PDF_DEFAULT_SETTINGS = {
+  printRange: "active",
+  paperSize: "a4",
+  orientation: "landscape",
+  scaling: "fit-page",
+  pagesPerSheet: "1",
+  margins: "normal",
+  showGridlines: false,
+  showHeadings: false,
+  blackAndWhite: false,
+  centerHorizontally: false,
+  centerVertically: false,
+  showHeadersFooters: false,
+  includeCharts: true
+};
+const HYDRIA_PDF_MARGINS = {
+  normal: 32,
+  narrow: 18,
+  wide: 54
+};
+
+function normalizeHydriaPdfDisplaySheet(displaySheet = null, fallbackSheet = {}) {
+  if (!displaySheet || typeof displaySheet !== "object" || Array.isArray(displaySheet)) {
+    return fallbackSheet;
+  }
+  const normalizedSheet = normalizeHydriaSheet(
+    {
+      ...fallbackSheet,
+      ...displaySheet,
+      id: fallbackSheet.id || displaySheet.id,
+      name: displaySheet.name || fallbackSheet.name,
+      tables: displaySheet.tables || fallbackSheet.tables,
+      pivotTables: displaySheet.pivotTables || fallbackSheet.pivotTables,
+      charts: displaySheet.charts || fallbackSheet.charts,
+      cellFormats: displaySheet.cellFormats || fallbackSheet.cellFormats,
+      conditionalFormats: displaySheet.conditionalFormats || fallbackSheet.conditionalFormats,
+      columnWidths: displaySheet.columnWidths || fallbackSheet.columnWidths,
+      rowHeights: displaySheet.rowHeights || fallbackSheet.rowHeights
+    },
+    0
+  );
+  normalizedSheet.printBounds = normalizeHydriaPdfPrintBounds(displaySheet.printBounds);
+  return normalizedSheet;
+}
+
+function normalizeHydriaPdfSettings(settings = {}) {
+  const source = settings && typeof settings === "object" && !Array.isArray(settings) ? settings : {};
+  const normalized = { ...HYDRIA_PDF_DEFAULT_SETTINGS, ...source };
+  return {
+    ...normalized,
+    printRange: ["active", "selection"].includes(normalized.printRange) ? normalized.printRange : HYDRIA_PDF_DEFAULT_SETTINGS.printRange,
+    paperSize: ["a4", "letter"].includes(normalized.paperSize) ? normalized.paperSize : HYDRIA_PDF_DEFAULT_SETTINGS.paperSize,
+    orientation: ["portrait", "landscape"].includes(normalized.orientation)
+      ? normalized.orientation
+      : HYDRIA_PDF_DEFAULT_SETTINGS.orientation,
+    scaling: ["default", "fit-page", "fit-width", "fit-height", "actual"].includes(normalized.scaling)
+      ? normalized.scaling
+      : HYDRIA_PDF_DEFAULT_SETTINGS.scaling,
+    pagesPerSheet: ["1", "2", "4"].includes(String(normalized.pagesPerSheet))
+      ? String(normalized.pagesPerSheet)
+      : HYDRIA_PDF_DEFAULT_SETTINGS.pagesPerSheet,
+    margins: ["normal", "narrow", "wide"].includes(normalized.margins) ? normalized.margins : HYDRIA_PDF_DEFAULT_SETTINGS.margins,
+    showGridlines: Boolean(normalized.showGridlines),
+    showHeadings: Boolean(normalized.showHeadings),
+    blackAndWhite: Boolean(normalized.blackAndWhite),
+    centerHorizontally: Boolean(normalized.centerHorizontally),
+    centerVertically: Boolean(normalized.centerVertically),
+    showHeadersFooters: Boolean(normalized.showHeadersFooters),
+    includeCharts: normalized.includeCharts !== false
+  };
+}
+
+function normalizeHydriaPdfPrintBounds(bounds = null) {
+  if (!bounds || typeof bounds !== "object" || Array.isArray(bounds)) {
+    return null;
+  }
+  const minRow = Math.max(0, Math.floor(Number(bounds.minRow) || 0));
+  const minColumn = Math.max(0, Math.floor(Number(bounds.minColumn) || 0));
+  const maxRow = Math.max(minRow, Math.floor(Number(bounds.maxRow) || minRow));
+  const maxColumn = Math.max(minColumn, Math.floor(Number(bounds.maxColumn) || minColumn));
+  return { minRow, minColumn, maxRow, maxColumn };
+}
+
+function drawHydriaPdfHeadingCell(doc, text = "", x = 0, y = 0, width = 20, height = 14) {
+  doc
+    .rect(x, y, width, height)
+    .fillAndStroke("#f3f4f6", "#cfd8e3")
+    .fillColor("#4b5563")
+    .font("Helvetica-Bold")
+    .fontSize(6.5)
+    .text(text, x + 2, y + Math.max(2, (height - 6.5) / 2), {
+      width: Math.max(1, width - 4),
+      height: Math.max(1, height - 3),
+      align: "center",
+      ellipsis: true
+    });
+}
+
+function getHydriaPdfCellText(sheet = {}, rowIndex = 0, columnIndex = 0) {
+  return normalizeCellText(rowIndex === 0 ? sheet.columns?.[columnIndex] : sheet.rows?.[rowIndex - 1]?.[columnIndex]);
+}
+
+function getHydriaPdfUsedBounds(sheet = {}) {
+  const requestedBounds = normalizeHydriaPdfPrintBounds(sheet.printBounds);
+  if (requestedBounds) {
+    return requestedBounds;
+  }
+  const bounds = { minRow: 0, minColumn: 0, maxRow: 0, maxColumn: 0 };
+  const rows = [sheet.columns || [], ...(sheet.rows || [])];
+  rows.forEach((row, rowIndex) => {
+    (row || []).forEach((value, columnIndex) => {
+      if (normalizeCellText(value).trim()) {
+        bounds.maxRow = Math.max(bounds.maxRow, rowIndex);
+        bounds.maxColumn = Math.max(bounds.maxColumn, columnIndex);
+      }
+    });
+  });
+  normalizeHydriaTables(sheet.tables).forEach((table) => {
+    bounds.maxRow = Math.max(bounds.maxRow, table.endRowIndex);
+    bounds.maxColumn = Math.max(bounds.maxColumn, table.endColumnIndex);
+  });
+  normalizeHydriaPivotTables(sheet.pivotTables).forEach((pivotTable) => {
+    const pivotBounds = hydriaChartRangeBounds(pivotTable.renderedRange) || {
+      minRow: pivotTable.anchorRowIndex,
+      maxRow: pivotTable.anchorRowIndex,
+      minColumn: pivotTable.anchorColumnIndex,
+      maxColumn: pivotTable.anchorColumnIndex
+    };
+    bounds.maxRow = Math.max(bounds.maxRow, pivotBounds.maxRow);
+    bounds.maxColumn = Math.max(bounds.maxColumn, pivotBounds.maxColumn);
+  });
+  return bounds;
+}
+
+function hydriaPdfDimension(sheet = {}, kind = "column", index = 0) {
+  const pixels = hydriaSheetDimensionPixels(sheet, kind, index);
+  const points = pixels * PDF_SHEET_PIXEL_TO_POINT;
+  return kind === "row" ? Math.max(16, Math.min(60, points)) : Math.max(40, Math.min(130, points));
+}
+
+function hydriaPdfSheetPixelToPoint(value = 0) {
+  return Math.max(0, (Number(value) || 0) * PDF_SHEET_PIXEL_TO_POINT);
+}
+
+function getHydriaPdfChartFrame(chart = {}) {
+  return {
+    x: hydriaPdfSheetPixelToPoint(Math.max(0, Number(chart.x || 0) - HYDRIA_ROW_HEADER_WIDTH)),
+    y: hydriaPdfSheetPixelToPoint(Math.max(0, Number(chart.y || 0) - HYDRIA_COLUMN_HEADER_HEIGHT)),
+    width: Math.max(90, hydriaPdfSheetPixelToPoint(Number(chart.width || 360))),
+    height: Math.max(76, hydriaPdfSheetPixelToPoint(Number(chart.height || 220)))
+  };
+}
+
+function getHydriaPdfTableCellInfo(sheet = {}, rowIndex = 0, columnIndex = 0) {
+  const table = normalizeHydriaTables(sheet.tables).find(
+    (candidate) =>
+      rowIndex >= candidate.startRowIndex &&
+      rowIndex <= candidate.endRowIndex &&
+      columnIndex >= candidate.startColumnIndex &&
+      columnIndex <= candidate.endColumnIndex
+  );
+  if (!table) {
+    return null;
+  }
+  const dataStartRow = table.startRowIndex + (table.showHeaderRow === false ? 0 : 1);
+  return {
+    table,
+    isHeader: table.showHeaderRow !== false && rowIndex === table.startRowIndex,
+    isTotal: table.showTotalRow && rowIndex === table.endRowIndex,
+    isBanded: table.showBandedRows !== false && rowIndex >= dataStartRow && (rowIndex - dataStartRow) % 2 === 1,
+    isBandedColumn: table.showBandedColumns && (columnIndex - table.startColumnIndex) % 2 === 1,
+    isFirstColumn: table.showFirstColumn && columnIndex === table.startColumnIndex,
+    isLastColumn: table.showLastColumn && columnIndex === table.endColumnIndex
+  };
+}
+
+function getHydriaPdfCellStyle(sheet = {}, rowIndex = 0, columnIndex = 0, settings = HYDRIA_PDF_DEFAULT_SETTINGS) {
+  const format = normalizeHydriaCellFormat(sheet.cellFormats?.[`${rowIndex}:${columnIndex}`]);
+  const tableInfo = getHydriaPdfTableCellInfo(sheet, rowIndex, columnIndex);
+  const palette = PDF_TABLE_PALETTES[tableInfo?.table?.style] || PDF_TABLE_PALETTES.blue;
+  const cellText = getHydriaPdfCellText(sheet, rowIndex, columnIndex);
+  const structuralFill =
+    !tableInfo
+      ? "#ffffff"
+      : tableInfo.isHeader
+      ? palette.header
+      : tableInfo.isTotal
+        ? palette.total
+        : tableInfo.isBanded || tableInfo.isBandedColumn
+          ? palette.banded
+          : "#ffffff";
+  const structuralColor = tableInfo?.isHeader ? "#ffffff" : "#111827";
+  const shouldShowGridline = settings.showGridlines || tableInfo || cellText.trim() || format.fillColor || format.border;
+  return {
+    fill: settings.blackAndWhite ? "#ffffff" : format.fillColor || structuralFill,
+    stroke: settings.blackAndWhite
+      ? (shouldShowGridline ? "#9ca3af" : "#ffffff")
+      : format.border?.color || (tableInfo ? palette.border : shouldShowGridline ? "#e5e7eb" : "#ffffff"),
+    textColor: settings.blackAndWhite ? "#111827" : format.textColor || structuralColor,
+    bold:
+      Boolean(format.bold) ||
+      Boolean(tableInfo?.isHeader || tableInfo?.isTotal || tableInfo?.isFirstColumn || tableInfo?.isLastColumn),
+    italic: Boolean(format.italic),
+    underline: Boolean(format.underline),
+    align: format.horizontalAlign || "left",
+    fontSize: Math.max(6, Math.min(14, Number(format.fontSize) || 8))
+  };
+}
+
+function drawHydriaPdfCell(doc, sheet = {}, rowIndex = 0, columnIndex = 0, x = 0, y = 0, width = 60, height = 18, settings = HYDRIA_PDF_DEFAULT_SETTINGS) {
+  const value = getHydriaPdfCellText(sheet, rowIndex, columnIndex);
+  const style = getHydriaPdfCellStyle(sheet, rowIndex, columnIndex, settings);
+  doc.save();
+  doc.rect(x, y, width, height).fillAndStroke(style.fill || "#ffffff", style.stroke || "#e5e7eb");
+  doc
+    .fillColor(style.textColor || "#111827")
+    .font(style.bold ? "Helvetica-Bold" : style.italic ? "Helvetica-Oblique" : "Helvetica")
+    .fontSize(style.fontSize)
+    .text(value, x + 4, y + Math.max(3, (height - style.fontSize) / 2), {
+      width: Math.max(1, width - 8),
+      height: Math.max(1, height - 4),
+      ellipsis: true,
+      align: style.align === "right" || style.align === "center" ? style.align : "left"
+    });
+  doc.restore();
+}
+
+function normalizedPdfChartPoints(chart = {}) {
+  return (Array.isArray(chart.points) ? chart.points : [])
+    .map((point, index) => ({
+      label: normalizeCellText(point.label || point.name || `Point ${index + 1}`),
+      value: hydriaChartNumericValue(point.value ?? point.yValue ?? point.y ?? 0) ?? 0
+    }))
+    .filter((point) => point.label || Number.isFinite(point.value));
+}
+
+function drawHydriaPdfPieSlice(doc, cx = 0, cy = 0, radius = 20, startAngle = -90, endAngle = 0, color = "#1a73e8") {
+  const angleSpan = Math.max(0, endAngle - startAngle);
+  if (!angleSpan) {
+    return;
+  }
+  const steps = Math.max(3, Math.ceil(angleSpan / 8));
+  doc.save();
+  doc.moveTo(cx, cy);
+  for (let step = 0; step <= steps; step += 1) {
+    const angle = ((startAngle + (angleSpan * step) / steps) * Math.PI) / 180;
+    doc.lineTo(cx + Math.cos(angle) * radius, cy + Math.sin(angle) * radius);
+  }
+  doc.closePath().fill(color);
+  doc.restore();
+}
+
+function getHydriaPdfChartLegendRows(doc, points = [], width = 220) {
+  doc.font("Helvetica").fontSize(6);
+  const items = points.slice(0, 8).map((point, index) => ({
+    label: normalizeCellText(point.label || `Point ${index + 1}`),
+    color: PDF_CHART_PALETTE[index % PDF_CHART_PALETTE.length],
+    width: Math.min(74, Math.max(28, doc.widthOfString(normalizeCellText(point.label || `Point ${index + 1}`)) + 14))
+  }));
+  const rows = [];
+  let row = [];
+  let rowWidth = 0;
+  items.forEach((item) => {
+    const gap = row.length ? 10 : 0;
+    if (row.length && rowWidth + gap + item.width > width) {
+      rows.push(row);
+      row = [item];
+      rowWidth = item.width;
+      return;
+    }
+    row.push(item);
+    rowWidth += gap + item.width;
+  });
+  if (row.length) {
+    rows.push(row);
+  }
+  return rows;
+}
+
+function drawHydriaPdfChartLegend(doc, points = [], x = 0, y = 0, width = 220) {
+  const rows = getHydriaPdfChartLegendRows(doc, points, width);
+  rows.forEach((row, rowIndex) => {
+    const rowWidth = row.reduce((sum, item) => sum + item.width, 0) + Math.max(0, row.length - 1) * 10;
+    let cursorX = x + Math.max(0, (width - rowWidth) / 2);
+    row.forEach((item) => {
+      doc.rect(cursorX, y + rowIndex * 10 + 2, 5, 5).fill(item.color);
+      doc
+        .fillColor("#374151")
+        .font("Helvetica")
+        .fontSize(6)
+        .text(item.label, cursorX + 8, y + rowIndex * 10, {
+          width: Math.max(12, item.width - 8),
+          height: 9,
+          ellipsis: true
+        });
+      cursorX += item.width + 10;
+    });
+  });
+}
+
+function drawHydriaPdfChart(doc, chart = {}, x = 0, y = 0, width = 260, height = 170) {
+  const points = normalizedPdfChartPoints(chart);
+  if (!points.length) {
+    return;
+  }
+  const kind = String(chart.kind || "column").toLowerCase();
+  const isPieChart = kind.includes("pie") || kind.includes("donut");
+  const isSingleSeriesBarChart = kind.includes("column") || kind.includes("bar");
+  const shouldShowChartLegend = chart.showLegend !== false && (!isSingleSeriesBarChart || Boolean(chart.hasMultipleSeries));
+  const hasBottomAxisLabels = !isPieChart && !kind.includes("line") && !(kind.includes("bar") && !kind.includes("column"));
+  const padding = 18;
+  const titleHeight = 18;
+  const legendRows = shouldShowChartLegend ? getHydriaPdfChartLegendRows(doc, points, Math.max(40, width - padding * 2)) : [];
+  const legendHeight = legendRows.length ? legendRows.length * 10 + 4 : 0;
+  const bottomAxisHeight = hasBottomAxisLabels ? 12 : 0;
+  const legendGap = legendHeight ? 6 : 0;
+  const plotX = x + padding;
+  const plotY = y + padding + titleHeight;
+  const plotWidth = Math.max(40, width - padding * 2);
+  const plotHeight = Math.max(36, height - padding * 2 - titleHeight - bottomAxisHeight - legendGap - legendHeight);
+  const values = points.map((point) => Math.max(0, Number(point.value) || 0));
+  const maxValue = Math.max(1, ...values);
+
+  doc.save();
+  doc.roundedRect(x, y, width, height, 3).fillAndStroke("#ffffff", "#cfd8e3");
+  doc
+    .fillColor("#374151")
+    .font("Helvetica-Bold")
+    .fontSize(9)
+    .text(chart.title || "Chart", x + 8, y + 8, { width: width - 16, align: "center", ellipsis: true });
+
+  if (isPieChart) {
+    const total = values.reduce((sum, value) => sum + value, 0) || 1;
+    const radius = Math.max(20, Math.min(plotWidth, plotHeight) / 2 - 6);
+    const cx = plotX + plotWidth / 2;
+    const cy = plotY + plotHeight / 2;
+    let startAngle = -90;
+    points.forEach((point, index) => {
+      const angle = (Math.max(0, point.value) / total) * 360;
+      const endAngle = startAngle + angle;
+      drawHydriaPdfPieSlice(doc, cx, cy, radius, startAngle, endAngle, PDF_CHART_PALETTE[index % PDF_CHART_PALETTE.length]);
+      startAngle = endAngle;
+    });
+    if (kind.includes("donut")) {
+      doc.circle(cx, cy, radius * 0.48).fill("#ffffff");
+    }
+  } else if (kind.includes("line")) {
+    const step = points.length > 1 ? plotWidth / (points.length - 1) : plotWidth;
+    doc.moveTo(plotX, plotY + plotHeight);
+    points.forEach((point, index) => {
+      const px = plotX + index * step;
+      const py = plotY + plotHeight - (Math.max(0, point.value) / maxValue) * plotHeight;
+      if (index === 0) {
+        doc.moveTo(px, py);
+      } else {
+        doc.lineTo(px, py);
+      }
+    });
+    doc.lineWidth(1.5).stroke(PDF_CHART_PALETTE[0]);
+    points.forEach((point, index) => {
+      const px = plotX + index * step;
+      const py = plotY + plotHeight - (Math.max(0, point.value) / maxValue) * plotHeight;
+      doc.circle(px, py, 2.4).fill(PDF_CHART_PALETTE[index % PDF_CHART_PALETTE.length]);
+    });
+  } else if (kind.includes("bar") && !kind.includes("column")) {
+    const band = plotHeight / points.length;
+    points.forEach((point, index) => {
+      const barWidth = (Math.max(0, point.value) / maxValue) * (plotWidth - 32);
+      const barY = plotY + index * band + band * 0.18;
+      doc.roundedRect(plotX, barY, Math.max(2, barWidth), Math.max(4, band * 0.58), 3).fill(PDF_CHART_PALETTE[index % PDF_CHART_PALETTE.length]);
+      doc.fillColor("#374151").font("Helvetica").fontSize(6).text(point.label, plotX + barWidth + 4, barY + 1, { width: 28, ellipsis: true });
+    });
+  } else {
+    const band = plotWidth / points.length;
+    doc.moveTo(plotX, plotY + plotHeight).lineTo(plotX + plotWidth, plotY + plotHeight).lineWidth(1).stroke("#d1d5db");
+    points.forEach((point, index) => {
+      const barWidth = Math.max(4, band * 0.46);
+      const barHeight = (Math.max(0, point.value) / maxValue) * plotHeight;
+      const barX = plotX + index * band + (band - barWidth) / 2;
+      const barY = plotY + plotHeight - barHeight;
+      doc.roundedRect(barX, barY, barWidth, Math.max(2, barHeight), 4).fill(PDF_CHART_PALETTE[index % PDF_CHART_PALETTE.length]);
+      doc.fillColor("#374151").font("Helvetica-Bold").fontSize(6).text(String(point.value), barX, Math.max(plotY, barY - 9), { width: barWidth, align: "center" });
+      doc.fillColor("#374151").font("Helvetica").fontSize(5.5).text(point.label, plotX + index * band, plotY + plotHeight + 3, { width: band, height: bottomAxisHeight, align: "center", ellipsis: true });
+    });
+  }
+
+  if (shouldShowChartLegend) {
+    drawHydriaPdfChartLegend(doc, points, x + padding, plotY + plotHeight + bottomAxisHeight + legendGap, plotWidth);
+  }
+  doc.restore();
+}
+
+function buildSheetPdfBuffer(model = {}, sheetId = "", { displaySheet = null, settings = {} } = {}) {
   const normalized = normalizeHydriaWorkbook(model);
-  const sheet = normalized.sheets.find((entry) => entry.id === sheetId) || normalized.sheets[0];
+  const fallbackSheet = normalized.sheets.find((entry) => entry.id === sheetId) || normalized.sheets[0];
+  const sheet = normalizeHydriaPdfDisplaySheet(displaySheet, fallbackSheet);
+  const pdfSettings = normalizeHydriaPdfSettings(settings);
 
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({
-      margin: 32,
-      size: "A4",
-      layout: "landscape"
+      margin: HYDRIA_PDF_MARGINS[pdfSettings.margins] || HYDRIA_PDF_MARGINS.normal,
+      size: pdfSettings.paperSize === "letter" ? "LETTER" : "A4",
+      layout: pdfSettings.orientation
     });
     const chunks = [];
     doc.on("data", (chunk) => chunks.push(chunk));
     doc.on("end", () => resolve(Buffer.concat(chunks)));
     doc.on("error", reject);
 
-    const columns = Array.isArray(sheet?.columns) && sheet.columns.length ? sheet.columns : [...DEFAULT_COLUMNS];
-    const rows = Array.isArray(sheet?.rows) && sheet.rows.length ? sheet.rows : [["", "", ""]];
-    const maxColumns = Math.min(columns.length, 8);
-    const visibleColumns = columns.slice(0, maxColumns);
+    const bounds = getHydriaPdfUsedBounds(sheet);
+    const columns = Array.from({ length: bounds.maxColumn - bounds.minColumn + 1 }, (_, offset) => bounds.minColumn + offset);
+    const rowIndexes = Array.from({ length: bounds.maxRow - bounds.minRow + 1 }, (_, offset) => bounds.minRow + offset);
     const pageWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
-    const tableTop = 88;
-    const rowHeight = 20;
-    const footerHeight = 34;
-    const rowsPerPage = Math.max(10, Math.floor((doc.page.height - tableTop - footerHeight) / rowHeight) - 1);
-    const columnWidth = pageWidth / Math.max(1, visibleColumns.length);
+    const tableTop = 76;
+    const footerHeight = pdfSettings.showHeadersFooters ? 28 : 12;
+    const rawHeadingColumnWidth = pdfSettings.showHeadings ? 24 : 0;
+    const rawHeadingRowHeight = pdfSettings.showHeadings ? 14 : 0;
+    const rawColumnWidths = columns.map((columnIndex) => hydriaPdfDimension(sheet, "column", columnIndex));
+    const rawRowHeights = rowIndexes.map((rowIndex) => hydriaPdfDimension(sheet, "row", rowIndex));
+    const rawGridWidth = rawHeadingColumnWidth + rawColumnWidths.reduce((sum, width) => sum + width, 0);
+    const rawGridHeight = rawHeadingRowHeight + rawRowHeights.reduce((sum, height) => sum + height, 0);
+    const chartFrames = pdfSettings.includeCharts
+      ? normalizeHydriaCharts(sheet.charts).map((chart) => {
+          const frame = getHydriaPdfChartFrame(chart);
+          return {
+            chart,
+            ...frame,
+            x: rawHeadingColumnWidth + frame.x,
+            y: rawHeadingRowHeight + frame.y
+          };
+        })
+      : [];
+    const rawContentWidth = Math.max(
+      rawGridWidth,
+      ...chartFrames.map((chart) => chart.x + chart.width),
+      1
+    );
+    const rawContentHeight = Math.max(
+      rawGridHeight,
+      ...chartFrames.map((chart) => chart.y + chart.height),
+      1
+    );
+    const availableHeight = doc.page.height - tableTop - footerHeight - doc.page.margins.bottom;
+    const fitWidthScale = pageWidth / Math.max(1, rawContentWidth);
+    const fitHeightScale = availableHeight / Math.max(1, rawContentHeight);
+    const scalingMode = pdfSettings.scaling === "default" ? "fit-page" : pdfSettings.scaling;
+    let scale = 1;
+    if (scalingMode === "fit-page") {
+      scale = Math.min(1, fitWidthScale, fitHeightScale);
+    } else if (scalingMode === "fit-width") {
+      scale = Math.min(1, fitWidthScale);
+    } else if (scalingMode === "fit-height") {
+      scale = Math.min(1, fitHeightScale);
+    }
+    if (pdfSettings.pagesPerSheet === "2") {
+      scale *= 0.72;
+    } else if (pdfSettings.pagesPerSheet === "4") {
+      scale *= 0.5;
+    }
+    const columnWidths = rawColumnWidths.map((width) => Math.max(8, width * scale));
+    const rowHeights = rawRowHeights.map((height) => Math.max(6, height * scale));
+    const headingColumnWidth = rawHeadingColumnWidth * scale;
+    const headingRowHeight = rawHeadingRowHeight * scale;
+    const scaledContentWidth = rawContentWidth * scale;
+    const scaledContentHeight = rawContentHeight * scale;
+    const contentLeft = doc.page.margins.left + (pdfSettings.centerHorizontally ? Math.max(0, (pageWidth - scaledContentWidth) / 2) : 0);
+    const contentTop = tableTop + (pdfSettings.centerVertically ? Math.max(0, (availableHeight - scaledContentHeight) / 2) : 0);
+    const rowsPerPage = rowIndexes.length;
 
-    const drawHeader = (startRowIndex = 0) => {
+    const drawHeader = () => {
+      if (pdfSettings.showHeadersFooters) {
+        doc.fontSize(7).font("Helvetica").fillColor("#111827");
+        doc.text(new Date().toLocaleString("fr-FR"), doc.page.margins.left, 22, { width: 160 });
+        doc.text("Hydria", doc.page.margins.left, 22, { width: pageWidth, align: "center" });
+      }
       doc.fontSize(16).font("Helvetica-Bold").fillColor("#111827").text(sheet?.name || "Sheet", doc.page.margins.left, 28);
       doc.fontSize(9).font("Helvetica").fillColor("#6b7280");
       doc.text(
-        `${rows.length + 1} rows | ${columns.length} columns${columns.length > maxColumns ? ` | PDF shows first ${maxColumns} columns` : ""}`,
+        `${bounds.maxRow - bounds.minRow + 1} rows | ${bounds.maxColumn - bounds.minColumn + 1} columns`,
         doc.page.margins.left,
         48
       );
-      const headerY = tableTop;
-      visibleColumns.forEach((label, columnIndex) => {
-        const x = doc.page.margins.left + columnIndex * columnWidth;
-        doc
-          .rect(x, headerY, columnWidth, rowHeight)
-          .fillAndStroke("#f3f4f6", "#d1d5db");
-        doc
-          .fillColor("#111827")
-          .font("Helvetica-Bold")
-          .fontSize(8)
-          .text(String(label || `Column ${columnIndex + 1}`), x + 4, headerY + 6, {
-            width: columnWidth - 8,
-            height: rowHeight - 8,
-            ellipsis: true
-          });
-      });
-      doc.fillColor("#111827").font("Helvetica").fontSize(8);
-      return headerY + rowHeight;
+      return tableTop;
     };
 
-    for (let pageRowIndex = 0; pageRowIndex < rows.length; pageRowIndex += rowsPerPage) {
+    for (let pageRowIndex = 0; pageRowIndex < rowIndexes.length; pageRowIndex += rowsPerPage) {
       if (pageRowIndex > 0) {
         doc.addPage();
       }
-      let cursorY = drawHeader(pageRowIndex);
-      rows.slice(pageRowIndex, pageRowIndex + rowsPerPage).forEach((row) => {
-        visibleColumns.forEach((_, columnIndex) => {
-          const x = doc.page.margins.left + columnIndex * columnWidth;
-          doc
-            .rect(x, cursorY, columnWidth, rowHeight)
-            .stroke("#e5e7eb");
-          doc
-            .fillColor("#111827")
-            .font("Helvetica")
-            .fontSize(8)
-            .text(normalizeCellText(row?.[columnIndex]), x + 4, cursorY + 6, {
-              width: columnWidth - 8,
-              height: rowHeight - 8,
-              ellipsis: true
-            });
+      drawHeader();
+      let cursorY = contentTop;
+      if (pdfSettings.showHeadings) {
+        let headingX = contentLeft;
+        drawHydriaPdfHeadingCell(doc, "", headingX, cursorY, headingColumnWidth, headingRowHeight);
+        headingX += headingColumnWidth;
+        columns.forEach((columnIndex, columnOffset) => {
+          drawHydriaPdfHeadingCell(
+            doc,
+            XLSX.utils.encode_col(columnIndex),
+            headingX,
+            cursorY,
+            columnWidths[columnOffset] || 40,
+            headingRowHeight
+          );
+          headingX += columnWidths[columnOffset] || 40;
+        });
+        cursorY += headingRowHeight;
+      }
+      rowIndexes.slice(pageRowIndex, pageRowIndex + rowsPerPage).forEach((rowIndex, rowOffset) => {
+        const rowHeight = rowHeights[pageRowIndex + rowOffset] || 18;
+        let cursorX = contentLeft;
+        if (pdfSettings.showHeadings) {
+          drawHydriaPdfHeadingCell(doc, String(rowIndex + 1), cursorX, cursorY, headingColumnWidth, rowHeight);
+          cursorX += headingColumnWidth;
+        }
+        columns.forEach((columnIndex, columnOffset) => {
+          const columnWidth = columnWidths[columnOffset] || 60;
+          drawHydriaPdfCell(doc, sheet, rowIndex, columnIndex, cursorX, cursorY, columnWidth, rowHeight, pdfSettings);
+          cursorX += columnWidth;
         });
         cursorY += rowHeight;
       });
+
+      if (pageRowIndex === 0) {
+        chartFrames.forEach((chartFrame) => {
+          const chartX = contentLeft + chartFrame.x * scale;
+          const chartY = contentTop + chartFrame.y * scale;
+          const chartWidth = Math.max(80, chartFrame.width * scale);
+          const chartHeight = Math.max(64, chartFrame.height * scale);
+          if (chartY + chartHeight <= doc.page.height - doc.page.margins.bottom + 1) {
+            drawHydriaPdfChart(doc, chartFrame.chart, chartX, chartY, chartWidth, chartHeight);
+          }
+        });
+      }
+
+      if (pdfSettings.showHeadersFooters) {
+        doc.fontSize(7).font("Helvetica").fillColor("#111827");
+        doc.text("localhost:3001", doc.page.margins.left, doc.page.height - 24, { width: 160 });
+        doc.text("1/1", doc.page.margins.left, doc.page.height - 24, { width: pageWidth, align: "right" });
+      }
     }
 
     doc.end();
@@ -3549,7 +4021,10 @@ router.post("/export-pdf", async (req, res, next) => {
     const normalizedModel = normalizeHydriaWorkbook(req.body?.model || {});
     const targetSheetId =
       normalizedModel.sheets.some((sheet) => sheet.id === req.body?.sheetId) ? String(req.body?.sheetId) : normalizedModel.activeSheetId;
-    const buffer = await buildSheetPdfBuffer(normalizedModel, targetSheetId);
+    const buffer = await buildSheetPdfBuffer(normalizedModel, targetSheetId, {
+      displaySheet: req.body?.displaySheet,
+      settings: req.body?.pdfSettings || req.body?.printSettings
+    });
 
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="${safePdfFilename(req.body?.filename)}"`);

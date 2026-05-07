@@ -262,6 +262,45 @@ const SPREADSHEET_FORMULA_NAME_ALIASES = {
   PRODUIT: "PRODUCT",
   CONCATENER: "CONCAT"
 };
+const SPREADSHEET_CSV_FORMULA_NAME_ALIASES = {
+  IF: "SI",
+  IFERROR: "SIERREUR",
+  AND: "ET",
+  OR: "OU",
+  NOT: "NON",
+  TRUE: "VRAI",
+  FALSE: "FAUX",
+  SUM: "SOMME",
+  SUMIF: "SOMME.SI",
+  SUMIFS: "SOMME.SI.ENS",
+  AVERAGE: "MOYENNE",
+  AVERAGEIF: "MOYENNE.SI",
+  AVERAGEIFS: "MOYENNE.SI.ENS",
+  COUNT: "NB",
+  COUNTA: "NBVAL",
+  COUNTBLANK: "NB.VIDE",
+  COUNTIF: "NB.SI",
+  COUNTIFS: "NB.SI.ENS",
+  TODAY: "AUJOURDHUI",
+  NOW: "MAINTENANT",
+  TEXT: "TEXTE",
+  LEFT: "GAUCHE",
+  RIGHT: "DROITE",
+  MID: "STXT",
+  TRIM: "SUPPRESPACE",
+  VALUE: "VALEUR",
+  FILTER: "FILTRE",
+  SORT: "TRIER",
+  MATCH: "EQUIV",
+  VLOOKUP: "RECHERCHEV",
+  XLOOKUP: "RECHERCHEX",
+  SUBTOTAL: "SOUS.TOTAL",
+  ROUND: "ARRONDI",
+  ROUNDDOWN: "ARRONDI.INF",
+  ROUNDUP: "ARRONDI.SUP",
+  PRODUCT: "PRODUIT",
+  CONCAT: "CONCATENER"
+};
 const SPREADSHEET_FORMULA_CATEGORIES = [
   { id: "all", label: "Tout", ribbonLabel: "Toutes", icon: "function" },
   { id: "math", label: "Math et trigo", ribbonLabel: "Math", icon: "number" },
@@ -624,6 +663,84 @@ function normalizeSpreadsheetFormulaName(name = "") {
 
 function isSpreadsheetBuiltinFormulaName(name = "") {
   return SPREADSHEET_BUILTIN_FORMULA_NAMES.has(normalizeSpreadsheetFormulaName(name));
+}
+
+function localizeSpreadsheetFormulaForCsv(value = "") {
+  const text = String(value || "");
+  if (!text.startsWith("=")) {
+    return text;
+  }
+
+  let output = "";
+  let index = 0;
+  let inString = false;
+  const isIdentifierStart = (char = "") => /[A-Za-z_]/.test(char);
+  const isIdentifierPart = (char = "") => /[A-Za-z0-9_.]/.test(char);
+  const nextNonSpaceAt = (startIndex = 0) => {
+    let cursor = startIndex;
+    while (cursor < text.length && /\s/.test(text[cursor])) {
+      cursor += 1;
+    }
+    return { char: text[cursor] || "", index: cursor };
+  };
+
+  while (index < text.length) {
+    const char = text[index];
+    if (char === "\"") {
+      output += char;
+      if (inString && text[index + 1] === "\"") {
+        output += text[index + 1];
+        index += 2;
+        continue;
+      }
+      inString = !inString;
+      index += 1;
+      continue;
+    }
+    if (inString) {
+      output += char;
+      index += 1;
+      continue;
+    }
+    if (char === ",") {
+      output += ";";
+      index += 1;
+      continue;
+    }
+    if (char === "@" && isIdentifierStart(text[index + 1] || "")) {
+      const start = index + 1;
+      let end = start + 1;
+      while (end < text.length && isIdentifierPart(text[end])) {
+        end += 1;
+      }
+      const canonicalName = normalizeSpreadsheetFormulaName(text.slice(start, end));
+      if (SPREADSHEET_CSV_FORMULA_NAME_ALIASES[canonicalName] && nextNonSpaceAt(end).char === "(") {
+        index += 1;
+        continue;
+      }
+    }
+    if (isIdentifierStart(char)) {
+      const start = index;
+      let end = index + 1;
+      while (end < text.length && isIdentifierPart(text[end])) {
+        end += 1;
+      }
+      const token = text.slice(start, end);
+      const canonicalName = normalizeSpreadsheetFormulaName(token);
+      const localizedName = SPREADSHEET_CSV_FORMULA_NAME_ALIASES[canonicalName];
+      const nextToken = nextNonSpaceAt(end).char;
+      const isFunctionCall = nextToken === "(";
+      const isBooleanLiteral =
+        (canonicalName === "TRUE" || canonicalName === "FALSE") &&
+        (!nextToken || /[;,+\-*/^<>=)&]/.test(nextToken));
+      output += localizedName && (isFunctionCall || isBooleanLiteral) ? localizedName : token;
+      index = end;
+      continue;
+    }
+    output += char;
+    index += 1;
+  }
+  return output;
 }
 
 function isSpreadsheetDefinedNameValid(name = "") {
@@ -3603,11 +3720,45 @@ function renderSpreadsheetClonePreview(
     return true;
   };
 
+  const coerceFormulaLogicalTest = (value) => {
+    if (isFormulaErrorValue(value)) {
+      return value;
+    }
+    if (typeof value === "boolean") {
+      return value;
+    }
+    if (typeof value === "number") {
+      return value !== 0;
+    }
+    const normalized = String(value ?? "").trim().toLowerCase();
+    if (!normalized) {
+      return false;
+    }
+    if (["true", "vrai"].includes(normalized)) {
+      return true;
+    }
+    if (["false", "faux"].includes(normalized)) {
+      return false;
+    }
+    const numeric = Number(normalized.replace(",", "."));
+    return Number.isFinite(numeric) ? numeric !== 0 : "#VALUE!";
+  };
+
   const coerceText = (value) => {
     if (Array.isArray(value)) {
       return value.map((entry) => coerceText(entry)).join(", ");
     }
     return String(value ?? "");
+  };
+
+  const parseFormulaLiteralValue = (value = "") => {
+    const text = String(value ?? "");
+    const trimmed = text.trim();
+    if (!trimmed) {
+      return "";
+    }
+    const numeric = Number(trimmed.replace(",", "."));
+    return Number.isFinite(numeric) ? numeric : text;
   };
 
   const serializeFormulaValue = (value) => {
@@ -3860,7 +4011,16 @@ function renderSpreadsheetClonePreview(
     return { error: "#ERROR!", expression: output };
   };
 
-  const formatFormulaResult = (value) => {
+  const shouldUseFrenchFormulaBooleans = (rawFormula = "") =>
+    /\b(SI|SIERREUR|ET|OU|NON|VRAI|FAUX)\b/i.test(String(rawFormula || "")) || String(rawFormula || "").includes(";");
+
+  const formatFormulaResult = (value, rawFormula = "") => {
+    if (typeof value === "boolean") {
+      if (shouldUseFrenchFormulaBooleans(rawFormula)) {
+        return value ? "VRAI" : "FAUX";
+      }
+      return value ? "TRUE" : "FALSE";
+    }
     if (typeof value === "number" && Number.isFinite(value)) {
       if (Number.isInteger(value)) {
         return String(value);
@@ -3907,6 +4067,228 @@ function renderSpreadsheetClonePreview(
     }
     flush();
     return output;
+  };
+
+  const SPREADSHEET_ZERO_ARG_FORMULAS = new Set(["FALSE", "NOW", "TODAY", "TRUE"]);
+  const spreadsheetRequiredArgCountCache = new Map();
+  const getSpreadsheetRequiredArgCount = (name = "") => {
+    const normalizedName = normalizeSpreadsheetFormulaName(name);
+    if (SPREADSHEET_ZERO_ARG_FORMULAS.has(normalizedName)) {
+      return 0;
+    }
+    if (spreadsheetRequiredArgCountCache.has(normalizedName)) {
+      return spreadsheetRequiredArgCountCache.get(normalizedName);
+    }
+    const definition = SPREADSHEET_FORMULA_DEFINITIONS.find((entry) => entry.name === normalizedName);
+    const argsSource = definition?.syntax?.match(/\((.*)\)/)?.[1] || "";
+    const count = splitFormulaArgs(argsSource).filter((arg) => {
+      const token = String(arg || "").trim();
+      return token && !token.includes("...") && !/^\[.*\]$/.test(token);
+    }).length;
+    spreadsheetRequiredArgCountCache.set(normalizedName, count);
+    return count;
+  };
+
+  const hasMissingSpreadsheetFormulaArgs = (name = "", argsSource = "") => {
+    const requiredArgCount = getSpreadsheetRequiredArgCount(name);
+    if (!requiredArgCount) {
+      return false;
+    }
+    const providedArgCount = String(argsSource || "").trim() ? splitFormulaArgs(argsSource).length : 0;
+    return providedArgCount < requiredArgCount;
+  };
+
+  const findFormulaClosingParenForCompletion = (source = "", openIndex = 0) => {
+    let depth = 0;
+    let inQuotes = false;
+    for (let index = openIndex; index < source.length; index += 1) {
+      const char = source[index];
+      const next = source[index + 1];
+      if (inQuotes && char === "\\") {
+        index += 1;
+        continue;
+      }
+      if (char === "\"") {
+        if (inQuotes && next === "\"") {
+          index += 1;
+          continue;
+        }
+        inQuotes = !inQuotes;
+        continue;
+      }
+      if (inQuotes) {
+        continue;
+      }
+      if (char === "(") {
+        depth += 1;
+        continue;
+      }
+      if (char === ")") {
+        depth -= 1;
+        if (depth === 0) {
+          return index;
+        }
+      }
+    }
+    return -1;
+  };
+
+  const hasEmptyFormulaArgumentSlot = (argsSource = "") => {
+    const source = String(argsSource || "");
+    let depth = 0;
+    let inQuotes = false;
+    let hasArgumentSinceSeparator = false;
+    for (let index = 0; index < source.length; index += 1) {
+      const char = source[index];
+      const next = source[index + 1];
+      if (char === "\"") {
+        if (inQuotes && next === "\"") {
+          index += 1;
+          continue;
+        }
+        inQuotes = !inQuotes;
+        hasArgumentSinceSeparator = true;
+        continue;
+      }
+      if (inQuotes) {
+        continue;
+      }
+      if (char === "(") {
+        depth += 1;
+        hasArgumentSinceSeparator = true;
+        continue;
+      }
+      if (char === ")") {
+        depth = Math.max(0, depth - 1);
+        hasArgumentSinceSeparator = true;
+        continue;
+      }
+      if ((char === "," || char === ";") && depth === 0) {
+        if (!hasArgumentSinceSeparator) {
+          return true;
+        }
+        hasArgumentSinceSeparator = false;
+        continue;
+      }
+      if (!/\s/.test(char)) {
+        hasArgumentSinceSeparator = true;
+      }
+    }
+    return source.trim().length > 0 && !hasArgumentSinceSeparator;
+  };
+
+  const hasIncompleteFormulaFunctionCall = (source = "") => {
+    let inQuotes = false;
+    for (let index = 0; index < source.length; index += 1) {
+      const char = source[index];
+      const next = source[index + 1];
+      if (inQuotes && char === "\\") {
+        index += 1;
+        continue;
+      }
+      if (char === "\"") {
+        if (inQuotes && next === "\"") {
+          index += 1;
+          continue;
+        }
+        inQuotes = !inQuotes;
+        continue;
+      }
+      if (inQuotes || !/[A-Za-z_]/.test(char)) {
+        continue;
+      }
+      const previous = source[index - 1] || "";
+      if (/[A-Za-z0-9_.]/.test(previous)) {
+        continue;
+      }
+      let endName = index + 1;
+      while (endName < source.length && /[A-Za-z0-9_.]/.test(source[endName])) {
+        endName += 1;
+      }
+      const name = normalizeSpreadsheetFormulaName(source.slice(index, endName));
+      if (!SPREADSHEET_BUILTIN_FORMULA_NAMES.has(name)) {
+        index = endName - 1;
+        continue;
+      }
+      let openIndex = endName;
+      while (openIndex < source.length && /\s/.test(source[openIndex])) {
+        openIndex += 1;
+      }
+      if (source[openIndex] !== "(") {
+        index = endName - 1;
+        continue;
+      }
+      const closeIndex = findFormulaClosingParenForCompletion(source, openIndex);
+      if (closeIndex < 0) {
+        return true;
+      }
+      const argsSource = source.slice(openIndex + 1, closeIndex);
+      if (!argsSource.trim() && !SPREADSHEET_ZERO_ARG_FORMULAS.has(name)) {
+        return true;
+      }
+      if (hasEmptyFormulaArgumentSlot(argsSource)) {
+        return true;
+      }
+      if (hasMissingSpreadsheetFormulaArgs(name, argsSource)) {
+        return true;
+      }
+      index = closeIndex;
+    }
+    return false;
+  };
+
+  const isSpreadsheetFormulaIncomplete = (rawValue = "") => {
+    const value = String(rawValue || "");
+    if (!value.startsWith("=")) {
+      return false;
+    }
+    const expression = value.slice(1).trim();
+    if (!expression) {
+      return true;
+    }
+
+    let depth = 0;
+    let inQuotes = false;
+    let lastSignificant = "";
+    for (let index = 0; index < expression.length; index += 1) {
+      const char = expression[index];
+      const next = expression[index + 1];
+      if (inQuotes && char === "\\") {
+        index += 1;
+        continue;
+      }
+      if (char === "\"") {
+        if (inQuotes && next === "\"") {
+          index += 1;
+          continue;
+        }
+        inQuotes = !inQuotes;
+        lastSignificant = char;
+        continue;
+      }
+      if (inQuotes) {
+        continue;
+      }
+      if (char === "(") {
+        depth += 1;
+      } else if (char === ")") {
+        depth -= 1;
+        if (depth < 0) {
+          return true;
+        }
+      }
+      if (!/\s/.test(char)) {
+        lastSignificant = char;
+      }
+    }
+
+    if (inQuotes || depth > 0) {
+      return true;
+    }
+    if (/[+\-*/^&=<>(,;:]$/.test(lastSignificant)) {
+      return true;
+    }
+    return hasIncompleteFormulaFunctionCall(expression);
   };
 
   const normalizeFormulaExpression = (value = "") =>
@@ -4230,6 +4612,9 @@ function renderSpreadsheetClonePreview(
     const evaluateFormulaFunction = (rawName = "", argsSource = "") => {
       const fn = normalizeSpreadsheetFormulaName(rawName);
       const args = splitFormulaArgs(argsSource);
+      if (hasEmptyFormulaArgumentSlot(argsSource) || hasMissingSpreadsheetFormulaArgs(fn, argsSource)) {
+        return serializeFormulaValue("#ERROR!");
+      }
       const values = collectAggregateValues(args);
 
       switch (fn) {
@@ -4441,6 +4826,10 @@ function renderSpreadsheetClonePreview(
             });
             return serializeFormulaMatrix(uniqueRows);
           }
+          case "TRUE":
+            return serializeFormulaValue(true);
+          case "FALSE":
+            return serializeFormulaValue(false);
           case "TODAY":
             return serializeFormulaValue(dateToFormulaText(new Date()));
           case "NOW": {
@@ -4506,9 +4895,14 @@ function renderSpreadsheetClonePreview(
             if (isFormulaErrorValue(condition)) {
               return serializeFormulaValue(condition);
             }
+            const logicalTest = coerceFormulaLogicalTest(condition);
+            if (isFormulaErrorValue(logicalTest)) {
+              return serializeFormulaValue(logicalTest);
+            }
+            const conditionIsTruthy = Boolean(logicalTest);
             const truthy = evaluateFormulaArgument(args[1]);
             const falsy = evaluateFormulaArgument(args[2]);
-            return serializeFormulaValue(coerceBoolean(condition) ? truthy : falsy);
+            return serializeFormulaValue(conditionIsTruthy ? truthy : falsy);
           }
           case "IFERROR": {
             const primary = evaluateFormulaArgument(args[0]);
@@ -4659,7 +5053,10 @@ function renderSpreadsheetClonePreview(
     }
     const rawValue = getRawCellValue(rowIndex, columnIndex);
     if (!rawValue.startsWith("=")) {
-      return rawValue;
+      return parseFormulaLiteralValue(rawValue);
+    }
+    if (isSpreadsheetFormulaIncomplete(rawValue)) {
+      return "#ERROR!";
     }
     const nextStack = new Set(stack);
     nextStack.add(key);
@@ -4841,6 +5238,13 @@ function renderSpreadsheetClonePreview(
     active: false,
     anchorRowIndex: 0,
     anchorColumnIndex: 0
+  };
+  let selectionMoveState = {
+    active: false,
+    sourceBounds: null,
+    targetBounds: null,
+    rowCount: 1,
+    columnCount: 1
   };
   let resizeState = {
     active: false,
@@ -6414,6 +6818,149 @@ function renderSpreadsheetClonePreview(
     return pasteClipboardText(systemText, getClipboardPayloadForText(systemText) || (!systemText ? getStoredClipboardPayload() : null));
   };
 
+  const cloneCellPayloadValue = (value) => (value ? JSON.parse(JSON.stringify(value)) : null);
+
+  const getRangeCellPayload = (rowIndex = 0, columnIndex = 0) => ({
+    value: getRawCellValue(rowIndex, columnIndex),
+    format: cloneCellPayloadValue(getCellFormat(rowIndex, columnIndex)) || {},
+    note: cloneCellPayloadValue(getCellNote(rowIndex, columnIndex)),
+    validation: cloneCellPayloadValue(getCellDataValidation(rowIndex, columnIndex)),
+    sparkline: cloneCellPayloadValue(getCellSparkline(rowIndex, columnIndex))
+  });
+
+  const getRangeMovePayload = (bounds = getSelectionBounds()) => {
+    const payload = [];
+    for (let rowIndex = bounds.minRow; rowIndex <= bounds.maxRow; rowIndex += 1) {
+      const row = [];
+      for (let columnIndex = bounds.minColumn; columnIndex <= bounds.maxColumn; columnIndex += 1) {
+        row.push(getRangeCellPayload(rowIndex, columnIndex));
+      }
+      payload.push(row);
+    }
+    return payload;
+  };
+
+  const clearRangeCellPayload = (rowIndex = 0, columnIndex = 0) => {
+    setRawCellValue(rowIndex, columnIndex, "");
+    setCellFormat(rowIndex, columnIndex, {});
+    setCellNote(rowIndex, columnIndex, null);
+    setCellDataValidation(rowIndex, columnIndex, null);
+    setCellSparkline(rowIndex, columnIndex, null);
+  };
+
+  const applyRangeCellPayload = (rowIndex = 0, columnIndex = 0, payload = {}) => {
+    setCellFormat(rowIndex, columnIndex, payload.format || {});
+    setCellNote(rowIndex, columnIndex, payload.note || null);
+    setCellDataValidation(rowIndex, columnIndex, payload.validation || null);
+    setCellSparkline(rowIndex, columnIndex, payload.sparkline || null);
+    setRawCellValue(rowIndex, columnIndex, payload.value || "");
+  };
+
+  const forEachBoundsCell = (bounds = null, callback = null) => {
+    if (!bounds || typeof callback !== "function") {
+      return;
+    }
+    for (let rowIndex = bounds.minRow; rowIndex <= bounds.maxRow; rowIndex += 1) {
+      for (let columnIndex = bounds.minColumn; columnIndex <= bounds.maxColumn; columnIndex += 1) {
+        callback(rowIndex, columnIndex);
+      }
+    }
+  };
+
+  const areSelectionBoundsEqual = (first = null, second = null) =>
+    Boolean(first && second) &&
+    first.minRow === second.minRow &&
+    first.maxRow === second.maxRow &&
+    first.minColumn === second.minColumn &&
+    first.maxColumn === second.maxColumn;
+
+  const getMergeBounds = (merge = {}) => ({
+    minRow: Math.max(0, Number(merge.startRowIndex || 0)),
+    maxRow: Math.max(0, Number(merge.startRowIndex || 0) + Math.max(1, Number(merge.rowSpan || 1)) - 1),
+    minColumn: Math.max(0, Number(merge.startColumnIndex || 0)),
+    maxColumn: Math.max(0, Number(merge.startColumnIndex || 0) + Math.max(1, Number(merge.columnSpan || 1)) - 1)
+  });
+
+  const boundsContainBounds = (outer = {}, inner = {}) => {
+    const normalizedOuter = normalizeSelectionBounds(outer);
+    const normalizedInner = normalizeSelectionBounds(inner);
+    return (
+      normalizedInner.minRow >= normalizedOuter.minRow &&
+      normalizedInner.maxRow <= normalizedOuter.maxRow &&
+      normalizedInner.minColumn >= normalizedOuter.minColumn &&
+      normalizedInner.maxColumn <= normalizedOuter.maxColumn
+    );
+  };
+
+  const moveMergesWithinSelection = (sourceBounds = {}, targetBounds = {}) => {
+    const currentSheet = getActiveSheetState();
+    const merges = Array.isArray(currentSheet.merges) ? currentSheet.merges : [];
+    if (!merges.length) {
+      return;
+    }
+    const rowDelta = targetBounds.minRow - sourceBounds.minRow;
+    const columnDelta = targetBounds.minColumn - sourceBounds.minColumn;
+    const shiftedMerges = [];
+    const preservedMerges = [];
+
+    merges.forEach((merge) => {
+      const mergeBounds = getMergeBounds(merge);
+      const touchesMovedArea = boundsIntersect(mergeBounds, sourceBounds) || boundsIntersect(mergeBounds, targetBounds);
+      if (!touchesMovedArea) {
+        preservedMerges.push(merge);
+        return;
+      }
+      if (boundsContainBounds(sourceBounds, mergeBounds)) {
+        shiftedMerges.push({
+          ...merge,
+          startRowIndex: Math.max(0, Number(merge.startRowIndex || 0) + rowDelta),
+          startColumnIndex: Math.max(0, Number(merge.startColumnIndex || 0) + columnDelta)
+        });
+      }
+    });
+
+    currentSheet.merges = [...preservedMerges, ...shiftedMerges];
+  };
+
+  const moveSelectedCellsToBounds = (targetBounds = null) => {
+    const sourceBounds = selectionMoveState.sourceBounds || getSelectionBounds();
+    if (!sourceBounds || !targetBounds || areSelectionBoundsEqual(sourceBounds, targetBounds)) {
+      return false;
+    }
+    if (!ensureEditableBounds(sourceBounds, "move the selection") || !ensureEditableBounds(targetBounds, "move the selection")) {
+      return false;
+    }
+
+    clearScheduledCommit();
+    persistGridIntoActiveSheet();
+    const beforeSnapshot = getWorkbookSnapshot();
+    const payload = getRangeMovePayload(sourceBounds);
+    ensureGridSize(targetBounds.maxRow + 1, targetBounds.maxColumn + 1);
+    setStoredClipboardPayload(null);
+
+    // Move is not copy: destination metadata replaces whatever was there, and
+    // overlapping moves still work because the source snapshot was captured first.
+    forEachBoundsCell(sourceBounds, clearRangeCellPayload);
+    forEachBoundsCell(targetBounds, clearRangeCellPayload);
+    payload.forEach((row, rowOffset) => {
+      row.forEach((cellPayload, columnOffset) => {
+        applyRangeCellPayload(targetBounds.minRow + rowOffset, targetBounds.minColumn + columnOffset, cellPayload);
+      });
+    });
+    moveMergesWithinSelection(sourceBounds, targetBounds);
+
+    activeSelection = { rowIndex: targetBounds.minRow, columnIndex: targetBounds.minColumn };
+    setSelectionRange({
+      startRowIndex: targetBounds.minRow,
+      startColumnIndex: targetBounds.minColumn,
+      endRowIndex: targetBounds.maxRow,
+      endColumnIndex: targetBounds.maxColumn
+    });
+    commitModel(false, { beforeSnapshot });
+    refreshGridValues({ preserveActiveEditor: false });
+    return true;
+  };
+
   const shouldUseNativeTextClipboard = (event) => {
     const target = event.target;
     if (!target || !previewShell.contains(target)) {
@@ -6474,11 +7021,47 @@ function renderSpreadsheetClonePreview(
     return normalizedValue;
   };
 
+  const isUnexpectedSpreadsheetFormulaResult = (value) =>
+    value === undefined ||
+    (typeof value === "number" && !Number.isFinite(value)) ||
+    isFormulaErrorValue(value);
+
+  const getSpreadsheetFormulaState = (rowIndex = 0, columnIndex = 0) => {
+    const rawValue = getRawCellValue(rowIndex, columnIndex);
+    if (!rawValue.startsWith("=")) {
+      return { rawValue, isFormula: false, hasIssue: false, result: rawValue };
+    }
+    if (isSpreadsheetFormulaIncomplete(rawValue)) {
+      return { rawValue, isFormula: true, hasIssue: true, result: rawValue };
+    }
+    const result = evaluateCellValue(rowIndex, columnIndex);
+    return {
+      rawValue,
+      isFormula: true,
+      hasIssue: isUnexpectedSpreadsheetFormulaResult(result),
+      result
+    };
+  };
+
+  const getCellDisplayValue = (rowIndex = 0, columnIndex = 0) => {
+    const formulaState = getSpreadsheetFormulaState(rowIndex, columnIndex);
+    if (!formulaState.isFormula) {
+      return formatCellDisplayValue(formulaState.rawValue, rowIndex, columnIndex);
+    }
+    if (formulaState.hasIssue) {
+      return formulaState.rawValue;
+    }
+    return formatCellDisplayValue(formatFormulaResult(formulaState.result, formulaState.rawValue), rowIndex, columnIndex);
+  };
+
   const applyCellVisualFormat = (input, wrapper, rowIndex = 0, columnIndex = 0) => {
     const format = getCellFormat(rowIndex, columnIndex);
+    const rawCellValue = getRawCellValue(rowIndex, columnIndex);
+    const formulaState = getSpreadsheetFormulaState(rowIndex, columnIndex);
+    const formulaHasIssue = formulaState.isFormula && formulaState.hasIssue;
     const note = getCellNote(rowIndex, columnIndex);
     const validationRule = getCellDataValidation(rowIndex, columnIndex);
-    const validationResult = validateCellValueAgainstRule(getRawCellValue(rowIndex, columnIndex), validationRule);
+    const validationResult = validateCellValueAgainstRule(rawCellValue, validationRule);
     const conditionalFormat = getConditionalFormatForCell(rowIndex, columnIndex);
     const sparklineBackground = getCellSparklineBackground(rowIndex, columnIndex);
     const tableInfo = getTableCellInfo(rowIndex, columnIndex);
@@ -6531,6 +7114,8 @@ function renderSpreadsheetClonePreview(
     wrapper.classList.toggle("has-note", Boolean(note));
     wrapper.classList.toggle("has-data-validation", Boolean(validationRule));
     wrapper.classList.toggle("is-sheet-validation-invalid", Boolean(validationRule && !validationResult.valid));
+    wrapper.classList.toggle("is-sheet-formula-incomplete", formulaHasIssue);
+    input.classList.toggle("is-formula-incomplete", formulaHasIssue);
     wrapper.classList.toggle("has-conditional-format", Boolean(conditionalFormat));
     wrapper.classList.toggle("is-sheet-table-cell", Boolean(tableInfo));
     wrapper.classList.toggle("is-sheet-table-header", Boolean(tableInfo?.isHeader));
@@ -6546,6 +7131,7 @@ function renderSpreadsheetClonePreview(
     input.title = [
       input.readOnly ? "Protected cell" : "",
       note?.text || "",
+      formulaHasIssue ? "Formula needs review" : "",
       validationRule ? `Data validation: ${describeDataValidationRule(validationRule)}` : "",
       validationRule && !validationResult.valid ? validationResult.message : "",
       conditionalFormat?.labels?.length ? `Conditional format: ${conditionalFormat.labels.join("; ")}` : ""
@@ -6702,7 +7288,21 @@ function renderSpreadsheetClonePreview(
   };
 
   const findCellInputFromPointer = (clientX = 0, clientY = 0) => {
+    const previousMoveFramePointerEvents = selectionMoveFrame?.style.pointerEvents || "";
+    const previousFillHandlePointerEvents = fillHandle?.style.pointerEvents || "";
+    if (selectionMoveFrame) {
+      selectionMoveFrame.style.pointerEvents = "none";
+    }
+    if (fillHandle) {
+      fillHandle.style.pointerEvents = "none";
+    }
     const node = document.elementFromPoint(clientX, clientY);
+    if (selectionMoveFrame) {
+      selectionMoveFrame.style.pointerEvents = previousMoveFramePointerEvents;
+    }
+    if (fillHandle) {
+      fillHandle.style.pointerEvents = previousFillHandlePointerEvents;
+    }
     if (!node) {
       return null;
     }
@@ -6899,6 +7499,14 @@ function renderSpreadsheetClonePreview(
     updateFormulaHelpPanel();
     return true;
   };
+
+  const isCellTextEditorActiveFor = (rowIndex = 0, columnIndex = 0, input = null) =>
+    Boolean(
+      cellTextEditState.active &&
+        cellTextEditState.rowIndex === rowIndex &&
+        cellTextEditState.columnIndex === columnIndex &&
+        (!input || input.classList.contains("is-editing"))
+    );
 
   const formulaEditIsActive = () =>
     Boolean(
@@ -11348,12 +11956,7 @@ function renderSpreadsheetClonePreview(
   };
 
   const getPrintCellDisplayValue = (rowIndex = 0, columnIndex = 0) => {
-    const rawValue = getRawCellValue(rowIndex, columnIndex);
-    return formatCellDisplayValue(
-      rawValue.startsWith("=") ? formatFormulaResult(evaluateCellValue(rowIndex, columnIndex)) : rawValue,
-      rowIndex,
-      columnIndex
-    );
+    return getCellDisplayValue(rowIndex, columnIndex);
   };
 
   const applyPrintCellStyles = (cell, rowIndex = 0, columnIndex = 0) => {
@@ -11671,6 +12274,13 @@ function renderSpreadsheetClonePreview(
     return true;
   };
 
+  const runSheetPdfExportWithSettings = (settings = sheetPrintSettings) => {
+    sheetPrintSettings = normalizeSheetPrintSettings(settings);
+    closeSheetPrintDialog();
+    exportCurrentSheetAsPdf(sheetPrintSettings);
+    return true;
+  };
+
   const makeSheetPrintSelect = (labelText, value, options = [], onChange = () => {}) => {
     const label = document.createElement("label");
     label.className = "workspace-sheet-print-setting";
@@ -11702,17 +12312,21 @@ function renderSpreadsheetClonePreview(
     return label;
   };
 
-  const openSheetPrintDialog = () => {
+  const openSheetPrintDialog = ({ mode = "print" } = {}) => {
+    const isPdfMode = mode === "pdf";
     closeSheetMenu();
     closeSheetPrintDialog();
     persistGridIntoActiveSheet();
 
     let draftSettings = normalizeSheetPrintSettings(sheetPrintSettings);
+    if (isPdfMode && draftSettings.scaling === SHEET_PRINT_DEFAULT_SETTINGS.scaling) {
+      draftSettings = normalizeSheetPrintSettings({ ...draftSettings, scaling: "fit-page" });
+    }
     const overlay = document.createElement("div");
     overlay.className = "workspace-sheet-print-dialog-overlay";
     overlay.setAttribute("role", "dialog");
     overlay.setAttribute("aria-modal", "true");
-    overlay.setAttribute("aria-label", "Options d'impression");
+    overlay.setAttribute("aria-label", isPdfMode ? "Options d'export PDF" : "Options d'impression");
 
     const previewPane = document.createElement("div");
     previewPane.className = "workspace-sheet-print-dialog-preview-pane";
@@ -11740,7 +12354,7 @@ function renderSpreadsheetClonePreview(
     const panelHeader = document.createElement("div");
     panelHeader.className = "workspace-sheet-print-dialog-header";
     const title = document.createElement("h2");
-    title.textContent = "Imprimer";
+    title.textContent = isPdfMode ? "Exporter PDF" : "Imprimer";
     const pageCount = document.createElement("strong");
     pageCount.textContent = "1 page";
     panelHeader.append(title, pageCount);
@@ -11891,8 +12505,10 @@ function renderSpreadsheetClonePreview(
     const printButton = document.createElement("button");
     printButton.type = "button";
     printButton.className = "workspace-sheet-print-primary";
-    printButton.textContent = "Imprimer";
-    printButton.addEventListener("click", () => runSheetPrintWithSettings(draftSettings));
+    printButton.textContent = isPdfMode ? "Exporter PDF" : "Imprimer";
+    printButton.addEventListener("click", () =>
+      isPdfMode ? runSheetPdfExportWithSettings(draftSettings) : runSheetPrintWithSettings(draftSettings)
+    );
     const cancelButton = document.createElement("button");
     cancelButton.type = "button";
     cancelButton.className = "workspace-sheet-print-secondary";
@@ -11924,7 +12540,12 @@ function renderSpreadsheetClonePreview(
   };
 
   const printCurrentSheet = () => {
-    openSheetPrintDialog();
+    openSheetPrintDialog({ mode: "print" });
+    return true;
+  };
+
+  const openPdfExportDialog = () => {
+    openSheetPrintDialog({ mode: "pdf" });
     return true;
   };
 
@@ -11990,6 +12611,47 @@ function renderSpreadsheetClonePreview(
     window.setTimeout(() => URL.revokeObjectURL(link.href), 1000);
   };
 
+  const buildActiveSheetDisplayExportModel = (settings = sheetPrintSettings) => {
+    const normalizedSettings = normalizeSheetPrintSettings(settings);
+    const activeSheetState = getActiveSheetState();
+    const metrics = getSheetPrintPageMetrics(normalizedSettings);
+    const bounds = getPrintBoundsForSettings(normalizedSettings, metrics);
+    const width = Math.max(1, bounds.maxColumn + 1);
+    const height = Math.max(1, bounds.maxRow + 1);
+    const columns = Array.from({ length: width }, (_, columnIndex) =>
+      getPrintCellDisplayValue(0, columnIndex)
+    );
+    const rows = Array.from({ length: Math.max(0, height - 1) }, (_, rowOffset) =>
+      Array.from({ length: width }, (_, columnIndex) =>
+        getPrintCellDisplayValue(rowOffset + 1, columnIndex)
+      )
+    );
+    return {
+      ...cloneSpreadsheetSnapshot(activeSheetState),
+      columns,
+      rows: rows.length ? rows : [[""]],
+      charts:
+        normalizedSettings.includeCharts && normalizedSettings.printRange === "active"
+          ? cloneSpreadsheetSnapshot(getActiveSheetCharts())
+          : [],
+      printBounds: bounds
+    };
+  };
+
+  const getCsvCellExportValue = (rowIndex = 0, columnIndex = 0) => {
+    const rawValue = getRawCellValue(rowIndex, columnIndex);
+    return rawValue.startsWith("=") ? localizeSpreadsheetFormulaForCsv(rawValue) : getPrintCellDisplayValue(rowIndex, columnIndex);
+  };
+
+  const buildActiveSheetCsvExportRows = () => {
+    const bounds = getPrintUsedBounds();
+    const width = Math.max(1, bounds.maxColumn + 1);
+    const height = Math.max(1, bounds.maxRow + 1);
+    return Array.from({ length: height }, (_, rowIndex) =>
+      Array.from({ length: width }, (_, columnIndex) => getCsvCellExportValue(rowIndex, columnIndex))
+    );
+  };
+
   const exportWorkbookAsXlsx = async () => {
     try {
       const nextModel = persistGridIntoActiveSheet();
@@ -12016,8 +12678,9 @@ function renderSpreadsheetClonePreview(
     }
   };
 
-  const exportCurrentSheetAsPdf = async () => {
+  const exportCurrentSheetAsPdf = async (settings = sheetPrintSettings) => {
     try {
+      const pdfSettings = normalizeSheetPrintSettings(settings);
       const nextModel = persistGridIntoActiveSheet();
       workbookModel = nextModel;
       const filename = `${buildWorkbookDownloadBaseName()}.pdf`;
@@ -12027,7 +12690,9 @@ function renderSpreadsheetClonePreview(
         body: JSON.stringify({
           filename,
           sheetId: workbookModel.activeSheetId,
-          model: getWorkbookSnapshot(nextModel)
+          model: getWorkbookSnapshot(nextModel),
+          displaySheet: buildActiveSheetDisplayExportModel(pdfSettings),
+          pdfSettings
         })
       });
       if (!response.ok) {
@@ -12120,8 +12785,22 @@ function renderSpreadsheetClonePreview(
     const nextModel = persistGridIntoActiveSheet();
     workbookModel = nextModel;
     const activeSheetState = getWorkbookActiveSheet();
+    const hasTables = getActiveSheetTables().length > 0;
+    const hasCharts = getActiveSheetCharts().length > 0;
+    if (hasTables || hasCharts) {
+      const shouldExportDataOnly = window.confirm(
+        [
+          "Le format CSV ne peut pas contenir de vrais tableaux Excel ni de graphiques.",
+          "",
+          "OK : exporter seulement les donnees en CSV."
+        ].join("\n")
+      );
+      if (!shouldExportDataOnly) {
+        return;
+      }
+    }
     const delimiter = ";";
-    const rows = trimCsvExportRows([activeSheetState.columns, ...(activeSheetState.rows || [])]);
+    const rows = trimCsvExportRows(buildActiveSheetCsvExportRows());
     const csv = `sep=${delimiter}\r\n${rows.map((row) => row.map((value) => serializeCsvCell(value, delimiter)).join(delimiter)).join("\r\n")}`;
     const blob = new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" });
     const link = document.createElement("a");
@@ -12525,7 +13204,7 @@ function renderSpreadsheetClonePreview(
         return [
           { label: "Import XLSX", onSelect: openXlsxImportDialog },
           { label: "Export XLSX", onSelect: exportWorkbookAsXlsx },
-          { label: "Export PDF", onSelect: exportCurrentSheetAsPdf },
+          { label: "Export PDF", onSelect: openPdfExportDialog },
           { label: "Print", onSelect: printCurrentSheet },
           { label: "Download CSV", onSelect: downloadActiveSheetCsv }
         ];
@@ -13665,6 +14344,35 @@ function renderSpreadsheetClonePreview(
       }
     }
   ];
+  const buildFillMenuItems = () => [
+    { label: "Fill down", icon: "fill", onSelect: () => fillSelectionFromEdge("down") },
+    { label: "Fill right", icon: "fill", onSelect: () => fillSelectionFromEdge("right") },
+    { separator: true },
+    { label: "Clear contents", icon: "eraser", onSelect: clearSelectedCells }
+  ];
+  const buildHorizontalAlignmentMenuItems = () => [
+    { label: "Left", icon: "alignLeft", onSelect: () => setSelectedHorizontalAlign("left") },
+    { label: "Center", icon: "alignCenter", onSelect: () => setSelectedHorizontalAlign("center") },
+    { label: "Right", icon: "alignRight", onSelect: () => setSelectedHorizontalAlign("right") }
+  ];
+  const buildVerticalAlignmentMenuItems = () => [
+    { label: "Top", icon: "alignTop", onSelect: () => setSelectedVerticalAlign("top") },
+    { label: "Middle", icon: "alignMiddle", onSelect: () => setSelectedVerticalAlign("middle") },
+    { label: "Bottom", icon: "alignBottom", onSelect: () => setSelectedVerticalAlign("bottom") }
+  ];
+  const buildHomeCellsMenuItems = () => [
+    ...buildInsertMenuItems(),
+    { separator: true },
+    ...buildDeleteMenuItems(),
+    { separator: true },
+    { label: "Clear contents", icon: "eraser", onSelect: clearSelectedCells },
+    { label: "Clear format", icon: "eraser", onSelect: clearSelectedFormatting }
+  ];
+  const buildHomeEditingMenuItems = () => [
+    ...buildFindMenuItems(),
+    { separator: true },
+    { label: "Note", icon: "note", onSelect: addOrEditActiveCellNote }
+  ];
   const getFormulaCategory = (categoryId = "all") =>
     SPREADSHEET_FORMULA_CATEGORIES.find((category) => category.id === categoryId) ||
     SPREADSHEET_FORMULA_CATEGORIES[0];
@@ -14037,8 +14745,7 @@ function renderSpreadsheetClonePreview(
             "Output",
             makeToolbarButton("Print", printCurrentSheet, false, { large: true }),
             makeToolbarStack(
-              makeToolbarButton("Export PDF", exportCurrentSheetAsPdf),
-              makeToolbarMenuButton("More file actions", () => makeSheetMenuItems("File"))
+              makeToolbarButton("Export PDF", openPdfExportDialog)
             )
           )
         );
@@ -14260,7 +14967,7 @@ function renderSpreadsheetClonePreview(
           makeToolbarGroup(
             "Output",
             makeToolbarButton("Print", printCurrentSheet),
-            makeToolbarButton("PDF", exportCurrentSheetAsPdf)
+            makeToolbarButton("PDF", openPdfExportDialog)
           )
         );
         break;
@@ -14316,12 +15023,7 @@ function renderSpreadsheetClonePreview(
                 makeToolbarButton("Copy", () => copySelectedCells())
               )
             ),
-            makeToolbarMenuButton("Fill", () => [
-              { label: "Fill down", onSelect: () => fillSelectionFromEdge("down") },
-              { label: "Fill right", onSelect: () => fillSelectionFromEdge("right") },
-              { separator: true },
-              { label: "Clear contents", onSelect: clearSelectedCells }
-            ])
+            makeToolbarMenuButton("Fill", buildFillMenuItems)
           ),
           makeToolbarGroup(
             "Font",
@@ -14342,52 +15044,37 @@ function renderSpreadsheetClonePreview(
                 makeToolbarColorButton("Fill color", "fill")
               )
             ),
-            makeToolbarMenuButton("Borders", buildBorderMenuItems),
-            makeToolbarMenuButton("Conditionnel", buildConditionalFormatMenuItems)
+            makeToolbarStack(
+              makeToolbarMenuButton("Borders", buildBorderMenuItems),
+              makeToolbarMenuButton("Conditionnel", buildConditionalFormatMenuItems)
+            )
           ),
           makeToolbarGroup(
             "Alignment",
-            makeToolbarStack(
-              makeToolbarRow(
-                makeToolbarButton("Left", () => setSelectedHorizontalAlign("left")),
-                makeToolbarButton("Center", () => setSelectedHorizontalAlign("center")),
-                makeToolbarButton("Right", () => setSelectedHorizontalAlign("right"))
-              ),
-              makeToolbarRow(
-                makeToolbarButton("Top", () => setSelectedVerticalAlign("top")),
-                makeToolbarButton("Middle", () => setSelectedVerticalAlign("middle")),
-                makeToolbarButton("Bottom", () => setSelectedVerticalAlign("bottom"))
-              )
-            ),
+            makeToolbarMenuButton("Align", buildHorizontalAlignmentMenuItems, { large: true, icon: "alignLeft" }),
+            makeToolbarMenuButton("Vertical", buildVerticalAlignmentMenuItems, { icon: "alignMiddle" }),
             makeToolbarMenuButton("Merge", buildMergeMenuItems)
           ),
           makeToolbarGroup(
             "Number",
             makeToolbarStack(
               makeToolbarRow(
-                makeToolbarButton("123", () => setSelectedRangeFormat("number")),
+                makeToolbarMenuButton("Formats", buildNumberFormatMenuItems, { icon: "number" }),
                 makeToolbarButton("EUR", () => setSelectedRangeFormat("currency")),
                 makeToolbarButton("%", () => setSelectedRangeFormat("percent"))
               ),
               makeToolbarRow(
-                makeToolbarButton("Date", () => setSelectedRangeFormat("date")),
-                makeToolbarMenuButton("Formats", buildNumberFormatMenuItems)
+                makeToolbarButton("Date", () => setSelectedRangeFormat("date"))
               )
             )
           ),
           makeToolbarGroup(
             "Cells",
-            makeToolbarMenuButton("Insert", buildInsertMenuItems, { large: true }),
-            makeToolbarMenuButton("Delete", buildDeleteMenuItems, { large: true }),
-            makeToolbarButton("Clear format", clearSelectedFormatting)
+            makeToolbarMenuButton("Cells", buildHomeCellsMenuItems, { large: true, icon: "table" })
           ),
           makeToolbarGroup(
             "Editing",
-            makeToolbarMenuButton("Find", buildFindMenuItems, { large: true }),
-            makeToolbarStack(
-              makeToolbarButton("Replace", () => openFindReplaceBar({ showReplace: true })),
-              makeToolbarButton("Note", addOrEditActiveCellNote)
-            )
+            makeToolbarMenuButton("Editing", buildHomeEditingMenuItems, { large: true, icon: "search" })
           )
         );
         break;
@@ -14634,6 +15321,16 @@ function renderSpreadsheetClonePreview(
   fillHandle.className = "workspace-sheet-fill-handle";
   fillHandle.setAttribute("aria-label", "Fill selection");
   fillHandle.textContent = "";
+  const selectionMoveFrame = document.createElement("div");
+  selectionMoveFrame.className = "workspace-sheet-selection-move-frame";
+  selectionMoveFrame.setAttribute("aria-hidden", "true");
+  const selectionMoveEdges = ["top", "right", "bottom", "left"].map((edge) => {
+    const edgeNode = document.createElement("span");
+    edgeNode.className = `workspace-sheet-selection-move-edge is-${edge}`;
+    edgeNode.dataset.selectionMoveEdge = edge;
+    return edgeNode;
+  });
+  selectionMoveFrame.append(...selectionMoveEdges);
   const clipboardOutline = document.createElement("div");
   clipboardOutline.className = "workspace-sheet-clipboard-outline";
   clipboardOutline.setAttribute("aria-hidden", "true");
@@ -14649,7 +15346,7 @@ function renderSpreadsheetClonePreview(
     });
   });
   gridContent.append(table);
-  gridShell.append(gridContent, clipboardOutline, fillHandle);
+  gridShell.append(gridContent, clipboardOutline, selectionMoveFrame, fillHandle);
 
   let contextOutsidePointerHandler = null;
   let contextKeydownHandler = null;
@@ -15705,6 +16402,57 @@ function renderSpreadsheetClonePreview(
     clipboardOutline.style.height = `${Math.max(8, height)}px`;
   };
 
+  const getSelectionFrameRect = (bounds = getSelectionBounds()) => {
+    const startCell = table.querySelector(`[data-sheet-grid-cell="${bounds.minRow}:${bounds.minColumn}"]`);
+    const endCell = table.querySelector(`[data-sheet-grid-cell="${bounds.maxRow}:${bounds.maxColumn}"]`);
+    const startBox = startCell?.closest("td");
+    const endBox = endCell?.closest("td");
+    if (!startBox || !endBox) {
+      return null;
+    }
+
+    const gridShellRect = gridShell.getBoundingClientRect();
+    const startRect = startBox.getBoundingClientRect();
+    const endRect = endBox.getBoundingClientRect();
+    const gridScaleX = gridShell.offsetWidth ? gridShellRect.width / gridShell.offsetWidth : 1;
+    const gridScaleY = gridShell.offsetHeight ? gridShellRect.height / gridShell.offsetHeight : 1;
+    const leftEdge = Math.min(startRect.left, endRect.left);
+    const topEdge = Math.min(startRect.top, endRect.top);
+    const rightEdge = Math.max(startRect.right, endRect.right);
+    const bottomEdge = Math.max(startRect.bottom, endRect.bottom);
+    const left = ((leftEdge - gridShellRect.left) / (gridScaleX || 1)) + gridShell.scrollLeft;
+    const top = ((topEdge - gridShellRect.top) / (gridScaleY || 1)) + gridShell.scrollTop;
+    const width = (rightEdge - leftEdge) / (gridScaleX || 1);
+    const height = (bottomEdge - topEdge) / (gridScaleY || 1);
+    return { left, top, width, height };
+  };
+
+  const positionSelectionMoveFrame = (bounds = getSelectionBounds()) => {
+    const rect = getSelectionFrameRect(bounds);
+    if (!rect) {
+      selectionMoveFrame.style.display = "none";
+      return false;
+    }
+    selectionMoveFrame.style.display = "block";
+    selectionMoveFrame.style.left = `${rect.left}px`;
+    selectionMoveFrame.style.top = `${rect.top}px`;
+    selectionMoveFrame.style.width = `${Math.max(8, rect.width)}px`;
+    selectionMoveFrame.style.height = `${Math.max(8, rect.height)}px`;
+    return true;
+  };
+
+  const syncSelectionMoveFrameUi = (bounds = getSelectionBounds()) => {
+    if (selectionMoveState.active) {
+      return;
+    }
+    const visible = positionSelectionMoveFrame(bounds);
+    selectionMoveFrame.classList.toggle("is-disabled", !isBoundsEditable(bounds));
+    selectionMoveFrame.classList.remove("is-moving");
+    if (!visible) {
+      selectionMoveFrame.classList.remove("is-disabled");
+    }
+  };
+
   const syncSelectionUi = () => {
     saveCurrentSelectionState();
     if (document.activeElement !== nameBox) {
@@ -15759,6 +16507,7 @@ function renderSpreadsheetClonePreview(
       .querySelector(`[data-sheet-row-label="${activeSelection.rowIndex}"]`)
       ?.classList.add("is-selected");
     syncClipboardOutlineUi();
+    syncSelectionMoveFrameUi({ minRow, maxRow, minColumn, maxColumn });
     updateFormulaReferenceHighlights();
     const rangeTarget = table.querySelector(`[data-sheet-grid-cell="${maxRow}:${maxColumn}"]`);
     const targetBox = rangeTarget?.closest("td");
@@ -15824,22 +16573,25 @@ function renderSpreadsheetClonePreview(
     renderedCellInputByKey.forEach((input) => {
       const rowIndex = Number(input.dataset.rowIndex || 0);
       const columnIndex = Number(input.dataset.columnIndex || 0);
+      const isActiveSelectionCell =
+        rowIndex === activeSelection.rowIndex &&
+        columnIndex === activeSelection.columnIndex;
+      const isFormulaBarEditingThisCell =
+        preserveActiveEditor &&
+        document.activeElement === formulaInput &&
+        formulaEditState.rowIndex === rowIndex &&
+        formulaEditState.columnIndex === columnIndex;
       if (
         preserveActiveEditor &&
-        rowIndex === activeSelection.rowIndex &&
-        columnIndex === activeSelection.columnIndex &&
-        document.activeElement === input
+        isActiveSelectionCell &&
+        (document.activeElement === input || isFormulaBarEditingThisCell)
       ) {
+        if (isFormulaBarEditingThisCell) {
+          input.value = formulaInput.value;
+        }
         return;
       }
-      const rawValue = getRawCellValue(rowIndex, columnIndex);
-      const computedValue = rawValue.startsWith("=") ? evaluateCellValue(rowIndex, columnIndex) : rawValue;
-      const displayValue = formatCellDisplayValue(
-        rawValue.startsWith("=") ? formatFormulaResult(computedValue) : rawValue,
-        rowIndex,
-        columnIndex
-      );
-      input.value = displayValue;
+      input.value = getCellDisplayValue(rowIndex, columnIndex);
       const wrapper = input.closest("td");
       if (wrapper) {
         applyCellVisualFormat(input, wrapper, rowIndex, columnIndex);
@@ -16152,11 +16904,7 @@ function renderSpreadsheetClonePreview(
       input.readOnly = cellIsProtected;
       input.classList.toggle("is-protected", cellIsProtected);
       input.title = [cellIsProtected ? "Protected cell" : "", cellNote?.text || ""].filter(Boolean).join("\n");
-      input.value = formatCellDisplayValue(
-        rawValue.startsWith("=") ? formatFormulaResult(evaluateCellValue(rowIndex, columnIndex)) : rawValue,
-        rowIndex,
-        columnIndex
-      );
+      input.value = getCellDisplayValue(rowIndex, columnIndex);
       applyCellVisualFormat(input, td, rowIndex, columnIndex);
       let preserveFormulaDisplayOnBlur = false;
       if (merge && isMergeAnchor(rowIndex, columnIndex)) {
@@ -16264,10 +17012,9 @@ function renderSpreadsheetClonePreview(
         const rawCellValue = getRawCellValue(rowIndex, columnIndex);
         if (cellIsProtected) {
           clearCellEditingUi();
+          cellTextEditState = { active: false, rowIndex: -1, columnIndex: -1, originalValue: "" };
           preserveFormulaDisplayOnBlur = false;
-          input.value = rawCellValue.startsWith("=")
-            ? formatFormulaResult(evaluateCellValue(rowIndex, columnIndex))
-            : rawCellValue;
+          input.value = getCellDisplayValue(rowIndex, columnIndex);
           suppressFormulaActivation = false;
           formulaEditState = {
             mode: null,
@@ -16279,10 +17026,9 @@ function renderSpreadsheetClonePreview(
           };
         } else if (suppressFormulaActivation) {
           clearCellEditingUi();
+          cellTextEditState = { active: false, rowIndex: -1, columnIndex: -1, originalValue: "" };
           preserveFormulaDisplayOnBlur = rawCellValue.startsWith("=");
-          input.value = rawCellValue.startsWith("=")
-            ? formatFormulaResult(evaluateCellValue(rowIndex, columnIndex))
-            : rawCellValue;
+          input.value = getCellDisplayValue(rowIndex, columnIndex);
           formulaEditState = {
             mode: null,
             rowIndex,
@@ -16385,11 +17131,9 @@ function renderSpreadsheetClonePreview(
           });
           return;
         }
-        const shouldCommitInputValue =
-          !preserveFormulaDisplayOnBlur ||
-          (cellTextEditState.active &&
-            cellTextEditState.rowIndex === rowIndex &&
-            cellTextEditState.columnIndex === columnIndex);
+        // Only a real cell editor may write back to the raw model. Display-only
+        // inputs can contain calculated formula results and must not overwrite formulas.
+        const shouldCommitInputValue = isCellTextEditorActiveFor(rowIndex, columnIndex, input);
         if (shouldCommitInputValue) {
           const validationResult = validateCellValue(rowIndex, columnIndex, input.value);
           if (!validationResult.valid) {
@@ -16703,6 +17447,98 @@ function renderSpreadsheetClonePreview(
 
   previewShell.appendChild(gridShell);
 
+  const getSelectionMoveTargetBoundsFromPointer = (event) => {
+    const targetInput = findCellInputFromPointer(event.clientX, event.clientY);
+    if (!targetInput) {
+      return null;
+    }
+    const minRow = Math.max(0, Number(targetInput.dataset.rowIndex || 0));
+    const minColumn = Math.max(0, Number(targetInput.dataset.columnIndex || 0));
+    return {
+      minRow,
+      maxRow: minRow + selectionMoveState.rowCount - 1,
+      minColumn,
+      maxColumn: minColumn + selectionMoveState.columnCount - 1
+    };
+  };
+
+  const updateSelectionMovePreview = (targetBounds = selectionMoveState.targetBounds) => {
+    if (!selectionMoveState.active || !targetBounds) {
+      return;
+    }
+    selectionMoveFrame.classList.add("is-moving");
+    selectionMoveFrame.classList.toggle("is-disabled", !isBoundsEditable(targetBounds));
+    positionSelectionMoveFrame(targetBounds);
+  };
+
+  function handleSelectionMoveDragMove(event) {
+    if (!selectionMoveState.active) {
+      return;
+    }
+    event.preventDefault();
+    const targetBounds = getSelectionMoveTargetBoundsFromPointer(event);
+    if (!targetBounds) {
+      return;
+    }
+    selectionMoveState.targetBounds = targetBounds;
+    updateSelectionMovePreview(targetBounds);
+  }
+
+  function handleSelectionMoveDragEnd(event) {
+    if (!selectionMoveState.active) {
+      return;
+    }
+    event.preventDefault();
+    const targetBounds = selectionMoveState.targetBounds || selectionMoveState.sourceBounds;
+    document.removeEventListener("mousemove", handleSelectionMoveDragMove);
+    document.removeEventListener("mouseup", handleSelectionMoveDragEnd);
+    selectionMoveState.active = false;
+    selectionMoveFrame.classList.remove("is-moving");
+    if (targetBounds && !areSelectionBoundsEqual(selectionMoveState.sourceBounds, targetBounds)) {
+      if (!moveSelectedCellsToBounds(targetBounds)) {
+        syncSelectionUi();
+      }
+    } else {
+      syncSelectionUi();
+    }
+    selectionMoveState = {
+      active: false,
+      sourceBounds: null,
+      targetBounds: null,
+      rowCount: 1,
+      columnCount: 1
+    };
+  }
+
+  const startSelectionMoveDrag = (event) => {
+    if (event.button !== 0) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    if (cellTextEditState.active && !commitActiveCellTextEdit()) {
+      return;
+    }
+    const sourceBounds = getSelectionBounds();
+    if (!ensureEditableBounds(sourceBounds, "move the selection")) {
+      return;
+    }
+    selectionMoveState = {
+      active: true,
+      sourceBounds,
+      targetBounds: sourceBounds,
+      rowCount: sourceBounds.maxRow - sourceBounds.minRow + 1,
+      columnCount: sourceBounds.maxColumn - sourceBounds.minColumn + 1
+    };
+    updateSelectionMovePreview(sourceBounds);
+    document.addEventListener("mousemove", handleSelectionMoveDragMove);
+    document.addEventListener("mouseup", handleSelectionMoveDragEnd);
+  };
+
+  selectionMoveEdges.forEach((edge) => {
+    edge.addEventListener("mousedown", startSelectionMoveDrag);
+  });
+
   const handleFillDragMove = (event) => {
     const targetInput = findCellInputFromPointer(event.clientX, event.clientY);
     if (!targetInput) {
@@ -16762,11 +17598,17 @@ function renderSpreadsheetClonePreview(
       return;
     }
     beginSpreadsheetHistoryTransaction();
-    setRawCellValue(activeSelection.rowIndex, activeSelection.columnIndex, event.target.value);
+    const rowIndex = activeSelection.rowIndex;
+    const columnIndex = activeSelection.columnIndex;
+    setRawCellValue(rowIndex, columnIndex, event.target.value);
+    const activeCellInput = getCellInput(rowIndex, columnIndex);
+    if (activeCellInput?.isConnected) {
+      activeCellInput.value = event.target.value;
+    }
     syncFormulaEditorState({
       mode: "formula",
-      rowIndex: activeSelection.rowIndex,
-      columnIndex: activeSelection.columnIndex,
+      rowIndex,
+      columnIndex,
       input: event.target
     });
     scheduleCommit();
