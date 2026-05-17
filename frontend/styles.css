@@ -2131,6 +2131,22 @@ textarea {
   min-width: 170px;
 }
 
+.workspace-docs-menu-input {
+  min-width: 170px;
+  width: 100%;
+}
+
+.workspace-docs-menu-input::-webkit-calendar-picker-indicator {
+  opacity: 0.55;
+  cursor: pointer;
+}
+
+.workspace-docs-menu-field-note {
+  color: #7b808d;
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
 .workspace-docs-menu-palette-field {
   position: relative;
   min-width: min(100%, 360px);

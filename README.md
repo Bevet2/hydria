@@ -1,4 +1,4 @@
-﻿# Hydria V1
+﻿# Hydria V1 - Document de travail
 
 Hydria V1 is a local orchestration layer for multi-model and multi-API workflows. It routes user prompts, prefers free providers first, manages SQLite-backed user history, builds compact context for LLM calls, and can combine API data with model reasoning through a single chat interface.
 

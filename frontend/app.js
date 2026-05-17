@@ -3219,7 +3219,7 @@ function ensureCurrentSurface() {
   }
 
   if (!surfaces.some((surface) => surface.id === state.currentSurfaceId)) {
-    state.currentSurfaceId = currentSurfaceModel()?.defaultSurface || surfaces[0].id;
+    state.currentSurfaceId = preferredSurfaceForLens(state.currentWorkObject) || surfaces[0].id;
   }
 }
 
