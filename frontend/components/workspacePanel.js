@@ -244,7 +244,8 @@ let activeDocumentSearchShortcutCleanup = null;
 
 const PLAIN_URL_PATTERN = /((?:https?:\/\/|www\.)[^\s<]+)/gi;
 const DOCS_TEXT_COLOR_OPTIONS = [
-  { label: "Auto", value: "", sample: "#ffffff", outline: "rgba(73, 84, 95, 0.22)" },
+  { label: "Default", value: "", sample: "#ffffff", outline: "rgba(73, 84, 95, 0.22)" },
+  { label: "White", value: "#ffffff", sample: "#ffffff", outline: "rgba(73, 84, 95, 0.3)" },
   { label: "Black", value: "#111827", sample: "#111827" },
   { label: "Slate", value: "#334155", sample: "#334155" },
   { label: "Gray", value: "#6b7280", sample: "#6b7280" },
@@ -266,7 +267,8 @@ const DOCS_TEXT_COLOR_OPTIONS = [
   { label: "Pink", value: "#be185d", sample: "#be185d" }
 ];
 const DOCS_HIGHLIGHT_COLOR_OPTIONS = [
-  { label: "None", value: "", sample: "transparent", outline: "rgba(73, 84, 95, 0.22)" },
+  { label: "Clear", value: "", sample: "transparent", outline: "rgba(73, 84, 95, 0.22)" },
+  { label: "White", value: "#ffffff", sample: "#ffffff", outline: "rgba(73, 84, 95, 0.3)" },
   { label: "Yellow", value: "#fff2a8", sample: "#fff2a8" },
   { label: "Lemon", value: "#fde68a", sample: "#fde68a" },
   { label: "Peach", value: "#fed7aa", sample: "#fed7aa" },
@@ -2100,6 +2102,141 @@ function renderMarkdownPreview(
     syncDocsFullscreenPresentation();
   };
 
+  const getDocsPageSettingsNode = () => {
+    if (!shell) {
+      return null;
+    }
+    let node = shell.querySelector(":scope > .workspace-docs-page-meta");
+    if (!node) {
+      node = document.createElement("div");
+      node.className = "workspace-docs-page-meta";
+      node.hidden = true;
+      node.contentEditable = "false";
+      node.setAttribute("aria-hidden", "true");
+      shell.prepend(node);
+    }
+    return node;
+  };
+
+  const getDocsPageFormatState = () => {
+    const node = shell?.querySelector?.(":scope > .workspace-docs-page-meta") || null;
+    const startValue = Math.max(1, Number.parseInt(node?.dataset?.pageNumberStart || "1", 10) || 1);
+    return {
+      showHeaderFooter: node?.dataset?.showHeaderFooter === "true",
+      showPageNumbers: node?.dataset?.showPageNumbers === "true",
+      orientation: node?.dataset?.pageOrientation === "landscape" ? "landscape" : "portrait",
+      pageNumberPosition: node?.dataset?.pageNumberPosition === "header" ? "header" : "footer",
+      pageNumberShowOnFirstPage: node?.dataset?.pageNumberShowOnFirstPage !== "false",
+      pageNumberMode: node?.dataset?.pageNumberMode === "continue" ? "continue" : "start",
+      pageNumberStart: startValue
+    };
+  };
+
+  const updateDocsPageFormatState = (nextState = {}, statusLabel = "Saved automatically") => {
+    const node = getDocsPageSettingsNode();
+    if (!node) {
+      return;
+    }
+    const currentState = getDocsPageFormatState();
+    const mergedState = {
+      ...currentState,
+      ...nextState
+    };
+    node.dataset.showHeaderFooter = mergedState.showHeaderFooter ? "true" : "false";
+    node.dataset.showPageNumbers = mergedState.showPageNumbers ? "true" : "false";
+    node.dataset.pageOrientation = mergedState.orientation === "landscape" ? "landscape" : "portrait";
+    node.dataset.pageNumberPosition = mergedState.pageNumberPosition === "header" ? "header" : "footer";
+    node.dataset.pageNumberShowOnFirstPage = mergedState.pageNumberShowOnFirstPage === false ? "false" : "true";
+    node.dataset.pageNumberMode = mergedState.pageNumberMode === "continue" ? "continue" : "start";
+    node.dataset.pageNumberStart = String(Math.max(1, Number.parseInt(mergedState.pageNumberStart || "1", 10) || 1));
+    commitDocsLayoutChange(statusLabel, null, { rebuildPageShell: true });
+  };
+
+  const applyDocsPageChrome = (page, pageIndex = 0, formatState = getDocsPageFormatState()) => {
+    if (!page) {
+      return;
+    }
+    page.dataset.orientation = formatState.orientation === "landscape" ? "landscape" : "portrait";
+    page.querySelectorAll(":scope > .workspace-docs-page-header, :scope > .workspace-docs-page-footer").forEach((node) => node.remove());
+    if (!formatState.showHeaderFooter && !formatState.showPageNumbers) {
+      return;
+    }
+    const shouldShowNumber = formatState.showPageNumbers && (formatState.pageNumberShowOnFirstPage || pageIndex > 0);
+    const basePageNumber = formatState.pageNumberMode === "continue" ? 1 : Math.max(1, Number(formatState.pageNumberStart) || 1);
+    const pageNumberValue = basePageNumber + pageIndex;
+    const shouldRenderHeader = formatState.showHeaderFooter || (shouldShowNumber && formatState.pageNumberPosition === "header");
+    const shouldRenderFooter = formatState.showHeaderFooter || (shouldShowNumber && formatState.pageNumberPosition === "footer");
+
+    if (shouldRenderHeader) {
+      const header = document.createElement("div");
+      header.className = "workspace-docs-page-header";
+      header.contentEditable = "false";
+      if (formatState.showHeaderFooter) {
+        const headerLabel = document.createElement("span");
+        headerLabel.className = "workspace-docs-page-header-label";
+        headerLabel.textContent = "En-tete";
+        header.appendChild(headerLabel);
+      }
+      if (shouldShowNumber && formatState.pageNumberPosition === "header") {
+        const pageNumber = document.createElement("span");
+        pageNumber.className = "workspace-docs-page-number";
+        pageNumber.textContent = String(pageNumberValue);
+        header.appendChild(pageNumber);
+      }
+      page.prepend(header);
+    }
+
+    if (shouldRenderFooter) {
+      const footer = document.createElement("div");
+      footer.className = "workspace-docs-page-footer";
+      footer.contentEditable = "false";
+      if (formatState.showHeaderFooter) {
+        const footerLabel = document.createElement("span");
+        footerLabel.className = "workspace-docs-page-footer-label";
+        footerLabel.textContent = "Pied de page";
+        footer.appendChild(footerLabel);
+      }
+      if (shouldShowNumber && formatState.pageNumberPosition === "footer") {
+        const pageNumber = document.createElement("span");
+        pageNumber.className = "workspace-docs-page-number";
+        pageNumber.textContent = String(pageNumberValue);
+        footer.appendChild(pageNumber);
+      }
+      page.appendChild(footer);
+    }
+  };
+
+  const toggleDocsHeaderFooter = () => {
+    const currentState = getDocsPageFormatState();
+    updateDocsPageFormatState(
+      {
+        showHeaderFooter: !currentState.showHeaderFooter
+      },
+      currentState.showHeaderFooter ? "Headers and footers hidden" : "Headers and footers shown"
+    );
+  };
+
+  const toggleDocsPageNumbers = () => {
+    const currentState = getDocsPageFormatState();
+    updateDocsPageFormatState(
+      {
+        showPageNumbers: !currentState.showPageNumbers
+      },
+      currentState.showPageNumbers ? "Page numbers hidden" : "Page numbers shown"
+    );
+  };
+
+  const toggleDocsPageOrientation = () => {
+    const currentState = getDocsPageFormatState();
+    const nextOrientation = currentState.orientation === "landscape" ? "portrait" : "landscape";
+    updateDocsPageFormatState(
+      {
+        orientation: nextOrientation
+      },
+      nextOrientation === "landscape" ? "Landscape page enabled" : "Portrait page enabled"
+    );
+  };
+
   const syncDocsFullscreenButtonState = () => {
     const isFullscreen = isDocsFullscreenActive();
     docsFullscreenButtons = docsFullscreenButtons.filter((button) => button?.isConnected);
@@ -2840,6 +2977,10 @@ function renderMarkdownPreview(
     });
   };
 
+  const syncDocsSelectionPreviewState = (active = false) => {
+    shell?.classList?.toggle("workspace-docs-soft-selection", Boolean(active));
+  };
+
   const findNearestEditableSibling = (node) => {
     if (!node) {
       return null;
@@ -3104,11 +3245,22 @@ function renderMarkdownPreview(
     }
     const rawNodes = [];
     Array.from(shell.children).forEach((child) => {
+      if (child.classList?.contains("workspace-docs-page-meta")) {
+        rawNodes.push(child);
+        return;
+      }
       if (child.classList?.contains("workspace-document-page-sheet")) {
         rawNodes.push(
           ...Array.from(child.childNodes).filter(
             (node) =>
-              !(node.nodeType === Node.ELEMENT_NODE && node.classList?.contains("workspace-docs-page-control-bar"))
+              !(
+                node.nodeType === Node.ELEMENT_NODE &&
+                (
+                  node.classList?.contains("workspace-docs-page-control-bar") ||
+                  node.classList?.contains("workspace-docs-page-header") ||
+                  node.classList?.contains("workspace-docs-page-footer")
+                )
+              )
           )
         );
       } else {
@@ -3124,13 +3276,21 @@ function renderMarkdownPreview(
     }
     unwrapDocsPageShell();
     const rawNodes = Array.from(shell.childNodes);
+    const settingsNode =
+      rawNodes.find((node) => node.nodeType === Node.ELEMENT_NODE && node.classList?.contains("workspace-docs-page-meta")) || null;
+    const contentNodes = rawNodes.filter((node) => node !== settingsNode);
+    const formatState = getDocsPageFormatState();
     shell.innerHTML = "";
+    if (settingsNode) {
+      shell.appendChild(settingsNode);
+    }
     let pageIndex = 0;
     let currentPage = document.createElement("section");
     currentPage.className = "workspace-document-page-sheet";
     currentPage.dataset.page = String(pageIndex + 1);
-    for (const node of rawNodes) {
+    for (const node of contentNodes) {
       if (node.nodeType === Node.ELEMENT_NODE && node.classList?.contains("workspace-docs-page-break")) {
+        applyDocsPageChrome(currentPage, pageIndex, formatState);
         shell.appendChild(currentPage);
         shell.appendChild(node);
         pageIndex += 1;
@@ -3141,7 +3301,8 @@ function renderMarkdownPreview(
       }
       currentPage.appendChild(node);
     }
-    if (currentPage.childNodes.length || !shell.children.length) {
+    if (currentPage.childNodes.length || !shell.querySelector(".workspace-document-page-sheet")) {
+      applyDocsPageChrome(currentPage, pageIndex, formatState);
       shell.appendChild(currentPage);
     }
     syncDocsPageFullscreenControls();
@@ -3216,6 +3377,88 @@ function renderMarkdownPreview(
     }
   };
 
+  const isDocsChecklistList = (list) =>
+    Boolean(list?.dataset?.listStyle === "checklist" || list?.classList?.contains("workspace-checklist"));
+
+  const focusDocsEditableNode = (target) => {
+    const focusTarget =
+      (typeof target?.focus === "function" && target) ||
+      (shell?.contains?.(target) ? shell : null);
+    if (!focusTarget) {
+      return;
+    }
+    window.requestAnimationFrame(() => {
+      focusTarget.focus({ preventScroll: true });
+      const selection = window.getSelection();
+      if (!selection) {
+        return;
+      }
+      const range = document.createRange();
+      const rangeTarget = target?.nodeType === Node.ELEMENT_NODE ? target : focusTarget;
+      const nestedList = Array.from(rangeTarget?.children || []).find((child) => child.matches?.("ul, ol")) || null;
+      if (nestedList) {
+        range.setStartBefore(nestedList);
+        range.collapse(true);
+      } else {
+        range.selectNodeContents(rangeTarget);
+        range.collapse(false);
+      }
+      selection.removeAllRanges();
+      selection.addRange(range);
+      saveDocsSelectionRange();
+    });
+  };
+
+  const changeDocsListItemLevel = (editableTarget, direction = "indent") => {
+    const item = editableTarget?.closest?.("li") || null;
+    const currentList = item?.parentElement || null;
+    if (!item || !currentList?.matches?.("ul, ol") || isDocsChecklistList(currentList)) {
+      return false;
+    }
+
+    if (direction === "indent") {
+      const previousItem = item.previousElementSibling;
+      if (!previousItem?.matches?.("li")) {
+        updateDocsToolbarStatus("Use Tab from the second item onward to create a sub-list.");
+        focusDocsEditableNode(editableTarget);
+        return true;
+      }
+      const listTag = currentList.tagName.toLowerCase();
+      const nestedList =
+        Array.from(previousItem.children || [])
+          .reverse()
+          .find((child) => child.tagName?.toLowerCase?.() === listTag && !isDocsChecklistList(child)) ||
+        document.createElement(listTag);
+      if (!nestedList.parentElement) {
+        previousItem.appendChild(nestedList);
+      }
+      nestedList.appendChild(item);
+      if (!currentList.children.length) {
+        currentList.remove();
+      }
+      activeEditable = editableTarget;
+      commitDocsLayoutChange("Sub-list added");
+      focusDocsEditableNode(editableTarget);
+      return true;
+    }
+
+    const parentItem = currentList.parentElement?.closest?.("li") || null;
+    const outerList = parentItem?.parentElement || null;
+    if (!parentItem || !outerList?.matches?.("ul, ol")) {
+      updateDocsToolbarStatus("This item is already at the top level.");
+      focusDocsEditableNode(editableTarget);
+      return true;
+    }
+    outerList.insertBefore(item, parentItem.nextElementSibling || null);
+    if (!currentList.children.length) {
+      currentList.remove();
+    }
+    activeEditable = editableTarget;
+    commitDocsLayoutChange("List level reduced");
+    focusDocsEditableNode(editableTarget);
+    return true;
+  };
+
   const bindEditable = (element, options = {}) => {
     if (isDocsClone) {
       return;
@@ -3225,6 +3468,18 @@ function renderMarkdownPreview(
       onFocus: () => {
         activeEditable = element;
         updateDocsToolbarStatus(`Editing ${element.tagName.toLowerCase()} block`);
+      },
+      onKeyDown: (event) => {
+        if (event.key !== "Tab") {
+          return false;
+        }
+        const item = element.closest?.("li");
+        if (!item || isDocsChecklistList(item.parentElement)) {
+          return false;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        return changeDocsListItemLevel(element, event.shiftKey ? "outdent" : "indent");
       },
       onCommit: () => {
         commitDocumentShell();
@@ -3693,6 +3948,10 @@ function renderMarkdownPreview(
       }
       docsMenuFieldSyncCleanup?.();
       docsMenuFieldSyncCleanup = null;
+      if (docsMenuPanel) {
+        docsMenuPanel.dataset.openMenu = menuId;
+      }
+      syncDocsSelectionPreviewState(Boolean(menuId));
       docsMenuPanel.innerHTML = "";
       docsMenuButtons.forEach((button) => button.classList.toggle("is-active", button.dataset.menu === menuId));
       if (!menuId) {
@@ -3703,7 +3962,7 @@ function renderMarkdownPreview(
       const menuFieldSyncHandlers = [];
       const menuDropdownRegistry = [];
 
-      const addMenuAction = (label, onClick, accent = false) => {
+      const addMenuAction = (label, onClick, accent = false, { closeOnClick = true } = {}) => {
         const button = document.createElement("button");
         button.type = "button";
         button.className = `workspace-docs-menu-action${accent ? " accent" : ""}`;
@@ -3716,7 +3975,9 @@ function renderMarkdownPreview(
             console.error(error);
             updateDocsToolbarStatus(error?.message || "Action unavailable");
           }
-          renderDocsMenu("");
+          if (closeOnClick) {
+            renderDocsMenu("");
+          }
         });
         docsMenuPanel.appendChild(button);
       };
@@ -3930,8 +4191,10 @@ function renderMarkdownPreview(
           button.className = "workspace-docs-color-swatch";
           button.title = item.label;
           button.setAttribute("aria-label", item.label);
-          button.style.background = item.sample || item.value || "transparent";
           preserveDocsSelectionOnPointerDown(button);
+          if (item.value) {
+            button.style.background = item.sample || item.value || "transparent";
+          }
           if (item.outline) {
             button.style.borderColor = item.outline;
           }
@@ -3960,6 +4223,174 @@ function renderMarkdownPreview(
         docsMenuPanel.appendChild(field);
       };
 
+      const renderDocsPageNumberSettingsView = () => {
+        docsMenuFieldSyncCleanup?.();
+        docsMenuFieldSyncCleanup = null;
+        docsMenuPanel.innerHTML = "";
+
+        const currentState = getDocsPageFormatState();
+        const draftState = {
+          position: currentState.pageNumberPosition || "footer",
+          showOnFirstPage: currentState.pageNumberShowOnFirstPage !== false,
+          numberingMode: currentState.pageNumberMode || "start",
+          startAt: Math.max(1, Number(currentState.pageNumberStart) || 1)
+        };
+
+        const sheet = document.createElement("div");
+        sheet.className = "workspace-docs-settings-sheet";
+
+        const heading = document.createElement("strong");
+        heading.className = "workspace-docs-settings-heading";
+        heading.textContent = "Numeros de page";
+
+        const buildRadioOption = (name, value, label, isChecked, onChange, trailingNode = null) => {
+          const option = document.createElement("label");
+          option.className = "workspace-docs-settings-option";
+
+          const input = document.createElement("input");
+          input.type = "radio";
+          input.name = name;
+          input.value = value;
+          input.checked = isChecked;
+          input.addEventListener("pointerdown", () => {
+            saveDocsSelectionRange();
+          });
+          input.addEventListener("change", () => {
+            if (input.checked) {
+              onChange?.(value);
+            }
+          });
+
+          const text = document.createElement("span");
+          text.textContent = label;
+
+          option.append(input, text);
+          if (trailingNode) {
+            option.appendChild(trailingNode);
+          }
+          return option;
+        };
+
+        const positionSection = document.createElement("div");
+        positionSection.className = "workspace-docs-settings-section";
+        const positionTitle = document.createElement("span");
+        positionTitle.className = "workspace-docs-settings-title";
+        positionTitle.textContent = "Position";
+        positionSection.appendChild(positionTitle);
+        positionSection.appendChild(
+          buildRadioOption("docs-page-number-position", "header", "En-tete", draftState.position === "header", (value) => {
+            draftState.position = value;
+          })
+        );
+        positionSection.appendChild(
+          buildRadioOption("docs-page-number-position", "footer", "Pied de page", draftState.position === "footer", (value) => {
+            draftState.position = value;
+          })
+        );
+
+        const firstPageOption = document.createElement("label");
+        firstPageOption.className = "workspace-docs-settings-option";
+        const firstPageCheckbox = document.createElement("input");
+        firstPageCheckbox.type = "checkbox";
+        firstPageCheckbox.checked = draftState.showOnFirstPage;
+        firstPageCheckbox.addEventListener("pointerdown", () => {
+          saveDocsSelectionRange();
+        });
+        firstPageCheckbox.addEventListener("change", () => {
+          draftState.showOnFirstPage = firstPageCheckbox.checked;
+        });
+        const firstPageText = document.createElement("span");
+        firstPageText.textContent = "Afficher sur la premiere page";
+        firstPageOption.append(firstPageCheckbox, firstPageText);
+        positionSection.appendChild(firstPageOption);
+
+        const numberingSection = document.createElement("div");
+        numberingSection.className = "workspace-docs-settings-section";
+        const numberingTitle = document.createElement("span");
+        numberingTitle.className = "workspace-docs-settings-title";
+        numberingTitle.textContent = "Numerotation";
+        numberingSection.appendChild(numberingTitle);
+
+        const startAtInput = document.createElement("input");
+        startAtInput.type = "number";
+        startAtInput.min = "1";
+        startAtInput.step = "1";
+        startAtInput.value = String(draftState.startAt);
+        startAtInput.className = "workspace-docs-settings-number-input";
+        startAtInput.addEventListener("pointerdown", () => {
+          saveDocsSelectionRange();
+        });
+        startAtInput.addEventListener("input", () => {
+          draftState.startAt = Math.max(1, Number.parseInt(startAtInput.value || "1", 10) || 1);
+        });
+
+        const syncPageNumberMode = () => {
+          startAtInput.disabled = draftState.numberingMode !== "start";
+        };
+
+        numberingSection.appendChild(
+          buildRadioOption(
+            "docs-page-number-mode",
+            "start",
+            "Commencer a",
+            draftState.numberingMode === "start",
+            (value) => {
+              draftState.numberingMode = value;
+              syncPageNumberMode();
+            },
+            startAtInput
+          )
+        );
+        numberingSection.appendChild(
+          buildRadioOption(
+            "docs-page-number-mode",
+            "continue",
+            "Continuer a partir de la section precedente",
+            draftState.numberingMode === "continue",
+            (value) => {
+              draftState.numberingMode = value;
+              syncPageNumberMode();
+            }
+          )
+        );
+        syncPageNumberMode();
+
+        const actions = document.createElement("div");
+        actions.className = "workspace-docs-settings-actions";
+
+        const cancelButton = document.createElement("button");
+        cancelButton.type = "button";
+        cancelButton.className = "workspace-docs-settings-link";
+        cancelButton.textContent = "Annuler";
+        preserveDocsSelectionOnPointerDown(cancelButton);
+        cancelButton.addEventListener("click", () => {
+          renderDocsMenu("Format");
+        });
+
+        const applyButton = document.createElement("button");
+        applyButton.type = "button";
+        applyButton.className = "workspace-docs-settings-apply";
+        applyButton.textContent = "Appliquer";
+        preserveDocsSelectionOnPointerDown(applyButton);
+        applyButton.addEventListener("click", () => {
+          updateDocsPageFormatState(
+            {
+              showPageNumbers: true,
+              pageNumberPosition: draftState.position,
+              pageNumberShowOnFirstPage: draftState.showOnFirstPage,
+              pageNumberMode: draftState.numberingMode,
+              pageNumberStart: draftState.startAt
+            },
+            "Page numbers updated"
+          );
+          renderDocsMenu("Format");
+        });
+
+        actions.append(cancelButton, applyButton);
+        sheet.append(heading, positionSection, numberingSection, actions);
+        docsMenuPanel.appendChild(sheet);
+      };
+
       if (menuId === "Structure") {
         addMenuAction("Text", () => convertActiveBlockTag("p"));
         addMenuAction("Title", () => convertActiveBlockTag("h1"));
@@ -3982,6 +4413,16 @@ function renderMarkdownPreview(
         addMenuAction("Redo", () => runInlineCommand("redo"));
         addMenuAction("Clear formatting", () =>
           runInlineCommandWithSelection("removeFormat", null, resetActiveBlockFormatting, "Formatting reset"));
+        addMenuAction("En-tetes et pieds de page", toggleDocsHeaderFooter);
+        addMenuAction(
+          "Numeros de page",
+          () => {
+            renderDocsPageNumberSettingsView();
+          },
+          false,
+          { closeOnClick: false }
+        );
+        addMenuAction("Orientation de la page", toggleDocsPageOrientation);
         addMenuDropdownField(
           "Font",
           DOCS_FONT_FAMILY_OPTIONS,
@@ -4125,9 +4566,6 @@ function renderMarkdownPreview(
       preserveDocsSelectionOnPointerDown(button);
       button.addEventListener("click", () => {
         renderDocsMenu(docsMenuPanel?.dataset.openMenu === label ? "" : label);
-        if (docsMenuPanel) {
-          docsMenuPanel.dataset.openMenu = docsMenuPanel.dataset.openMenu === label ? "" : label;
-        }
       });
       docsMenuButtons.push(button);
       docsMenuBar.appendChild(button);
@@ -4497,6 +4935,23 @@ function renderMarkdownPreview(
     shell.addEventListener("click", () => {
       updateDocsToolbarStatus("Editing page");
     });
+    shell.addEventListener("keydown", (event) => {
+      if (event.key !== "Tab") {
+        return;
+      }
+      const selectionTarget =
+        getDocsEditableTargetFromNode(window.getSelection()?.anchorNode || null) ||
+        getDocsEditableTargetFromNode(event.target) ||
+        null;
+      const listItem = selectionTarget?.closest?.("li") || null;
+      if (!listItem || isDocsChecklistList(listItem.parentElement)) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      activeEditable = listItem;
+      changeDocsListItemLevel(listItem, event.shiftKey ? "outdent" : "indent");
+    });
     shell.addEventListener("mouseup", () => {
       saveDocsSelectionRange();
     });
@@ -4536,7 +4991,7 @@ function renderMarkdownPreview(
   }
 }
 
-function wireInlineEditable(element, { multiline = false, onCommit = null, onFocus = null } = {}) {
+function wireInlineEditable(element, { multiline = false, onCommit = null, onFocus = null, onKeyDown = null } = {}) {
   if (!element || typeof onCommit !== "function") {
     return;
   }
@@ -4562,6 +5017,12 @@ function wireInlineEditable(element, { multiline = false, onCommit = null, onFoc
   });
   element.addEventListener("blur", commit);
   element.addEventListener("keydown", (event) => {
+    if (typeof onKeyDown === "function") {
+      const handled = onKeyDown(event);
+      if (handled || event.defaultPrevented) {
+        return;
+      }
+    }
     if (event.key === "Escape") {
       event.preventDefault();
       element.blur();
@@ -4578,6 +5039,7 @@ function serializeDocumentPreviewShell(shell) {
   if (shell?.dataset?.richDocument === "true") {
     const clone = shell.cloneNode(true);
     clone.querySelectorAll(".workspace-docs-page-control-bar").forEach((node) => node.remove());
+    clone.querySelectorAll(".workspace-docs-page-header, .workspace-docs-page-footer").forEach((node) => node.remove());
     clone.querySelectorAll(".workspace-docs-image-resize-handle").forEach((node) => node.remove());
     clone.querySelectorAll(".workspace-docs-search-match").forEach((node) => unwrapNodeContents(node));
     clone.querySelectorAll(".workspace-docs-figure").forEach((node) => {

@@ -2208,7 +2208,9 @@ textarea {
 
 .workspace-docs-color-swatch.is-clear {
   position: relative;
-  background: linear-gradient(135deg, transparent 46%, rgba(180, 47, 47, 0.92) 47%, rgba(180, 47, 47, 0.92) 54%, transparent 55%);
+  background:
+    linear-gradient(135deg, transparent 43%, rgba(180, 47, 47, 0.95) 44%, rgba(180, 47, 47, 0.95) 56%, transparent 57%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(245, 247, 250, 0.96));
 }
 
 .workspace-docs-menu-action.accent {
@@ -2220,6 +2222,97 @@ textarea {
 .workspace-docs-menu-label {
   color: #5f6368;
   background: rgba(32, 33, 36, 0.04);
+}
+
+.workspace-docs-settings-sheet {
+  display: grid;
+  gap: 18px;
+  min-width: min(100%, 360px);
+  padding: 8px 4px 2px;
+}
+
+.workspace-docs-settings-heading {
+  color: #243041;
+  font-size: 1.02rem;
+  font-weight: 700;
+}
+
+.workspace-docs-settings-section {
+  display: grid;
+  gap: 12px;
+}
+
+.workspace-docs-settings-title {
+  color: #4b5563;
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.workspace-docs-settings-option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: #2a3240;
+  font-size: 0.95rem;
+}
+
+.workspace-docs-settings-option input[type="radio"],
+.workspace-docs-settings-option input[type="checkbox"] {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+}
+
+.workspace-docs-settings-number-input {
+  width: 78px;
+  min-width: 78px;
+  margin-left: auto;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid rgba(73, 84, 95, 0.16);
+  border-radius: 10px;
+  background: #ffffff;
+  color: #202124;
+  font: inherit;
+  text-align: center;
+}
+
+.workspace-docs-settings-number-input:disabled {
+  background: rgba(243, 244, 246, 0.92);
+  color: #9aa0a6;
+}
+
+.workspace-docs-settings-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-top: 4px;
+}
+
+.workspace-docs-settings-link {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: #315bb6;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.workspace-docs-settings-apply {
+  appearance: none;
+  border: 0;
+  border-radius: 999px;
+  padding: 0.72rem 1.35rem;
+  background: #315bb6;
+  color: #ffffff;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.workspace-docs-settings-apply:hover {
+  background: #284b97;
 }
 
 .workspace-docs-tool-group {
@@ -2533,6 +2626,48 @@ textarea {
   border: 1px solid #e0e0e0;
   background: #ffffff;
   box-shadow: 0 1px 3px rgba(60, 64, 67, 0.18), 0 4px 8px rgba(60, 64, 67, 0.1);
+}
+
+.workspace-document-page-sheet[data-orientation="landscape"] {
+  width: min(1123px, 100%);
+  min-height: 794px;
+}
+
+.workspace-docs-page-header,
+.workspace-docs-page-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: rgba(95, 99, 104, 0.9);
+  font-size: 0.78rem;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+  user-select: none;
+}
+
+.workspace-docs-page-header {
+  min-height: 28px;
+  margin: -18px 0 24px;
+  padding-bottom: 10px;
+  border-bottom: 1px dashed rgba(73, 84, 95, 0.18);
+}
+
+.workspace-docs-page-footer {
+  min-height: 28px;
+  margin: 28px 0 -22px;
+  padding-top: 10px;
+  border-top: 1px dashed rgba(73, 84, 95, 0.18);
+}
+
+.workspace-docs-page-footer-label {
+  opacity: 0.9;
+}
+
+.workspace-docs-page-number {
+  margin-left: auto;
+  font-weight: 700;
+  color: #4b5563;
 }
 
 .workspace-docs-page-control-bar {
@@ -4641,6 +4776,16 @@ body.workspace-docs-fallback-open {
 #workspace-panel-root[data-family="document_knowledge"] .workspace-inline-editable:focus {
   background: rgba(255, 215, 0, 0.08);
   outline-color: rgba(47, 117, 131, 0.28);
+}
+
+#workspace-panel-root[data-family="document_knowledge"] .workspace-inline-editable.workspace-docs-soft-selection::selection,
+#workspace-panel-root[data-family="document_knowledge"] .workspace-inline-editable.workspace-docs-soft-selection *::selection {
+  background: rgba(26, 115, 232, 0.2);
+}
+
+#workspace-panel-root[data-family="document_knowledge"] .workspace-inline-editable.workspace-docs-soft-selection::-moz-selection,
+#workspace-panel-root[data-family="document_knowledge"] .workspace-inline-editable.workspace-docs-soft-selection *::-moz-selection {
+  background: rgba(26, 115, 232, 0.2);
 }
 
 #workspace-panel-root[data-family="document_knowledge"] .workspace-document-preview-body-docs h2,
