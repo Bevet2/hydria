@@ -60,6 +60,7 @@ const state = {
   runtimeSyncHandle: null,
   runtimeSyncRequestId: 0,
   documentProjectContextVisible: true,
+  closedSheetDocumentIds: [],
   ready: false,
   bootPromise: null
 };
@@ -136,6 +137,7 @@ function cache() {
     "workspace-dimension-nav",
     "workspace-surface-nav",
     "workspace-object-list",
+    "workspace-sheet-documents",
     "workspace-file-label",
     "workspace-outline-label",
     "workspace-block-label",
@@ -2160,6 +2162,7 @@ function normalizeSpreadsheetModel(model = {}) {
               width: Math.max(280, Number(chart.width || 432) || 432),
               height: Math.max(180, Number(chart.height || 284) || 284),
               showLegend: chart.showLegend !== false,
+              showAxes: chart.showAxes !== false,
               points: Array.isArray(chart.points)
                 ? chart.points.map((point, pointIndex) => ({
                     label: String(point?.label || point?.name || `Point ${pointIndex + 1}`),
@@ -3835,6 +3838,327 @@ function workspaceWorkObjects() {
   }
 
   return state.workObjects;
+}
+
+function isSheetWorkObject(workObject = null) {
+  if (!workObject) {
+    return false;
+  }
+
+  const kind = String(workObject.objectKind || workObject.kind || "").toLowerCase();
+  const family = String(workObject.workspaceFamilyId || workObject.workspaceFamilyLabel || "").toLowerCase();
+  const fileList = getEditableFiles(workObject).join(" ");
+
+  return (
+    kind === "dataset" ||
+    family.includes("data_spreadsheet") ||
+    family.includes("spreadsheet") ||
+    /\.(csv|tsv|xlsx|xlsm|xls)\b/i.test(fileList)
+  );
+}
+
+function sheetDocumentMeta(workObject = {}) {
+  const primaryPath = workObject.primaryFile || getEditableFiles(workObject)[0] || "";
+  const fileLabel = friendlyFileLabel(primaryPath);
+  const status = workObject.status || "";
+  return [fileLabel, status].filter(Boolean).join(" | ") || "Spreadsheet workspace";
+}
+
+function isSheetDocumentClosed(workObjectId = "") {
+  return state.closedSheetDocumentIds.includes(String(workObjectId || ""));
+}
+
+function reopenSheetDocument(workObjectId = "") {
+  const id = String(workObjectId || "");
+  if (!id) {
+    return;
+  }
+  state.closedSheetDocumentIds = state.closedSheetDocumentIds.filter((item) => item !== id);
+}
+
+function markSheetDocumentClosed(workObjectId = "") {
+  const id = String(workObjectId || "");
+  if (!id || isSheetDocumentClosed(id)) {
+    return;
+  }
+  state.closedSheetDocumentIds = [...state.closedSheetDocumentIds, id];
+}
+
+function workspaceSheetDocuments() {
+  const candidates = [
+    isSheetWorkObject(state.currentWorkObject) ? state.currentWorkObject : null,
+    ...workspaceWorkObjects().filter(isSheetWorkObject),
+    ...state.workObjects.filter((workObject) => {
+      if (!isSheetWorkObject(workObject)) {
+        return false;
+      }
+      if (!state.currentProjectId) {
+        return true;
+      }
+      return String(workObject.projectId || "") === String(state.currentProjectId);
+    })
+  ].filter(Boolean);
+
+  const seen = new Set();
+  return candidates.filter((workObject) => {
+    const id = String(workObject.id || "");
+    if (!id || seen.has(id)) {
+      return false;
+    }
+    seen.add(id);
+    return true;
+  }).filter((workObject) => !isSheetDocumentClosed(workObject.id));
+}
+
+function hideWorkspaceSheetDocumentMenu() {
+  const menu = document.getElementById("workspace-sheet-document-menu");
+  if (menu) {
+    menu.hidden = true;
+    menu.innerHTML = "";
+  }
+}
+
+function ensureWorkspaceSheetDocumentMenu() {
+  let menu = document.getElementById("workspace-sheet-document-menu");
+  if (menu) {
+    return menu;
+  }
+
+  menu = document.createElement("div");
+  menu.id = "workspace-sheet-document-menu";
+  menu.className = "workspace-sheet-document-menu";
+  menu.hidden = true;
+  menu.addEventListener("click", (event) => {
+    event.stopPropagation();
+  });
+  menu.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+  });
+  document.body.appendChild(menu);
+  return menu;
+}
+
+function positionWorkspaceSheetDocumentMenu(menu, x, y) {
+  menu.style.left = `${x}px`;
+  menu.style.top = `${y}px`;
+  menu.hidden = false;
+
+  requestAnimationFrame(() => {
+    const rect = menu.getBoundingClientRect();
+    const margin = 10;
+    const nextLeft = Math.max(margin, Math.min(x, window.innerWidth - rect.width - margin));
+    const nextTop = Math.max(margin, Math.min(y, window.innerHeight - rect.height - margin));
+    menu.style.left = `${nextLeft}px`;
+    menu.style.top = `${nextTop}px`;
+  });
+}
+
+function appendSheetDocumentMenuAction(menu, { label = "", meta = "", danger = false, action = () => {} } = {}) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = `workspace-sheet-document-menu-item${danger ? " danger" : ""}`;
+  const text = document.createElement("span");
+  text.textContent = label;
+  const shortcut = document.createElement("em");
+  shortcut.textContent = meta;
+  button.append(text, shortcut);
+  button.addEventListener("click", () => {
+    hideWorkspaceSheetDocumentMenu();
+    action();
+  });
+  menu.appendChild(button);
+}
+
+function appendSheetDocumentMenuSeparator(menu) {
+  const separator = document.createElement("div");
+  separator.className = "workspace-sheet-document-menu-separator";
+  menu.appendChild(separator);
+}
+
+async function openWorkspaceSheetDocument(workObject = {}) {
+  reopenSheetDocument(workObject.id);
+  await selectWorkObject(workObject.id, preferredOpenPath(workObject));
+}
+
+async function renameWorkspaceSheetDocument(workObject = {}) {
+  const currentTitle = workObject.title || "New Sheets";
+  const nextTitle = window.prompt("Nom du document Sheets", currentTitle);
+  if (nextTitle === null) {
+    return;
+  }
+
+  const normalizedTitle = nextTitle.trim();
+  if (!normalizedTitle) {
+    setStatus("Le nom du document ne peut pas etre vide.");
+    return;
+  }
+
+  const payload = await apiClient.updateWorkObject(workObject.id, {
+    title: normalizedTitle
+  });
+  if (payload.workObject) {
+    mergeWorkObject(payload.workObject);
+    if (String(state.currentWorkObjectId) === String(payload.workObject.id)) {
+      state.currentWorkObject = { ...state.currentWorkObject, ...payload.workObject };
+    }
+    renderWorkObjects();
+    renderWorkspace();
+  }
+  setStatus(`Document renomme : ${normalizedTitle}.`);
+}
+
+async function saveWorkspaceSheetDocument(workObject = {}) {
+  reopenSheetDocument(workObject.id);
+  if (String(state.currentWorkObjectId) !== String(workObject.id)) {
+    await selectWorkObject(workObject.id, preferredOpenPath(workObject));
+  }
+  if (state.editorDirty) {
+    await saveWorkObjectChanges();
+  } else {
+    setStatus(`${workObject.title || "Document"} est deja sauvegarde.`);
+  }
+}
+
+async function closeWorkspaceSheetDocument(workObject = {}) {
+  const openSheets = workspaceSheetDocuments();
+  if (String(state.currentWorkObjectId) === String(workObject.id) && openSheets.length <= 1) {
+    setStatus("Garde au moins un document Sheets ouvert.");
+    return;
+  }
+
+  markSheetDocumentClosed(workObject.id);
+  if (String(state.currentWorkObjectId) === String(workObject.id)) {
+    const fallback = workspaceSheetDocuments().find((item) => String(item.id) !== String(workObject.id));
+    if (fallback) {
+      await selectWorkObject(fallback.id, preferredOpenPath(fallback));
+      setStatus(`${workObject.title || "Document"} ferme.`);
+      return;
+    }
+  }
+
+  renderWorkspace();
+  setStatus(`${workObject.title || "Document"} ferme.`);
+}
+
+function showWorkspaceSheetDocumentMenu(event, workObject = {}) {
+  event.preventDefault();
+  event.stopPropagation();
+  const menu = ensureWorkspaceSheetDocumentMenu();
+  menu.innerHTML = "";
+
+  appendSheetDocumentMenuAction(menu, {
+    label: "Ouvrir",
+    action: () => openWorkspaceSheetDocument(workObject).catch(handleError)
+  });
+  appendSheetDocumentMenuAction(menu, {
+    label: "Renommer",
+    meta: "F2",
+    action: () => renameWorkspaceSheetDocument(workObject).catch(handleError)
+  });
+  appendSheetDocumentMenuAction(menu, {
+    label: "Sauvegarder",
+    meta: String(state.currentWorkObjectId) === String(workObject.id) && state.editorDirty ? "modifie" : "",
+    action: () => saveWorkspaceSheetDocument(workObject).catch(handleError)
+  });
+  appendSheetDocumentMenuSeparator(menu);
+  appendSheetDocumentMenuAction(menu, {
+    label: "Nouveau document",
+    action: () => createBlankWorkspace("dataset", "data_spreadsheet", "Sheets").catch(handleError)
+  });
+  appendSheetDocumentMenuAction(menu, {
+    label: "Fermer",
+    danger: true,
+    action: () => closeWorkspaceSheetDocument(workObject).catch(handleError)
+  });
+
+  positionWorkspaceSheetDocumentMenu(menu, event.clientX, event.clientY);
+}
+
+function renderWorkspaceSheetDocuments() {
+  const container = el["workspace-sheet-documents"];
+  if (!container) {
+    return;
+  }
+
+  const sheetObjects = workspaceSheetDocuments();
+  const shouldShow =
+    currentWorkspaceFamilyId() === "data_spreadsheet" ||
+    isSheetWorkObject(state.currentWorkObject) ||
+    sheetObjects.length > 1;
+
+  container.classList.toggle("hidden", !shouldShow);
+  container.innerHTML = "";
+  if (!shouldShow) {
+    return;
+  }
+
+  const header = document.createElement("div");
+  header.className = "workspace-sheet-documents-header";
+
+  const titleWrap = document.createElement("div");
+  const title = document.createElement("strong");
+  title.textContent = "Open Sheets";
+  const count = document.createElement("span");
+  count.textContent = `${sheetObjects.length || 0} document${sheetObjects.length === 1 ? "" : "s"}`;
+  titleWrap.append(title, count);
+
+  const newButton = document.createElement("button");
+  newButton.type = "button";
+  newButton.className = "workspace-sheet-document-new";
+  newButton.textContent = "+";
+  newButton.title = "New Sheets document";
+  newButton.addEventListener("click", () => {
+    createBlankWorkspace("dataset", "data_spreadsheet", "Sheets").catch(handleError);
+  });
+
+  header.append(titleWrap, newButton);
+  container.appendChild(header);
+
+  const list = document.createElement("div");
+  list.className = "workspace-sheet-document-list";
+
+  if (!sheetObjects.length) {
+    const empty = document.createElement("p");
+    empty.className = "workspace-sheet-document-empty";
+    empty.textContent = "Create a Sheets document to start working with multiple files.";
+    list.appendChild(empty);
+  }
+
+  sheetObjects.forEach((workObject) => {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = `workspace-sheet-document-item${
+      String(state.currentWorkObjectId) === String(workObject.id) ? " active" : ""
+    }`;
+    item.addEventListener("click", () => {
+      openWorkspaceSheetDocument(workObject).catch(handleError);
+    });
+    item.addEventListener("contextmenu", (event) => {
+      showWorkspaceSheetDocumentMenu(event, workObject);
+    });
+    item.addEventListener("keydown", (event) => {
+      if (event.key === "F2") {
+        event.preventDefault();
+        renameWorkspaceSheetDocument(workObject).catch(handleError);
+      } else if (event.key === "Delete" || event.key === "Backspace") {
+        event.preventDefault();
+        closeWorkspaceSheetDocument(workObject).catch(handleError);
+      } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        saveWorkspaceSheetDocument(workObject).catch(handleError);
+      }
+    });
+
+    const label = document.createElement("strong");
+    label.textContent = workObject.title || "Untitled Sheets";
+    const meta = document.createElement("span");
+    meta.textContent = sheetDocumentMeta(workObject);
+    item.append(label, meta);
+    list.appendChild(item);
+  });
+
+  container.appendChild(list);
 }
 
 function updateEditorValue() {
@@ -8043,6 +8367,7 @@ function renderWorkspace() {
     state.currentWorkObjectId,
     (nextWorkObject) => selectWorkObject(nextWorkObject.id, preferredOpenPath(nextWorkObject)).catch(handleError)
   );
+  renderWorkspaceSheetDocuments();
 
   const editableFiles = getFilteredEditableFiles(workObject, state.currentDimension);
   el["work-object-file-select"].innerHTML = "";
@@ -8187,6 +8512,16 @@ function mergeWorkObject(workObject = null) {
     state.workObjects[index] = { ...state.workObjects[index], ...workObject };
   } else {
     state.workObjects.unshift(workObject);
+  }
+
+  if (Array.isArray(state.currentWorkspace?.workObjects)) {
+    const workspaceIndex = state.currentWorkspace.workObjects.findIndex((item) => item.id === workObject.id);
+    if (workspaceIndex >= 0) {
+      state.currentWorkspace.workObjects[workspaceIndex] = {
+        ...state.currentWorkspace.workObjects[workspaceIndex],
+        ...workObject
+      };
+    }
   }
 }
 
@@ -8486,6 +8821,9 @@ async function selectWorkObject(workObjectId, filePath = "", options = {}) {
   clearRuntimeSyncTimer();
   state.currentWorkObjectId = workObject.id;
   state.currentWorkObject = workObject;
+  if (isSheetWorkObject(workObject)) {
+    reopenSheetDocument(workObject.id);
+  }
   if (!options.preserveDimension) {
     state.currentDimension = "";
   }
@@ -8979,6 +9317,19 @@ function bindEvents() {
 
     if (payload.applied === false) {
       forceRuntimeFrameRefresh();
+    }
+  });
+
+  document.addEventListener("click", (event) => {
+    const menu = document.getElementById("workspace-sheet-document-menu");
+    if (menu && !menu.hidden && !menu.contains(event.target)) {
+      hideWorkspaceSheetDocumentMenu();
+    }
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      hideWorkspaceSheetDocumentMenu();
     }
   });
 

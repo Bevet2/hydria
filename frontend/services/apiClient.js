@@ -121,6 +121,12 @@ export const apiClient = {
       body: JSON.stringify(payload)
     });
   },
+  updateWorkObject(workObjectId, payload = {}) {
+    return request(`/api/work-objects/${workObjectId}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload)
+    });
+  },
   getWorkObject(workObjectId, filePath = "") {
     return request(
       `/api/work-objects/${workObjectId}${buildQuery(

@@ -214,7 +214,47 @@ function buildBlankWorkspaceFiles(kind = "document", title = "Hydria Workspace",
       files: [
         {
           path: "table.csv",
-          content: "Item,Value\\n"
+          content: JSON.stringify(
+            {
+              kind: "hydria-sheet",
+              version: 1,
+              activeSheetId: "sheet-1",
+              namedRanges: [],
+              sheets: [
+                {
+                  id: "sheet-1",
+                  name: "Sheet 1",
+                  columns: [""],
+                  rows: [[""]],
+                  columnWidths: {},
+                  rowHeights: {},
+                  merges: [],
+                  cellFormats: {},
+                  cellNotes: {},
+                  dataValidations: {},
+                  conditionalFormats: [],
+                  tables: [],
+                  pivotTables: [],
+                  charts: [],
+                  sparklines: [],
+                  slicers: [],
+                  filterQuery: "",
+                  filterColumnIndex: -1,
+                  tableFilters: {},
+                  sort: null,
+                  hidden: false,
+                  protected: false,
+                  protectedRanges: [],
+                  zoomLevel: 1,
+                  showGridlines: true,
+                  frozenRows: 0,
+                  frozenColumns: 0
+                }
+              ]
+            },
+            null,
+            2
+          )
         },
         {
           path: "spec.json",
@@ -826,6 +866,38 @@ export class WorkObjectService {
     });
 
     return compactWorkObject(contentPayload.workObject, contentPayload);
+  }
+
+  updateMetadata({
+    workObjectId = "",
+    title = "",
+    status = "",
+    actor = "user"
+  } = {}) {
+    const current = this.store.get(String(workObjectId || ""));
+    if (!current) {
+      return null;
+    }
+
+    const nextTitle = String(title ?? current.title ?? "").trim() || current.title || "Untitled";
+    const nextStatus = String(status || current.status || "ready").trim() || "ready";
+    const updated = this.store.update(current.id, (workObject) => ({
+      ...workObject,
+      title: nextTitle,
+      status: nextStatus,
+      revision: Number(workObject.revision || 1) + 1,
+      history: [
+        ...(workObject.history || []),
+        {
+          type: "metadata_update",
+          at: new Date().toISOString(),
+          actor,
+          title: nextTitle
+        }
+      ].slice(-25)
+    }));
+
+    return compactWorkObject(updated);
   }
 
   buildContext(workObject = null, entryPath = "") {
