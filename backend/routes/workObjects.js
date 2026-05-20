@@ -79,6 +79,28 @@ router.post("/new", (req, res, next) => {
   }
 });
 
+router.patch("/:workObjectId", (req, res, next) => {
+  try {
+    const workObject = workObjectService.updateMetadata({
+      workObjectId: req.params.workObjectId,
+      title: req.body?.title,
+      status: req.body?.status,
+      actor: "user"
+    });
+
+    if (!workObject) {
+      throw new AppError("Work object not found", 404);
+    }
+
+    res.json({
+      success: true,
+      workObject
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 function inferAssetContentType(filePath = "", fallback = "") {
   const extension = path.extname(String(filePath || "").toLowerCase());
   const explicit = String(fallback || "").toLowerCase();

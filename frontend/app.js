@@ -60,6 +60,7 @@ const state = {
   runtimeSyncHandle: null,
   runtimeSyncRequestId: 0,
   documentProjectContextVisible: true,
+  closedSheetDocumentIds: [],
   ready: false,
   bootPromise: null
 };
@@ -136,6 +137,7 @@ function cache() {
     "workspace-dimension-nav",
     "workspace-surface-nav",
     "workspace-object-list",
+    "workspace-sheet-documents",
     "workspace-file-label",
     "workspace-outline-label",
     "workspace-block-label",
@@ -541,9 +543,12 @@ function updateSpreadsheetDraftFromPreview(model = {}, options = {}) {
     forceEditMode: false,
     refreshWorkspace: Boolean(options.refreshWorkspace),
     suppressPreviewRefresh:
-      isDatasetWorkspace() &&
-      state.currentSurfaceId !== "edit" &&
-      !options.refreshWorkspace
+      Boolean(options.suppressPreviewRefresh) ||
+      (
+        isDatasetWorkspace() &&
+        state.currentSurfaceId !== "edit" &&
+        !options.refreshWorkspace
+      )
   });
 }
 
@@ -1843,6 +1848,195 @@ function serializeCsvMatrix(rows = []) {
     .join("\n");
 }
 
+function normalizeSpreadsheetDataValidationRule(rule = {}) {
+  if (!rule || typeof rule !== "object" || Array.isArray(rule)) {
+    return null;
+  }
+  const rawType = String(rule.type || rule.kind || "list").trim();
+  const type = rawType.toLowerCase() === "textlength" ? "textLength" : rawType.toLowerCase();
+  if (!["list", "whole", "decimal", "date", "textLength"].includes(type)) {
+    return null;
+  }
+  const operator = ["between", "notBetween", "equal", "notEqual", "greaterThan", "lessThan", "greaterOrEqual", "lessOrEqual"]
+    .includes(String(rule.operator || "between"))
+    ? String(rule.operator || "between")
+    : "between";
+  return {
+    type,
+    operator,
+    allowBlank: rule.allowBlank !== false,
+    showDropdown: rule.showDropdown !== false,
+    source: String(rule.source || rule.values || ""),
+    minimum: String(rule.minimum ?? rule.min ?? ""),
+    maximum: String(rule.maximum ?? rule.max ?? ""),
+    message: String(rule.message || rule.error || "")
+  };
+}
+
+function normalizeSpreadsheetDataValidations(validations = {}) {
+  if (!validations || typeof validations !== "object" || Array.isArray(validations)) {
+    return {};
+  }
+  return Object.fromEntries(
+    Object.entries(validations)
+      .map(([key, value]) => [String(key), normalizeSpreadsheetDataValidationRule(value)])
+      .filter(([, value]) => Boolean(value))
+  );
+}
+
+const SPREADSHEET_BUILTIN_FORMULA_NAMES = new Set([
+  "ABS",
+  "AND",
+  "AVERAGE",
+  "AVERAGEIF",
+  "AVERAGEIFS",
+  "AVG",
+  "CONCAT",
+  "COUNT",
+  "COUNTA",
+  "COUNTBLANK",
+  "COUNTIF",
+  "COUNTIFS",
+  "DATE",
+  "FILTER",
+  "FALSE",
+  "IF",
+  "IFERROR",
+  "INDEX",
+  "LEFT",
+  "LEN",
+  "LOWER",
+  "MATCH",
+  "MAX",
+  "MID",
+  "MIN",
+  "MEDIAN",
+  "NOT",
+  "NOW",
+  "OR",
+  "PRODUCT",
+  "RIGHT",
+  "ROUND",
+  "ROUNDDOWN",
+  "ROUNDUP",
+  "SORT",
+  "SUBTOTAL",
+  "SUM",
+  "SUMIF",
+  "SUMIFS",
+  "TEXT",
+  "TODAY",
+  "TRIM",
+  "TRUE",
+  "UNIQUE",
+  "UPPER",
+  "VALUE",
+  "VLOOKUP",
+  "XLOOKUP"
+]);
+
+function isSpreadsheetDefinedNameValid(name = "") {
+  const text = String(name || "").trim();
+  if (!/^[A-Za-z_][A-Za-z0-9_.]*$/.test(text)) {
+    return false;
+  }
+  if (/^\$?[A-Z]+\$?\d+$/i.test(text) || /^\$?[A-Z]+\$?\d+:\$?[A-Z]+\$?\d+$/i.test(text)) {
+    return false;
+  }
+  return !SPREADSHEET_BUILTIN_FORMULA_NAMES.has(text.toUpperCase());
+}
+
+function normalizeSpreadsheetNamedRange(namedRange = {}, index = 0) {
+  if (!namedRange || typeof namedRange !== "object" || Array.isArray(namedRange)) {
+    return null;
+  }
+  const name = String(namedRange.name || namedRange.label || "").trim();
+  const range = String(namedRange.range || namedRange.ref || namedRange.address || "")
+    .trim()
+    .replace(/^=/, "");
+  if (!isSpreadsheetDefinedNameValid(name) || !range) {
+    return null;
+  }
+  const sheetId = String(namedRange.sheetId || namedRange.sheet || "").trim();
+  return {
+    id: String(namedRange.id || `named-range-${index + 1}`),
+    name,
+    range,
+    sheetId,
+    scope: String(namedRange.scope || (sheetId ? "sheet" : "workbook")),
+    comment: String(namedRange.comment || namedRange.description || "")
+  };
+}
+
+function normalizeSpreadsheetNamedRanges(namedRanges = []) {
+  if (!Array.isArray(namedRanges)) {
+    return [];
+  }
+  const seen = new Set();
+  return namedRanges
+    .map((namedRange, index) => normalizeSpreadsheetNamedRange(namedRange, index))
+    .filter((namedRange) => {
+      if (!namedRange) {
+        return false;
+      }
+      const key = `${namedRange.sheetId || "workbook"}:${namedRange.name.toLowerCase()}`;
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
+}
+
+const SPREADSHEET_TABLE_STYLES = ["blue", "green", "orange", "purple", "gray"];
+const SPREADSHEET_TABLE_TOTAL_FUNCTIONS = new Set(["sum", "average", "count", "min", "max", "none"]);
+
+function normalizeSpreadsheetColor(value = "") {
+  const text = String(value || "").trim();
+  const match = text.match(/^#?([0-9a-f]{3}|[0-9a-f]{6})$/i);
+  if (!match) {
+    return "";
+  }
+  const hex = match[1].length === 3
+    ? match[1].split("").map((char) => `${char}${char}`).join("")
+    : match[1];
+  return `#${hex.toLowerCase()}`;
+}
+
+function normalizeSpreadsheetConditionalFormatRule(rule = {}, index = 0) {
+  if (!rule || typeof rule !== "object" || Array.isArray(rule)) {
+    return null;
+  }
+  const type = String(rule.type || rule.kind || "greaterThan").trim();
+  if (!["greaterThan", "lessThan", "between", "equal", "textContains", "duplicate"].includes(type)) {
+    return null;
+  }
+  const range = String(rule.range || rule.ref || "").trim();
+  if (!range) {
+    return null;
+  }
+  return {
+    id: String(rule.id || `conditional-format-${index + 1}`),
+    type,
+    range,
+    value1: String(rule.value1 ?? rule.value ?? ""),
+    value2: String(rule.value2 ?? ""),
+    fillColor: normalizeSpreadsheetColor(rule.fillColor || rule.color || "") || "#fff2cc",
+    textColor: normalizeSpreadsheetColor(rule.textColor || "") || "#202124",
+    bold: Boolean(rule.bold),
+    label: String(rule.label || "")
+  };
+}
+
+function normalizeSpreadsheetConditionalFormats(rules = []) {
+  if (!Array.isArray(rules)) {
+    return [];
+  }
+  return rules
+    .map((rule, index) => normalizeSpreadsheetConditionalFormatRule(rule, index))
+    .filter(Boolean);
+}
+
 function normalizeSpreadsheetModel(model = {}) {
   const normalizeSheet = (sheet = {}, index = 0) => {
     const columns = Array.isArray(sheet.columns) && sheet.columns.length
@@ -1888,8 +2082,132 @@ function normalizeSpreadsheetModel(model = {}) {
         sheet.cellFormats && typeof sheet.cellFormats === "object" && !Array.isArray(sheet.cellFormats)
           ? { ...sheet.cellFormats }
           : {},
+      cellNotes:
+        sheet.cellNotes && typeof sheet.cellNotes === "object" && !Array.isArray(sheet.cellNotes)
+          ? { ...sheet.cellNotes }
+          : {},
+      dataValidations: normalizeSpreadsheetDataValidations(sheet.dataValidations || sheet.validations),
+      conditionalFormats: normalizeSpreadsheetConditionalFormats(sheet.conditionalFormats || sheet.conditionalFormatting),
+      tables: Array.isArray(sheet.tables)
+        ? sheet.tables
+            .filter((table) => table && typeof table === "object")
+            .map((table, tableIndex) => {
+              const startRowIndex = Math.max(0, Number(table.startRowIndex ?? table.minRow ?? 0));
+              const endRowIndex = Math.max(startRowIndex, Number(table.endRowIndex ?? table.maxRow ?? startRowIndex));
+              const startColumnIndex = Math.max(0, Number(table.startColumnIndex ?? table.minColumn ?? 0));
+              const endColumnIndex = Math.max(startColumnIndex, Number(table.endColumnIndex ?? table.maxColumn ?? startColumnIndex));
+              return {
+                id: String(table.id || `sheet-table-${tableIndex + 1}`),
+                name: String(table.name || table.title || `Table${tableIndex + 1}`),
+                startRowIndex,
+                endRowIndex,
+                startColumnIndex,
+                endColumnIndex,
+                style: SPREADSHEET_TABLE_STYLES.includes(String(table.style || "").toLowerCase())
+                  ? String(table.style || "").toLowerCase()
+                  : "blue",
+                showHeaderRow: table.showHeaderRow !== false,
+                showBandedRows: table.showBandedRows !== false,
+                showBandedColumns: Boolean(table.showBandedColumns),
+                showFirstColumn: Boolean(table.showFirstColumn),
+                showLastColumn: Boolean(table.showLastColumn),
+                showFilterButtons: table.showFilterButtons !== false,
+                showTotalRow: Boolean(table.showTotalRow),
+                totalFunctions:
+                  table.totalFunctions && typeof table.totalFunctions === "object" && !Array.isArray(table.totalFunctions)
+                    ? Object.fromEntries(
+                        Object.entries(table.totalFunctions).map(([key, value]) => [
+                          String(key),
+                          SPREADSHEET_TABLE_TOTAL_FUNCTIONS.has(String(value || "").toLowerCase())
+                            ? String(value || "").toLowerCase()
+                            : "sum"
+                        ])
+                      )
+                    : {}
+              };
+            })
+        : [],
+      pivotTables: Array.isArray(sheet.pivotTables)
+        ? sheet.pivotTables
+            .filter((pivotTable) => pivotTable && typeof pivotTable === "object")
+            .map((pivotTable, pivotIndex) => ({
+              id: String(pivotTable.id || `sheet-pivot-${pivotIndex + 1}`),
+              name: String(pivotTable.name || pivotTable.title || `PivotTable${pivotIndex + 1}`),
+              sourceSheetId: String(pivotTable.sourceSheetId || pivotTable.sheetId || ""),
+              sourceTableId: String(pivotTable.sourceTableId || pivotTable.tableId || ""),
+              sourceRange: String(pivotTable.sourceRange || pivotTable.range || ""),
+              renderedRange: String(pivotTable.renderedRange || ""),
+              rowField: String(pivotTable.rowField || ""),
+              columnField: String(pivotTable.columnField || ""),
+              valueField: String(pivotTable.valueField || ""),
+              aggregate: String(pivotTable.aggregate || pivotTable.summary || "sum"),
+              anchorRowIndex: Math.max(0, Number(pivotTable.anchorRowIndex ?? pivotTable.rowIndex ?? 0)),
+              anchorColumnIndex: Math.max(0, Number(pivotTable.anchorColumnIndex ?? pivotTable.columnIndex ?? 0)),
+              lastRefreshedAt: String(pivotTable.lastRefreshedAt || "")
+            }))
+        : [],
+      charts: Array.isArray(sheet.charts)
+        ? sheet.charts
+            .filter((chart) => chart && typeof chart === "object")
+            .map((chart, chartIndex) => ({
+              id: String(chart.id || `sheet-chart-${chartIndex + 1}`),
+              title: String(chart.title || `Chart ${chartIndex + 1}`),
+              kind: String(chart.kind || "column"),
+              range: String(chart.range || ""),
+              sourceTableId: String(chart.sourceTableId || chart.tableId || ""),
+              seriesName: String(chart.seriesName || chart.series || ""),
+              secondarySeriesName: String(chart.secondarySeriesName || chart.secondarySeries || ""),
+              x: Math.max(16, Number(chart.x ?? chart.left ?? 212) || 212),
+              y: Math.max(16, Number(chart.y ?? chart.top ?? 52) || 52),
+              width: Math.max(280, Number(chart.width || 432) || 432),
+              height: Math.max(180, Number(chart.height || 284) || 284),
+              showLegend: chart.showLegend !== false,
+              showAxes: chart.showAxes !== false,
+              points: Array.isArray(chart.points)
+                ? chart.points.map((point, pointIndex) => ({
+                    label: String(point?.label || point?.name || `Point ${pointIndex + 1}`),
+                    value: String(point?.value ?? point?.y ?? ""),
+                    xValue: String(point?.xValue ?? point?.x ?? ""),
+                    yValue: String(point?.yValue ?? point?.y ?? point?.value ?? ""),
+                    sizeValue: String(point?.sizeValue ?? point?.size ?? point?.z ?? ""),
+                    secondaryValue: String(point?.secondaryValue ?? point?.secondary ?? "")
+                  }))
+                : []
+            }))
+        : [],
+      sparklines:
+        sheet.sparklines && typeof sheet.sparklines === "object" && !Array.isArray(sheet.sparklines)
+          ? { ...sheet.sparklines }
+          : {},
+      slicers: Array.isArray(sheet.slicers)
+        ? sheet.slicers
+            .filter((slicer) => slicer && typeof slicer === "object")
+            .map((slicer, slicerIndex) => ({
+              id: String(slicer.id || `sheet-slicer-${slicerIndex + 1}`),
+              title: String(slicer.title || slicer.label || `Slicer ${slicerIndex + 1}`),
+              columnIndex: Math.max(0, Number(slicer.columnIndex || 0)),
+              selectedValue: String(slicer.selectedValue || "")
+            }))
+        : [],
       filterQuery: String(sheet.filterQuery || ""),
       filterColumnIndex: Number.isInteger(sheet.filterColumnIndex) ? Number(sheet.filterColumnIndex) : -1,
+      tableFilters:
+        sheet.tableFilters && typeof sheet.tableFilters === "object" && !Array.isArray(sheet.tableFilters)
+          ? Object.fromEntries(
+              Object.entries(sheet.tableFilters)
+                .filter(([, filter]) => filter && typeof filter === "object" && !Array.isArray(filter))
+                .map(([key, filter]) => [
+                  String(key),
+                  {
+                    query: String(filter.query || ""),
+                    active: Boolean(filter.active),
+                    selectedValues: Array.isArray(filter.selectedValues)
+                      ? Array.from(new Set(filter.selectedValues.map((value) => String(value ?? ""))))
+                      : []
+                  }
+                ])
+            )
+          : {},
       sort:
         sheet.sort && Number.isInteger(sheet.sort.columnIndex)
           ? {
@@ -1897,6 +2215,22 @@ function normalizeSpreadsheetModel(model = {}) {
               direction: sheet.sort.direction === "desc" ? "desc" : "asc"
             }
           : null,
+      hidden: Boolean(sheet.hidden),
+      protected: Boolean(sheet.protected),
+      protectedRanges: Array.isArray(sheet.protectedRanges)
+        ? sheet.protectedRanges
+            .filter((range) => range && typeof range === "object")
+            .map((range, rangeIndex) => ({
+              id: String(range.id || `protected-range-${rangeIndex + 1}`),
+              startRowIndex: Math.max(0, Number(range.startRowIndex ?? range.minRow ?? 0)),
+              endRowIndex: Math.max(0, Number(range.endRowIndex ?? range.maxRow ?? range.startRowIndex ?? range.minRow ?? 0)),
+              startColumnIndex: Math.max(0, Number(range.startColumnIndex ?? range.minColumn ?? 0)),
+              endColumnIndex: Math.max(0, Number(range.endColumnIndex ?? range.maxColumn ?? range.startColumnIndex ?? range.minColumn ?? 0)),
+              label: String(range.label || "")
+            }))
+        : [],
+      zoomLevel: Math.max(0.5, Math.min(2, Number(sheet.zoomLevel || 1) || 1)),
+      showGridlines: sheet.showGridlines !== false,
       frozenRows: Math.max(0, Number(sheet.frozenRows || 0)),
       frozenColumns: Math.max(0, Number(sheet.frozenColumns || 0))
     };
@@ -1909,11 +2243,16 @@ function normalizeSpreadsheetModel(model = {}) {
     ? model.activeSheetId
     : sheets[0].id;
   const activeSheet = sheets.find((sheet) => sheet.id === activeSheetId) || sheets[0];
+  const validSheetIds = new Set(sheets.map((sheet) => sheet.id));
+  const namedRanges = normalizeSpreadsheetNamedRanges(model.namedRanges || model.names).filter(
+    (namedRange) => !namedRange.sheetId || validSheetIds.has(namedRange.sheetId)
+  );
 
   return {
     kind: "hydria-sheet",
     version: 1,
     ...model,
+    namedRanges,
     sheets,
     activeSheetId,
     activeSheet,
@@ -1978,6 +2317,7 @@ function buildSpreadsheetContent(model = {}) {
       kind: "hydria-sheet",
       version: 1,
       activeSheetId: normalized.activeSheetId,
+      namedRanges: normalized.namedRanges,
       sheets: normalized.sheets.map((sheet) => ({
         id: sheet.id,
         name: sheet.name,
@@ -1987,9 +2327,23 @@ function buildSpreadsheetContent(model = {}) {
         rowHeights: sheet.rowHeights,
         merges: sheet.merges,
         cellFormats: sheet.cellFormats,
+        cellNotes: sheet.cellNotes,
+        dataValidations: sheet.dataValidations,
+        conditionalFormats: sheet.conditionalFormats,
+        tables: sheet.tables,
+        pivotTables: sheet.pivotTables,
+        charts: sheet.charts,
+        sparklines: sheet.sparklines,
+        slicers: sheet.slicers,
         filterQuery: sheet.filterQuery,
         filterColumnIndex: sheet.filterColumnIndex,
+        tableFilters: sheet.tableFilters,
         sort: sheet.sort,
+        hidden: sheet.hidden,
+        protected: sheet.protected,
+        protectedRanges: sheet.protectedRanges,
+        zoomLevel: sheet.zoomLevel,
+        showGridlines: sheet.showGridlines,
         frozenRows: sheet.frozenRows,
         frozenColumns: sheet.frozenColumns
       }))
@@ -2007,6 +2361,12 @@ function buildSpreadsheetContent(model = {}) {
       Object.keys(currentActiveSheet.rowHeights || {}).length ||
       (currentActiveSheet.merges || []).length ||
       Object.keys(currentActiveSheet.cellFormats || {}).length ||
+      Object.keys(currentActiveSheet.dataValidations || {}).length ||
+      (currentActiveSheet.conditionalFormats || []).length ||
+      (currentModel.namedRanges || []).length ||
+      (currentActiveSheet.tables || []).length ||
+      (currentActiveSheet.pivotTables || []).length ||
+      Object.keys(currentActiveSheet.tableFilters || {}).length ||
       currentActiveSheet.filterQuery ||
       currentActiveSheet.frozenRows ||
       currentActiveSheet.frozenColumns
@@ -2976,7 +3336,14 @@ function isInlineDatasetPreviewEditingActive() {
   }
 
   const activeElement = document.activeElement;
-  return Boolean(activeElement && preview.contains(activeElement));
+  const expandedSheet = document.querySelector(".workspace-sheet-modal-overlay .workspace-sheet-app.is-expanded");
+  return Boolean(
+    activeElement &&
+      (
+        preview.contains(activeElement) ||
+        expandedSheet?.contains(activeElement)
+      )
+  );
 }
 
 function isInlinePreviewEditingActive() {
@@ -3471,6 +3838,327 @@ function workspaceWorkObjects() {
   }
 
   return state.workObjects;
+}
+
+function isSheetWorkObject(workObject = null) {
+  if (!workObject) {
+    return false;
+  }
+
+  const kind = String(workObject.objectKind || workObject.kind || "").toLowerCase();
+  const family = String(workObject.workspaceFamilyId || workObject.workspaceFamilyLabel || "").toLowerCase();
+  const fileList = getEditableFiles(workObject).join(" ");
+
+  return (
+    kind === "dataset" ||
+    family.includes("data_spreadsheet") ||
+    family.includes("spreadsheet") ||
+    /\.(csv|tsv|xlsx|xlsm|xls)\b/i.test(fileList)
+  );
+}
+
+function sheetDocumentMeta(workObject = {}) {
+  const primaryPath = workObject.primaryFile || getEditableFiles(workObject)[0] || "";
+  const fileLabel = friendlyFileLabel(primaryPath);
+  const status = workObject.status || "";
+  return [fileLabel, status].filter(Boolean).join(" | ") || "Spreadsheet workspace";
+}
+
+function isSheetDocumentClosed(workObjectId = "") {
+  return state.closedSheetDocumentIds.includes(String(workObjectId || ""));
+}
+
+function reopenSheetDocument(workObjectId = "") {
+  const id = String(workObjectId || "");
+  if (!id) {
+    return;
+  }
+  state.closedSheetDocumentIds = state.closedSheetDocumentIds.filter((item) => item !== id);
+}
+
+function markSheetDocumentClosed(workObjectId = "") {
+  const id = String(workObjectId || "");
+  if (!id || isSheetDocumentClosed(id)) {
+    return;
+  }
+  state.closedSheetDocumentIds = [...state.closedSheetDocumentIds, id];
+}
+
+function workspaceSheetDocuments() {
+  const candidates = [
+    isSheetWorkObject(state.currentWorkObject) ? state.currentWorkObject : null,
+    ...workspaceWorkObjects().filter(isSheetWorkObject),
+    ...state.workObjects.filter((workObject) => {
+      if (!isSheetWorkObject(workObject)) {
+        return false;
+      }
+      if (!state.currentProjectId) {
+        return true;
+      }
+      return String(workObject.projectId || "") === String(state.currentProjectId);
+    })
+  ].filter(Boolean);
+
+  const seen = new Set();
+  return candidates.filter((workObject) => {
+    const id = String(workObject.id || "");
+    if (!id || seen.has(id)) {
+      return false;
+    }
+    seen.add(id);
+    return true;
+  }).filter((workObject) => !isSheetDocumentClosed(workObject.id));
+}
+
+function hideWorkspaceSheetDocumentMenu() {
+  const menu = document.getElementById("workspace-sheet-document-menu");
+  if (menu) {
+    menu.hidden = true;
+    menu.innerHTML = "";
+  }
+}
+
+function ensureWorkspaceSheetDocumentMenu() {
+  let menu = document.getElementById("workspace-sheet-document-menu");
+  if (menu) {
+    return menu;
+  }
+
+  menu = document.createElement("div");
+  menu.id = "workspace-sheet-document-menu";
+  menu.className = "workspace-sheet-document-menu";
+  menu.hidden = true;
+  menu.addEventListener("click", (event) => {
+    event.stopPropagation();
+  });
+  menu.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+  });
+  document.body.appendChild(menu);
+  return menu;
+}
+
+function positionWorkspaceSheetDocumentMenu(menu, x, y) {
+  menu.style.left = `${x}px`;
+  menu.style.top = `${y}px`;
+  menu.hidden = false;
+
+  requestAnimationFrame(() => {
+    const rect = menu.getBoundingClientRect();
+    const margin = 10;
+    const nextLeft = Math.max(margin, Math.min(x, window.innerWidth - rect.width - margin));
+    const nextTop = Math.max(margin, Math.min(y, window.innerHeight - rect.height - margin));
+    menu.style.left = `${nextLeft}px`;
+    menu.style.top = `${nextTop}px`;
+  });
+}
+
+function appendSheetDocumentMenuAction(menu, { label = "", meta = "", danger = false, action = () => {} } = {}) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = `workspace-sheet-document-menu-item${danger ? " danger" : ""}`;
+  const text = document.createElement("span");
+  text.textContent = label;
+  const shortcut = document.createElement("em");
+  shortcut.textContent = meta;
+  button.append(text, shortcut);
+  button.addEventListener("click", () => {
+    hideWorkspaceSheetDocumentMenu();
+    action();
+  });
+  menu.appendChild(button);
+}
+
+function appendSheetDocumentMenuSeparator(menu) {
+  const separator = document.createElement("div");
+  separator.className = "workspace-sheet-document-menu-separator";
+  menu.appendChild(separator);
+}
+
+async function openWorkspaceSheetDocument(workObject = {}) {
+  reopenSheetDocument(workObject.id);
+  await selectWorkObject(workObject.id, preferredOpenPath(workObject));
+}
+
+async function renameWorkspaceSheetDocument(workObject = {}) {
+  const currentTitle = workObject.title || "New Sheets";
+  const nextTitle = window.prompt("Nom du document Sheets", currentTitle);
+  if (nextTitle === null) {
+    return;
+  }
+
+  const normalizedTitle = nextTitle.trim();
+  if (!normalizedTitle) {
+    setStatus("Le nom du document ne peut pas etre vide.");
+    return;
+  }
+
+  const payload = await apiClient.updateWorkObject(workObject.id, {
+    title: normalizedTitle
+  });
+  if (payload.workObject) {
+    mergeWorkObject(payload.workObject);
+    if (String(state.currentWorkObjectId) === String(payload.workObject.id)) {
+      state.currentWorkObject = { ...state.currentWorkObject, ...payload.workObject };
+    }
+    renderWorkObjects();
+    renderWorkspace();
+  }
+  setStatus(`Document renomme : ${normalizedTitle}.`);
+}
+
+async function saveWorkspaceSheetDocument(workObject = {}) {
+  reopenSheetDocument(workObject.id);
+  if (String(state.currentWorkObjectId) !== String(workObject.id)) {
+    await selectWorkObject(workObject.id, preferredOpenPath(workObject));
+  }
+  if (state.editorDirty) {
+    await saveWorkObjectChanges();
+  } else {
+    setStatus(`${workObject.title || "Document"} est deja sauvegarde.`);
+  }
+}
+
+async function closeWorkspaceSheetDocument(workObject = {}) {
+  const openSheets = workspaceSheetDocuments();
+  if (String(state.currentWorkObjectId) === String(workObject.id) && openSheets.length <= 1) {
+    setStatus("Garde au moins un document Sheets ouvert.");
+    return;
+  }
+
+  markSheetDocumentClosed(workObject.id);
+  if (String(state.currentWorkObjectId) === String(workObject.id)) {
+    const fallback = workspaceSheetDocuments().find((item) => String(item.id) !== String(workObject.id));
+    if (fallback) {
+      await selectWorkObject(fallback.id, preferredOpenPath(fallback));
+      setStatus(`${workObject.title || "Document"} ferme.`);
+      return;
+    }
+  }
+
+  renderWorkspace();
+  setStatus(`${workObject.title || "Document"} ferme.`);
+}
+
+function showWorkspaceSheetDocumentMenu(event, workObject = {}) {
+  event.preventDefault();
+  event.stopPropagation();
+  const menu = ensureWorkspaceSheetDocumentMenu();
+  menu.innerHTML = "";
+
+  appendSheetDocumentMenuAction(menu, {
+    label: "Ouvrir",
+    action: () => openWorkspaceSheetDocument(workObject).catch(handleError)
+  });
+  appendSheetDocumentMenuAction(menu, {
+    label: "Renommer",
+    meta: "F2",
+    action: () => renameWorkspaceSheetDocument(workObject).catch(handleError)
+  });
+  appendSheetDocumentMenuAction(menu, {
+    label: "Sauvegarder",
+    meta: String(state.currentWorkObjectId) === String(workObject.id) && state.editorDirty ? "modifie" : "",
+    action: () => saveWorkspaceSheetDocument(workObject).catch(handleError)
+  });
+  appendSheetDocumentMenuSeparator(menu);
+  appendSheetDocumentMenuAction(menu, {
+    label: "Nouveau document",
+    action: () => createBlankWorkspace("dataset", "data_spreadsheet", "Sheets").catch(handleError)
+  });
+  appendSheetDocumentMenuAction(menu, {
+    label: "Fermer",
+    danger: true,
+    action: () => closeWorkspaceSheetDocument(workObject).catch(handleError)
+  });
+
+  positionWorkspaceSheetDocumentMenu(menu, event.clientX, event.clientY);
+}
+
+function renderWorkspaceSheetDocuments() {
+  const container = el["workspace-sheet-documents"];
+  if (!container) {
+    return;
+  }
+
+  const sheetObjects = workspaceSheetDocuments();
+  const shouldShow =
+    currentWorkspaceFamilyId() === "data_spreadsheet" ||
+    isSheetWorkObject(state.currentWorkObject) ||
+    sheetObjects.length > 1;
+
+  container.classList.toggle("hidden", !shouldShow);
+  container.innerHTML = "";
+  if (!shouldShow) {
+    return;
+  }
+
+  const header = document.createElement("div");
+  header.className = "workspace-sheet-documents-header";
+
+  const titleWrap = document.createElement("div");
+  const title = document.createElement("strong");
+  title.textContent = "Open Sheets";
+  const count = document.createElement("span");
+  count.textContent = `${sheetObjects.length || 0} document${sheetObjects.length === 1 ? "" : "s"}`;
+  titleWrap.append(title, count);
+
+  const newButton = document.createElement("button");
+  newButton.type = "button";
+  newButton.className = "workspace-sheet-document-new";
+  newButton.textContent = "+";
+  newButton.title = "New Sheets document";
+  newButton.addEventListener("click", () => {
+    createBlankWorkspace("dataset", "data_spreadsheet", "Sheets").catch(handleError);
+  });
+
+  header.append(titleWrap, newButton);
+  container.appendChild(header);
+
+  const list = document.createElement("div");
+  list.className = "workspace-sheet-document-list";
+
+  if (!sheetObjects.length) {
+    const empty = document.createElement("p");
+    empty.className = "workspace-sheet-document-empty";
+    empty.textContent = "Create a Sheets document to start working with multiple files.";
+    list.appendChild(empty);
+  }
+
+  sheetObjects.forEach((workObject) => {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = `workspace-sheet-document-item${
+      String(state.currentWorkObjectId) === String(workObject.id) ? " active" : ""
+    }`;
+    item.addEventListener("click", () => {
+      openWorkspaceSheetDocument(workObject).catch(handleError);
+    });
+    item.addEventListener("contextmenu", (event) => {
+      showWorkspaceSheetDocumentMenu(event, workObject);
+    });
+    item.addEventListener("keydown", (event) => {
+      if (event.key === "F2") {
+        event.preventDefault();
+        renameWorkspaceSheetDocument(workObject).catch(handleError);
+      } else if (event.key === "Delete" || event.key === "Backspace") {
+        event.preventDefault();
+        closeWorkspaceSheetDocument(workObject).catch(handleError);
+      } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        saveWorkspaceSheetDocument(workObject).catch(handleError);
+      }
+    });
+
+    const label = document.createElement("strong");
+    label.textContent = workObject.title || "Untitled Sheets";
+    const meta = document.createElement("span");
+    meta.textContent = sheetDocumentMeta(workObject);
+    item.append(label, meta);
+    list.appendChild(item);
+  });
+
+  container.appendChild(list);
 }
 
 function updateEditorValue() {
@@ -7679,6 +8367,7 @@ function renderWorkspace() {
     state.currentWorkObjectId,
     (nextWorkObject) => selectWorkObject(nextWorkObject.id, preferredOpenPath(nextWorkObject)).catch(handleError)
   );
+  renderWorkspaceSheetDocuments();
 
   const editableFiles = getFilteredEditableFiles(workObject, state.currentDimension);
   el["work-object-file-select"].innerHTML = "";
@@ -7823,6 +8512,16 @@ function mergeWorkObject(workObject = null) {
     state.workObjects[index] = { ...state.workObjects[index], ...workObject };
   } else {
     state.workObjects.unshift(workObject);
+  }
+
+  if (Array.isArray(state.currentWorkspace?.workObjects)) {
+    const workspaceIndex = state.currentWorkspace.workObjects.findIndex((item) => item.id === workObject.id);
+    if (workspaceIndex >= 0) {
+      state.currentWorkspace.workObjects[workspaceIndex] = {
+        ...state.currentWorkspace.workObjects[workspaceIndex],
+        ...workObject
+      };
+    }
   }
 }
 
@@ -8122,6 +8821,9 @@ async function selectWorkObject(workObjectId, filePath = "", options = {}) {
   clearRuntimeSyncTimer();
   state.currentWorkObjectId = workObject.id;
   state.currentWorkObject = workObject;
+  if (isSheetWorkObject(workObject)) {
+    reopenSheetDocument(workObject.id);
+  }
   if (!options.preserveDimension) {
     state.currentDimension = "";
   }
@@ -8615,6 +9317,19 @@ function bindEvents() {
 
     if (payload.applied === false) {
       forceRuntimeFrameRefresh();
+    }
+  });
+
+  document.addEventListener("click", (event) => {
+    const menu = document.getElementById("workspace-sheet-document-menu");
+    if (menu && !menu.hidden && !menu.contains(event.target)) {
+      hideWorkspaceSheetDocumentMenu();
+    }
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      hideWorkspaceSheetDocumentMenu();
     }
   });
 
