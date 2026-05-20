@@ -442,7 +442,7 @@ function buildBlankWorkspaceFiles(kind = "document", title = "Hydria Workspace",
         {
           path: "document.html",
           content:
-            `<h1>${headline}</h1>\n` +
+            `<h1>document</h1>\n` +
             `<p>Start writing here.</p>\n` +
             `<p>Add sections, tables, images, or project assets.</p>\n`
         }

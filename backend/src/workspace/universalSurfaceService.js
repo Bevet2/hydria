@@ -274,13 +274,22 @@ export function buildWorkObjectSurfaceModel({ workObject = {}, entryPath = "" } 
   const targetPath = targetEntry?.path || "";
   const previewTargetPath = previewTargetEntry?.path || targetPath;
   const objectKind = workObject.kind || workObject.objectKind || "document";
-  const entrySurface = inferEntrySurfaceType(
+  const workspaceFamilyId =
+    workObject.workspaceFamilyId || workObject.metadata?.workspaceFamilyId || "";
+  const isDocumentKnowledgeHtml =
+    objectKind === "document" &&
+    workspaceFamilyId === "document_knowledge" &&
+    /\.html?$/i.test(previewTargetPath || targetPath);
+  const rawEntrySurface = inferEntrySurfaceType(
     previewTargetPath,
     previewTargetEntry?.contentType || targetEntry?.contentType || "",
     objectKind
   );
+  const entrySurface = isDocumentKnowledgeHtml ? "document" : rawEntrySurface;
   const assetUrl = previewTargetPath ? buildWorkObjectAssetUrl(workObject.id, previewTargetPath) : "";
-  const runtimeEntry = resolveWorkObjectRuntimeEntry(workObject, targetPath);
+  const runtimeEntry = isDocumentKnowledgeHtml
+    ? null
+    : resolveWorkObjectRuntimeEntry(workObject, targetPath);
   const runtimeUrl = runtimeEntry
     ? buildWorkObjectRuntimeUrl(workObject.id, runtimeEntry.path)
     : "";
