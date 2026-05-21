@@ -523,21 +523,6 @@ function updatePresentationPreviewInline(slideId = "", payload = {}) {
   syncPreviewInlineDraft(nextBlock);
 }
 
-function updateSpreadsheetHeaderFromPreview(columnIndex = 0, value = "") {
-  const model = deriveSpreadsheetDraft(currentDraftContent());
-  model.columns[columnIndex] = String(value || "").trim() || `Column ${columnIndex + 1}`;
-  updateSpreadsheetDraftFromPreview(model);
-}
-
-function updateSpreadsheetCellFromPreview(rowIndex = 0, columnIndex = 0, value = "") {
-  const model = deriveSpreadsheetDraft(currentDraftContent());
-  if (!model.rows[rowIndex]) {
-    model.rows[rowIndex] = Array.from({ length: model.columns.length }, () => "");
-  }
-  model.rows[rowIndex][columnIndex] = String(value || "");
-  updateSpreadsheetDraftFromPreview(model);
-}
-
 function updateSpreadsheetDraftFromPreview(model = {}, options = {}) {
   syncEditorDraft(buildSpreadsheetContent(model), {
     forceEditMode: false,
@@ -4239,8 +4224,6 @@ function refreshPreviewPane() {
       selectWorkObject(workObject.id, preferredOpenPath(workObject)).catch(handleError),
     onPresentationSlideFocus: focusPresentationSlide,
     onPresentationSlideEdit: updatePresentationPreviewInline,
-    onDataHeaderEdit: updateSpreadsheetHeaderFromPreview,
-    onDataCellEdit: updateSpreadsheetCellFromPreview,
     onDataGridEdit: updateSpreadsheetDraftFromPreview,
     onDashboardFilterToggle: toggleDashboardPreviewFilter,
     onDashboardWidgetMove: moveDashboardWidget,

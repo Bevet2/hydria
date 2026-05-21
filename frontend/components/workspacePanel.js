@@ -328,46 +328,6 @@ const SPREADSHEET_FORMULA_NAME_ALIASES = {
   PRODUIT: "PRODUCT",
   CONCATENER: "CONCAT"
 };
-const SPREADSHEET_CSV_FORMULA_NAME_ALIASES = {
-  IF: "SI",
-  IFERROR: "SIERREUR",
-  AND: "ET",
-  OR: "OU",
-  NOT: "NON",
-  TRUE: "VRAI",
-  FALSE: "FAUX",
-  AVG: "MOYENNE",
-  SUM: "SOMME",
-  SUMIF: "SOMME.SI",
-  SUMIFS: "SOMME.SI.ENS",
-  AVERAGE: "MOYENNE",
-  AVERAGEIF: "MOYENNE.SI",
-  AVERAGEIFS: "MOYENNE.SI.ENS",
-  COUNT: "NB",
-  COUNTA: "NBVAL",
-  COUNTBLANK: "NB.VIDE",
-  COUNTIF: "NB.SI",
-  COUNTIFS: "NB.SI.ENS",
-  TODAY: "AUJOURDHUI",
-  NOW: "MAINTENANT",
-  TEXT: "TEXTE",
-  LEFT: "GAUCHE",
-  RIGHT: "DROITE",
-  MID: "STXT",
-  TRIM: "SUPPRESPACE",
-  VALUE: "VALEUR",
-  FILTER: "FILTRE",
-  SORT: "TRIER",
-  MATCH: "EQUIV",
-  VLOOKUP: "RECHERCHEV",
-  XLOOKUP: "RECHERCHEX",
-  SUBTOTAL: "SOUS.TOTAL",
-  ROUND: "ARRONDI",
-  ROUNDDOWN: "ARRONDI.INF",
-  ROUNDUP: "ARRONDI.SUP",
-  PRODUCT: "PRODUIT",
-  CONCAT: "CONCATENER"
-};
 const SPREADSHEET_FORMULA_CATEGORIES = [
   { id: "all", label: "Tout", ribbonLabel: "Toutes", icon: "function" },
   { id: "math", label: "Math et trigo", ribbonLabel: "Math", icon: "number" },
@@ -893,84 +853,6 @@ function normalizeSpreadsheetFormulaName(name = "") {
 
 function isSpreadsheetBuiltinFormulaName(name = "") {
   return SPREADSHEET_BUILTIN_FORMULA_NAMES.has(normalizeSpreadsheetFormulaName(name));
-}
-
-function localizeSpreadsheetFormulaForCsv(value = "") {
-  const text = String(value || "");
-  if (!text.startsWith("=")) {
-    return text;
-  }
-
-  let output = "";
-  let index = 0;
-  let inString = false;
-  const isIdentifierStart = (char = "") => /[A-Za-z_]/.test(char);
-  const isIdentifierPart = (char = "") => /[A-Za-z0-9_.]/.test(char);
-  const nextNonSpaceAt = (startIndex = 0) => {
-    let cursor = startIndex;
-    while (cursor < text.length && /\s/.test(text[cursor])) {
-      cursor += 1;
-    }
-    return { char: text[cursor] || "", index: cursor };
-  };
-
-  while (index < text.length) {
-    const char = text[index];
-    if (char === "\"") {
-      output += char;
-      if (inString && text[index + 1] === "\"") {
-        output += text[index + 1];
-        index += 2;
-        continue;
-      }
-      inString = !inString;
-      index += 1;
-      continue;
-    }
-    if (inString) {
-      output += char;
-      index += 1;
-      continue;
-    }
-    if (char === ",") {
-      output += ";";
-      index += 1;
-      continue;
-    }
-    if (char === "@" && isIdentifierStart(text[index + 1] || "")) {
-      const start = index + 1;
-      let end = start + 1;
-      while (end < text.length && isIdentifierPart(text[end])) {
-        end += 1;
-      }
-      const canonicalName = normalizeSpreadsheetFormulaName(text.slice(start, end));
-      if (SPREADSHEET_CSV_FORMULA_NAME_ALIASES[canonicalName] && nextNonSpaceAt(end).char === "(") {
-        index += 1;
-        continue;
-      }
-    }
-    if (isIdentifierStart(char)) {
-      const start = index;
-      let end = index + 1;
-      while (end < text.length && isIdentifierPart(text[end])) {
-        end += 1;
-      }
-      const token = text.slice(start, end);
-      const canonicalName = normalizeSpreadsheetFormulaName(token);
-      const localizedName = SPREADSHEET_CSV_FORMULA_NAME_ALIASES[canonicalName];
-      const nextToken = nextNonSpaceAt(end).char;
-      const isFunctionCall = nextToken === "(";
-      const isBooleanLiteral =
-        (canonicalName === "TRUE" || canonicalName === "FALSE") &&
-        (!nextToken || /[;,+\-*/^<>=)&]/.test(nextToken));
-      output += localizedName && (isFunctionCall || isBooleanLiteral) ? localizedName : token;
-      index = end;
-      continue;
-    }
-    output += char;
-    index += 1;
-  }
-  return output;
 }
 
 function isSpreadsheetDefinedNameValid(name = "") {
@@ -23013,8 +22895,6 @@ function renderDataPreview(
   content = "",
   {
     workObject = null,
-    onHeaderEdit = null,
-    onCellEdit = null,
     onGridEdit = null
   } = {}
 ) {
@@ -23258,7 +23138,6 @@ function renderPresentationPreview(
 
   const stats = document.createElement("div");
   stats.className = "workspace-preview-summary";
-  stats.textContent = `${slides.length} slides · deck preview`;
   stats.textContent = `${slides.length} slides | deck preview`;
   container.appendChild(stats);
 
@@ -23329,7 +23208,6 @@ function renderPresentationPreview(
 
   const stageMeta = document.createElement("span");
   stageMeta.className = "workspace-slide-kicker";
-  stageMeta.textContent = `Current slide · ${slides.findIndex((slide) => slide.id === activeSlide.id) + 1}`;
 
   const stageTitle = document.createElement("h3");
   stageTitle.textContent = activeSlide.title || "Slide";
@@ -25679,8 +25557,6 @@ export function renderWorkspacePreview(
     onProjectObjectSelect = null,
     onPresentationSlideFocus = null,
     onPresentationSlideEdit = null,
-    onDataHeaderEdit = null,
-    onDataCellEdit = null,
     onDataGridEdit = null,
     onDashboardFilterToggle = null,
     onDashboardWidgetMove = null,
@@ -25813,7 +25689,7 @@ export function renderWorkspacePreview(
   title.textContent = workObject.title || "Hydria Object";
   const meta = document.createElement("span");
   meta.className = "tiny";
-  meta.textContent = metaText.replace(/Â·/g, "-");
+  meta.textContent = metaText;
   titleGroup.append(title, meta);
 
   const kind = document.createElement("span");
@@ -25868,8 +25744,6 @@ export function renderWorkspacePreview(
   if (resolvedSurfaceId === "data") {
     renderDataPreview(container, normalizedPath, contentToRender, {
       workObject,
-      onHeaderEdit: onDataHeaderEdit,
-      onCellEdit: onDataCellEdit,
       onGridEdit: onDataGridEdit
     });
     return;
@@ -26040,8 +25914,6 @@ export function renderWorkspacePreview(
     }
     renderDataPreview(container, normalizedPath, contentToRender, {
       workObject,
-      onHeaderEdit: onDataHeaderEdit,
-      onCellEdit: onDataCellEdit,
       onGridEdit: onDataGridEdit
     });
     return;
@@ -26277,7 +26149,6 @@ export function renderWorkspaceObjectList(
       .filter(Boolean)
       .join(" · ");
 
-    meta.textContent = meta.textContent.replaceAll("Â·", "|");
     button.append(header, summary, meta);
     container.appendChild(button);
   }
@@ -26543,7 +26414,6 @@ export function renderWorkspaceProjectMap(
       .filter(Boolean)
       .join(" · ");
 
-    meta.textContent = meta.textContent.replaceAll("Â·", "|");
     button.append(nodeTitle, meta);
     nodeList.append(button);
   });
