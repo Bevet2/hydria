@@ -6,6 +6,11 @@ backend/.env
 !.env.example
 !backend/.env.example
 
+.tools/
+backend/backend/
+backend/chart-*.png
+backend/popup-debug.png
+
 data/
 logs/
 hydria_models/

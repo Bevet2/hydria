@@ -5279,6 +5279,28 @@ function renderMarkdownPreview(
       docsImageInput.click();
     };
 
+    const docsMenuOutsideController = createWorkspaceMenuOutsideController({
+      isOpen: () => Boolean(docsMenuPanel && !docsMenuPanel.classList.contains("hidden") && docsMenuPanel.isConnected),
+      shouldKeepOpen: (event) =>
+        Boolean(docsMenuPanel?.contains?.(event.target) || docsMenuBar.contains(event.target)),
+      onClose: () => {
+        renderDocsMenu("");
+      }
+    });
+
+    const installDocsMenuOutsidePointerHandler = () => {
+      window.setTimeout(() => {
+        if (!docsMenuPanel || docsMenuPanel.classList.contains("hidden")) {
+          return;
+        }
+        docsMenuOutsideController.install();
+      }, 0);
+    };
+
+    const removeDocsMenuOutsidePointerHandler = () => {
+      docsMenuOutsideController.remove();
+    };
+
     const renderDocsMenu = (menuId = "") => {
       if (!docsMenuPanel) {
         return;
@@ -5293,9 +5315,11 @@ function renderMarkdownPreview(
       docsMenuButtons.forEach((button) => button.classList.toggle("is-active", button.dataset.menu === menuId));
       if (!menuId) {
         docsMenuPanel.classList.add("hidden");
+        removeDocsMenuOutsidePointerHandler();
         return;
       }
       docsMenuPanel.classList.remove("hidden");
+      installDocsMenuOutsidePointerHandler();
       const menuFieldSyncHandlers = [];
       const menuDropdownRegistry = [];
 
