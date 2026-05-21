@@ -1,10 +1,47 @@
 import {
+  WORKSPACE_DOCUMENT_ALIGNMENT_OPTIONS,
   WORKSPACE_HORIZONTAL_ALIGNMENT_OPTIONS,
+  createWorkspaceFontSizeOptions,
   getWorkspaceCommandIcon,
   getWorkspaceCommandLabel,
   getWorkspaceCommand
 } from "./workspaceCommandRegistry.js";
 import { WORKSPACE_BORDER_COLOR_OPTIONS } from "./workspaceColorPalette.js";
+
+export const WORKSPACE_DOCUMENT_BLOCK_MENU_ITEMS = [
+  { label: "Text", icon: "text", commandId: "blockText", value: "p" },
+  { label: "Title", icon: "text", commandId: "blockTitle", value: "h1" },
+  { label: "Heading", icon: "text", commandId: "blockHeading", value: "h2" },
+  { label: "Subhead", icon: "text", commandId: "blockSubhead", value: "h3" },
+  { separator: true },
+  { label: "Bullets", icon: "list", commandId: "blockBullets", value: "bullet" },
+  { label: "Numbered", icon: "number", commandId: "blockNumbered", value: "numbered" }
+];
+
+export const WORKSPACE_DOCUMENT_INSERT_MENU_ITEMS = [
+  { label: "Checklist", icon: "checkbox", commandId: "insertChecklist" },
+  { label: "Quote", icon: "quote", commandId: "insertQuote" },
+  { label: "Divider", icon: "divider", commandId: "insertDivider" },
+  { label: "Table", icon: "table", commandId: "insertTable" },
+  { label: "Import image", icon: "image", commandId: "insertImage" },
+  { label: "From URL", icon: "link", commandId: "insertImageUrl" }
+];
+
+export const WORKSPACE_DOCUMENT_PAGE_INSERT_MENU_ITEMS = [
+  { label: "New section", icon: "insert", commandId: "insertNewSection" },
+  { label: "New page", icon: "page", commandId: "insertPageBreak" }
+];
+
+export const WORKSPACE_DOCUMENT_TABLE_MENU_ITEMS = [
+  { label: "Insert row below", icon: "rowInsert", commandId: "tableInsertRowBelow" },
+  { label: "Insert column right", icon: "columnInsert", commandId: "tableInsertColumnRight" },
+  { separator: true },
+  { label: "Delete row", icon: "delete", commandId: "tableDeleteRow", danger: true },
+  { label: "Delete column", icon: "delete", commandId: "tableDeleteColumn", danger: true },
+  { label: "Delete table", icon: "delete", commandId: "tableDelete", danger: true }
+];
+
+export const WORKSPACE_DOCUMENT_CONTEXT_FONT_SIZE_STEPS = [12, 14, 16, 18, 24, 32];
 
 export const WORKSPACE_BORDER_BASE_MENU_ITEMS = [
   { label: "Aucune bordure", icon: "eraser", commandId: "border", value: "clear" },
@@ -80,6 +117,83 @@ export function createWorkspaceCommandMenuItems(commandIds = [], { locale = "en"
 
 export function createWorkspaceClipboardMenuItems({ locale = "en" } = {}) {
   return createWorkspaceCommandMenuItems(["cut", "copy", "paste"], { locale });
+}
+
+export function createWorkspaceDocumentFormatMenuItems({
+  locale = "en",
+  includeHistory = true,
+  includeClearFormatting = true
+} = {}) {
+  const commandIds = ["bold", "italic", "underline", "strikethrough"];
+  if (includeHistory) {
+    commandIds.push("undo", "redo");
+  }
+  if (includeClearFormatting) {
+    commandIds.push("clearFormatting");
+  }
+  return createWorkspaceCommandMenuItems(commandIds, { locale });
+}
+
+export function createWorkspaceDocumentBlockMenuItems({ includePageBreaks = false } = {}) {
+  const items = WORKSPACE_DOCUMENT_BLOCK_MENU_ITEMS.map((item) => ({ ...item }));
+  if (includePageBreaks) {
+    items.push({ separator: true }, ...WORKSPACE_DOCUMENT_PAGE_INSERT_MENU_ITEMS.map((item) => ({ ...item })));
+  }
+  return normalizeWorkspaceMenuItems(items);
+}
+
+export function createWorkspaceDocumentInsertMenuItems({
+  includeImagePlaceholder = false,
+  includePageBreaks = true
+} = {}) {
+  const items = WORKSPACE_DOCUMENT_INSERT_MENU_ITEMS.map((item) => ({ ...item }));
+  if (includeImagePlaceholder) {
+    const imageIndex = items.findIndex((item) => item.commandId === "insertImageUrl");
+    const placeholderItem = { label: "Image placeholder", icon: "image", commandId: "insertImagePlaceholder" };
+    if (imageIndex >= 0) {
+      items.splice(imageIndex, 0, placeholderItem);
+    } else {
+      items.push(placeholderItem);
+    }
+  }
+  if (includePageBreaks) {
+    items.push({ separator: true }, ...WORKSPACE_DOCUMENT_PAGE_INSERT_MENU_ITEMS.map((item) => ({ ...item })));
+  }
+  return normalizeWorkspaceMenuItems(items);
+}
+
+export function createWorkspaceDocumentAlignmentMenuItems(options = WORKSPACE_DOCUMENT_ALIGNMENT_OPTIONS) {
+  return options.map((option) => ({
+    label: option.label,
+    icon: option.icon,
+    commandId: option.commandId
+  }));
+}
+
+export function createWorkspaceDocumentFontSizeMenuItems({
+  includeAuto = true,
+  autoLabel = "Auto size",
+  sizes = WORKSPACE_DOCUMENT_CONTEXT_FONT_SIZE_STEPS
+} = {}) {
+  return createWorkspaceFontSizeOptions({ includeAuto, autoLabel, unit: "px", sizes }).map((item) => ({
+    ...item,
+    icon: "text",
+    commandId: "fontSize"
+  }));
+}
+
+export function createWorkspaceDocumentTableMenuItems({
+  canDeleteRow = true,
+  canDeleteColumn = true
+} = {}) {
+  return normalizeWorkspaceMenuItems(
+    WORKSPACE_DOCUMENT_TABLE_MENU_ITEMS.map((item) => ({
+      ...item,
+      disabled:
+        (item.commandId === "tableDeleteRow" && !canDeleteRow) ||
+        (item.commandId === "tableDeleteColumn" && !canDeleteColumn)
+    }))
+  );
 }
 
 export function createWorkspaceAlignmentMenuItems(options = WORKSPACE_HORIZONTAL_ALIGNMENT_OPTIONS) {

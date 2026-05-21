@@ -1,7 +1,6 @@
 import {
   WORKSPACE_DOCS_HIGHLIGHT_COLOR_OPTIONS,
   WORKSPACE_DOCS_TEXT_COLOR_OPTIONS,
-  WORKSPACE_DOCUMENT_ALIGNMENT_OPTIONS,
   WORKSPACE_FONT_FAMILY_OPTIONS,
   WORKSPACE_STANDARD_COLORS,
   WORKSPACE_THEME_COLOR_ROWS,
@@ -20,6 +19,12 @@ import {
   createWorkspaceDataCleanupMenuItems,
   createWorkspaceDataRefreshMenuItems,
   createWorkspaceDeleteMenuItems,
+  createWorkspaceDocumentAlignmentMenuItems,
+  createWorkspaceDocumentBlockMenuItems,
+  createWorkspaceDocumentFontSizeMenuItems,
+  createWorkspaceDocumentFormatMenuItems,
+  createWorkspaceDocumentInsertMenuItems,
+  createWorkspaceDocumentTableMenuItems,
   createWorkspaceFontSizeOptions,
   createWorkspaceFilterMenuItems,
   createWorkspaceHomeCellsMenuItems,
@@ -1681,7 +1686,7 @@ const DOCS_TEXT_COLOR_OPTIONS = WORKSPACE_DOCS_TEXT_COLOR_OPTIONS;
 const DOCS_HIGHLIGHT_COLOR_OPTIONS = WORKSPACE_DOCS_HIGHLIGHT_COLOR_OPTIONS;
 const DOCS_FONT_FAMILY_OPTIONS = WORKSPACE_FONT_FAMILY_OPTIONS;
 const DOCS_FONT_SIZE_OPTIONS = createWorkspaceFontSizeOptions({ includeAuto: true, unit: "px" });
-const DOCS_ALIGNMENT_OPTIONS = WORKSPACE_DOCUMENT_ALIGNMENT_OPTIONS;
+const DOCS_ALIGNMENT_OPTIONS = createWorkspaceDocumentAlignmentMenuItems();
 
 function shouldLinkifyOnBreak(event) {
   return ["insertParagraph", "insertLineBreak"].includes(String(event?.inputType || ""));
@@ -4416,6 +4421,66 @@ function renderMarkdownPreview(
     return "Delete block";
   };
 
+  const createDocsSharedActionMap = ({
+    fromContextMenu = false,
+    table = null,
+    rowIndex = null,
+    columnIndex = null
+  } = {}) => ({
+    bold: () => executeDocsWorkspaceCommand("bold", { fromContextMenu }),
+    italic: () => executeDocsWorkspaceCommand("italic", { fromContextMenu }),
+    underline: () => executeDocsWorkspaceCommand("underline", { fromContextMenu }),
+    strikethrough: () => executeDocsWorkspaceCommand("strikethrough", { fromContextMenu }),
+    undo: () => runInlineCommand("undo"),
+    redo: () => runInlineCommand("redo"),
+    clearFormatting: () => executeDocsWorkspaceCommand("clearFormatting"),
+    fontSize: (item) => executeDocsWorkspaceCommand("fontSize", { value: item?.value || "" }),
+    alignLeft: () => executeDocsWorkspaceCommand("alignLeft"),
+    alignCenter: () => executeDocsWorkspaceCommand("alignCenter"),
+    alignRight: () => executeDocsWorkspaceCommand("alignRight"),
+    alignJustify: () => executeDocsWorkspaceCommand("alignJustify"),
+    blockText: () => convertActiveBlockTag("p"),
+    blockTitle: () => convertActiveBlockTag("h1"),
+    blockHeading: () => convertActiveBlockTag("h2"),
+    blockSubhead: () => convertActiveBlockTag("h3"),
+    blockBullets: () => convertActiveBlockToList(false),
+    blockNumbered: () => convertActiveBlockToList(true),
+    insertChecklist,
+    insertQuote,
+    insertDivider,
+    insertTable,
+    insertImage: triggerImageImport,
+    insertImagePlaceholder,
+    insertImageUrl: insertImageFromUrl,
+    insertNewSection,
+    insertPageBreak,
+    tableInsertRowBelow: () => table && addTableRow(table, rowIndex === null ? getTableBodyRows(table).length : rowIndex + 1),
+    tableInsertColumnRight: () => table && addTableColumn(table, columnIndex === null ? getTableColumnCount(table) : columnIndex + 1),
+    tableDeleteRow: () => table && rowIndex !== null && removeTableRow(table, rowIndex),
+    tableDeleteColumn: () => table && columnIndex !== null && removeTableColumn(table, columnIndex),
+    tableDelete: () => table && removeTable(table)
+  });
+
+  const appendDocsContextMenuItems = (
+    actions,
+    menuItems,
+    actionMap,
+    { restoreSelectionCommandIds = new Set(["bold", "italic", "underline", "strikethrough"]) } = {}
+  ) => {
+    bindWorkspaceMenuActions(menuItems, actionMap).forEach((item) => {
+      if (item.separator || item.heading || item.disabled || typeof item.onSelect !== "function") {
+        return;
+      }
+      actions.push({
+        label: item.label,
+        danger: item.danger,
+        shortcut: item.shortcut,
+        restoreSelection: restoreSelectionCommandIds.has(item.commandId),
+        onClick: item.onSelect
+      });
+    });
+  };
+
   const buildDocsContextMenuActions = (target = null) => {
     const resolvedTarget = target || getDocsActionTargetFromNode(activeEditable) || shell;
     const figureTarget = getDocsFigureTargetFromNode(resolvedTarget);
@@ -4436,34 +4501,19 @@ function renderMarkdownPreview(
       });
 
     if (editableTarget || selectionActive) {
+      const textActionMap = createDocsSharedActionMap({ fromContextMenu: true });
       addLabel("Text");
-      addAction(getWorkspaceCommandLabel("bold"), () => executeDocsWorkspaceCommand("bold", { fromContextMenu: true }), {
-        restoreSelection: true
-      });
-      addAction(getWorkspaceCommandLabel("italic"), () => executeDocsWorkspaceCommand("italic", { fromContextMenu: true }), {
-        restoreSelection: true
-      });
-      addAction(getWorkspaceCommandLabel("underline"), () => executeDocsWorkspaceCommand("underline", { fromContextMenu: true }), {
-        restoreSelection: true
-      });
-      addAction("Text", () => convertActiveBlockTag("p"));
-      addAction("Title", () => convertActiveBlockTag("h1"));
-      addAction("Heading", () => convertActiveBlockTag("h2"));
-      addAction("Subhead", () => convertActiveBlockTag("h3"));
-      addAction("Bullets", () => convertActiveBlockToList(false));
-      addAction("Numbered", () => convertActiveBlockToList(true));
-      addAction(getWorkspaceCommandLabel("alignLeft"), () => executeDocsWorkspaceCommand("alignLeft"));
-      addAction(getWorkspaceCommandLabel("alignCenter"), () => executeDocsWorkspaceCommand("alignCenter"));
+      appendDocsContextMenuItems(
+        actions,
+        createWorkspaceDocumentFormatMenuItems({ includeHistory: false, includeClearFormatting: false }),
+        textActionMap
+      );
+      appendDocsContextMenuItems(actions, createWorkspaceDocumentBlockMenuItems(), textActionMap);
+      appendDocsContextMenuItems(actions, createWorkspaceDocumentAlignmentMenuItems(), textActionMap, { restoreSelectionCommandIds: new Set() });
       addLabel("Size");
-      [
-        ["Auto size", ""],
-        ["12", "12px"],
-        ["14", "14px"],
-        ["16", "16px"],
-        ["18", "18px"],
-        ["24", "24px"],
-        ["32", "32px"]
-      ].forEach(([label, value]) => addAction(label, () => executeDocsWorkspaceCommand("fontSize", { value })));
+      appendDocsContextMenuItems(actions, createWorkspaceDocumentFontSizeMenuItems(), textActionMap, {
+        restoreSelectionCommandIds: new Set(["fontSize"])
+      });
     }
 
     if (table) {
@@ -4471,26 +4521,22 @@ function renderMarkdownPreview(
       const cell = resolvedTarget.closest?.("th, td") || null;
       const rowIndex = row?.parentElement?.tagName?.toLowerCase?.() === "tbody" ? getTableBodyRows(table).indexOf(row) : null;
       const columnIndex = row && cell ? Array.from(row.children).indexOf(cell) : null;
+      const tableActionMap = createDocsSharedActionMap({ table, rowIndex, columnIndex });
       addLabel("Table");
-      addAction("Insert row below", () => addTableRow(table, rowIndex === null ? getTableBodyRows(table).length : rowIndex + 1));
-      addAction("Insert column right", () => addTableColumn(table, columnIndex === null ? getTableColumnCount(table) : columnIndex + 1));
-      if (rowIndex !== null && rowIndex >= 0) {
-        addAction("Delete row", () => removeTableRow(table, rowIndex), { danger: true });
-      }
-      if (columnIndex !== null && columnIndex >= 0) {
-        addAction("Delete column", () => removeTableColumn(table, columnIndex), { danger: true });
-      }
-      addAction("Delete table", () => removeTable(table), { danger: true });
+      appendDocsContextMenuItems(
+        actions,
+        createWorkspaceDocumentTableMenuItems({
+          canDeleteRow: rowIndex !== null && rowIndex >= 0,
+          canDeleteColumn: columnIndex !== null && columnIndex >= 0
+        }),
+        tableActionMap,
+        { restoreSelectionCommandIds: new Set() }
+      );
     } else if (!mediaTarget) {
       addLabel("Insert");
-      addAction("Checklist", insertChecklist);
-      addAction("Quote", insertQuote);
-      addAction("Divider", insertDivider);
-      addAction("Table", insertTable);
-      addAction("Import image", triggerImageImport);
-      addAction("From URL", insertImageFromUrl);
-      addAction("New section", insertNewSection);
-      addAction("New page", insertPageBreak);
+      appendDocsContextMenuItems(actions, createWorkspaceDocumentInsertMenuItems(), createDocsSharedActionMap(), {
+        restoreSelectionCommandIds: new Set()
+      });
     }
 
     if (mediaTarget && figureTarget) {
@@ -5102,10 +5148,6 @@ function renderMarkdownPreview(
   const executeDocsWorkspaceCommand = (commandId = "", options = {}) =>
     dispatchDocsWorkspaceCommand(commandId, { target: "docs", ...options });
 
-  const createDocsCommandAction = (commandId = "", options = {}) =>
-    () => executeDocsWorkspaceCommand(commandId, options);
-  const docsFormatActionIds = ["bold", "italic", "underline", "strikethrough", "undo", "redo", "clearFormatting"];
-
   const insertChecklist = () => {
     if (!shell) {
       return;
@@ -5402,6 +5444,15 @@ function renderMarkdownPreview(
         span.className = "workspace-docs-menu-label";
         span.textContent = label;
         docsMenuPanel.appendChild(span);
+      };
+
+      const addBoundMenuActions = (items, actionMap, { accentCommandIds = new Set() } = {}) => {
+        bindWorkspaceMenuActions(items, actionMap).forEach((item) => {
+          if (item.separator || item.heading || item.disabled || typeof item.onSelect !== "function") {
+            return;
+          }
+          addMenuAction(item.label, item.onSelect, accentCommandIds.has(item.commandId));
+        });
       };
 
       const addMenuDropdownField = (
@@ -5774,27 +5825,12 @@ function renderMarkdownPreview(
       };
 
       if (menuId === "Structure") {
-        addMenuAction("Text", () => convertActiveBlockTag("p"));
-        addMenuAction("Title", () => convertActiveBlockTag("h1"));
-        addMenuAction("Heading", () => convertActiveBlockTag("h2"));
-        addMenuAction("Subhead", () => convertActiveBlockTag("h3"));
-        addMenuAction("Bullets", () => convertActiveBlockToList(false));
-        addMenuAction("Numbered", () => convertActiveBlockToList(true));
-        addMenuAction("New section", insertNewSection);
-        addMenuAction("New page", insertPageBreak);
+        addBoundMenuActions(createWorkspaceDocumentBlockMenuItems({ includePageBreaks: true }), createDocsSharedActionMap());
         return;
       }
 
       if (menuId === "Format") {
-        bindWorkspaceMenuActions(createWorkspaceCommandMenuItems(docsFormatActionIds), {
-          bold: createDocsCommandAction("bold"),
-          italic: createDocsCommandAction("italic"),
-          underline: createDocsCommandAction("underline"),
-          strikethrough: createDocsCommandAction("strikethrough"),
-          undo: () => runInlineCommand("undo"),
-          redo: () => runInlineCommand("redo"),
-          clearFormatting: createDocsCommandAction("clearFormatting")
-        }).forEach((item) => addMenuAction(item.label, item.onSelect));
+        addBoundMenuActions(createWorkspaceDocumentFormatMenuItems(), createDocsSharedActionMap());
         addMenuAction("En-tetes et pieds de page", toggleDocsHeaderFooter);
         addMenuAction(
           "Numeros de page",
@@ -5871,15 +5907,10 @@ function renderMarkdownPreview(
       }
 
       if (menuId === "Insert") {
-        addMenuAction("Checklist", insertChecklist);
-        addMenuAction("Quote", insertQuote);
-        addMenuAction("Divider", insertDivider);
-        addMenuAction("Table", insertTable);
-        addMenuAction("Import image", triggerImageImport);
-        addMenuAction("Image placeholder", insertImagePlaceholder);
-        addMenuAction("From URL", insertImageFromUrl);
-        addMenuAction("New section", insertNewSection);
-        addMenuAction("Page", insertPageBreak);
+        addBoundMenuActions(
+          createWorkspaceDocumentInsertMenuItems({ includeImagePlaceholder: true, includePageBreaks: true }),
+          createDocsSharedActionMap()
+        );
         if (projectAssets.length) {
           addMenuLabel("Project assets");
           projectAssets.slice(0, 6).forEach((item) => addMenuAction(`Insert ${item.title || item.objectKind || "asset"}`, () => insertProjectAsset(item)));
