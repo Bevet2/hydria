@@ -1,3 +1,47 @@
+import {
+  WORKSPACE_DOCS_HIGHLIGHT_COLOR_OPTIONS,
+  WORKSPACE_DOCS_TEXT_COLOR_OPTIONS,
+  WORKSPACE_DOCUMENT_ALIGNMENT_OPTIONS,
+  WORKSPACE_FONT_FAMILY_OPTIONS,
+  WORKSPACE_STANDARD_COLORS,
+  WORKSPACE_THEME_COLOR_ROWS,
+  WORKSPACE_HORIZONTAL_ALIGNMENT_OPTIONS,
+  WORKSPACE_VERTICAL_ALIGNMENT_OPTIONS,
+  bindWorkspaceMenuActions,
+  closeWorkspaceDropdown,
+  createWorkspaceAlignmentMenuItems,
+  createWorkspaceBorderMenuItems,
+  createWorkspaceClipboardMenuItems,
+  createWorkspaceCommandDispatcher,
+  createWorkspaceCommandMenuItems,
+  createWorkspaceConditionalFormatMenuItems,
+  createWorkspaceColorSwatchButton,
+  createWorkspaceActiveTableMenuItems,
+  createWorkspaceDataCleanupMenuItems,
+  createWorkspaceDataRefreshMenuItems,
+  createWorkspaceDeleteMenuItems,
+  createWorkspaceFontSizeOptions,
+  createWorkspaceFilterMenuItems,
+  createWorkspaceHomeCellsMenuItems,
+  createWorkspaceHomeEditingMenuItems,
+  createWorkspaceInsertMenuItems,
+  createWorkspaceMenuActionButton,
+  createWorkspaceNumberFormatMenuItems,
+  createWorkspacePaletteActionButton,
+  createWorkspaceSelectElement,
+  createWorkspaceSheetFontSizeOptions,
+  createWorkspaceSortFilterMenuItems,
+  createWorkspaceSortMenuItems,
+  createWorkspaceTableContextMenuItems,
+  createWorkspaceValidationMenuItems,
+  getWorkspaceCommandIcon,
+  getWorkspaceCommandLabel,
+  getWorkspaceMenuSubItems,
+  normalizeWorkspaceMenuItems,
+  placeWorkspaceFloatingPanel,
+  toggleWorkspaceDropdown
+} from "./workspaceSharedCommands.js";
+
 function createTextFragment(text = "") {
   const fragment = document.createDocumentFragment();
   const pattern = /(!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)|\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)|`([^`]+)`|\*\*([^*]+)\*\*)/g;
@@ -714,6 +758,10 @@ function normalizeSpreadsheetCellFormat(format = {}) {
   const fontSize = Number(format.fontSize);
   if (Number.isFinite(fontSize)) {
     normalized.fontSize = Math.max(8, Math.min(36, Math.round(fontSize)));
+  }
+  const fontFamily = String(format.fontFamily || "").trim();
+  if (fontFamily) {
+    normalized.fontFamily = fontFamily.slice(0, 160);
   }
   const textColor = normalizeSpreadsheetColor(format.textColor);
   if (textColor) {
@@ -1625,106 +1673,11 @@ function unwrapNodeContents(node) {
 let activeDocumentSearchShortcutCleanup = null;
 
 const PLAIN_URL_PATTERN = /((?:https?:\/\/|www\.)[^\s<]+)/gi;
-const DOCS_TEXT_COLOR_OPTIONS = [
-  { label: "Default", value: "", sample: "#ffffff", outline: "rgba(73, 84, 95, 0.22)" },
-  { label: "White", value: "#ffffff", sample: "#ffffff", outline: "rgba(73, 84, 95, 0.3)" },
-  { label: "Black", value: "#111827", sample: "#111827" },
-  { label: "Slate", value: "#334155", sample: "#334155" },
-  { label: "Gray", value: "#6b7280", sample: "#6b7280" },
-  { label: "Brown", value: "#7c4a21", sample: "#7c4a21" },
-  { label: "Red", value: "#b42318", sample: "#b42318" },
-  { label: "Crimson", value: "#c1121f", sample: "#c1121f" },
-  { label: "Orange", value: "#c2410c", sample: "#c2410c" },
-  { label: "Amber", value: "#b45309", sample: "#b45309" },
-  { label: "Gold", value: "#a16207", sample: "#a16207" },
-  { label: "Olive", value: "#4d7c0f", sample: "#4d7c0f" },
-  { label: "Green", value: "#15803d", sample: "#15803d" },
-  { label: "Emerald", value: "#047857", sample: "#047857" },
-  { label: "Teal", value: "#0f766e", sample: "#0f766e" },
-  { label: "Cyan", value: "#0e7490", sample: "#0e7490" },
-  { label: "Blue", value: "#1d4ed8", sample: "#1d4ed8" },
-  { label: "Indigo", value: "#4338ca", sample: "#4338ca" },
-  { label: "Purple", value: "#7e22ce", sample: "#7e22ce" },
-  { label: "Violet", value: "#6d28d9", sample: "#6d28d9" },
-  { label: "Pink", value: "#be185d", sample: "#be185d" }
-];
-const DOCS_HIGHLIGHT_COLOR_OPTIONS = [
-  { label: "Clear", value: "", sample: "transparent", outline: "rgba(73, 84, 95, 0.22)" },
-  { label: "White", value: "#ffffff", sample: "#ffffff", outline: "rgba(73, 84, 95, 0.3)" },
-  { label: "Yellow", value: "#fff2a8", sample: "#fff2a8" },
-  { label: "Lemon", value: "#fde68a", sample: "#fde68a" },
-  { label: "Peach", value: "#fed7aa", sample: "#fed7aa" },
-  { label: "Orange", value: "#fdba74", sample: "#fdba74" },
-  { label: "Coral", value: "#fca5a5", sample: "#fca5a5" },
-  { label: "Pink", value: "#f9a8d4", sample: "#f9a8d4" },
-  { label: "Rose", value: "#fecdd3", sample: "#fecdd3" },
-  { label: "Lavender", value: "#ddd6fe", sample: "#ddd6fe" },
-  { label: "Lilac", value: "#e9d5ff", sample: "#e9d5ff" },
-  { label: "Sky", value: "#bae6fd", sample: "#bae6fd" },
-  { label: "Blue", value: "#bfdbfe", sample: "#bfdbfe" },
-  { label: "Mint", value: "#bbf7d0", sample: "#bbf7d0" },
-  { label: "Green", value: "#d9f99d", sample: "#d9f99d" },
-  { label: "Sage", value: "#d1fae5", sample: "#d1fae5" },
-  { label: "Stone", value: "#e7e5e4", sample: "#e7e5e4" }
-];
-const DOCS_FONT_FAMILY_OPTIONS = [
-  { label: "Default font", value: "" },
-  { label: "Arial", value: "Arial, sans-serif" },
-  { label: "Calibri", value: "Calibri, Candara, Segoe, \"Segoe UI\", Optima, Arial, sans-serif" },
-  { label: "Cambria", value: "Cambria, Georgia, serif" },
-  { label: "Candara", value: "Candara, Calibri, Segoe, \"Segoe UI\", sans-serif" },
-  { label: "Century Gothic", value: "\"Century Gothic\", Futura, Arial, sans-serif" },
-  { label: "Consolas", value: "Consolas, \"Courier New\", monospace" },
-  { label: "Courier New", value: "\"Courier New\", Courier, monospace" },
-  { label: "Franklin Gothic", value: "\"Franklin Gothic Medium\", \"Arial Narrow\", Arial, sans-serif" },
-  { label: "Garamond", value: "Garamond, Baskerville, \"Times New Roman\", serif" },
-  { label: "Georgia", value: "Georgia, serif" },
-  { label: "Helvetica", value: "Helvetica, Arial, sans-serif" },
-  { label: "IBM Plex Sans", value: "\"IBM Plex Sans\", sans-serif" },
-  { label: "Impact", value: "Impact, Haettenschweiler, \"Arial Narrow Bold\", sans-serif" },
-  { label: "Lucida Sans", value: "\"Lucida Sans Unicode\", \"Lucida Grande\", sans-serif" },
-  { label: "Palatino", value: "\"Palatino Linotype\", Palatino, \"Book Antiqua\", serif" },
-  { label: "Segoe UI", value: "\"Segoe UI\", Tahoma, Geneva, Verdana, sans-serif" },
-  { label: "Tahoma", value: "Tahoma, Geneva, Verdana, sans-serif" },
-  { label: "Times New Roman", value: "\"Times New Roman\", Times, serif" },
-  { label: "Trebuchet MS", value: "\"Trebuchet MS\", Helvetica, sans-serif" },
-  { label: "Verdana", value: "Verdana, Geneva, sans-serif" }
-];
-const DOCS_FONT_SIZE_OPTIONS = [
-  { label: "Auto size", value: "" },
-  { label: "8", value: "8px" },
-  { label: "9", value: "9px" },
-  { label: "10", value: "10px" },
-  { label: "11", value: "11px" },
-  { label: "12", value: "12px" },
-  { label: "13", value: "13px" },
-  { label: "14", value: "14px" },
-  { label: "15", value: "15px" },
-  { label: "16", value: "16px" },
-  { label: "17", value: "17px" },
-  { label: "18", value: "18px" },
-  { label: "20", value: "20px" },
-  { label: "22", value: "22px" },
-  { label: "24", value: "24px" },
-  { label: "26", value: "26px" },
-  { label: "28", value: "28px" },
-  { label: "30", value: "30px" },
-  { label: "32", value: "32px" },
-  { label: "36", value: "36px" },
-  { label: "40", value: "40px" },
-  { label: "48", value: "48px" },
-  { label: "54", value: "54px" },
-  { label: "60", value: "60px" },
-  { label: "72", value: "72px" },
-  { label: "84", value: "84px" },
-  { label: "96", value: "96px" }
-];
-const DOCS_ALIGNMENT_OPTIONS = [
-  { label: "Left align", value: "left" },
-  { label: "Center align", value: "center" },
-  { label: "Right align", value: "right" },
-  { label: "Justify", value: "justify" }
-];
+const DOCS_TEXT_COLOR_OPTIONS = WORKSPACE_DOCS_TEXT_COLOR_OPTIONS;
+const DOCS_HIGHLIGHT_COLOR_OPTIONS = WORKSPACE_DOCS_HIGHLIGHT_COLOR_OPTIONS;
+const DOCS_FONT_FAMILY_OPTIONS = WORKSPACE_FONT_FAMILY_OPTIONS;
+const DOCS_FONT_SIZE_OPTIONS = createWorkspaceFontSizeOptions({ includeAuto: true, unit: "px" });
+const DOCS_ALIGNMENT_OPTIONS = WORKSPACE_DOCUMENT_ALIGNMENT_OPTIONS;
 
 function shouldLinkifyOnBreak(event) {
   return ["insertParagraph", "insertLineBreak"].includes(String(event?.inputType || ""));
@@ -4473,13 +4426,13 @@ function renderMarkdownPreview(
 
     if (editableTarget || selectionActive) {
       addLabel("Text");
-      addAction("Bold", () => runInlineCommandFromContextMenu("bold", () => toggleActiveBlockStyle("fontWeight", "700", "")), {
+      addAction(getWorkspaceCommandLabel("bold"), () => executeDocsWorkspaceCommand("bold", { fromContextMenu: true }), {
         restoreSelection: true
       });
-      addAction("Italic", () => runInlineCommandFromContextMenu("italic", () => toggleActiveBlockStyle("fontStyle", "italic", "")), {
+      addAction(getWorkspaceCommandLabel("italic"), () => executeDocsWorkspaceCommand("italic", { fromContextMenu: true }), {
         restoreSelection: true
       });
-      addAction("Underline", () => runInlineCommandFromContextMenu("underline", toggleActiveBlockUnderline), {
+      addAction(getWorkspaceCommandLabel("underline"), () => executeDocsWorkspaceCommand("underline", { fromContextMenu: true }), {
         restoreSelection: true
       });
       addAction("Text", () => convertActiveBlockTag("p"));
@@ -4488,8 +4441,8 @@ function renderMarkdownPreview(
       addAction("Subhead", () => convertActiveBlockTag("h3"));
       addAction("Bullets", () => convertActiveBlockToList(false));
       addAction("Numbered", () => convertActiveBlockToList(true));
-      addAction("Left align", () => applyBlockAlignment("left"));
-      addAction("Center align", () => applyBlockAlignment("center"));
+      addAction(getWorkspaceCommandLabel("alignLeft"), () => executeDocsWorkspaceCommand("alignLeft"));
+      addAction(getWorkspaceCommandLabel("alignCenter"), () => executeDocsWorkspaceCommand("alignCenter"));
       addLabel("Size");
       [
         ["Auto size", ""],
@@ -4499,7 +4452,7 @@ function renderMarkdownPreview(
         ["18", "18px"],
         ["24", "24px"],
         ["32", "32px"]
-      ].forEach(([label, value]) => addAction(label, () => applyBlockFontSize(value)));
+      ].forEach(([label, value]) => addAction(label, () => executeDocsWorkspaceCommand("fontSize", { value })));
     }
 
     if (table) {
@@ -5075,6 +5028,73 @@ function renderMarkdownPreview(
     updateDocsToolbarStatus("Saved automatically");
   };
 
+  const createDocsWorkspaceCommandAdapter = () => ({
+      bold: (_command, { fromContextMenu = false } = {}) => {
+        const fallback = () => toggleActiveBlockStyle("fontWeight", "700", "");
+        if (fromContextMenu) {
+          runInlineCommandFromContextMenu("bold", fallback);
+          return;
+        }
+        runInlineCommand("bold");
+      },
+      italic: (_command, { fromContextMenu = false } = {}) => {
+        const fallback = () => toggleActiveBlockStyle("fontStyle", "italic", "");
+        if (fromContextMenu) {
+          runInlineCommandFromContextMenu("italic", fallback);
+          return;
+        }
+        runInlineCommand("italic");
+      },
+      underline: (_command, { fromContextMenu = false } = {}) => {
+        if (fromContextMenu) {
+          runInlineCommandFromContextMenu("underline", toggleActiveBlockUnderline);
+          return;
+        }
+        runInlineCommand("underline");
+      },
+      strikethrough: () => {
+        runInlineCommandWithSelection("strikeThrough", null, toggleActiveBlockStrikethrough, "Strikethrough updated");
+      },
+      fontSize: (_command, { value = "" } = {}) => {
+        applyBlockFontSize(value);
+      },
+      fontFamily: (_command, { value = "" } = {}) => {
+        applyBlockFontFamily(value);
+      },
+      textColor: (_command, { value = "" } = {}) => {
+        if (value) {
+          runInlineCommandWithSelection("foreColor", value, () => applyBlockTextColor(value), "Text color updated");
+          return;
+        }
+        applyBlockTextColor("");
+      },
+      highlightColor: (_command, { value = "" } = {}) => {
+        if (value) {
+          runInlineCommandWithSelection("hiliteColor", value, () => applyBlockHighlightColor(value), "Highlight updated");
+          return;
+        }
+        applyBlockHighlightColor("");
+      },
+      alignLeft: () => applyBlockAlignment("left"),
+      alignCenter: () => applyBlockAlignment("center"),
+      alignRight: () => applyBlockAlignment("right"),
+      alignJustify: () => applyBlockAlignment("justify"),
+      clearFormatting: () => {
+        runInlineCommandWithSelection("removeFormat", null, resetActiveBlockFormatting, "Formatting reset");
+      }
+  });
+
+  const dispatchDocsWorkspaceCommand = createWorkspaceCommandDispatcher({
+    docs: createDocsWorkspaceCommandAdapter()
+  });
+
+  const executeDocsWorkspaceCommand = (commandId = "", options = {}) =>
+    dispatchDocsWorkspaceCommand(commandId, { target: "docs", ...options });
+
+  const createDocsCommandAction = (commandId = "", options = {}) =>
+    () => executeDocsWorkspaceCommand(commandId, options);
+  const docsFormatActionIds = ["bold", "italic", "underline", "strikethrough", "undo", "redo", "clearFormatting"];
+
   const insertChecklist = () => {
     if (!shell) {
       return;
@@ -5345,22 +5365,24 @@ function renderMarkdownPreview(
       const menuDropdownRegistry = [];
 
       const addMenuAction = (label, onClick, accent = false, { closeOnClick = true } = {}) => {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = `workspace-docs-menu-action${accent ? " accent" : ""}`;
-        button.textContent = label;
+        const button = createWorkspaceMenuActionButton(
+          { label },
+          {
+            actionClassName: `workspace-docs-menu-action${accent ? " accent" : ""}`,
+            onClick: async () => {
+              try {
+                await onClick?.();
+              } catch (error) {
+                console.error(error);
+                updateDocsToolbarStatus(error?.message || "Action unavailable");
+              }
+              if (closeOnClick) {
+                renderDocsMenu("");
+              }
+            }
+          }
+        );
         preserveDocsSelectionOnPointerDown(button);
-        button.addEventListener("click", async () => {
-          try {
-            await onClick?.();
-          } catch (error) {
-            console.error(error);
-            updateDocsToolbarStatus(error?.message || "Action unavailable");
-          }
-          if (closeOnClick) {
-            renderDocsMenu("");
-          }
-        });
         docsMenuPanel.appendChild(button);
       };
 
@@ -5401,8 +5423,7 @@ function renderMarkdownPreview(
         dropdown.className = "workspace-docs-menu-dropdown hidden";
 
         const closeDropdown = () => {
-          dropdown.classList.add("hidden");
-          toggle.setAttribute("aria-expanded", "false");
+          closeWorkspaceDropdown(dropdown, toggle);
         };
 
         const syncToggleLabel = () => {
@@ -5413,16 +5434,7 @@ function renderMarkdownPreview(
           toggle.textContent = nextLabel;
         };
 
-        toggle.addEventListener("click", () => {
-          const willOpen = dropdown.classList.contains("hidden");
-          menuDropdownRegistry.forEach((entry) => {
-            if (entry.dropdown !== dropdown) {
-              entry.close();
-            }
-          });
-          dropdown.classList.toggle("hidden", !willOpen);
-          toggle.setAttribute("aria-expanded", willOpen ? "true" : "false");
-        });
+        toggle.addEventListener("click", () => toggleWorkspaceDropdown(dropdown, toggle, menuDropdownRegistry));
 
         options.forEach((item) => {
           const optionButton = document.createElement("button");
@@ -5552,48 +5564,25 @@ function renderMarkdownPreview(
         palette.className = "workspace-docs-color-palette hidden";
 
         const closePalette = () => {
-          palette.classList.add("hidden");
-          toggle.setAttribute("aria-expanded", "false");
+          closeWorkspaceDropdown(palette, toggle);
         };
 
-        toggle.addEventListener("click", () => {
-          const willOpen = palette.classList.contains("hidden");
-          menuDropdownRegistry.forEach((entry) => {
-            if (entry.dropdown !== palette) {
-              entry.close();
-            }
-          });
-          palette.classList.toggle("hidden", !willOpen);
-          toggle.setAttribute("aria-expanded", willOpen ? "true" : "false");
-        });
+        toggle.addEventListener("click", () => toggleWorkspaceDropdown(palette, toggle, menuDropdownRegistry));
 
         options.forEach((item) => {
-          const button = document.createElement("button");
-          button.type = "button";
-          button.className = "workspace-docs-color-swatch";
-          button.title = item.label;
-          button.setAttribute("aria-label", item.label);
-          preserveDocsSelectionOnPointerDown(button);
-          if (item.value) {
-            button.style.background = item.sample || item.value || "transparent";
-          }
-          if (item.outline) {
-            button.style.borderColor = item.outline;
-          }
-          if (!item.value) {
-            button.classList.add("is-clear");
-          }
-
-          button.addEventListener("click", async () => {
-            try {
-              await onSelect?.(item);
-            } catch (error) {
-              console.error(error);
-              updateDocsToolbarStatus(error?.message || "Action unavailable");
+          const button = createWorkspaceColorSwatchButton(item, {
+            className: "workspace-docs-color-swatch",
+            onSelect: async (selectedItem) => {
+              try {
+                await onSelect?.(selectedItem);
+              } catch (error) {
+                console.error(error);
+                updateDocsToolbarStatus(error?.message || "Action unavailable");
+              }
+              closePalette();
             }
-            closePalette();
           });
-
+          preserveDocsSelectionOnPointerDown(button);
           palette.appendChild(button);
         });
 
@@ -5786,15 +5775,15 @@ function renderMarkdownPreview(
       }
 
       if (menuId === "Format") {
-        addMenuAction("Bold", () => runInlineCommand("bold"));
-        addMenuAction("Italic", () => runInlineCommand("italic"));
-        addMenuAction("Underline", () => runInlineCommand("underline"));
-        addMenuAction("Strikethrough", () =>
-          runInlineCommandWithSelection("strikeThrough", null, toggleActiveBlockStrikethrough, "Strikethrough updated"));
-        addMenuAction("Undo", () => runInlineCommand("undo"));
-        addMenuAction("Redo", () => runInlineCommand("redo"));
-        addMenuAction("Clear formatting", () =>
-          runInlineCommandWithSelection("removeFormat", null, resetActiveBlockFormatting, "Formatting reset"));
+        bindWorkspaceMenuActions(createWorkspaceCommandMenuItems(docsFormatActionIds), {
+          bold: createDocsCommandAction("bold"),
+          italic: createDocsCommandAction("italic"),
+          underline: createDocsCommandAction("underline"),
+          strikethrough: createDocsCommandAction("strikethrough"),
+          undo: () => runInlineCommand("undo"),
+          redo: () => runInlineCommand("redo"),
+          clearFormatting: createDocsCommandAction("clearFormatting")
+        }).forEach((item) => addMenuAction(item.label, item.onSelect));
         addMenuAction("En-tetes et pieds de page", toggleDocsHeaderFooter);
         addMenuAction(
           "Numeros de page",
@@ -5806,9 +5795,9 @@ function renderMarkdownPreview(
         );
         addMenuAction("Orientation de la page", toggleDocsPageOrientation);
         addMenuDropdownField(
-          "Font",
+          getWorkspaceCommandLabel("fontFamily"),
           DOCS_FONT_FAMILY_OPTIONS,
-          (item) => applyBlockFontFamily(item?.value || ""),
+          (item) => executeDocsWorkspaceCommand("fontFamily", { value: item?.value || "" }),
           {
             placeholder: "Choose font",
             initialValue: getDocsCurrentFormattingState().fontFamilyLabel,
@@ -5822,9 +5811,9 @@ function renderMarkdownPreview(
           }
         );
         addMenuDropdownField(
-          "Size",
+          getWorkspaceCommandLabel("fontSize"),
           DOCS_FONT_SIZE_OPTIONS,
-          (item, rawValue) => applyBlockFontSize(item?.value || rawValue || ""),
+          (item, rawValue) => executeDocsWorkspaceCommand("fontSize", { value: item?.value || rawValue || "" }),
           {
             placeholder: "Choose size",
             initialValue: getDocsCurrentFormattingState().fontSizeLabel,
@@ -5837,38 +5826,22 @@ function renderMarkdownPreview(
             }
           }
         );
-        addMenuDropdownField("Alignment", DOCS_ALIGNMENT_OPTIONS, (item) => applyBlockAlignment(item?.value || "left"), {
+        addMenuDropdownField("Alignment", DOCS_ALIGNMENT_OPTIONS, (item) => executeDocsWorkspaceCommand(item?.commandId || "alignLeft"), {
           placeholder: "Choose alignment",
           initialValue: "Alignment",
           getCurrentValue: () => "Alignment"
         });
         addMenuColorPaletteField(
-          "Text color",
+          getWorkspaceCommandLabel("textColor"),
           DOCS_TEXT_COLOR_OPTIONS,
-          (item) =>
-            item?.value
-              ? runInlineCommandWithSelection(
-                  "foreColor",
-                  item.value,
-                  () => applyBlockTextColor(item.value),
-                  "Text color updated"
-                )
-              : applyBlockTextColor(""),
-          "Text color"
+          (item) => executeDocsWorkspaceCommand("textColor", { value: item?.value || "" }),
+          getWorkspaceCommandLabel("textColor")
         );
         addMenuColorPaletteField(
-          "Highlight",
+          getWorkspaceCommandLabel("highlightColor"),
           DOCS_HIGHLIGHT_COLOR_OPTIONS,
-          (item) =>
-            item?.value
-              ? runInlineCommandWithSelection(
-                  "hiliteColor",
-                  item.value,
-                  () => applyBlockHighlightColor(item.value),
-                  "Highlight updated"
-                )
-              : applyBlockHighlightColor(""),
-          "Highlight color"
+          (item) => executeDocsWorkspaceCommand("highlightColor", { value: item?.value || "" }),
+          getWorkspaceCommandLabel("highlightColor")
         );
         if (menuFieldSyncHandlers.length) {
           const syncMenuFields = () => {
@@ -9981,6 +9954,51 @@ function renderSpreadsheetClonePreview(
     }));
   };
 
+  const createSheetWorkspaceCommandAdapter = () => ({
+      bold: () => toggleSelectedTextStyle("bold"),
+      italic: () => toggleSelectedTextStyle("italic"),
+      underline: () => toggleSelectedTextStyle("underline"),
+      fontSize: (_command, { value = null, delta = null } = {}) => {
+        const numericDelta = Number(delta);
+        if (Number.isFinite(numericDelta) && numericDelta !== 0) {
+          adjustSelectedFontSize(numericDelta);
+          return;
+        }
+        const numericValue = Number(value);
+        if (Number.isFinite(numericValue)) {
+          setSelectedFontSize(numericValue);
+        }
+      },
+      fontFamily: (_command, { value = "" } = {}) => {
+        setSelectedFontFamily(value);
+      },
+      textColor: (_command, { value = "" } = {}) => {
+        setSelectedTextColor(value);
+      },
+      fillColor: (_command, { value = "" } = {}) => {
+        setSelectedFillColor(value);
+      },
+      alignLeft: () => setSelectedHorizontalAlign("left"),
+      alignCenter: () => setSelectedHorizontalAlign("center"),
+      alignRight: () => setSelectedHorizontalAlign("right"),
+      alignTop: () => setSelectedVerticalAlign("top"),
+      alignMiddle: () => setSelectedVerticalAlign("middle"),
+      alignBottom: () => setSelectedVerticalAlign("bottom"),
+      clearFormatting: () => {
+        clearSelectedFormatting();
+      }
+  });
+
+  const dispatchSheetWorkspaceCommand = createWorkspaceCommandDispatcher({
+    sheets: createSheetWorkspaceCommandAdapter()
+  });
+
+  const executeSheetWorkspaceCommand = (commandId = "", options = {}) =>
+    dispatchSheetWorkspaceCommand(commandId, { target: "sheets", ...options });
+
+  const createSheetCommandAction = (commandId = "", options = {}) =>
+    () => executeSheetWorkspaceCommand(commandId, options);
+
   const setSelectedHorizontalAlign = (alignment = "") => {
     updateSelectedCellFormats((currentFormat) => {
       const nextFormat = { ...currentFormat };
@@ -10010,6 +10028,19 @@ function renderSpreadsheetClonePreview(
       ...currentFormat,
       fontSize
     }));
+  };
+
+  const setSelectedFontFamily = (fontFamily = "") => {
+    updateSelectedCellFormats((currentFormat) => {
+      const nextFormat = { ...currentFormat };
+      const normalizedFontFamily = String(fontFamily || "").trim();
+      if (normalizedFontFamily) {
+        nextFormat.fontFamily = normalizedFontFamily;
+      } else {
+        delete nextFormat.fontFamily;
+      }
+      return nextFormat;
+    });
   };
 
   const getActiveSelectionFontSizeValue = () => {
@@ -10711,6 +10742,7 @@ function renderSpreadsheetClonePreview(
     input.style.textDecoration = format.underline ? "underline" : "";
     input.style.textAlign = format.horizontalAlign || "";
     input.style.fontSize = format.fontSize ? `${format.fontSize}px` : "";
+    input.style.fontFamily = format.fontFamily || "";
     input.style.setProperty("--sheet-cell-color", conditionalFormat?.textColor || format.textColor || structuralColor);
     input.style.setProperty("--sheet-cell-fill", conditionalFormat?.fillColor || format.fillColor || structuralFill);
     input.style.backgroundImage = sparklineBackground ? sparklineBackground : "";
@@ -16601,6 +16633,7 @@ function renderSpreadsheetClonePreview(
     cell.style.fontStyle = format.italic ? "italic" : "";
     cell.style.textDecoration = format.underline ? "underline" : "";
     cell.style.textAlign = format.horizontalAlign || "";
+    cell.style.fontFamily = format.fontFamily || "";
     cell.style.verticalAlign =
       format.verticalAlign === "middle" ? "middle" : format.verticalAlign === "bottom" ? "bottom" : "top";
     if (format.fontSize) {
@@ -17877,12 +17910,16 @@ function renderSpreadsheetClonePreview(
         ];
       case "Edit":
         return [
-          { label: "Undo", onSelect: undoSpreadsheetAction },
-          { label: "Redo", onSelect: redoSpreadsheetAction },
+          ...bindWorkspaceMenuActions(createWorkspaceCommandMenuItems(["undo", "redo"]), {
+            undo: undoSpreadsheetAction,
+            redo: redoSpreadsheetAction
+          }),
           { separator: true },
-          { label: "Cut", onSelect: () => cutSelectedCells() },
-          { label: "Copy", onSelect: () => copySelectedCells() },
-          { label: "Paste", onSelect: () => pasteFromClipboard() },
+          ...bindWorkspaceMenuActions(createWorkspaceClipboardMenuItems(), {
+            cut: () => cutSelectedCells(),
+            copy: () => copySelectedCells(),
+            paste: () => pasteFromClipboard()
+          }),
           { separator: true },
           { label: "Find", onSelect: () => openFindReplaceBar() },
           { label: "Replace", onSelect: () => openFindReplaceBar({ showReplace: true }) },
@@ -17967,31 +18004,35 @@ function renderSpreadsheetClonePreview(
         ];
       case "Format":
         return [
-          { label: "Bold", onSelect: () => toggleSelectedTextStyle("bold") },
-          { label: "Italic", onSelect: () => toggleSelectedTextStyle("italic") },
-          { label: "Underline", onSelect: () => toggleSelectedTextStyle("underline") },
+          { label: getWorkspaceCommandLabel("bold"), icon: "bold", onSelect: () => executeSheetWorkspaceCommand("bold") },
+          { label: getWorkspaceCommandLabel("italic"), icon: "italic", onSelect: () => executeSheetWorkspaceCommand("italic") },
+          { label: getWorkspaceCommandLabel("underline"), icon: "underline", onSelect: () => executeSheetWorkspaceCommand("underline") },
           { separator: true },
-          { label: "Number", onSelect: () => setSelectedRangeFormat("number") },
-          { label: "Currency", onSelect: () => setSelectedRangeFormat("currency") },
-          { label: "Percent", onSelect: () => setSelectedRangeFormat("percent") },
-          { label: "Date", onSelect: () => setSelectedRangeFormat("date") },
+          { label: getWorkspaceCommandLabel("number"), icon: "number", onSelect: () => setSelectedRangeFormat("number") },
+          { label: getWorkspaceCommandLabel("currency"), icon: "currency", onSelect: () => setSelectedRangeFormat("currency") },
+          { label: getWorkspaceCommandLabel("percent"), icon: "percent", onSelect: () => setSelectedRangeFormat("percent") },
+          { label: getWorkspaceCommandLabel("date"), icon: "calendar", onSelect: () => setSelectedRangeFormat("date") },
           { label: "Clear number format", onSelect: () => setSelectedRangeFormat("") },
           { separator: true },
-          { label: "Align left", onSelect: () => setSelectedHorizontalAlign("left") },
-          { label: "Align center", onSelect: () => setSelectedHorizontalAlign("center") },
-          { label: "Align right", onSelect: () => setSelectedHorizontalAlign("right") },
-          { label: "Align top", onSelect: () => setSelectedVerticalAlign("top") },
-          { label: "Align middle", onSelect: () => setSelectedVerticalAlign("middle") },
-          { label: "Align bottom", onSelect: () => setSelectedVerticalAlign("bottom") },
+          ...WORKSPACE_HORIZONTAL_ALIGNMENT_OPTIONS.map((option) => ({
+            label: `Align ${String(option.label || "").toLowerCase()}`,
+            icon: option.icon,
+            onSelect: () => executeSheetWorkspaceCommand(option.commandId)
+          })),
+          ...WORKSPACE_VERTICAL_ALIGNMENT_OPTIONS.map((option) => ({
+            label: `Align ${String(option.label || "").toLowerCase()}`,
+            icon: option.icon,
+            onSelect: () => executeSheetWorkspaceCommand(option.commandId)
+          })),
           { separator: true },
-          { label: "Font size +", onSelect: () => adjustSelectedFontSize(1) },
-          { label: "Font size -", onSelect: () => adjustSelectedFontSize(-1) },
-          { label: "Text black", onSelect: () => setSelectedTextColor("#202124") },
-          { label: "Text red", onSelect: () => setSelectedTextColor("#c5221f") },
-          { label: "Text blue", onSelect: () => setSelectedTextColor("#1a73e8") },
-          { label: "Fill yellow", onSelect: () => setSelectedFillColor("#fff2cc") },
-          { label: "Fill green", onSelect: () => setSelectedFillColor("#d9ead3") },
-          { label: "Fill blue", onSelect: () => setSelectedFillColor("#d9eaf7") },
+          { label: `${getWorkspaceCommandLabel("fontSize")} +`, icon: "text", onSelect: () => executeSheetWorkspaceCommand("fontSize", { delta: 1 }) },
+          { label: `${getWorkspaceCommandLabel("fontSize")} -`, icon: "text", onSelect: () => executeSheetWorkspaceCommand("fontSize", { delta: -1 }) },
+          { label: "Text black", icon: "textColor", onSelect: () => executeSheetWorkspaceCommand("textColor", { value: "#202124" }) },
+          { label: "Text red", icon: "textColor", onSelect: () => executeSheetWorkspaceCommand("textColor", { value: "#c5221f" }) },
+          { label: "Text blue", icon: "textColor", onSelect: () => executeSheetWorkspaceCommand("textColor", { value: "#1a73e8" }) },
+          { label: "Fill yellow", icon: "fill", onSelect: () => executeSheetWorkspaceCommand("fillColor", { value: "#fff2cc" }) },
+          { label: "Fill green", icon: "fill", onSelect: () => executeSheetWorkspaceCommand("fillColor", { value: "#d9ead3" }) },
+          { label: "Fill blue", icon: "fill", onSelect: () => executeSheetWorkspaceCommand("fillColor", { value: "#d9eaf7" }) },
           { separator: true },
           ...buildConditionalFormatMenuItems(),
           { separator: true },
@@ -18003,7 +18044,7 @@ function renderSpreadsheetClonePreview(
           { label: "Merge cells", onSelect: mergeSelectionRange },
           { label: "Unmerge cells", onSelect: unmergeSelectionRange },
           { separator: true },
-          { label: "Clear all formatting", onSelect: clearSelectedFormatting }
+          { label: getWorkspaceCommandLabel("clearFormatting"), icon: "eraser", onSelect: () => executeSheetWorkspaceCommand("clearFormatting") }
         ];
       case "Data":
         return [
@@ -18066,7 +18107,8 @@ function renderSpreadsheetClonePreview(
   };
 
   const openSheetFloatingMenu = (items = [], anchorElement = null, options = {}) => {
-    if (!items.length) {
+    const menuItems = normalizeWorkspaceMenuItems(items);
+    if (!menuItems.length) {
       closeSheetMenu();
       return false;
     }
@@ -18081,7 +18123,7 @@ function renderSpreadsheetClonePreview(
       anchorElement.classList.add("is-open");
       sheetMenuAnchors.add(anchorElement);
     }
-    items.forEach((item) => {
+    menuItems.forEach((item) => {
       if (item.heading) {
         const heading = document.createElement("div");
         heading.className = "workspace-sheet-menu-heading";
@@ -18095,46 +18137,33 @@ function renderSpreadsheetClonePreview(
         sheetMenuPanel.appendChild(separator);
         return;
       }
-      const action = document.createElement("button");
-      action.type = "button";
-      action.className = "workspace-sheet-menu-action";
-      const iconName = item.checked ? "check" : (item.icon === null ? "" : item.icon || getSheetCommandIcon(item.label));
-      const actionIcon = iconName
-        ? createSheetIconNode(iconName, {
-            className: "workspace-sheet-menu-action-icon",
-            label: item.label
-          })
-        : document.createElement("span");
-      if (!iconName) {
-        actionIcon.className = "workspace-sheet-menu-action-icon is-empty";
-        actionIcon.setAttribute("aria-hidden", "true");
-      }
-      const actionLabel = document.createElement("span");
-      actionLabel.className = "workspace-sheet-menu-action-label";
-      actionLabel.textContent = item.label;
-      action.append(actionIcon, actionLabel);
-      action.disabled = Boolean(item.disabled);
-      action.addEventListener("click", () => {
-        if (item.disabled) {
-          return;
+      const action = createWorkspaceMenuActionButton(item, {
+        actionClassName: "workspace-sheet-menu-action",
+        iconClassName: "workspace-sheet-menu-action-icon",
+        labelClassName: "workspace-sheet-menu-action-label",
+        createIconNode: createSheetIconNode,
+        resolveIconName: getSheetCommandIcon,
+        onClick: (_event, menuItem, button) => {
+          if (button.disabled) {
+            return;
+          }
+          closeSheetMenu();
+          menuItem.onSelect?.();
         }
-        closeSheetMenu();
-        item.onSelect?.();
       });
       sheetMenuPanel.appendChild(action);
     });
     sheetMenuPanel.hidden = false;
-    const panelWidth = Math.max(190, sheetMenuPanel.offsetWidth || 220);
-    const panelHeight = Math.max(120, sheetMenuPanel.offsetHeight || 240);
-    const hasCursorPosition = Number.isFinite(options.clientX) && Number.isFinite(options.clientY);
-    const buttonRect = anchorElement?.getBoundingClientRect?.() || null;
-    const preferredLeft = hasCursorPosition ? options.clientX : buttonRect?.left || 8;
-    const preferredTop = hasCursorPosition ? options.clientY : (buttonRect?.bottom || 8) + 4;
-    const left = Math.max(8, Math.min(preferredLeft, window.innerWidth - panelWidth - 8));
-    const top = Math.max(8, Math.min(preferredTop, window.innerHeight - panelHeight - 8));
-    sheetMenuPanel.style.left = `${left}px`;
-    sheetMenuPanel.style.top = `${top}px`;
-    sheetMenuPanel.style.maxHeight = `${Math.max(120, window.innerHeight - top - 8)}px`;
+    placeWorkspaceFloatingPanel(sheetMenuPanel, {
+      anchorElement,
+      clientX: options.clientX,
+      clientY: options.clientY,
+      minWidth: 190,
+      fallbackWidth: 220,
+      minHeight: 120,
+      fallbackHeight: 240,
+      minMaxHeight: 120
+    });
     removeSheetMenuOutsidePointerHandler();
     sheetMenuOutsidePointerHandler = (event) => {
       if (!sheetMenuPanel.contains(event.target) && !(anchorElement && anchorElement.contains(event.target))) {
@@ -18309,14 +18338,14 @@ function renderSpreadsheetClonePreview(
 
     sheetMenuPanel.appendChild(panel);
     sheetMenuPanel.hidden = false;
-    const panelWidth = Math.max(280, sheetMenuPanel.offsetWidth || 300);
-    const panelHeight = Math.max(360, sheetMenuPanel.offsetHeight || 420);
-    const buttonRect = anchorElement.getBoundingClientRect();
-    const left = Math.max(8, Math.min(buttonRect.left, window.innerWidth - panelWidth - 8));
-    const top = Math.max(8, Math.min(buttonRect.bottom + 4, window.innerHeight - panelHeight - 8));
-    sheetMenuPanel.style.left = `${left}px`;
-    sheetMenuPanel.style.top = `${top}px`;
-    sheetMenuPanel.style.maxHeight = `${Math.max(260, window.innerHeight - top - 8)}px`;
+    placeWorkspaceFloatingPanel(sheetMenuPanel, {
+      anchorElement,
+      minWidth: 280,
+      fallbackWidth: 300,
+      minHeight: 360,
+      fallbackHeight: 420,
+      minMaxHeight: 260
+    });
     removeSheetMenuOutsidePointerHandler();
     sheetMenuOutsidePointerHandler = (event) => {
       if (!sheetMenuPanel.contains(event.target) && !anchorElement.contains(event.target)) {
@@ -18380,16 +18409,16 @@ function renderSpreadsheetClonePreview(
     });
     sheetMenuPanel.appendChild(gallery);
 
-    const buttonRect = anchorElement.getBoundingClientRect();
     sheetMenuPanel.hidden = false;
-    const panelWidth = Math.max(520, sheetMenuPanel.offsetWidth || 640);
-    const panelHeight = Math.max(320, sheetMenuPanel.offsetHeight || 420);
-    const left = Math.max(8, Math.min(buttonRect.left, window.innerWidth - panelWidth - 8));
-    const top = Math.max(8, Math.min(buttonRect.bottom + 6, window.innerHeight - panelHeight - 8));
-    const maxPanelHeight = Math.max(220, window.innerHeight - top - 8);
-    sheetMenuPanel.style.left = `${left}px`;
-    sheetMenuPanel.style.top = `${top}px`;
-    sheetMenuPanel.style.maxHeight = `${maxPanelHeight}px`;
+    const { maxHeight: maxPanelHeight } = placeWorkspaceFloatingPanel(sheetMenuPanel, {
+      anchorElement,
+      minWidth: 520,
+      fallbackWidth: 640,
+      minHeight: 320,
+      fallbackHeight: 420,
+      offsetY: 6,
+      minMaxHeight: 220
+    });
     gallery.style.maxHeight = `${Math.max(180, maxPanelHeight - 20)}px`;
     removeSheetMenuOutsidePointerHandler();
     sheetMenuOutsidePointerHandler = (event) => {
@@ -18493,79 +18522,7 @@ function renderSpreadsheetClonePreview(
     zoom: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="M16 16l4 4"/><path d="M10.5 7v7"/><path d="M7 10.5h7"/>'
   };
 
-  const getSheetCommandIcon = (label = "") => {
-    const text = String(label || "").trim().toLowerCase();
-    if (!text) {
-      return "";
-    }
-    if (text.includes("more")) return "chevronDown";
-    if (text.includes("axes") || text.includes("axis") || text.includes("axe")) return "axes";
-    if (text.includes("validation") || text.includes("invalid")) return "checkbox";
-    if (text.includes("conditional") || text.includes("conditionnel")) return "palette";
-    if (text.includes("style") || text.includes("couleur") || text.includes("color")) return "palette";
-    if (text === "undo") return "undo";
-    if (text === "redo") return "redo";
-    if (text.includes("refresh") || text.includes("actualiser")) return "refresh";
-    if (text.includes("paste")) return "paste";
-    if (text.includes("cut")) return "cut";
-    if (text.includes("copy")) return "copy";
-    if (text.includes("fill")) return "fill";
-    if (text === "b" || text.includes("bold")) return "bold";
-    if (text === "i" || text.includes("italic")) return "italic";
-    if (text === "u" || text.includes("underline")) return "underline";
-    if (text.includes("border")) return "border";
-    if (text.includes("left")) return text.includes("move") ? "chevronLeft" : "alignLeft";
-    if (text.includes("right")) return text.includes("move") ? "chevronRight" : "alignRight";
-    if (text.includes("center")) return "alignCenter";
-    if (text.includes("middle")) return "alignMiddle";
-    if (text.includes("top")) return "alignTop";
-    if (text.includes("bottom")) return "alignBottom";
-    if (text.includes("merge")) return "merge";
-    if (text.includes("croise") || text.includes("pivot")) return "pivot";
-    if (text.includes("table") || text.includes("tableau")) return "table";
-    if (text.includes("image")) return "image";
-    if (text.includes("shape") || text.includes("forms") || text.includes("forme")) return "shape";
-    if (text.includes("checkbox") || text.includes("case")) return "checkbox";
-    if (text.includes("number") || text === "123") return "number";
-    if (text.includes("text")) return "textColor";
-    if (text.includes("currency") || text === "eur") return "currency";
-    if (text.includes("percent") || text === "%") return "percent";
-    if (text.includes("date") || text.includes("calendar")) return "calendar";
-    if (text.includes("insert") || text.includes("new") || text === "+") return "insert";
-    if (text.includes("clear filter")) return "filterClear";
-    if (text.includes("duplicate") || text.includes("dedupe")) return "duplicate";
-    if (text.includes("delete") || text.includes("remove") || text.includes("clear") || text.includes("effacer")) return "eraser";
-    if (text.includes("area")) return "areaChart";
-    if (text.includes("pie") || text.includes("donut") || text.includes("secteur")) return "pieChart";
-    if (text.includes("line") || text.includes("courbe")) return "lineChart";
-    if (text.includes("bar")) return "barChart";
-    if (text.includes("chart") || text.includes("graph")) return "chart";
-    if (text.includes("slicer")) return "slicer";
-    if (text.includes("filter") || text.includes("filtre")) return "filter";
-    if (text.includes("z-a") || text.includes("desc") || text.includes("grand au plus petit")) return "sortDesc";
-    if (text.includes("a-z") || text.includes("asc") || text.includes("petit au plus grand")) return "sortAsc";
-    if (text.includes("sort") || text.includes("tri") || text.includes("trier")) return "sort";
-    if (text.includes("sum") || text.includes("avg") || text.includes("min") || text.includes("max") || text.includes("count") || text.includes("function") || text.includes("subtotal")) return "function";
-    if (text.includes("lookup") || text.includes("go to") || text.includes("find") || text.includes("search") || text.includes("recherche")) return "search";
-    if (text.includes("protect")) return "lock";
-    if (text.includes("print")) return "print";
-    if (text.includes("pdf")) return "pdf";
-    if (text.includes("xlsx") || text.includes("csv") || text.includes("import") || text.includes("export") || text.includes("download")) return text.includes("csv") ? "csv" : "fileSpreadsheet";
-    if (text.includes("zoom")) return "zoom";
-    if (text.includes("grid")) return "grid";
-    if (text.includes("freeze")) return "freeze";
-    if (text.includes("note")) return "note";
-    if (text.includes("sparkline")) return "sparkline";
-    if (text.includes("sheet")) return "sheet";
-    if (text.includes("name") || text.includes("nom")) return "text";
-    if (text.includes("trim") || text.includes("clean")) return "clean";
-    if (text.includes("split")) return "split";
-    if (text.includes("transpose")) return "transpose";
-    if (text.includes("rename") || text.includes("renommer")) return "rename";
-    if (text.includes("hide") || text.includes("unhide")) return "eyeOff";
-    if (text.includes("move")) return "move";
-    return "sheet";
-  };
+  const getSheetCommandIcon = getWorkspaceCommandIcon;
 
   const createSheetIconNode = (iconName = "", { className = "workspace-sheet-command-icon", label = "" } = {}) => {
     const key = sheetIconSvg[iconName] ? iconName : getSheetCommandIcon(iconName || label);
@@ -18650,47 +18607,27 @@ function renderSpreadsheetClonePreview(
     return button;
   };
   const makeToolbarSelect = (label = "", options = [], onChange = null, { value = "", control = "" } = {}) => {
-    const select = document.createElement("select");
-    select.className = "workspace-sheet-toolbar-select";
-    select.title = label;
-    if (control) {
-      select.dataset.toolbarControl = control;
-    }
-    options.forEach((option) => {
-      const entry = document.createElement("option");
-      entry.value = option.value;
-      entry.textContent = option.label;
-      select.appendChild(entry);
+    return createWorkspaceSelectElement({
+      className: "workspace-sheet-toolbar-select",
+      title: label,
+      options,
+      value,
+      dataset: { toolbarControl: control },
+      onChange: (nextValue) => {
+        onChange?.(nextValue);
+      }
     });
-    if (value && !Array.from(select.options).some((option) => option.value === value)) {
-      const entry = document.createElement("option");
-      entry.value = value;
-      entry.textContent = value;
-      select.appendChild(entry);
-    }
-    select.value = value;
-    select.addEventListener("change", () => {
-      onChange?.(select.value);
-    });
-    return select;
   };
-  const themeColorRows = [
-    ["#ffffff", "#000000", "#e7e6e6", "#44546a", "#4472c4", "#ed7d31", "#a5a5a5", "#ffc000", "#5b9bd5", "#70ad47"],
-    ["#f2f2f2", "#7f7f7f", "#d9d9d9", "#d6dce4", "#d9e2f3", "#fce4d6", "#ededed", "#fff2cc", "#ddebf7", "#e2f0d9"],
-    ["#d9d9d9", "#595959", "#bfbfbf", "#adb9ca", "#b4c6e7", "#f8cbad", "#dbdbdb", "#ffe699", "#bdd7ee", "#c6e0b4"],
-    ["#bfbfbf", "#404040", "#a6a6a6", "#8497b0", "#8eaadb", "#f4b183", "#c9c9c9", "#ffd966", "#9dc3e6", "#a9d18e"],
-    ["#a6a6a6", "#262626", "#808080", "#323e4f", "#2f5597", "#c55a11", "#7f7f7f", "#bf9000", "#2e75b6", "#548235"],
-    ["#808080", "#0d0d0d", "#595959", "#222a35", "#1f3864", "#833c0c", "#595959", "#7f6000", "#1f4e79", "#375623"]
-  ];
-  const standardColors = ["#c00000", "#ff0000", "#ffc000", "#ffff00", "#92d050", "#00b050", "#00b0f0", "#0070c0", "#002060", "#7030a0"];
+  const themeColorRows = WORKSPACE_THEME_COLOR_ROWS;
+  const standardColors = WORKSPACE_STANDARD_COLORS;
   const getActiveTextColorValue = () => getCellFormat(activeSelection.rowIndex, activeSelection.columnIndex).textColor || "#202124";
   const getActiveFillColorValue = () => getCellFormat(activeSelection.rowIndex, activeSelection.columnIndex).fillColor || "";
   const applyToolbarColor = (kind = "text", color = "") => {
     if (kind === "fill") {
-      setSelectedFillColor(color);
+      executeSheetWorkspaceCommand("fillColor", { value: color });
       return;
     }
-    setSelectedTextColor(color);
+    executeSheetWorkspaceCommand("textColor", { value: color });
   };
   const getToolbarColorValue = (kind = "text") =>
     kind === "fill" ? getActiveFillColorValue() : getActiveTextColorValue();
@@ -18765,29 +18702,22 @@ function renderSpreadsheetClonePreview(
     openNativeColorPicker(kind, initialColor);
   };
   const makeColorSwatchButton = (color = "", kind = "text") => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "workspace-sheet-color-swatch";
-    button.title = color;
-    button.style.background = color;
-    button.addEventListener("click", () => {
-      applyToolbarColor(kind, color);
-      closeSheetMenu();
+    return createWorkspaceColorSwatchButton(color, {
+      className: "workspace-sheet-color-swatch",
+      onSelect: (item) => {
+        applyToolbarColor(kind, item.value || "");
+        closeSheetMenu();
+      }
     });
-    return button;
   };
   const makeColorPaletteAction = (label = "", icon = "", onSelect = null) => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "workspace-sheet-color-action";
-    const iconNode = document.createElement("span");
-    iconNode.className = "workspace-sheet-color-action-icon";
-    iconNode.textContent = icon;
-    const labelNode = document.createElement("span");
-    labelNode.textContent = label;
-    button.append(iconNode, labelNode);
-    button.addEventListener("click", () => onSelect?.());
-    return button;
+    return createWorkspacePaletteActionButton({
+      label,
+      icon,
+      className: "workspace-sheet-color-action",
+      iconClassName: "workspace-sheet-color-action-icon",
+      onSelect: () => onSelect?.()
+    });
   };
   const openColorPaletteMenu = (kind = "text", anchorElement = null) => {
     if (!anchorElement) {
@@ -18830,16 +18760,14 @@ function renderSpreadsheetClonePreview(
     sheetMenuPanel.append(title, themeGrid, standardTitle, standardGrid, clearAction, customAction, eyedropperAction);
 
     sheetMenuPanel.hidden = false;
-    const panelWidth = Math.max(300, sheetMenuPanel.offsetWidth || 300);
-    const panelHeight = Math.max(280, sheetMenuPanel.offsetHeight || 360);
-    const buttonRect = anchorElement.getBoundingClientRect();
-    const preferredLeft = buttonRect.left;
-    const preferredTop = buttonRect.bottom + 4;
-    const left = Math.max(8, Math.min(preferredLeft, window.innerWidth - panelWidth - 8));
-    const top = Math.max(8, Math.min(preferredTop, window.innerHeight - panelHeight - 8));
-    sheetMenuPanel.style.left = `${left}px`;
-    sheetMenuPanel.style.top = `${top}px`;
-    sheetMenuPanel.style.maxHeight = `${Math.max(160, window.innerHeight - top - 8)}px`;
+    placeWorkspaceFloatingPanel(sheetMenuPanel, {
+      anchorElement,
+      minWidth: 300,
+      fallbackWidth: 300,
+      minHeight: 280,
+      fallbackHeight: 360,
+      minMaxHeight: 160
+    });
     removeSheetMenuOutsidePointerHandler();
     sheetMenuOutsidePointerHandler = (event) => {
       if (!sheetMenuPanel.contains(event.target) && !anchorElement.contains(event.target)) {
@@ -18875,13 +18803,7 @@ function renderSpreadsheetClonePreview(
   };
   const buildFontSizeOptions = () => {
     const activeFontSize = getActiveSelectionFontSizeValue();
-    const fontSizes = ["8", "9", "10", "11", "12", "14", "16", "18", "24", "36"];
-    if (!fontSizes.includes(activeFontSize)) {
-      fontSizes.push(activeFontSize);
-    }
-    return fontSizes
-      .sort((left, right) => Number(left) - Number(right))
-      .map((fontSize) => ({ value: fontSize, label: fontSize }));
+    return createWorkspaceSheetFontSizeOptions(activeFontSize);
   };
   const syncToolbarFormatControls = () => {
     const fontSizeSelect = toolbar.querySelector('[data-toolbar-control="font-size"]');
@@ -19020,71 +18942,60 @@ function renderSpreadsheetClonePreview(
       button.setAttribute("aria-pressed", isActive ? "true" : "false");
     });
   };
-  const buildBorderStyleMenuItems = () =>
-    Object.entries(SPREADSHEET_BORDER_STYLE_LABELS).map(([style, label]) => ({
-      label,
-      icon: "border",
-      onSelect: () => setSelectedBorderStyle(style)
-    }));
-  const buildBorderColorMenuItems = () => [
-    { label: "Noir", icon: "border", onSelect: () => setSelectedBorderColor("#202124") },
-    { label: "Gris", icon: "border", onSelect: () => setSelectedBorderColor("#7f7f7f") },
-    { label: "Bleu", icon: "border", onSelect: () => setSelectedBorderColor("#1a73e8") },
-    { label: "Vert", icon: "border", onSelect: () => setSelectedBorderColor("#188038") },
-    { label: "Rouge", icon: "border", onSelect: () => setSelectedBorderColor("#c5221f") },
-    { label: "Orange", icon: "border", onSelect: () => setSelectedBorderColor("#ed7d31") }
-  ];
-  const buildBorderMenuItems = () => [
-    { label: "Aucune bordure", icon: "eraser", onSelect: () => setSelectedBorder("clear") },
-    { label: "Toutes les bordures", icon: "border", onSelect: () => setSelectedBorder("all") },
-    { label: "Bordures exterieures", icon: "border", onSelect: () => setSelectedBorder("outer") },
-    { label: "Bordures interieures", icon: "border", onSelect: () => setSelectedBorder("inside") },
-    { separator: true },
-    { label: "Bordure superieure", icon: "border", onSelect: () => setSelectedBorder("top") },
-    { label: "Bordure inferieure", icon: "border", onSelect: () => setSelectedBorder("bottom") },
-    { label: "Bordure gauche", icon: "border", onSelect: () => setSelectedBorder("left") },
-    { label: "Bordure droite", icon: "border", onSelect: () => setSelectedBorder("right") },
-    { label: "Bordures horizontales interieures", icon: "border", onSelect: () => setSelectedBorder("insideHorizontal") },
-    { label: "Bordures verticales interieures", icon: "border", onSelect: () => setSelectedBorder("insideVertical") },
-    { separator: true },
-    { label: "Bordure exterieure epaisse", icon: "border", onSelect: () => setSelectedBorder("outer", { style: "thick" }) },
-    { label: "Bordure inferieure double", icon: "border", onSelect: () => setSelectedBorder("bottom", { style: "double" }) },
-    { separator: true },
-    ...buildBorderColorMenuItems(),
-    { separator: true },
-    ...buildBorderStyleMenuItems()
-  ];
-  const buildConditionalFormatMenuItems = () => [
-    { label: "Nouvelle regle...", icon: "palette", onSelect: () => openConditionalFormatRuleDialog() },
-    { separator: true },
-    { label: "Superieur a...", icon: "sortAsc", onSelect: () => addConditionalFormatRuleToSelection("greaterThan", { preset: "red" }) },
-    { label: "Inferieur a...", icon: "sortDesc", onSelect: () => addConditionalFormatRuleToSelection("lessThan", { preset: "red" }) },
-    { label: "Entre...", icon: "number", onSelect: () => addConditionalFormatRuleToSelection("between", { preset: "yellow" }) },
-    { label: "Egal a...", icon: "checkbox", onSelect: () => addConditionalFormatRuleToSelection("equal", { preset: "green" }) },
-    { label: "Texte qui contient...", icon: "text", onSelect: () => addConditionalFormatRuleToSelection("textContains", { preset: "yellow" }) },
-    { label: "Valeurs en double", icon: "duplicate", onSelect: () => addConditionalFormatRuleToSelection("duplicate", { preset: "red" }) },
-    { separator: true },
-    { label: "Effacer les regles de la selection", icon: "eraser", onSelect: clearSelectedConditionalFormats },
-    { label: "Gerer les regles", icon: "palette", onSelect: showConditionalFormatSummary }
-  ];
-  const buildNumberFormatMenuItems = () => [
-    { label: "Number", onSelect: () => setSelectedRangeFormat("number") },
-    { label: "Currency", onSelect: () => setSelectedRangeFormat("currency") },
-    { label: "Percent", onSelect: () => setSelectedRangeFormat("percent") },
-    { label: "Date", onSelect: () => setSelectedRangeFormat("date") },
-    { separator: true },
-    { label: "Clear number format", onSelect: () => setSelectedRangeFormat("") }
-  ];
-  const buildInsertMenuItems = () => [
-    { label: "Row above", onSelect: () => insertRowAtSelection(0) },
-    { label: "Row below", onSelect: () => insertRowAtSelection(1) },
-    { label: "Column left", onSelect: () => insertColumnAtSelection(0) },
-    { label: "Column right", onSelect: () => insertColumnAtSelection(1) }
-  ];
-  const buildDeleteMenuItems = () => [
-    { label: "Delete row", onSelect: deleteActiveRow },
-    { label: "Delete column", onSelect: deleteActiveColumn }
-  ];
+  const sheetBorderActions = {
+    border: (item) => setSelectedBorder(item.value, item.options || {}),
+    borderColor: (item) => setSelectedBorderColor(item.value),
+    borderStyle: (item) => setSelectedBorderStyle(item.value)
+  };
+  const buildBorderMenuItems = () =>
+    bindWorkspaceMenuActions(
+      createWorkspaceBorderMenuItems({
+        includeColorItems: true,
+        includeStyleItems: true,
+        styleLabels: SPREADSHEET_BORDER_STYLE_LABELS
+      }),
+      sheetBorderActions
+    );
+  const sheetConditionalFormatActions = {
+    conditionalNew: () => openConditionalFormatRuleDialog(),
+    conditionalPreset: (item) => addConditionalFormatRuleToSelection(item.value, item.options || {}),
+    conditionalClearSelection: clearSelectedConditionalFormats,
+    conditionalManage: showConditionalFormatSummary
+  };
+  const buildConditionalFormatMenuItems = () =>
+    bindWorkspaceMenuActions(createWorkspaceConditionalFormatMenuItems(), sheetConditionalFormatActions);
+  const sheetTextStyleActions = {
+    bold: createSheetCommandAction("bold"),
+    italic: createSheetCommandAction("italic"),
+    underline: createSheetCommandAction("underline")
+  };
+  const sheetNumberFormatActions = {
+    number: () => setSelectedRangeFormat("number"),
+    currency: () => setSelectedRangeFormat("currency"),
+    percent: () => setSelectedRangeFormat("percent"),
+    date: () => setSelectedRangeFormat("date"),
+    clearNumberFormat: () => setSelectedRangeFormat("")
+  };
+  const buildNumberFormatMenuItems = () =>
+    bindWorkspaceMenuActions(createWorkspaceNumberFormatMenuItems(), sheetNumberFormatActions);
+  const sheetInsertActions = {
+    insertRowAbove: () => insertRowAtSelection(0),
+    insertRowBelow: () => insertRowAtSelection(1),
+    insertColumnLeft: () => insertColumnAtSelection(0),
+    insertColumnRight: () => insertColumnAtSelection(1)
+  };
+  const buildInsertMenuItems = (options = {}) =>
+    bindWorkspaceMenuActions(createWorkspaceInsertMenuItems(options), sheetInsertActions);
+  const buildInsertRowMenuItems = () =>
+    buildInsertMenuItems().filter((item) => ["insertRowAbove", "insertRowBelow"].includes(item.commandId));
+  const buildInsertColumnMenuItems = () =>
+    buildInsertMenuItems().filter((item) => ["insertColumnLeft", "insertColumnRight"].includes(item.commandId));
+  const sheetDeleteActions = {
+    deleteRow: deleteActiveRow,
+    deleteColumn: deleteActiveColumn
+  };
+  const buildDeleteMenuItems = (options = {}) =>
+    bindWorkspaceMenuActions(createWorkspaceDeleteMenuItems(options), sheetDeleteActions);
   const buildMergeMenuItems = () => [
     { label: "Merge cells", onSelect: mergeSelectionRange },
     { label: "Unmerge cells", onSelect: unmergeSelectionRange }
@@ -19108,29 +19019,36 @@ function renderSpreadsheetClonePreview(
     { separator: true },
     { label: "Clear contents", icon: "eraser", onSelect: clearSelectedCells }
   ];
-  const buildHorizontalAlignmentMenuItems = () => [
-    { label: "Left", icon: "alignLeft", onSelect: () => setSelectedHorizontalAlign("left") },
-    { label: "Center", icon: "alignCenter", onSelect: () => setSelectedHorizontalAlign("center") },
-    { label: "Right", icon: "alignRight", onSelect: () => setSelectedHorizontalAlign("right") }
-  ];
-  const buildVerticalAlignmentMenuItems = () => [
-    { label: "Top", icon: "alignTop", onSelect: () => setSelectedVerticalAlign("top") },
-    { label: "Middle", icon: "alignMiddle", onSelect: () => setSelectedVerticalAlign("middle") },
-    { label: "Bottom", icon: "alignBottom", onSelect: () => setSelectedVerticalAlign("bottom") }
-  ];
-  const buildHomeCellsMenuItems = () => [
-    ...buildInsertMenuItems(),
-    { separator: true },
-    ...buildDeleteMenuItems(),
-    { separator: true },
-    { label: "Clear contents", icon: "eraser", onSelect: clearSelectedCells },
-    { label: "Clear format", icon: "eraser", onSelect: clearSelectedFormatting }
-  ];
-  const buildHomeEditingMenuItems = () => [
-    ...buildFindMenuItems(),
-    { separator: true },
-    { label: "Note", icon: "note", onSelect: addOrEditActiveCellNote }
-  ];
+  const buildHorizontalAlignmentMenuItems = () =>
+    bindWorkspaceMenuActions(createWorkspaceAlignmentMenuItems(WORKSPACE_HORIZONTAL_ALIGNMENT_OPTIONS), {
+      alignLeft: createSheetCommandAction("alignLeft"),
+      alignCenter: createSheetCommandAction("alignCenter"),
+      alignRight: createSheetCommandAction("alignRight")
+    });
+  const buildVerticalAlignmentMenuItems = () =>
+    bindWorkspaceMenuActions(createWorkspaceAlignmentMenuItems(WORKSPACE_VERTICAL_ALIGNMENT_OPTIONS), {
+      alignTop: createSheetCommandAction("alignTop"),
+      alignMiddle: createSheetCommandAction("alignMiddle"),
+      alignBottom: createSheetCommandAction("alignBottom")
+    });
+  const buildHomeCellsMenuItems = () =>
+    bindWorkspaceMenuActions(createWorkspaceHomeCellsMenuItems(), {
+      ...sheetInsertActions,
+      ...sheetDeleteActions,
+      clearContents: clearSelectedCells,
+      clearFormatting: createSheetCommandAction("clearFormatting")
+    });
+  const buildHomeEditingMenuItems = () =>
+    bindWorkspaceMenuActions(createWorkspaceHomeEditingMenuItems(), {
+      find: () => openFindReplaceBar(),
+      replace: () => openFindReplaceBar({ showReplace: true }),
+      goToA1: () => focusKeyboardSelection(0, 0),
+      goToLastCell: () => {
+        const lastUsedCell = getLastUsedCell();
+        focusKeyboardSelection(lastUsedCell.rowIndex, lastUsedCell.columnIndex);
+      },
+      note: addOrEditActiveCellNote
+    });
   const getFormulaCategory = (categoryId = "all") =>
     SPREADSHEET_FORMULA_CATEGORIES.find((category) => category.id === categoryId) ||
     SPREADSHEET_FORMULA_CATEGORIES[0];
@@ -19369,61 +19287,72 @@ function renderSpreadsheetClonePreview(
     renderFormulaChoices();
     window.setTimeout(() => searchInput.focus(), 0);
   };
-  const buildSortFilterMenuItems = () => [
-    { label: "Trier A-Z", icon: "sortAsc", onSelect: () => sortActiveColumn("asc") },
-    { label: "Trier Z-A", icon: "sortDesc", onSelect: () => sortActiveColumn("desc") },
-    { separator: true },
-    { label: "Creer un filtre", icon: "filter", onSelect: filterActiveColumn },
-    { label: "Filtrer par valeur selectionnee", icon: "filter", onSelect: filterBySelectedValue },
-    { label: "Effacer le filtre", icon: "filterClear", onSelect: clearActiveFilter }
-  ];
-  const buildFilterMenuItems = () => [
-    { label: "Creer un filtre", icon: "filter", onSelect: filterActiveColumn },
-    { label: "Filtrer par valeur selectionnee", icon: "filter", onSelect: filterBySelectedValue },
-    { label: "Effacer le filtre", icon: "filterClear", onSelect: clearActiveFilter }
-  ];
-  const buildValidationMenuItems = () => [
-    { label: "Validation des donnees", icon: "checkbox", onSelect: addOrEditSelectedDataValidation },
-    { label: "Effacer la validation", icon: "eraser", onSelect: clearSelectedDataValidation },
-    { label: "Entourer les donnees invalides", icon: "checkbox", onSelect: showInvalidDataSummary }
-  ];
-  const buildCleanupMenuItems = () => [
-    { label: "Supprimer les doublons", icon: "duplicate", onSelect: removeDuplicateRows },
-    { label: "Supprimer les espaces", icon: "clean", onSelect: trimSelectedWhitespace },
-    { label: "Nettoyer le texte", icon: "clean", onSelect: cleanSelectedText },
-    { label: "Fractionner le texte en colonnes", icon: "split", onSelect: splitTextToColumns },
-    { label: "Transposer la plage", icon: "transpose", onSelect: transposeSelectionRange }
-  ];
-  const buildDataToolsMenuItems = () => [
-    { label: "Fractionner le texte en colonnes", icon: "split", onSelect: splitTextToColumns },
-    { label: "Supprimer les doublons", icon: "duplicate", onSelect: removeDuplicateRows },
-    { separator: true },
-    { label: "Supprimer les espaces", icon: "clean", onSelect: trimSelectedWhitespace },
-    { label: "Nettoyer le texte", icon: "clean", onSelect: cleanSelectedText },
-    { label: "Transposer la plage", icon: "transpose", onSelect: transposeSelectionRange }
-  ];
-  const buildDataRefreshMenuItems = () => [
-    { label: "Actualiser les tableaux croises", icon: "pivot", onSelect: refreshActivePivotTables, disabled: !getActiveSheetPivotTables().length },
-    { label: "Recalculer les formules", icon: "function", onSelect: recalculateSheet }
-  ];
-  const buildActiveTableDataMenuItems = () => [
-    { label: "Selectionner le tableau", icon: "table", onSelect: () => selectActiveTableRange(), disabled: !getActiveTableForSelection() },
-    { label: "Selectionner les donnees", icon: "table", onSelect: () => selectActiveTableRange({ dataOnly: true }), disabled: !getActiveTableForSelection() },
-    { separator: true },
-    { label: "Renommer le tableau", icon: "rename", onSelect: renameActiveTable, disabled: !getActiveTableForSelection() },
-    { label: "Redimensionner le tableau", icon: "move", onSelect: resizeActiveTable, disabled: !getActiveTableForSelection() },
-    { label: "Convertir en plage", icon: "table", onSelect: removeActiveTable, disabled: !getActiveTableForSelection() },
-    { separator: true },
-    { label: "Ligne des totaux", icon: "function", onSelect: toggleActiveTableTotalRow, disabled: !getActiveTableForSelection() },
-    { label: "Total: somme", icon: "function", onSelect: () => setActiveTableTotalFunction("sum"), disabled: !getActiveTableForSelection() },
-    { label: "Total: moyenne", icon: "function", onSelect: () => setActiveTableTotalFunction("average"), disabled: !getActiveTableForSelection() },
-    { label: "Total: nombre", icon: "function", onSelect: () => setActiveTableTotalFunction("count"), disabled: !getActiveTableForSelection() },
-    { separator: true },
-    { label: "Ligne d'en-tete", icon: "table", onSelect: toggleActiveTableHeaderRow, disabled: !getActiveTableForSelection() },
-    { label: "Boutons de filtre", icon: "filter", onSelect: toggleActiveTableFilterButtons, disabled: !getActiveTableForSelection() },
-    { label: "Lignes a bandes", icon: "table", onSelect: toggleActiveTableBandedRows, disabled: !getActiveTableForSelection() },
-    { label: "Colonnes a bandes", icon: "table", onSelect: toggleActiveTableBandedColumns, disabled: !getActiveTableForSelection() }
-  ];
+  const sheetSortActions = {
+    sortAscending: () => sortActiveColumn("asc"),
+    sortDescending: () => sortActiveColumn("desc")
+  };
+  const sheetFilterActions = {
+    filterCreate: filterActiveColumn,
+    filterBySelection: filterBySelectedValue,
+    filterClear: clearActiveFilter
+  };
+  const buildSortFilterMenuItems = () =>
+    bindWorkspaceMenuActions(createWorkspaceSortFilterMenuItems(), {
+      ...sheetSortActions,
+      ...sheetFilterActions
+    });
+  const buildFilterMenuItems = () =>
+    bindWorkspaceMenuActions(createWorkspaceFilterMenuItems(), sheetFilterActions);
+  const sheetValidationActions = {
+    dataValidation: addOrEditSelectedDataValidation,
+    dataValidationClear: clearSelectedDataValidation,
+    dataValidationInvalidSummary: showInvalidDataSummary
+  };
+  const buildValidationMenuItems = () =>
+    bindWorkspaceMenuActions(createWorkspaceValidationMenuItems(), sheetValidationActions);
+  const sheetDataCleanupActions = {
+    splitTextToColumns,
+    removeDuplicates: removeDuplicateRows,
+    trimWhitespace: trimSelectedWhitespace,
+    cleanText: cleanSelectedText,
+    transposeRange: transposeSelectionRange
+  };
+  const buildDataToolsMenuItems = () =>
+    bindWorkspaceMenuActions(createWorkspaceDataCleanupMenuItems({ toolbar: true }), sheetDataCleanupActions);
+  const sheetDataRefreshActions = {
+    refreshPivotTables: refreshActivePivotTables,
+    recalculate: recalculateSheet
+  };
+  const buildDataRefreshMenuItems = () =>
+    bindWorkspaceMenuActions(
+      createWorkspaceDataRefreshMenuItems({ hasPivotTables: Boolean(getActiveSheetPivotTables().length) }),
+      sheetDataRefreshActions
+    );
+  const sheetTableActions = {
+    selectTable: () => selectActiveTableRange(),
+    selectTableData: () => selectActiveTableRange({ dataOnly: true }),
+    renameTable: renameActiveTable,
+    resizeTable: resizeActiveTable,
+    convertTableToRange: removeActiveTable,
+    toggleTableRange: () => (getActiveTableForSelection() ? removeActiveTable() : createTableFromSelection()),
+    toggleTableTotalRow: toggleActiveTableTotalRow,
+    tableTotalSum: () => setActiveTableTotalFunction("sum"),
+    tableTotalAverage: () => setActiveTableTotalFunction("average"),
+    tableTotalCount: () => setActiveTableTotalFunction("count"),
+    tableTotalNone: () => setActiveTableTotalFunction("none"),
+    toggleTableHeaderRow: toggleActiveTableHeaderRow,
+    toggleTableFilterButtons: toggleActiveTableFilterButtons,
+    toggleTableBandedRows: toggleActiveTableBandedRows,
+    toggleTableBandedColumns: toggleActiveTableBandedColumns,
+    toggleTableFirstColumn: toggleActiveTableFirstColumn,
+    toggleTableLastColumn: toggleActiveTableLastColumn,
+    createPivotTable: createPivotTableFromSelection
+  };
+  const buildActiveTableDataMenuItems = () =>
+    bindWorkspaceMenuActions(
+      createWorkspaceActiveTableMenuItems({ hasTable: Boolean(getActiveTableForSelection()) }),
+      sheetTableActions
+    );
   const buildProtectionMenuItems = () => {
     const activeSheetState = getActiveSheetState();
     const selectionHasProtectedRanges = Boolean(getProtectionConflict(getSelectionBounds())?.ranges?.length);
@@ -19663,14 +19592,8 @@ function renderSpreadsheetClonePreview(
         toolbar.append(
           makeToolbarGroup(
             "Cells",
-            makeToolbarMenuButton("Insert row", () => [
-              { label: "Row above", onSelect: () => insertRowAtSelection(0) },
-              { label: "Row below", onSelect: () => insertRowAtSelection(1) }
-            ], { large: true }),
-            makeToolbarMenuButton("Insert column", () => [
-              { label: "Column left", onSelect: () => insertColumnAtSelection(0) },
-              { label: "Column right", onSelect: () => insertColumnAtSelection(1) }
-            ], { large: true }),
+            makeToolbarMenuButton("Insert row", buildInsertRowMenuItems, { large: true }),
+            makeToolbarMenuButton("Insert column", buildInsertColumnMenuItems, { large: true }),
             makeToolbarButton("Tableau", createTableFromSelection),
             makeToolbarButton("New sheet", () => createSheetFromActive())
           ),
@@ -19830,7 +19753,7 @@ function renderSpreadsheetClonePreview(
           makeToolbarGroup(
             "Protection",
             makeToolbarMenuButton("Protect", buildProtectionMenuItems, { large: true }),
-            makeToolbarButton("Clear format", clearSelectedFormatting)
+            makeToolbarButton(getWorkspaceCommandLabel("clearFormatting"), () => executeSheetWorkspaceCommand("clearFormatting"))
           ),
           makeToolbarGroup(
             "Sheet review",
@@ -19976,15 +19899,15 @@ function renderSpreadsheetClonePreview(
         toolbar.append(
           makeToolbarGroup(
             "Clipboard",
-            makeToolbarButton("Paste", () => pasteFromClipboard(), true, { large: true }),
+            makeToolbarButton(getWorkspaceCommandLabel("paste"), () => pasteFromClipboard(), true, { large: true }),
             makeToolbarStack(
               makeToolbarRow(
-                makeToolbarButton("Undo", undoSpreadsheetAction),
-                makeToolbarButton("Redo", redoSpreadsheetAction)
+                makeToolbarButton(getWorkspaceCommandLabel("undo"), undoSpreadsheetAction),
+                makeToolbarButton(getWorkspaceCommandLabel("redo"), redoSpreadsheetAction)
               ),
               makeToolbarRow(
-                makeToolbarButton("Cut", () => cutSelectedCells()),
-                makeToolbarButton("Copy", () => copySelectedCells())
+                makeToolbarButton(getWorkspaceCommandLabel("cut"), () => cutSelectedCells()),
+                makeToolbarButton(getWorkspaceCommandLabel("copy"), () => copySelectedCells())
               )
             ),
             makeToolbarMenuButton("Fill", buildFillMenuItems)
@@ -19993,23 +19916,29 @@ function renderSpreadsheetClonePreview(
             "Font",
             makeToolbarStack(
               makeToolbarRow(
-                makeToolbarButton("B", () => toggleSelectedTextStyle("bold")),
-                makeToolbarButton("I", () => toggleSelectedTextStyle("italic")),
-                makeToolbarButton("U", () => toggleSelectedTextStyle("underline"))
+                makeToolbarButton(getWorkspaceCommandLabel("bold", "en", "B").slice(0, 1), () => executeSheetWorkspaceCommand("bold"), false, {
+                  title: getWorkspaceCommandLabel("bold")
+                }),
+                makeToolbarButton(getWorkspaceCommandLabel("italic", "en", "I").slice(0, 1), () => executeSheetWorkspaceCommand("italic"), false, {
+                  title: getWorkspaceCommandLabel("italic")
+                }),
+                makeToolbarButton(getWorkspaceCommandLabel("underline", "en", "U").slice(0, 1), () => executeSheetWorkspaceCommand("underline"), false, {
+                  title: getWorkspaceCommandLabel("underline")
+                })
               ),
               makeToolbarRow(
                 makeToolbarSelect(
-                  "Font size",
+                  getWorkspaceCommandLabel("fontSize"),
                   buildFontSizeOptions(),
-                  (value) => value && setSelectedFontSize(Number(value)),
+                  (value) => executeSheetWorkspaceCommand("fontSize", { value }),
                   { value: getActiveSelectionFontSizeValue(), control: "font-size" }
                 ),
-                makeToolbarColorButton("Text color", "text"),
-                makeToolbarColorButton("Fill color", "fill")
+                makeToolbarColorButton(getWorkspaceCommandLabel("textColor"), "text"),
+                makeToolbarColorButton(getWorkspaceCommandLabel("fillColor"), "fill")
               )
             ),
             makeToolbarStack(
-              makeToolbarMenuButton("Borders", buildBorderMenuItems),
+              makeToolbarMenuButton(getWorkspaceCommandLabel("borders"), buildBorderMenuItems),
               makeToolbarMenuButton("Conditionnel", buildConditionalFormatMenuItems)
             )
           ),
@@ -20023,9 +19952,9 @@ function renderSpreadsheetClonePreview(
             "Number",
             makeToolbarStack(
               makeToolbarRow(
-                makeToolbarMenuButton("Formats", buildNumberFormatMenuItems, { icon: "number" }),
-                makeToolbarButton("EUR", () => setSelectedRangeFormat("currency")),
-                makeToolbarButton("%", () => setSelectedRangeFormat("percent"))
+                makeToolbarMenuButton(getWorkspaceCommandLabel("numberFormat"), buildNumberFormatMenuItems, { icon: "number" }),
+                makeToolbarButton("EUR", () => setSelectedRangeFormat("currency"), false, { title: getWorkspaceCommandLabel("currency") }),
+                makeToolbarButton("%", () => setSelectedRangeFormat("percent"), false, { title: getWorkspaceCommandLabel("percent") })
               ),
               makeToolbarRow(
                 makeToolbarButton("Date", () => setSelectedRangeFormat("date"))
@@ -20328,29 +20257,8 @@ function renderSpreadsheetClonePreview(
   let contextKeydownHandler = null;
   let contextViewportHandler = null;
 
-  const getContextSubmenuItems = (item = {}) =>
-    Array.isArray(item.items) ? item.items : Array.isArray(item.submenu) ? item.submenu : [];
-
-  const normalizeContextMenuItems = (items = []) => {
-    const normalized = [];
-    items.forEach((item) => {
-      if (!item) {
-        return;
-      }
-      if (item.separator) {
-        if (normalized.length && !normalized[normalized.length - 1].separator) {
-          normalized.push({ separator: true });
-        }
-        return;
-      }
-      const submenuItems = normalizeContextMenuItems(getContextSubmenuItems(item));
-      normalized.push(submenuItems.length ? { ...item, items: submenuItems } : { ...item });
-    });
-    while (normalized.length && normalized[normalized.length - 1].separator) {
-      normalized.pop();
-    }
-    return normalized;
-  };
+  const getContextSubmenuItems = getWorkspaceMenuSubItems;
+  const normalizeContextMenuItems = normalizeWorkspaceMenuItems;
 
   const teardownContextMenuListeners = () => {
     if (contextOutsidePointerHandler) {
@@ -20468,38 +20376,32 @@ function renderSpreadsheetClonePreview(
   };
 
   const makeContextColorSwatchButton = (color = "", kind = "fill") => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "workspace-sheet-context-color-swatch";
-    button.title = color;
-    button.style.background = color;
-    button.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      if (kind === "border") {
-        setSelectedBorderColor(color);
-      } else {
-        setSelectedFillColor(color);
+    return createWorkspaceColorSwatchButton(color, {
+      className: "workspace-sheet-context-color-swatch",
+      onSelect: (item, _button, event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (kind === "border") {
+          setSelectedBorderColor(item.value || "");
+        } else {
+          executeSheetWorkspaceCommand("fillColor", { value: item.value || "" });
+        }
+        closeContextMenu();
       }
-      closeContextMenu();
     });
-    return button;
   };
 
   const appendContextPaletteAction = (host, label = "", icon = "", onSelect = null) => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "workspace-sheet-context-palette-action";
-    const iconNode = document.createElement("span");
-    iconNode.className = "workspace-sheet-context-palette-action-icon";
-    iconNode.textContent = icon;
-    const labelNode = document.createElement("span");
-    labelNode.textContent = label;
-    button.append(iconNode, labelNode);
-    button.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      onSelect?.();
+    const button = createWorkspacePaletteActionButton({
+      label,
+      icon,
+      className: "workspace-sheet-context-palette-action",
+      iconClassName: "workspace-sheet-context-palette-action-icon",
+      onSelect: (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onSelect?.();
+      }
     });
     host.appendChild(button);
     return button;
@@ -20526,7 +20428,7 @@ function renderSpreadsheetClonePreview(
     palette.append(themeTitle, themeGrid, standardTitle, standardGrid);
     if (kind === "fill") {
       appendContextPaletteAction(palette, "Aucun remplissage", "/", () => {
-        setSelectedFillColor("");
+        executeSheetWorkspaceCommand("fillColor", { value: "" });
         closeContextMenu();
       });
       appendContextPaletteAction(palette, "Autres couleurs...", "+", () => {
@@ -20573,57 +20475,33 @@ function renderSpreadsheetClonePreview(
         }
       });
 
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "workspace-sheet-context-action";
-      button.disabled = Boolean(item.disabled);
-      button.setAttribute("role", "menuitem");
-      if (hasSubmenu) {
-        button.setAttribute("aria-haspopup", "menu");
-      }
-
-      button.appendChild(
-        createSheetIconNode(item.icon || getSheetCommandIcon(item.label), {
-          className: "workspace-sheet-context-icon",
-          label: item.label
-        })
-      );
-
-      const label = document.createElement("span");
-      label.className = "workspace-sheet-context-label";
-      label.textContent = item.label || "";
-      button.appendChild(label);
-
-      const meta = document.createElement("span");
-      meta.className = "workspace-sheet-context-meta";
-      if (hasSubmenu) {
-        meta.appendChild(
-          createSheetIconNode("chevronRight", {
-            className: "workspace-sheet-context-chevron",
-            label: "Open submenu"
-          })
-        );
-      } else if (item.shortcut) {
-        meta.textContent = item.shortcut;
-      }
-      button.appendChild(meta);
-
-      button.addEventListener("click", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        if (button.disabled) {
-          return;
-        }
-        if (hasSubmenu) {
-          if (row.classList.contains("is-open")) {
-            row.classList.remove("is-open");
-          } else {
-            openContextSubmenu(row, host);
+      const button = createWorkspaceMenuActionButton(item, {
+        actionClassName: "workspace-sheet-context-action",
+        iconClassName: "workspace-sheet-context-icon",
+        labelClassName: "workspace-sheet-context-label",
+        metaClassName: "workspace-sheet-context-meta",
+        chevronClassName: "workspace-sheet-context-chevron",
+        role: "menuitem",
+        hasSubmenu,
+        createIconNode: createSheetIconNode,
+        resolveIconName: getSheetCommandIcon,
+        onClick: (event, menuItem, buttonNode) => {
+          event.preventDefault();
+          event.stopPropagation();
+          if (buttonNode.disabled) {
+            return;
           }
-          return;
+          if (hasSubmenu) {
+            if (row.classList.contains("is-open")) {
+              row.classList.remove("is-open");
+            } else {
+              openContextSubmenu(row, host);
+            }
+            return;
+          }
+          closeContextMenu();
+          menuItem.onSelect?.();
         }
-        closeContextMenu();
-        item.onSelect?.();
       });
 
       row.appendChild(button);
@@ -20679,76 +20557,53 @@ function renderSpreadsheetClonePreview(
     window.setTimeout(installContextMenuListeners, 0);
   };
 
-  const buildContextClipboardItems = () => [
-    { label: "Couper", icon: "cut", shortcut: "Ctrl+X", onSelect: () => cutSelectedCells() },
-    { label: "Copier", icon: "copy", shortcut: "Ctrl+C", onSelect: () => copySelectedCells() },
-    { label: "Coller", icon: "paste", shortcut: "Ctrl+V", onSelect: () => pasteFromClipboard() }
-  ];
+  const sheetClipboardActions = {
+    cut: () => cutSelectedCells(),
+    copy: () => copySelectedCells(),
+    paste: () => pasteFromClipboard()
+  };
+  const buildContextClipboardItems = () =>
+    bindWorkspaceMenuActions(createWorkspaceClipboardMenuItems({ locale: "fr" }), sheetClipboardActions);
 
-  const buildContextInsertItems = () => [
-    { label: "1 ligne au-dessus", icon: "insert", onSelect: () => insertRowAtSelection(0) },
-    { label: "1 ligne en dessous", icon: "insert", onSelect: () => insertRowAtSelection(1) },
-    { separator: true },
-    { label: "1 colonne a gauche", icon: "insert", onSelect: () => insertColumnAtSelection(0) },
-    { label: "1 colonne a droite", icon: "insert", onSelect: () => insertColumnAtSelection(1) }
-  ];
+  const buildContextInsertItems = () => buildInsertMenuItems({ context: true });
 
-  const buildContextDeleteItems = () => [
-    { label: "Ligne entiere", icon: "delete", onSelect: deleteActiveRow },
-    { label: "Colonne entiere", icon: "delete", onSelect: deleteActiveColumn }
-  ];
+  const buildContextDeleteItems = () => buildDeleteMenuItems({ context: true });
 
-  const buildContextSortItems = () => [
-    { label: "Trier de A a Z", icon: "sortAsc", onSelect: () => sortActiveColumn("asc") },
-    { label: "Trier de Z a A", icon: "sortDesc", onSelect: () => sortActiveColumn("desc") }
-  ];
+  const buildContextSortItems = () =>
+    bindWorkspaceMenuActions(createWorkspaceSortMenuItems({ context: true }), sheetSortActions);
 
-  const buildContextFilterItems = () => [
-    { label: "Creer un filtre", icon: "filter", onSelect: filterActiveColumn },
-    { label: "Filtrer par valeur selectionnee", icon: "filter", onSelect: filterBySelectedValue },
-    { label: "Effacer le filtre", icon: "filterClear", onSelect: clearActiveFilter }
-  ];
+  const buildContextFilterItems = () => buildFilterMenuItems();
 
   const buildContextFillItems = () => [{ palette: "fill" }];
 
-  const buildContextBorderItems = () => [
-    { label: "Aucune bordure", icon: "eraser", onSelect: () => setSelectedBorder("clear") },
-    { label: "Toutes les bordures", icon: "border", onSelect: () => setSelectedBorder("all") },
-    { label: "Bordures exterieures", icon: "border", onSelect: () => setSelectedBorder("outer") },
-    { label: "Bordures interieures", icon: "border", onSelect: () => setSelectedBorder("inside") },
-    { separator: true },
-    { label: "Bordure superieure", icon: "border", onSelect: () => setSelectedBorder("top") },
-    { label: "Bordure inferieure", icon: "border", onSelect: () => setSelectedBorder("bottom") },
-    { label: "Bordure gauche", icon: "border", onSelect: () => setSelectedBorder("left") },
-    { label: "Bordure droite", icon: "border", onSelect: () => setSelectedBorder("right") },
-    { label: "Bordures horizontales interieures", icon: "border", onSelect: () => setSelectedBorder("insideHorizontal") },
-    { label: "Bordures verticales interieures", icon: "border", onSelect: () => setSelectedBorder("insideVertical") },
-    { separator: true },
-    { label: "Bordure exterieure epaisse", icon: "border", onSelect: () => setSelectedBorder("outer", { style: "thick" }) },
-    { label: "Bordure inferieure double", icon: "border", onSelect: () => setSelectedBorder("bottom", { style: "double" }) },
-    { separator: true },
-    { label: "Couleur de bordure", icon: "palette", items: [{ palette: "border" }] },
-    { label: "Style de bordure", icon: "border", items: buildBorderStyleMenuItems() }
-  ];
+  const buildContextBorderItems = () =>
+    bindWorkspaceMenuActions(
+      createWorkspaceBorderMenuItems({
+        includeColorSubmenu: true,
+        includeStyleSubmenu: true,
+        styleLabels: SPREADSHEET_BORDER_STYLE_LABELS
+      }),
+      sheetBorderActions
+    );
 
   const buildContextFormatItems = () => [
-    { label: "Gras", icon: "bold", shortcut: "Ctrl+B", onSelect: () => toggleSelectedTextStyle("bold") },
-    { label: "Italique", icon: "italic", shortcut: "Ctrl+I", onSelect: () => toggleSelectedTextStyle("italic") },
-    { label: "Souligne", icon: "underline", shortcut: "Ctrl+U", onSelect: () => toggleSelectedTextStyle("underline") },
+    ...bindWorkspaceMenuActions(
+      createWorkspaceCommandMenuItems(["bold", "italic", "underline"], { locale: "fr" }),
+      sheetTextStyleActions
+    ),
     { separator: true },
-    { label: "Nombre", icon: "number", onSelect: () => setSelectedRangeFormat("number") },
-    { label: "Devise", icon: "currency", onSelect: () => setSelectedRangeFormat("currency") },
-    { label: "Pourcentage", icon: "percent", onSelect: () => setSelectedRangeFormat("percent") },
-    { label: "Date", icon: "calendar", onSelect: () => setSelectedRangeFormat("date") },
-    { label: "Effacer le format de nombre", icon: "eraser", onSelect: () => setSelectedRangeFormat("") },
+    ...bindWorkspaceMenuActions(
+      createWorkspaceNumberFormatMenuItems({ locale: "fr", clearLabel: "Effacer le format de nombre" }),
+      sheetNumberFormatActions
+    ),
     { separator: true },
-    { label: "Remplissage", icon: "fill", items: buildContextFillItems() },
-    { label: "Bordures", icon: "border", items: buildContextBorderItems() },
+    { label: getWorkspaceCommandLabel("fillColor", "fr"), icon: "fill", items: buildContextFillItems() },
+    { label: getWorkspaceCommandLabel("borders", "fr"), icon: "border", items: buildContextBorderItems() },
     { separator: true },
     { label: "Fusionner les cellules", icon: "merge", onSelect: mergeSelectionRange },
     { label: "Annuler la fusion", icon: "merge", onSelect: unmergeSelectionRange },
     { separator: true },
-    { label: "Effacer toute la mise en forme", icon: "eraser", onSelect: clearSelectedFormatting }
+    { label: getWorkspaceCommandLabel("clearFormatting", "fr"), icon: "eraser", onSelect: () => executeSheetWorkspaceCommand("clearFormatting") }
   ];
 
   const buildContextDataItems = (rowIndex = 0, columnIndex = 0) => [
@@ -20763,47 +20618,11 @@ function renderSpreadsheetClonePreview(
     { label: "Mise en forme conditionnelle", icon: "palette", items: buildConditionalFormatMenuItems() }
   ];
 
-  const buildContextTableItems = () => {
-    const activeTable = getActiveTableForSelection();
-    const hasTable = Boolean(activeTable);
-    return [
-      {
-        label: hasTable ? "Convertir en plage" : "Mettre sous forme de tableau",
-        icon: "table",
-        onSelect: () => (hasTable ? removeActiveTable() : createTableFromSelection())
-      },
-      { label: "Renommer le tableau", icon: "rename", onSelect: renameActiveTable, disabled: !hasTable },
-      { label: "Redimensionner le tableau", icon: "move", onSelect: resizeActiveTable, disabled: !hasTable },
-      { separator: true },
-      { label: "Ligne des totaux", icon: "function", onSelect: toggleActiveTableTotalRow, disabled: !hasTable },
-      {
-        label: "Fonction de total",
-        icon: "function",
-        disabled: !hasTable,
-        items: [
-          { label: "Somme", icon: "function", onSelect: () => setActiveTableTotalFunction("sum") },
-          { label: "Moyenne", icon: "function", onSelect: () => setActiveTableTotalFunction("average") },
-          { label: "Nombre", icon: "function", onSelect: () => setActiveTableTotalFunction("count") },
-          { label: "Aucun", icon: "eraser", onSelect: () => setActiveTableTotalFunction("none") }
-        ]
-      },
-      {
-        label: "Options du tableau",
-        icon: "table",
-        disabled: !hasTable,
-        items: [
-          { label: "Ligne d'en-tete", icon: "table", onSelect: toggleActiveTableHeaderRow },
-          { label: "Boutons de filtre", icon: "filter", onSelect: toggleActiveTableFilterButtons },
-          { label: "Lignes a bandes", icon: "table", onSelect: toggleActiveTableBandedRows },
-          { label: "Colonnes a bandes", icon: "table", onSelect: toggleActiveTableBandedColumns },
-          { label: "Premiere colonne", icon: "table", onSelect: toggleActiveTableFirstColumn },
-          { label: "Derniere colonne", icon: "table", onSelect: toggleActiveTableLastColumn }
-        ]
-      },
-      { separator: true },
-      { label: "Tableau croise dynamique", icon: "pivot", onSelect: createPivotTableFromSelection }
-    ];
-  };
+  const buildContextTableItems = () =>
+    bindWorkspaceMenuActions(
+      createWorkspaceTableContextMenuItems({ hasTable: Boolean(getActiveTableForSelection()) }),
+      sheetTableActions
+    );
 
   const populateSpreadsheetChartLegend = (legendNode, chart = {}) => {
     if (!legendNode) {
@@ -23127,17 +22946,17 @@ function renderSpreadsheetClonePreview(
       }
       if (key === "b") {
         stopSpreadsheetKeyboardEvent(event);
-        toggleSelectedTextStyle("bold");
+        executeSheetWorkspaceCommand("bold");
         return true;
       }
       if (key === "i") {
         stopSpreadsheetKeyboardEvent(event);
-        toggleSelectedTextStyle("italic");
+        executeSheetWorkspaceCommand("italic");
         return true;
       }
       if (key === "u") {
         stopSpreadsheetKeyboardEvent(event);
-        toggleSelectedTextStyle("underline");
+        executeSheetWorkspaceCommand("underline");
         return true;
       }
     }
@@ -23498,350 +23317,6 @@ function renderDataPreview(
       filePath,
       onGridEdit
     });
-    return;
-    const columnLetter = (index) => {
-      let value = index + 1;
-      let label = "";
-      while (value > 0) {
-        const remainder = (value - 1) % 26;
-        label = String.fromCharCode(65 + remainder) + label;
-        value = Math.floor((value - 1) / 26);
-      }
-      return label;
-    };
-    const previewShell = document.createElement("section");
-    previewShell.className = "workspace-sheet-app";
-
-    const commitModel = (refreshWorkspace = false) => {
-      onGridEdit?.(
-        {
-          columns: [...model.columns],
-          rows: model.rows.map((row) => [...row])
-        },
-        { refreshWorkspace }
-      );
-    };
-
-    let commitHandle = null;
-    const scheduleCommit = () => {
-      if (commitHandle) {
-        window.clearTimeout(commitHandle);
-      }
-      commitHandle = window.setTimeout(() => {
-        commitModel(false);
-        commitHandle = null;
-      }, 140);
-    };
-
-    const menuBar = document.createElement("div");
-    menuBar.className = "workspace-sheet-menubar";
-    ["File", "Edit", "View", "Insert", "Format", "Data", "Tools", "Extensions", "Help"].forEach((label) => {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "workspace-sheet-menu-button";
-      button.textContent = label;
-      menuBar.appendChild(button);
-    });
-    previewShell.appendChild(menuBar);
-
-    const topBar = document.createElement("div");
-    topBar.className = "workspace-sheet-topbar";
-    const titleGroup = document.createElement("div");
-    titleGroup.className = "workspace-sheet-title-group";
-    const title = document.createElement("strong");
-    title.textContent = workObject?.title || friendlyPathLabel(filePath) || profile.sheetName;
-    const subtitle = document.createElement("span");
-    subtitle.className = "tiny";
-    subtitle.textContent = `${model.rows.length} rows | ${model.columns.length} columns`;
-    titleGroup.append(title, subtitle);
-    const topTabs = document.createElement("div");
-    topTabs.className = "workspace-sheet-tabs";
-    [profile.primaryTab, profile.secondaryTab].forEach((label, index) => {
-      const tab = document.createElement("span");
-      tab.className = `workspace-sheet-tab${index === 0 ? " active" : ""}`;
-      tab.textContent = label;
-      topTabs.appendChild(tab);
-    });
-    topBar.append(titleGroup, topTabs);
-    previewShell.appendChild(topBar);
-
-    const toolbar = document.createElement("div");
-    toolbar.className = "workspace-sheet-toolbar";
-    const makeToolbarButton = (label, onClick, accent = false) => {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = `workspace-sheet-toolbar-button${accent ? " accent" : ""}`;
-      button.textContent = label;
-      button.addEventListener("click", onClick);
-      return button;
-    };
-    const toolbarGroupEdit = document.createElement("div");
-    toolbarGroupEdit.className = "workspace-sheet-toolbar-group";
-    toolbarGroupEdit.append(
-      makeToolbarButton("Undo", () => document.execCommand("undo")),
-      makeToolbarButton("Redo", () => document.execCommand("redo")),
-      makeToolbarButton("Bold", () => document.execCommand("bold")),
-      makeToolbarButton("Italic", () => document.execCommand("italic"))
-    );
-    const toolbarGroupStructure = document.createElement("div");
-    toolbarGroupStructure.className = "workspace-sheet-toolbar-group";
-    toolbarGroupStructure.append(
-      makeToolbarButton("Insert row", () => {
-        model.rows.push(Array.from({ length: model.columns.length }, () => ""));
-        commitModel(true);
-      }),
-      makeToolbarButton("Insert column", () => {
-        model.columns.push(`Column ${model.columns.length + 1}`);
-        model.rows = model.rows.map((row) => [...row, ""]);
-        commitModel(true);
-      }),
-      makeToolbarButton("Delete row", () => {
-        if (model.rows.length <= 1) {
-          return;
-        }
-        model.rows = model.rows.slice(0, -1);
-        commitModel(true);
-      }),
-      makeToolbarButton("Delete column", () => {
-        if (model.columns.length <= 1) {
-          return;
-        }
-        model.columns = model.columns.slice(0, -1);
-        model.rows = model.rows.map((row) => row.slice(0, -1));
-        commitModel(true);
-      }),
-      makeToolbarButton("Sum row", () => {
-        const totals = model.columns.map((_, index) => {
-          if (index === 0) {
-            return "Total";
-          }
-          const values = model.rows
-            .map((row) => Number(String(row[index] || "").replace(",", ".")))
-            .filter((value) => Number.isFinite(value));
-          if (!values.length) {
-            return "";
-          }
-          const total = values.reduce((sum, value) => sum + value, 0);
-          return Number.isInteger(total) ? String(total) : total.toFixed(2);
-        });
-        model.rows.push(totals);
-        commitModel(true);
-      }, true)
-    );
-    toolbar.append(toolbarGroupEdit, toolbarGroupStructure);
-    previewShell.appendChild(toolbar);
-
-    const formulaBar = document.createElement("div");
-    formulaBar.className = "workspace-formula-bar workspace-formula-bar-live";
-    const nameBox = document.createElement("input");
-    nameBox.type = "text";
-    nameBox.className = "workspace-sheet-name-box";
-    nameBox.readOnly = true;
-    const formulaLabel = document.createElement("span");
-    formulaLabel.className = "tiny";
-    formulaLabel.textContent = "fx";
-    const formulaValue = document.createElement("input");
-    formulaValue.type = "text";
-    formulaValue.className = "workspace-sheet-formula-input";
-    formulaBar.append(nameBox, formulaLabel, formulaValue);
-    previewShell.appendChild(formulaBar);
-
-    const gridShell = document.createElement("div");
-    gridShell.className = "workspace-sheet-grid-shell";
-    const table = document.createElement("table");
-    table.className = "workspace-sheet-grid-table";
-    const thead = document.createElement("thead");
-    const headRow = document.createElement("tr");
-    const corner = document.createElement("th");
-    corner.className = "workspace-sheet-corner";
-    corner.textContent = "";
-    headRow.appendChild(corner);
-
-    let activeSelection = { kind: "header", columnIndex: 0, rowIndex: 0 };
-    const cellSelector = (selection) =>
-      selection.kind === "header"
-        ? `[data-sheet-header-cell="${selection.columnIndex}"]`
-        : `[data-sheet-body-cell="${selection.rowIndex}:${selection.columnIndex}"]`;
-    const addressForSelection = (selection) =>
-      selection.kind === "header"
-        ? `${columnLetter(selection.columnIndex)}1`
-        : `${columnLetter(selection.columnIndex)}${selection.rowIndex + 2}`;
-    const getSelectionValue = (selection) =>
-      selection.kind === "header"
-        ? model.columns[selection.columnIndex] || ""
-        : model.rows[selection.rowIndex]?.[selection.columnIndex] || "";
-    const setSelectionValue = (selection, value) => {
-      if (selection.kind === "header") {
-        model.columns[selection.columnIndex] = value;
-      } else if (model.rows[selection.rowIndex]) {
-        model.rows[selection.rowIndex][selection.columnIndex] = value;
-      }
-    };
-    const syncSelectionUi = () => {
-      nameBox.value = addressForSelection(activeSelection);
-      formulaValue.value = getSelectionValue(activeSelection);
-      formulaValue.placeholder = activeSelection.kind === "header" ? "Column title" : "Cell value";
-      table.querySelectorAll(".is-selected").forEach((node) => node.classList.remove("is-selected"));
-      const target = table.querySelector(cellSelector(activeSelection));
-      target?.classList.add("is-selected");
-    };
-    const focusSelection = (selection) => {
-      activeSelection = selection;
-      syncSelectionUi();
-      table.querySelector(cellSelector(selection))?.focus();
-    };
-    const moveSelection = (selection, rowDelta = 0, columnDelta = 0) => {
-      const nextColumnIndex = Math.max(0, Math.min(model.columns.length - 1, selection.columnIndex + columnDelta));
-      if (selection.kind === "header") {
-        if (rowDelta > 0) {
-          focusSelection({ kind: "cell", rowIndex: 0, columnIndex: nextColumnIndex });
-          return;
-        }
-        focusSelection({ kind: "header", columnIndex: nextColumnIndex, rowIndex: 0 });
-        return;
-      }
-      const nextRowIndex = Math.max(0, Math.min(model.rows.length - 1, selection.rowIndex + rowDelta));
-      focusSelection({ kind: "cell", rowIndex: nextRowIndex, columnIndex: nextColumnIndex });
-    };
-    const bindCellNavigation = (input, selection) => {
-      input.addEventListener("focus", () => {
-        activeSelection = selection;
-        syncSelectionUi();
-      });
-      input.addEventListener("keydown", (event) => {
-        if (event.key === "Enter") {
-          event.preventDefault();
-          moveSelection(selection, 1, 0);
-          return;
-        }
-        if (event.key === "Tab") {
-          event.preventDefault();
-          moveSelection(selection, 0, event.shiftKey ? -1 : 1);
-        }
-      });
-    };
-
-    model.columns.forEach((_, columnIndex) => {
-      const th = document.createElement("th");
-      th.className = "workspace-sheet-column-letter";
-      th.textContent = columnLetter(columnIndex);
-      headRow.appendChild(th);
-    });
-    thead.appendChild(headRow);
-    table.appendChild(thead);
-
-    const tbody = document.createElement("tbody");
-    const headerRow = document.createElement("tr");
-    const headerRowLabel = document.createElement("th");
-    headerRowLabel.className = "workspace-sheet-row-label";
-    headerRowLabel.textContent = "1";
-    headerRow.appendChild(headerRowLabel);
-    model.columns.forEach((value, columnIndex) => {
-      const td = document.createElement("td");
-      const input = document.createElement("input");
-      input.type = "text";
-      input.value = value;
-      input.className = "workspace-sheet-header-cell-input";
-      input.dataset.sheetHeaderCell = String(columnIndex);
-      bindCellNavigation(input, { kind: "header", columnIndex, rowIndex: 0 });
-      input.addEventListener("input", (event) => {
-        model.columns[columnIndex] = event.target.value;
-        if (activeSelection.kind === "header" && activeSelection.columnIndex === columnIndex) {
-          syncSelectionUi();
-        }
-        scheduleCommit();
-      });
-      input.addEventListener("blur", () => {
-        model.columns[columnIndex] = input.value.trim() || `Column ${columnIndex + 1}`;
-        input.value = model.columns[columnIndex];
-        commitModel(false);
-        syncSelectionUi();
-      });
-      td.appendChild(input);
-      headerRow.appendChild(td);
-    });
-    tbody.appendChild(headerRow);
-
-    model.rows.forEach((row, rowIndex) => {
-      const tr = document.createElement("tr");
-      const rowLabel = document.createElement("th");
-      rowLabel.className = "workspace-sheet-row-label";
-      rowLabel.textContent = String(rowIndex + 2);
-      tr.appendChild(rowLabel);
-      model.columns.forEach((_, columnIndex) => {
-        const td = document.createElement("td");
-        const input = document.createElement("input");
-        input.type = "text";
-        input.value = row[columnIndex] || "";
-        input.className = "workspace-sheet-cell-input";
-        input.dataset.sheetBodyCell = `${rowIndex}:${columnIndex}`;
-        bindCellNavigation(input, { kind: "cell", rowIndex, columnIndex });
-        input.addEventListener("input", (event) => {
-          model.rows[rowIndex][columnIndex] = event.target.value;
-          if (
-            activeSelection.kind === "cell" &&
-            activeSelection.rowIndex === rowIndex &&
-            activeSelection.columnIndex === columnIndex
-          ) {
-            syncSelectionUi();
-          }
-          scheduleCommit();
-        });
-        input.addEventListener("blur", () => {
-          model.rows[rowIndex][columnIndex] = input.value;
-          commitModel(false);
-        });
-        td.appendChild(input);
-        tr.appendChild(td);
-      });
-      tbody.appendChild(tr);
-    });
-
-    table.appendChild(tbody);
-    gridShell.appendChild(table);
-    previewShell.appendChild(gridShell);
-
-    formulaValue.addEventListener("input", (event) => {
-      setSelectionValue(activeSelection, event.target.value);
-      const target = table.querySelector(cellSelector(activeSelection));
-      if (target) {
-        target.value = event.target.value;
-      }
-      scheduleCommit();
-    });
-    formulaValue.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") {
-        event.preventDefault();
-        commitModel(false);
-        focusSelection(activeSelection);
-      }
-    });
-    formulaValue.addEventListener("blur", () => {
-      commitModel(false);
-    });
-
-    const bottomBar = document.createElement("div");
-    bottomBar.className = "workspace-sheet-bottom-bar";
-    const sheetTabs = document.createElement("div");
-    sheetTabs.className = "workspace-sheet-tabbar";
-    const addSheetButton = document.createElement("button");
-    addSheetButton.type = "button";
-    addSheetButton.className = "workspace-sheet-add-button";
-    addSheetButton.textContent = "+";
-    addSheetButton.title = "Add sheet";
-    const activeSheetTab = document.createElement("button");
-    activeSheetTab.type = "button";
-    activeSheetTab.className = "workspace-sheet-tab-pill active";
-    activeSheetTab.textContent = profile.sheetName;
-    sheetTabs.append(addSheetButton, activeSheetTab);
-    const status = document.createElement("div");
-    status.className = "workspace-sheet-status";
-    status.textContent = `${profile.contextLabelA}: ${profile.contextValueA}`;
-    bottomBar.append(sheetTabs, status);
-    previewShell.appendChild(bottomBar);
-
-    container.appendChild(previewShell);
-    syncSelectionUi();
     return;
   }
 
