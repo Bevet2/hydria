@@ -1,3 +1,5 @@
+import { getWorkspaceMenuSubItems, normalizeWorkspaceMenuItems } from "./workspaceMenuDefinitions.js";
+
 export function placeWorkspaceFloatingPanel(
   panel,
   {
@@ -29,6 +31,428 @@ export function placeWorkspaceFloatingPanel(
   panel.style.top = `${top}px`;
   panel.style.maxHeight = `${maxHeight}px`;
   return { left, top, maxHeight, width: panelWidth, height: panelHeight };
+}
+
+export function installWorkspaceMenuEventBlockers(
+  element,
+  { events = ["mousedown", "pointerdown", "click", "contextmenu"], preventContextMenu = true } = {}
+) {
+  if (!element) {
+    return;
+  }
+  events.forEach((eventName) => {
+    element.addEventListener(eventName, (event) => {
+      event.stopPropagation();
+      if (preventContextMenu && eventName === "contextmenu") {
+        event.preventDefault();
+      }
+    });
+  });
+}
+
+export function createWorkspaceMenuOutsideController({
+  isOpen = () => false,
+  onClose = null,
+  shouldKeepOpen = null,
+  pointerEvents = ["pointerdown", "mousedown"],
+  closeOnContextMenu = true,
+  closeOnEscape = true,
+  closeOnViewportChange = false
+} = {}) {
+  let pointerHandler = null;
+  let keydownHandler = null;
+  let viewportHandler = null;
+
+  const remove = () => {
+    if (pointerHandler) {
+      pointerEvents.forEach((eventName) => {
+        document.removeEventListener(eventName, pointerHandler, true);
+      });
+      if (closeOnContextMenu) {
+        document.removeEventListener("contextmenu", pointerHandler, true);
+      }
+      pointerHandler = null;
+    }
+    if (keydownHandler) {
+      document.removeEventListener("keydown", keydownHandler);
+      keydownHandler = null;
+    }
+    if (viewportHandler) {
+      window.removeEventListener("scroll", viewportHandler, true);
+      window.removeEventListener("resize", viewportHandler);
+      viewportHandler = null;
+    }
+  };
+
+  const install = () => {
+    remove();
+    pointerHandler = (event) => {
+      if (!isOpen()) {
+        return;
+      }
+      if (typeof shouldKeepOpen === "function" && shouldKeepOpen(event)) {
+        return;
+      }
+      onClose?.(event);
+    };
+    pointerEvents.forEach((eventName) => {
+      document.addEventListener(eventName, pointerHandler, true);
+    });
+    if (closeOnContextMenu) {
+      document.addEventListener("contextmenu", pointerHandler, true);
+    }
+    if (closeOnEscape) {
+      keydownHandler = (event) => {
+        if (event.key === "Escape" && isOpen()) {
+          onClose?.(event);
+        }
+      };
+      document.addEventListener("keydown", keydownHandler);
+    }
+    if (closeOnViewportChange) {
+      viewportHandler = (event) => {
+        if (!isOpen()) {
+          return;
+        }
+        if (typeof shouldKeepOpen === "function" && shouldKeepOpen(event)) {
+          return;
+        }
+        onClose?.(event);
+      };
+      window.addEventListener("scroll", viewportHandler, true);
+      window.addEventListener("resize", viewportHandler);
+    }
+  };
+
+  return { install, remove };
+}
+
+export function renderWorkspaceFlatMenuItems(
+  items = [],
+  host = null,
+  {
+    headingClassName = "workspace-menu-heading",
+    separatorClassName = "workspace-menu-separator",
+    actionOptions = {},
+    renderCustomItem = null,
+    onActionSelect = null
+  } = {}
+) {
+  if (!host) {
+    return;
+  }
+  normalizeWorkspaceMenuItems(items).forEach((item) => {
+    if (typeof renderCustomItem === "function" && renderCustomItem(item, host)) {
+      return;
+    }
+    if (item.heading) {
+      const heading = document.createElement("div");
+      heading.className = headingClassName;
+      heading.textContent = item.label || "";
+      host.appendChild(heading);
+      return;
+    }
+    if (item.separator) {
+      const separator = document.createElement("div");
+      separator.className = separatorClassName;
+      separator.setAttribute("role", "separator");
+      host.appendChild(separator);
+      return;
+    }
+    const submenuItems = getWorkspaceMenuSubItems(item);
+    const itemActionOptions = typeof actionOptions === "function" ? actionOptions(item) : actionOptions;
+    const button = createWorkspaceMenuActionButton(item, {
+      ...itemActionOptions,
+      hasSubmenu: submenuItems.length > 0,
+      onClick: (event, menuItem, buttonNode) => {
+        if (buttonNode.disabled) {
+          return;
+        }
+        if (typeof itemActionOptions.onClick === "function") {
+          itemActionOptions.onClick(event, menuItem, buttonNode);
+          return;
+        }
+        if (typeof onActionSelect === "function") {
+          onActionSelect(menuItem, event, buttonNode);
+          return;
+        }
+        menuItem.onSelect?.();
+      }
+    });
+    host.appendChild(button);
+  });
+}
+
+function getDirectChildByClassName(host, className) {
+  return Array.from(host?.children || []).find((child) => child.classList?.contains(className)) || null;
+}
+
+export function createWorkspaceNestedMenuController({
+  root = null,
+  rootOpenLeftClassName = "opens-left",
+  submenuClassName = "workspace-context-submenu",
+  itemOpenClassName = "is-open",
+  removeRootOnClose = false,
+  margin = 8,
+  submenuGap = 6,
+  minSubmenuWidth = 268,
+  minSubmenuHeight = 120,
+  rootFallbackWidth = 280,
+  rootFallbackHeight = 360,
+  submenuZIndexBase = 1900,
+  leftLookaheadWidth = 540,
+  onClose = null
+} = {}) {
+  const isOpen = () => Boolean(root && !root.hidden && root.isConnected);
+  const outsideController = createWorkspaceMenuOutsideController({
+    isOpen,
+    closeOnViewportChange: true,
+    shouldKeepOpen: (event) => Boolean(root?.contains?.(event.target)),
+    onClose: () => {
+      close();
+    }
+  });
+
+  const close = () => {
+    outsideController.remove();
+    if (!root) {
+      return;
+    }
+    root.hidden = true;
+    root.innerHTML = "";
+    root.classList.remove(rootOpenLeftClassName);
+    root.style.left = "";
+    root.style.top = "";
+    root.style.maxHeight = "";
+    if (removeRootOnClose && root.isConnected) {
+      root.remove();
+    }
+    onClose?.();
+  };
+
+  const placeRoot = (clientX = 0, clientY = 0) => {
+    if (!root) {
+      return { left: margin, top: margin };
+    }
+    let left = Math.max(margin, clientX);
+    let top = Math.max(margin, clientY);
+    root.style.left = `${left}px`;
+    root.style.top = `${top}px`;
+    root.classList.remove(rootOpenLeftClassName);
+
+    const width = root.offsetWidth || rootFallbackWidth;
+    const height = root.offsetHeight || rootFallbackHeight;
+    if (left + width > window.innerWidth - margin) {
+      left = window.innerWidth - width - margin;
+    }
+    if (top + height > window.innerHeight - margin) {
+      top = window.innerHeight - height - margin;
+    }
+    left = Math.max(margin, left);
+    top = Math.max(margin, top);
+    root.style.left = `${Math.round(left)}px`;
+    root.style.top = `${Math.round(top)}px`;
+    root.style.maxHeight = `${Math.max(minSubmenuHeight, Math.floor(window.innerHeight - top - margin))}px`;
+
+    const rect = root.getBoundingClientRect();
+    root.classList.toggle(
+      rootOpenLeftClassName,
+      rect.right + leftLookaheadWidth > window.innerWidth - margin && rect.left > leftLookaheadWidth
+    );
+    return { left, top };
+  };
+
+  const closeSiblingSubmenus = (host = root, activeRow = null) => {
+    Array.from(host?.children || []).forEach((child) => {
+      if (child !== activeRow) {
+        child.classList?.remove(itemOpenClassName);
+      }
+    });
+  };
+
+  const placeSubmenu = (row = null) => {
+    if (!row?.classList?.contains(itemOpenClassName)) {
+      return;
+    }
+    const submenu = getDirectChildByClassName(row, submenuClassName);
+    if (!submenu) {
+      return;
+    }
+
+    submenu.style.left = "";
+    submenu.style.right = "auto";
+    submenu.style.top = "";
+    submenu.style.maxHeight = `${Math.max(minSubmenuHeight, window.innerHeight - (margin * 2))}px`;
+
+    const rowRect = row.getBoundingClientRect();
+    const hostRect = (row.parentElement || root).getBoundingClientRect();
+    const submenuRect = submenu.getBoundingClientRect();
+    const availableHeight = Math.max(minSubmenuHeight, window.innerHeight - margin * 2);
+    const submenuHeight = Math.min(submenu.scrollHeight || submenuRect.height || availableHeight, availableHeight);
+    const submenuWidth = Math.min(
+      Math.max(submenu.scrollWidth || 0, submenu.offsetWidth || 0, submenuRect.width || 0, minSubmenuWidth),
+      window.innerWidth - margin * 2
+    );
+
+    const rootPrefersLeft = Boolean(root?.classList?.contains(rootOpenLeftClassName));
+    const canOpenRight = hostRect.right + submenuWidth + submenuGap <= window.innerWidth - margin;
+    const canOpenLeft = hostRect.left - submenuWidth - submenuGap >= margin;
+    const opensLeft = rootPrefersLeft ? canOpenLeft || !canOpenRight : !canOpenRight && canOpenLeft;
+    const preferredLeft = opensLeft
+      ? hostRect.left - submenuWidth - submenuGap
+      : hostRect.right + submenuGap;
+    const viewportLeft = Math.max(margin, Math.min(preferredLeft, window.innerWidth - submenuWidth - margin));
+    const viewportTop = Math.max(
+      margin,
+      Math.min(rowRect.top - 7, window.innerHeight - submenuHeight - margin)
+    );
+    let depth = 1;
+    for (let parent = row.parentElement; parent && parent !== root; parent = parent.parentElement) {
+      if (parent.classList?.contains(submenuClassName)) {
+        depth += 1;
+      }
+    }
+
+    submenu.style.left = `${Math.round(viewportLeft)}px`;
+    submenu.style.top = `${Math.round(viewportTop)}px`;
+    submenu.style.maxHeight = `${Math.max(minSubmenuHeight, Math.floor(window.innerHeight - viewportTop - margin))}px`;
+    submenu.style.zIndex = String(submenuZIndexBase + depth);
+  };
+
+  const openSubmenu = (row = null, host = root) => {
+    closeSiblingSubmenus(host, row);
+    row?.classList.add(itemOpenClassName);
+    window.requestAnimationFrame(() => placeSubmenu(row));
+  };
+
+  const open = ({ clientX = 0, clientY = 0, appendTo = document.body } = {}) => {
+    if (!root) {
+      return false;
+    }
+    if (!root.isConnected) {
+      appendTo.appendChild(root);
+    }
+    root.hidden = false;
+    placeRoot(clientX, clientY);
+    window.setTimeout(outsideController.install, 0);
+    return true;
+  };
+
+  return {
+    close,
+    closeSiblingSubmenus,
+    installOutsideListeners: outsideController.install,
+    isOpen,
+    open,
+    openSubmenu,
+    placeRoot,
+    placeSubmenu,
+    removeOutsideListeners: outsideController.remove
+  };
+}
+
+export function renderWorkspaceNestedMenuItems(
+  items = [],
+  host = null,
+  {
+    itemClassName = "workspace-context-item",
+    itemDisabledClassName = "is-disabled",
+    itemOpenClassName = "is-open",
+    separatorClassName = "workspace-context-separator",
+    headingClassName = "workspace-context-heading",
+    submenuClassName = "workspace-context-submenu",
+    actionOptions = {},
+    renderCustomItem = null,
+    closeMenu = null,
+    openSubmenu = null,
+    closeSiblingSubmenus = null,
+    onActionSelect = null
+  } = {}
+) {
+  if (!host) {
+    return;
+  }
+  normalizeWorkspaceMenuItems(items).forEach((item) => {
+    if (typeof renderCustomItem === "function" && renderCustomItem(item, host)) {
+      return;
+    }
+    if (item.heading) {
+      const heading = document.createElement("div");
+      heading.className = headingClassName;
+      heading.textContent = item.label || "";
+      host.appendChild(heading);
+      return;
+    }
+    if (item.separator) {
+      const separator = document.createElement("div");
+      separator.className = separatorClassName;
+      separator.setAttribute("role", "separator");
+      host.appendChild(separator);
+      return;
+    }
+
+    const submenuItems = getWorkspaceMenuSubItems(item);
+    const hasSubmenu = submenuItems.length > 0;
+    const row = document.createElement("div");
+    row.className = itemClassName;
+    row.classList.toggle(itemDisabledClassName, Boolean(item.disabled));
+    row.addEventListener("mouseenter", () => {
+      if (hasSubmenu && !item.disabled) {
+        openSubmenu?.(row, host);
+      } else {
+        closeSiblingSubmenus?.(host, row);
+      }
+    });
+
+    const button = createWorkspaceMenuActionButton(item, {
+      ...actionOptions,
+      hasSubmenu,
+      onClick: (event, menuItem, buttonNode) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (buttonNode.disabled) {
+          return;
+        }
+        if (hasSubmenu) {
+          if (row.classList.contains(itemOpenClassName)) {
+            row.classList.remove(itemOpenClassName);
+          } else {
+            openSubmenu?.(row, host);
+          }
+          return;
+        }
+        closeMenu?.();
+        if (typeof onActionSelect === "function") {
+          onActionSelect(menuItem, event, buttonNode);
+          return;
+        }
+        menuItem.onSelect?.();
+      }
+    });
+
+    row.appendChild(button);
+    if (hasSubmenu) {
+      const submenu = document.createElement("div");
+      submenu.className = submenuClassName;
+      submenu.setAttribute("role", "menu");
+      renderWorkspaceNestedMenuItems(submenuItems, submenu, {
+        itemClassName,
+        itemDisabledClassName,
+        itemOpenClassName,
+        separatorClassName,
+        headingClassName,
+        submenuClassName,
+        actionOptions,
+        renderCustomItem,
+        closeMenu,
+        openSubmenu,
+        closeSiblingSubmenus,
+        onActionSelect
+      });
+      row.appendChild(submenu);
+    }
+    host.appendChild(row);
+  });
 }
 
 export function closeWorkspaceDropdown(dropdown = null, toggle = null, { hiddenClassName = "hidden" } = {}) {

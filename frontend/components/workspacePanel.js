@@ -26,6 +26,8 @@ import {
   createWorkspaceHomeEditingMenuItems,
   createWorkspaceInsertMenuItems,
   createWorkspaceMenuActionButton,
+  createWorkspaceMenuOutsideController,
+  createWorkspaceNestedMenuController,
   createWorkspaceNumberFormatMenuItems,
   createWorkspacePaletteActionButton,
   createWorkspaceSelectElement,
@@ -36,9 +38,11 @@ import {
   createWorkspaceValidationMenuItems,
   getWorkspaceCommandIcon,
   getWorkspaceCommandLabel,
-  getWorkspaceMenuSubItems,
+  installWorkspaceMenuEventBlockers,
   normalizeWorkspaceMenuItems,
   placeWorkspaceFloatingPanel,
+  renderWorkspaceFlatMenuItems,
+  renderWorkspaceNestedMenuItems,
   toggleWorkspaceDropdown
 } from "./workspaceSharedCommands.js";
 
@@ -2223,6 +2227,7 @@ function renderMarkdownPreview(
   let docsFullscreenFallbackActive = false;
   let docsFullscreenFallbackPlaceholder = null;
   let docsFullscreenRestoreFocusHandler = null;
+  let triggerImageImport = () => {};
   let docsSearchBar = null;
   let docsSearchInput = null;
   let docsSearchCount = null;
@@ -3823,29 +3828,35 @@ function renderMarkdownPreview(
       return;
     }
     docsTableContextMenu.replaceChildren();
-    actions.forEach((action) => {
-      if (action.type === "label") {
-        const label = document.createElement("span");
-        label.className = "workspace-docs-table-menu-label";
-        label.textContent = action.label;
-        docsTableContextMenu.appendChild(label);
-        return;
-      }
-      const item = document.createElement("button");
-      item.type = "button";
-      item.className = `workspace-docs-table-menu-item${action.danger ? " is-danger" : ""}`;
-      item.textContent = action.label;
-      item.addEventListener("click", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        hideDocsTableContextMenu();
-        if (action.restoreSelection) {
-          restoreDocsSelection();
+    renderWorkspaceFlatMenuItems(
+      actions.map((action) =>
+        action.type === "label"
+          ? { heading: true, label: action.label }
+          : {
+              label: action.label,
+              danger: action.danger,
+              onSelect: () => {
+                hideDocsTableContextMenu();
+                if (action.restoreSelection) {
+                  restoreDocsSelection();
+                }
+                action.onClick?.();
+              }
+            }
+      ),
+      docsTableContextMenu,
+      {
+        headingClassName: "workspace-docs-table-menu-label",
+        actionOptions: (item) => ({
+          actionClassName: `workspace-docs-table-menu-item${item.danger ? " is-danger" : ""}`
+        }),
+        onActionSelect: (item, event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          item.onSelect?.();
         }
-        action.onClick?.();
-      });
-      docsTableContextMenu.appendChild(item);
-    });
+      }
+    );
     docsTableContextMenu.classList.remove("hidden");
     docsTableContextMenu.style.visibility = "hidden";
     docsTableContextMenu.style.left = "0px";
@@ -5325,7 +5336,7 @@ function renderMarkdownPreview(
     });
     previewShell.appendChild(docsImageInput);
 
-    const triggerImageImport = () => {
+    triggerImageImport = () => {
       restoreDocsFullscreenAfterImageImport = isDocsFullscreenActive();
       if (restoreDocsFullscreenAfterImageImport) {
         setDocsFullscreenFallbackActive(true);
@@ -6256,6 +6267,7 @@ function renderMarkdownPreview(
     docsTableControls.className = "workspace-docs-table-controls hidden";
     docsTableContextMenu = document.createElement("div");
     docsTableContextMenu.className = "workspace-docs-table-menu hidden";
+    installWorkspaceMenuEventBlockers(docsTableContextMenu);
     docsCanvas.appendChild(docsTableControls);
     docsCanvas.appendChild(docsTableContextMenu);
     syncDocsFullscreenButtonState();
@@ -17790,27 +17802,38 @@ function renderSpreadsheetClonePreview(
     });
   };
 
-  let sheetMenuOutsidePointerHandler = null;
   const sheetMenuAnchors = new Set();
+  let sheetMenuOutsideKeepOpen = () => false;
+
+  const sheetMenuOutsideController = createWorkspaceMenuOutsideController({
+    isOpen: () => !sheetMenuPanel.hidden,
+    closeOnContextMenu: false,
+    shouldKeepOpen: (event) => sheetMenuOutsideKeepOpen(event),
+    onClose: () => {
+      closeSheetMenu();
+    }
+  });
 
   const removeSheetMenuOutsidePointerHandler = () => {
-    if (!sheetMenuOutsidePointerHandler) {
-      return;
-    }
-    document.removeEventListener("pointerdown", sheetMenuOutsidePointerHandler, true);
-    document.removeEventListener("mousedown", sheetMenuOutsidePointerHandler, true);
-    document.removeEventListener("mousedown", sheetMenuOutsidePointerHandler);
-    sheetMenuOutsidePointerHandler = null;
+    sheetMenuOutsideController.remove();
   };
 
   const installSheetMenuOutsidePointerHandler = () => {
     window.setTimeout(() => {
-      if (!sheetMenuOutsidePointerHandler) {
+      if (sheetMenuPanel.hidden) {
         return;
       }
-      document.addEventListener("pointerdown", sheetMenuOutsidePointerHandler, true);
-      document.addEventListener("mousedown", sheetMenuOutsidePointerHandler, true);
+      sheetMenuOutsideController.install();
     }, 0);
+  };
+
+  const bindSheetMenuOutsideClose = (anchorElement = null, extraKeepOpen = null) => {
+    removeSheetMenuOutsidePointerHandler();
+    sheetMenuOutsideKeepOpen = (event) =>
+      sheetMenuPanel.contains(event.target) ||
+      Boolean(anchorElement?.contains?.(event.target)) ||
+      Boolean(extraKeepOpen?.(event));
+    installSheetMenuOutsidePointerHandler();
   };
 
   const closeSheetMenu = () => {
@@ -17825,6 +17848,7 @@ function renderSpreadsheetClonePreview(
     sheetMenuPanel.style.maxHeight = "";
     sheetMenuAnchors.forEach((button) => button.classList.remove("is-open"));
     sheetMenuAnchors.clear();
+    sheetMenuOutsideKeepOpen = () => false;
     removeSheetMenuOutsidePointerHandler();
   };
 
@@ -18123,21 +18147,10 @@ function renderSpreadsheetClonePreview(
       anchorElement.classList.add("is-open");
       sheetMenuAnchors.add(anchorElement);
     }
-    menuItems.forEach((item) => {
-      if (item.heading) {
-        const heading = document.createElement("div");
-        heading.className = "workspace-sheet-menu-heading";
-        heading.textContent = item.label;
-        sheetMenuPanel.appendChild(heading);
-        return;
-      }
-      if (item.separator) {
-        const separator = document.createElement("div");
-        separator.className = "workspace-sheet-menu-separator";
-        sheetMenuPanel.appendChild(separator);
-        return;
-      }
-      const action = createWorkspaceMenuActionButton(item, {
+    renderWorkspaceFlatMenuItems(menuItems, sheetMenuPanel, {
+      headingClassName: "workspace-sheet-menu-heading",
+      separatorClassName: "workspace-sheet-menu-separator",
+      actionOptions: {
         actionClassName: "workspace-sheet-menu-action",
         iconClassName: "workspace-sheet-menu-action-icon",
         labelClassName: "workspace-sheet-menu-action-label",
@@ -18150,8 +18163,7 @@ function renderSpreadsheetClonePreview(
           closeSheetMenu();
           menuItem.onSelect?.();
         }
-      });
-      sheetMenuPanel.appendChild(action);
+      }
     });
     sheetMenuPanel.hidden = false;
     placeWorkspaceFloatingPanel(sheetMenuPanel, {
@@ -18164,13 +18176,7 @@ function renderSpreadsheetClonePreview(
       fallbackHeight: 240,
       minMaxHeight: 120
     });
-    removeSheetMenuOutsidePointerHandler();
-    sheetMenuOutsidePointerHandler = (event) => {
-      if (!sheetMenuPanel.contains(event.target) && !(anchorElement && anchorElement.contains(event.target))) {
-        closeSheetMenu();
-      }
-    };
-    installSheetMenuOutsidePointerHandler();
+    bindSheetMenuOutsideClose(anchorElement);
     return true;
   };
 
@@ -18346,13 +18352,7 @@ function renderSpreadsheetClonePreview(
       fallbackHeight: 420,
       minMaxHeight: 260
     });
-    removeSheetMenuOutsidePointerHandler();
-    sheetMenuOutsidePointerHandler = (event) => {
-      if (!sheetMenuPanel.contains(event.target) && !anchorElement.contains(event.target)) {
-        closeSheetMenu();
-      }
-    };
-    installSheetMenuOutsidePointerHandler();
+    bindSheetMenuOutsideClose(anchorElement);
     search.focus({ preventScroll: true });
     return true;
   };
@@ -18420,13 +18420,7 @@ function renderSpreadsheetClonePreview(
       minMaxHeight: 220
     });
     gallery.style.maxHeight = `${Math.max(180, maxPanelHeight - 20)}px`;
-    removeSheetMenuOutsidePointerHandler();
-    sheetMenuOutsidePointerHandler = (event) => {
-      if (!sheetMenuPanel.contains(event.target) && !anchorElement.contains(event.target)) {
-        closeSheetMenu();
-      }
-    };
-    installSheetMenuOutsidePointerHandler();
+    bindSheetMenuOutsideClose(anchorElement);
     return true;
   };
 
@@ -18768,13 +18762,7 @@ function renderSpreadsheetClonePreview(
       fallbackHeight: 360,
       minMaxHeight: 160
     });
-    removeSheetMenuOutsidePointerHandler();
-    sheetMenuOutsidePointerHandler = (event) => {
-      if (!sheetMenuPanel.contains(event.target) && !anchorElement.contains(event.target)) {
-        closeSheetMenu();
-      }
-    };
-    installSheetMenuOutsidePointerHandler();
+    bindSheetMenuOutsideClose(anchorElement);
     return true;
   };
   const makeToolbarColorButton = (label = "", kind = "text") => {
@@ -20242,137 +20230,23 @@ function renderSpreadsheetClonePreview(
   const contextMenu = document.createElement("div");
   contextMenu.className = "workspace-sheet-context-menu";
   contextMenu.hidden = true;
-  ["mousedown", "pointerdown", "click", "contextmenu"].forEach((eventName) => {
-    contextMenu.addEventListener(eventName, (event) => {
-      event.stopPropagation();
-      if (eventName === "contextmenu") {
-        event.preventDefault();
-      }
-    });
-  });
+  contextMenu.setAttribute("role", "menu");
+  installWorkspaceMenuEventBlockers(contextMenu);
   gridContent.append(table, chartLayer);
   gridShell.append(gridContent, clipboardOutline, selectionMoveFrame, fillHandle);
 
-  let contextOutsidePointerHandler = null;
-  let contextKeydownHandler = null;
-  let contextViewportHandler = null;
-
-  const getContextSubmenuItems = getWorkspaceMenuSubItems;
-  const normalizeContextMenuItems = normalizeWorkspaceMenuItems;
-
-  const teardownContextMenuListeners = () => {
-    if (contextOutsidePointerHandler) {
-      document.removeEventListener("pointerdown", contextOutsidePointerHandler, true);
-      document.removeEventListener("mousedown", contextOutsidePointerHandler, true);
-      document.removeEventListener("contextmenu", contextOutsidePointerHandler, true);
-      contextOutsidePointerHandler = null;
-    }
-    if (contextKeydownHandler) {
-      document.removeEventListener("keydown", contextKeydownHandler);
-      contextKeydownHandler = null;
-    }
-    if (contextViewportHandler) {
-      window.removeEventListener("scroll", contextViewportHandler, true);
-      window.removeEventListener("resize", contextViewportHandler);
-      contextViewportHandler = null;
-    }
-  };
+  const contextMenuController = createWorkspaceNestedMenuController({
+    root: contextMenu,
+    rootOpenLeftClassName: "opens-left",
+    submenuClassName: "workspace-sheet-context-submenu",
+    itemOpenClassName: "is-open",
+    removeRootOnClose: true,
+    submenuZIndexBase: 1900,
+    leftLookaheadWidth: 540
+  });
 
   const closeContextMenu = () => {
-    teardownContextMenuListeners();
-    contextMenu.hidden = true;
-    contextMenu.innerHTML = "";
-    contextMenu.classList.remove("opens-left");
-    if (contextMenu.isConnected) {
-      contextMenu.remove();
-    }
-  };
-
-  const placeContextMenu = (clientX = 0, clientY = 0) => {
-    const margin = 8;
-    let left = Math.max(margin, clientX);
-    let top = Math.max(margin, clientY);
-    contextMenu.style.left = `${left}px`;
-    contextMenu.style.top = `${top}px`;
-    contextMenu.classList.remove("opens-left");
-
-    let rect = contextMenu.getBoundingClientRect();
-    if (rect.right > window.innerWidth - margin) {
-      left -= rect.right - (window.innerWidth - margin);
-    }
-    if (rect.bottom > window.innerHeight - margin) {
-      top -= rect.bottom - (window.innerHeight - margin);
-    }
-    left = Math.max(margin, left);
-    top = Math.max(margin, top);
-    contextMenu.style.left = `${left}px`;
-    contextMenu.style.top = `${top}px`;
-
-    rect = contextMenu.getBoundingClientRect();
-    contextMenu.classList.toggle("opens-left", rect.right + 540 > window.innerWidth - margin && rect.left > 540);
-  };
-
-  const placeContextSubmenu = (row = null) => {
-    if (!row?.classList?.contains("is-open")) {
-      return;
-    }
-    const submenu = row.querySelector(":scope > .workspace-sheet-context-submenu");
-    if (!submenu) {
-      return;
-    }
-
-    const margin = 8;
-    const menuGap = 6;
-    submenu.style.left = "";
-    submenu.style.right = "auto";
-    submenu.style.top = "";
-    submenu.style.maxHeight = `${Math.max(120, window.innerHeight - (margin * 2))}px`;
-
-    const rowRect = row.getBoundingClientRect();
-    const hostRect = (row.parentElement || contextMenu).getBoundingClientRect();
-    const submenuRect = submenu.getBoundingClientRect();
-    const availableHeight = Math.max(120, window.innerHeight - margin * 2);
-    const submenuHeight = Math.min(submenu.scrollHeight || submenuRect.height || availableHeight, availableHeight);
-    const submenuWidth = Math.min(
-      Math.max(submenu.scrollWidth || 0, submenu.offsetWidth || 0, submenuRect.width || 0, 268),
-      window.innerWidth - margin * 2
-    );
-
-    const rootPrefersLeft = contextMenu.classList.contains("opens-left");
-    const canOpenRight = hostRect.right + submenuWidth + menuGap <= window.innerWidth - margin;
-    const canOpenLeft = hostRect.left - submenuWidth - menuGap >= margin;
-    const opensLeft = rootPrefersLeft ? canOpenLeft || !canOpenRight : !canOpenRight && canOpenLeft;
-    const preferredLeft = opensLeft
-      ? hostRect.left - submenuWidth - menuGap
-      : hostRect.right + menuGap;
-    const viewportLeft = Math.max(margin, Math.min(preferredLeft, window.innerWidth - submenuWidth - margin));
-    const preferredTop = rowRect.top - 7;
-    const viewportTop = Math.max(margin, Math.min(preferredTop, window.innerHeight - submenuHeight - margin));
-    let depth = 1;
-    for (let parent = row.parentElement; parent && parent !== contextMenu; parent = parent.parentElement) {
-      if (parent.classList?.contains("workspace-sheet-context-submenu")) {
-        depth += 1;
-      }
-    }
-
-    submenu.style.left = `${Math.round(viewportLeft)}px`;
-    submenu.style.top = `${Math.round(viewportTop)}px`;
-    submenu.style.maxHeight = `${Math.max(120, Math.floor(window.innerHeight - viewportTop - margin))}px`;
-    submenu.style.zIndex = String(1900 + depth);
-  };
-
-  const closeSiblingContextSubmenus = (host = contextMenu, activeRow = null) => {
-    Array.from(host.children).forEach((child) => {
-      if (child !== activeRow) {
-        child.classList?.remove("is-open");
-      }
-    });
-  };
-
-  const openContextSubmenu = (row = null, host = contextMenu) => {
-    closeSiblingContextSubmenus(host, row);
-    row?.classList.add("is-open");
-    window.requestAnimationFrame(() => placeContextSubmenu(row));
+    contextMenuController.close();
   };
 
   const makeContextColorSwatchButton = (color = "", kind = "fill") => {
@@ -20449,112 +20323,42 @@ function renderSpreadsheetClonePreview(
   };
 
   const renderContextMenuItems = (items = [], host = contextMenu) => {
-    normalizeContextMenuItems(items).forEach((item) => {
-      if (item.separator) {
-        const separator = document.createElement("div");
-        separator.className = "workspace-sheet-context-separator";
-        separator.setAttribute("role", "separator");
-        host.appendChild(separator);
-        return;
-      }
-      if (item.palette) {
-        appendContextColorPalette(host, item.palette);
-        return;
-      }
-
-      const submenuItems = getContextSubmenuItems(item);
-      const hasSubmenu = submenuItems.length > 0;
-      const row = document.createElement("div");
-      row.className = "workspace-sheet-context-item";
-      row.classList.toggle("is-disabled", Boolean(item.disabled));
-      row.addEventListener("mouseenter", () => {
-        if (hasSubmenu && !item.disabled) {
-          openContextSubmenu(row, host);
-        } else {
-          closeSiblingContextSubmenus(host, row);
-        }
-      });
-
-      const button = createWorkspaceMenuActionButton(item, {
+    renderWorkspaceNestedMenuItems(items, host, {
+      itemClassName: "workspace-sheet-context-item",
+      itemDisabledClassName: "is-disabled",
+      itemOpenClassName: "is-open",
+      separatorClassName: "workspace-sheet-context-separator",
+      submenuClassName: "workspace-sheet-context-submenu",
+      actionOptions: {
         actionClassName: "workspace-sheet-context-action",
         iconClassName: "workspace-sheet-context-icon",
         labelClassName: "workspace-sheet-context-label",
         metaClassName: "workspace-sheet-context-meta",
         chevronClassName: "workspace-sheet-context-chevron",
         role: "menuitem",
-        hasSubmenu,
         createIconNode: createSheetIconNode,
-        resolveIconName: getSheetCommandIcon,
-        onClick: (event, menuItem, buttonNode) => {
-          event.preventDefault();
-          event.stopPropagation();
-          if (buttonNode.disabled) {
-            return;
-          }
-          if (hasSubmenu) {
-            if (row.classList.contains("is-open")) {
-              row.classList.remove("is-open");
-            } else {
-              openContextSubmenu(row, host);
-            }
-            return;
-          }
-          closeContextMenu();
-          menuItem.onSelect?.();
+        resolveIconName: getSheetCommandIcon
+      },
+      renderCustomItem: (item, targetHost) => {
+        if (!item.palette) {
+          return false;
         }
-      });
-
-      row.appendChild(button);
-      if (hasSubmenu) {
-        const submenu = document.createElement("div");
-        submenu.className = "workspace-sheet-context-submenu";
-        submenu.setAttribute("role", "menu");
-        renderContextMenuItems(submenuItems, submenu);
-        row.appendChild(submenu);
+        appendContextColorPalette(targetHost, item.palette);
+        return true;
+      },
+      closeMenu: closeContextMenu,
+      openSubmenu: contextMenuController.openSubmenu,
+      closeSiblingSubmenus: contextMenuController.closeSiblingSubmenus,
+      onActionSelect: (menuItem) => {
+        menuItem.onSelect?.();
       }
-      host.appendChild(row);
     });
-  };
-
-  const installContextMenuListeners = () => {
-    if (contextMenu.hidden || !contextMenu.isConnected) {
-      return;
-    }
-    teardownContextMenuListeners();
-    contextOutsidePointerHandler = (event) => {
-      const target = event.target;
-      const clickedInsideMenu = target?.closest?.(".workspace-sheet-context-menu, .workspace-sheet-context-submenu");
-      if (!clickedInsideMenu) {
-        closeContextMenu();
-      }
-    };
-    contextKeydownHandler = (event) => {
-      if (event.key === "Escape") {
-        closeContextMenu();
-      }
-    };
-    contextViewportHandler = (event) => {
-      if (!contextMenu.contains(event.target)) {
-        closeContextMenu();
-      }
-    };
-    document.addEventListener("pointerdown", contextOutsidePointerHandler, true);
-    document.addEventListener("mousedown", contextOutsidePointerHandler, true);
-    document.addEventListener("contextmenu", contextOutsidePointerHandler, true);
-    document.addEventListener("keydown", contextKeydownHandler);
-    window.addEventListener("scroll", contextViewportHandler, true);
-    window.addEventListener("resize", contextViewportHandler);
   };
 
   const openContextMenu = (clientX = 0, clientY = 0, items = []) => {
     contextMenu.innerHTML = "";
     renderContextMenuItems(items);
-    if (!contextMenu.isConnected) {
-      document.body.appendChild(contextMenu);
-    }
-    contextMenu.hidden = false;
-    placeContextMenu(clientX, clientY);
-    window.setTimeout(installContextMenuListeners, 0);
+    contextMenuController.open({ clientX, clientY });
   };
 
   const sheetClipboardActions = {
