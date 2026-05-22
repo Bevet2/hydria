@@ -8,6 +8,8 @@ import {
 } from "./workspaceCommandRegistry.js";
 import { WORKSPACE_BORDER_COLOR_OPTIONS } from "./workspaceColorPalette.js";
 
+// This file owns shared menu shape only: labels, icons, command ids,
+// ordering and nesting. Runtime behavior stays in Docs/Sheets adapters.
 export const WORKSPACE_DOCUMENT_BLOCK_MENU_ITEMS = [
   { label: "Text", icon: "text", commandId: "blockText", value: "p" },
   { label: "Title", icon: "text", commandId: "blockTitle", value: "h1" },
@@ -30,6 +32,20 @@ export const WORKSPACE_DOCUMENT_INSERT_MENU_ITEMS = [
 export const WORKSPACE_DOCUMENT_PAGE_INSERT_MENU_ITEMS = [
   { label: "New section", icon: "insert", commandId: "insertNewSection" },
   { label: "New page", icon: "page", commandId: "insertPageBreak" }
+];
+
+export const WORKSPACE_DOCUMENT_PAGE_FORMAT_MENU_ITEMS = [
+  { label: "En-tetes et pieds de page", icon: "page", commandId: "toggleHeaderFooter" },
+  { label: "Numeros de page", icon: "number", commandId: "pageNumbers", closeOnClick: false },
+  { label: "Orientation de la page", icon: "page", commandId: "pageOrientation" }
+];
+
+export const WORKSPACE_DOCUMENT_FORMAT_FIELD_ITEMS = [
+  { type: "dropdown", fieldId: "fontFamily", labelCommandId: "fontFamily" },
+  { type: "dropdown", fieldId: "fontSize", labelCommandId: "fontSize" },
+  { type: "dropdown", fieldId: "alignment", label: "Alignment" },
+  { type: "palette", fieldId: "textColor", labelCommandId: "textColor" },
+  { type: "palette", fieldId: "highlightColor", labelCommandId: "highlightColor" }
 ];
 
 export const WORKSPACE_DOCUMENT_TABLE_MENU_ITEMS = [
@@ -159,6 +175,31 @@ export function createWorkspaceDocumentInsertMenuItems({
   if (includePageBreaks) {
     items.push({ separator: true }, ...WORKSPACE_DOCUMENT_PAGE_INSERT_MENU_ITEMS.map((item) => ({ ...item })));
   }
+  return normalizeWorkspaceMenuItems(items);
+}
+
+export function createWorkspaceDocumentPageFormatMenuItems() {
+  return normalizeWorkspaceMenuItems(WORKSPACE_DOCUMENT_PAGE_FORMAT_MENU_ITEMS.map((item) => ({ ...item })));
+}
+
+export function createWorkspaceDocumentFormatFieldItems() {
+  return WORKSPACE_DOCUMENT_FORMAT_FIELD_ITEMS.map((item) => ({
+    ...item,
+    label: item.label || getWorkspaceCommandLabel(item.labelCommandId)
+  }));
+}
+
+export function createWorkspaceDocumentViewMenuItems({ isFullscreen = false, includeOutline = true } = {}) {
+  const items = [
+    { label: "Scroll to page", icon: "page", commandId: "focusPage" }
+  ];
+  if (includeOutline) {
+    items.push({ label: "Scroll to outline", icon: "list", commandId: "focusOutline" });
+  }
+  items.push(
+    { label: "Find in document", icon: "search", commandId: "findDocument" },
+    { label: isFullscreen ? "Exit fullscreen" : "Open fullscreen", icon: "zoom", commandId: "toggleFullscreen" }
+  );
   return normalizeWorkspaceMenuItems(items);
 }
 
@@ -313,6 +354,8 @@ export function createWorkspaceDeleteMenuItems({ context = false } = {}) {
 }
 
 export function createWorkspaceSortMenuItems({ context = false } = {}) {
+  // Shared sort commands are intentionally generic. Sheets currently maps
+  // them to cell/table sorting; Docs can add a table-row sort adapter later.
   return [
     { label: context ? "Trier de A a Z" : "Trier A-Z", icon: "sortAsc", commandId: "sortAscending" },
     { label: context ? "Trier de Z a A" : "Trier Z-A", icon: "sortDesc", commandId: "sortDescending" }

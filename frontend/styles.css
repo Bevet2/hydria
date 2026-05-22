@@ -2103,11 +2103,55 @@ textarea {
 }
 
 .workspace-docs-menu-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
   appearance: none;
   border: 1px solid #dadce0;
   background: #ffffff;
   color: #202124;
   cursor: pointer;
+}
+
+.workspace-docs-menu-action-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 1rem;
+  height: 1rem;
+  color: #1a73e8;
+  flex: 0 0 auto;
+}
+
+.workspace-docs-menu-action-icon svg {
+  display: block;
+  width: 1rem;
+  height: 1rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.85;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.workspace-docs-menu-action-icon.is-empty {
+  display: none;
+}
+
+.workspace-docs-menu-action-icon.is-text-icon {
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.workspace-docs-menu-action-label {
+  min-width: 0;
+}
+
+.workspace-docs-menu-action-meta {
+  margin-left: auto;
+  color: #6c727f;
+  font-size: 0.75rem;
+  white-space: nowrap;
 }
 
 .workspace-docs-menu-action:hover {
@@ -3031,16 +3075,28 @@ body.workspace-docs-fallback-open {
 }
 
 .workspace-docs-table-menu {
-  position: absolute;
-  z-index: 24;
+  position: fixed;
+  z-index: 1850;
   display: grid;
   gap: 4px;
   min-width: 180px;
+  max-width: min(320px, calc(100vw - 16px));
+  max-height: calc(100vh - 16px);
   padding: 8px;
   border-radius: 14px;
   border: 1px solid rgba(216, 196, 171, 0.78);
   background: rgba(255, 255, 255, 0.98);
   box-shadow: 0 18px 34px rgba(91, 70, 43, 0.16);
+  overflow: visible;
+  color: #2a3240;
+}
+
+.workspace-docs-table-menu[hidden] {
+  display: none;
+}
+
+.workspace-docs-table-menu-row {
+  position: relative;
 }
 
 .workspace-docs-table-menu-item {
@@ -3054,8 +3110,70 @@ body.workspace-docs-fallback-open {
   font: inherit;
   font-size: 0.82rem;
   text-align: left;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
   cursor: pointer;
   transition: background 140ms ease, color 140ms ease;
+}
+
+.workspace-docs-table-menu-item:disabled {
+  color: #a5adb8;
+  cursor: not-allowed;
+}
+
+.workspace-docs-table-menu-icon {
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  color: #1976d2;
+}
+
+.workspace-docs-table-menu-icon svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.workspace-docs-table-menu-icon.is-text-icon,
+.workspace-docs-table-menu-icon.is-empty {
+  color: transparent;
+}
+
+.workspace-docs-table-menu-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-docs-table-menu-meta {
+  color: #7a6c58;
+  font-size: 0.74rem;
+  white-space: nowrap;
+}
+
+.workspace-docs-table-menu-chevron {
+  display: inline-grid;
+  place-items: center;
+  color: #7a6c58;
+}
+
+.workspace-docs-table-menu-chevron svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .workspace-docs-table-menu-label {
@@ -3071,12 +3189,49 @@ body.workspace-docs-fallback-open {
   background: rgba(213, 177, 106, 0.12);
 }
 
+.workspace-docs-table-menu-item:disabled:hover {
+  background: transparent;
+}
+
+.workspace-docs-table-menu-row.is-open > .workspace-docs-table-menu-item {
+  background: rgba(213, 177, 106, 0.12);
+}
+
 .workspace-docs-table-menu-item.is-danger {
   color: #b54848;
 }
 
 .workspace-docs-table-menu-item.is-danger:hover {
   background: rgba(195, 76, 76, 0.1);
+}
+
+.workspace-docs-table-menu-separator {
+  height: 1px;
+  margin: 5px 0;
+  background: rgba(216, 196, 171, 0.78);
+}
+
+.workspace-docs-table-submenu {
+  position: fixed;
+  top: auto;
+  left: auto;
+  display: none;
+  min-width: 210px;
+  max-width: min(320px, calc(100vw - 16px));
+  max-height: calc(100vh - 16px);
+  padding: 8px;
+  border-radius: 14px;
+  border: 1px solid rgba(216, 196, 171, 0.78);
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 18px 34px rgba(91, 70, 43, 0.16);
+  overflow: auto;
+  overscroll-behavior: contain;
+  z-index: 1851;
+}
+
+.workspace-docs-table-menu-row.is-open > .workspace-docs-table-submenu {
+  display: grid;
+  gap: 4px;
 }
 
 .workspace-docs-figure figcaption {

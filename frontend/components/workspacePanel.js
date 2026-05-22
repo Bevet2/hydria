@@ -8,10 +8,11 @@ import {
   WORKSPACE_VERTICAL_ALIGNMENT_OPTIONS,
   bindWorkspaceMenuActions,
   closeWorkspaceDropdown,
+  createDocsWorkspaceCommandAdapter,
   createWorkspaceAlignmentMenuItems,
   createWorkspaceBorderMenuItems,
   createWorkspaceClipboardMenuItems,
-  createWorkspaceCommandDispatcher,
+  createWorkspaceCommandExecutor,
   createWorkspaceCommandMenuItems,
   createWorkspaceConditionalFormatMenuItems,
   createWorkspaceColorSwatchButton,
@@ -22,21 +23,26 @@ import {
   createWorkspaceDocumentAlignmentMenuItems,
   createWorkspaceDocumentBlockMenuItems,
   createWorkspaceDocumentFontSizeMenuItems,
+  createWorkspaceDocumentFormatFieldItems,
   createWorkspaceDocumentFormatMenuItems,
   createWorkspaceDocumentInsertMenuItems,
+  createWorkspaceDocumentPageFormatMenuItems,
   createWorkspaceDocumentTableMenuItems,
+  createWorkspaceDocumentViewMenuItems,
   createWorkspaceFontSizeOptions,
   createWorkspaceFilterMenuItems,
   createWorkspaceHomeCellsMenuItems,
   createWorkspaceHomeEditingMenuItems,
   createWorkspaceInsertMenuItems,
+  createWorkspaceIconNode,
+  createWorkspaceContextMenu,
   createWorkspaceMenuActionButton,
   createWorkspaceMenuOutsideController,
-  createWorkspaceNestedMenuController,
   createWorkspaceNumberFormatMenuItems,
   createWorkspacePaletteActionButton,
   createWorkspaceSelectElement,
   createWorkspaceSheetFontSizeOptions,
+  createSheetWorkspaceCommandAdapter,
   createWorkspaceSortFilterMenuItems,
   createWorkspaceSortMenuItems,
   createWorkspaceTableContextMenuItems,
@@ -47,7 +53,6 @@ import {
   normalizeWorkspaceMenuItems,
   placeWorkspaceFloatingPanel,
   renderWorkspaceFlatMenuItems,
-  renderWorkspaceNestedMenuItems,
   toggleWorkspaceDropdown
 } from "./workspaceSharedCommands.js";
 
@@ -2104,6 +2109,7 @@ function renderMarkdownPreview(
   let docsCanvas = null;
   let docsTableControls = null;
   let docsTableContextMenu = null;
+  let docsTableContextMenuApi = null;
   let docsTableControlSignature = "";
   let docsCommitHandle = null;
   let normalizedLegacyHeading = false;
@@ -3669,11 +3675,7 @@ function renderMarkdownPreview(
     if (!docsTableContextMenu) {
       return;
     }
-    docsTableContextMenu.replaceChildren();
-    docsTableContextMenu.classList.add("hidden");
-    docsTableContextMenu.style.removeProperty("left");
-    docsTableContextMenu.style.removeProperty("top");
-    docsTableContextMenu.style.removeProperty("visibility");
+    docsTableContextMenuApi?.close?.();
   };
 
   const hideDocsTableControls = () => {
@@ -3710,51 +3712,42 @@ function renderMarkdownPreview(
       })
       .join("|");
 
+  const createDocsContextMenuItems = (actions = []) =>
+    normalizeWorkspaceMenuItems(
+      actions.map((action) => {
+        if (action.type === "label") {
+          return { heading: true, label: action.label };
+        }
+        if (action.separator || action.heading) {
+          return { ...action };
+        }
+        const nestedItems = Array.isArray(action.items) ? createDocsContextMenuItems(action.items) : [];
+        const actionHandler = action.onSelect || action.onClick;
+        return {
+          ...action,
+          icon: action.icon || getWorkspaceCommandIcon(action.commandId || action.label),
+          items: nestedItems.length ? nestedItems : undefined,
+          onSelect: typeof actionHandler === "function"
+            ? () => {
+                if (action.restoreSelection) {
+                  restoreDocsSelection();
+                }
+                actionHandler();
+              }
+            : undefined
+        };
+      })
+    );
+
   const showDocsTableContextMenu = ({ left, top, actions = [] }) => {
     if (!docsCanvas || !docsTableContextMenu || !actions.length) {
       return;
     }
-    docsTableContextMenu.replaceChildren();
-    renderWorkspaceFlatMenuItems(
-      actions.map((action) =>
-        action.type === "label"
-          ? { heading: true, label: action.label }
-          : {
-              label: action.label,
-              danger: action.danger,
-              onSelect: () => {
-                hideDocsTableContextMenu();
-                if (action.restoreSelection) {
-                  restoreDocsSelection();
-                }
-                action.onClick?.();
-              }
-            }
-      ),
-      docsTableContextMenu,
-      {
-        headingClassName: "workspace-docs-table-menu-label",
-        actionOptions: (item) => ({
-          actionClassName: `workspace-docs-table-menu-item${item.danger ? " is-danger" : ""}`
-        }),
-        onActionSelect: (item, event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          item.onSelect?.();
-        }
-      }
-    );
-    docsTableContextMenu.classList.remove("hidden");
-    docsTableContextMenu.style.visibility = "hidden";
-    docsTableContextMenu.style.left = "0px";
-    docsTableContextMenu.style.top = "0px";
-    const menuWidth = docsTableContextMenu.offsetWidth || 180;
-    const menuHeight = docsTableContextMenu.offsetHeight || actions.length * 36;
-    const clampedLeft = Math.min(Math.max(12, left), Math.max(12, docsCanvas.clientWidth - menuWidth - 12));
-    const clampedTop = Math.min(Math.max(12, top), Math.max(12, docsCanvas.clientHeight - menuHeight - 12));
-    docsTableContextMenu.style.left = `${clampedLeft}px`;
-    docsTableContextMenu.style.top = `${clampedTop}px`;
-    docsTableContextMenu.style.visibility = "";
+    docsTableContextMenuApi?.open?.(createDocsContextMenuItems(actions), {
+      clientX: left,
+      clientY: top,
+      appendTo: document.body
+    });
   };
 
   const bindDocsTableControl = (button, { onClick, onContextMenu }) => {
@@ -3849,8 +3842,8 @@ function renderMarkdownPreview(
             onClick: () => addTableRow(table, rowIndex),
             onContextMenu: (event) =>
               showDocsTableContextMenu({
-                left: event.clientX - canvasRect.left + 10,
-                top: event.clientY - canvasRect.top + 10,
+                left: event.clientX + 8,
+                top: event.clientY + 8,
                 actions: [
                   {
                     label: "Supprimer la ligne",
@@ -3880,8 +3873,8 @@ function renderMarkdownPreview(
             onClick: () => addTableRow(table, bodyRows.length),
             onContextMenu: (event) =>
               showDocsTableContextMenu({
-                left: event.clientX - canvasRect.left + 10,
-                top: event.clientY - canvasRect.top + 10,
+                left: event.clientX + 8,
+                top: event.clientY + 8,
                 actions: [
                   {
                     label: "Supprimer la ligne",
@@ -3912,8 +3905,8 @@ function renderMarkdownPreview(
             onClick: () => addTableColumn(table, columnIndex + 1),
             onContextMenu: (event) =>
               showDocsTableContextMenu({
-                left: event.clientX - canvasRect.left + 10,
-                top: event.clientY - canvasRect.top + 10,
+                left: event.clientX + 8,
+                top: event.clientY + 8,
                 actions: [
                   {
                     label: "Supprimer la colonne",
@@ -4343,24 +4336,48 @@ function renderMarkdownPreview(
     tableDelete: () => table && removeTable(table)
   });
 
-  const appendDocsContextMenuItems = (
-    actions,
+  const createDocsBoundContextMenuItems = (
     menuItems,
     actionMap,
     { restoreSelectionCommandIds = new Set(["bold", "italic", "underline", "strikethrough"]) } = {}
   ) => {
-    bindWorkspaceMenuActions(menuItems, actionMap).forEach((item) => {
-      if (item.separator || item.heading || item.disabled || typeof item.onSelect !== "function") {
-        return;
+    const convertBoundItem = (item) => {
+      if (item.separator || item.heading) {
+        return { ...item };
       }
-      actions.push({
+      const nestedItems = Array.isArray(item.items)
+        ? normalizeWorkspaceMenuItems(item.items.map(convertBoundItem).filter(Boolean))
+        : [];
+      if (!nestedItems.length && !item.disabled && typeof item.onSelect !== "function") {
+        return null;
+      }
+      return {
         label: item.label,
+        icon: item.icon,
+        commandId: item.commandId,
         danger: item.danger,
+        disabled: item.disabled,
         shortcut: item.shortcut,
+        items: nestedItems.length ? nestedItems : undefined,
         restoreSelection: restoreSelectionCommandIds.has(item.commandId),
         onClick: item.onSelect
-      });
-    });
+      };
+    };
+    return normalizeWorkspaceMenuItems(
+      bindWorkspaceMenuActions(menuItems, actionMap).map(convertBoundItem).filter(Boolean)
+    );
+  };
+
+  const appendDocsContextMenuItems = (actions, menuItems, actionMap, options = {}) => {
+    actions.push(...createDocsBoundContextMenuItems(menuItems, actionMap, options));
+  };
+
+  const appendDocsContextSubmenu = (actions, label, icon, items = []) => {
+    const nestedItems = normalizeWorkspaceMenuItems(items);
+    if (!nestedItems.length) {
+      return;
+    }
+    actions.push({ label, icon, items: nestedItems });
   };
 
   const buildDocsContextMenuActions = (target = null) => {
@@ -4378,6 +4395,9 @@ function renderMarkdownPreview(
       actions.push({
         label,
         onClick,
+        icon: options.icon,
+        shortcut: options.shortcut,
+        commandId: options.commandId,
         danger: options.danger,
         restoreSelection: options.restoreSelection
       });
@@ -4390,12 +4410,28 @@ function renderMarkdownPreview(
         createWorkspaceDocumentFormatMenuItems({ includeHistory: false, includeClearFormatting: false }),
         textActionMap
       );
-      appendDocsContextMenuItems(actions, createWorkspaceDocumentBlockMenuItems(), textActionMap);
-      appendDocsContextMenuItems(actions, createWorkspaceDocumentAlignmentMenuItems(), textActionMap, { restoreSelectionCommandIds: new Set() });
-      addLabel("Size");
-      appendDocsContextMenuItems(actions, createWorkspaceDocumentFontSizeMenuItems(), textActionMap, {
-        restoreSelectionCommandIds: new Set(["fontSize"])
-      });
+      appendDocsContextSubmenu(
+        actions,
+        "Structure",
+        "text",
+        createDocsBoundContextMenuItems(createWorkspaceDocumentBlockMenuItems(), textActionMap)
+      );
+      appendDocsContextSubmenu(
+        actions,
+        "Alignement",
+        "alignLeft",
+        createDocsBoundContextMenuItems(createWorkspaceDocumentAlignmentMenuItems(), textActionMap, {
+          restoreSelectionCommandIds: new Set()
+        })
+      );
+      appendDocsContextSubmenu(
+        actions,
+        "Taille",
+        "text",
+        createDocsBoundContextMenuItems(createWorkspaceDocumentFontSizeMenuItems(), textActionMap, {
+          restoreSelectionCommandIds: new Set(["fontSize"])
+        })
+      );
     }
 
     if (table) {
@@ -4404,21 +4440,28 @@ function renderMarkdownPreview(
       const rowIndex = row?.parentElement?.tagName?.toLowerCase?.() === "tbody" ? getTableBodyRows(table).indexOf(row) : null;
       const columnIndex = row && cell ? Array.from(row.children).indexOf(cell) : null;
       const tableActionMap = createDocsSharedActionMap({ table, rowIndex, columnIndex });
-      addLabel("Table");
-      appendDocsContextMenuItems(
+      appendDocsContextSubmenu(
         actions,
-        createWorkspaceDocumentTableMenuItems({
-          canDeleteRow: rowIndex !== null && rowIndex >= 0,
-          canDeleteColumn: columnIndex !== null && columnIndex >= 0
-        }),
-        tableActionMap,
-        { restoreSelectionCommandIds: new Set() }
+        "Table",
+        "table",
+        createDocsBoundContextMenuItems(
+          createWorkspaceDocumentTableMenuItems({
+            canDeleteRow: rowIndex !== null && rowIndex >= 0,
+            canDeleteColumn: columnIndex !== null && columnIndex >= 0
+          }),
+          tableActionMap,
+          { restoreSelectionCommandIds: new Set() }
+        )
       );
     } else if (!mediaTarget) {
-      addLabel("Insert");
-      appendDocsContextMenuItems(actions, createWorkspaceDocumentInsertMenuItems(), createDocsSharedActionMap(), {
-        restoreSelectionCommandIds: new Set()
-      });
+      appendDocsContextSubmenu(
+        actions,
+        "Inserer",
+        "insert",
+        createDocsBoundContextMenuItems(createWorkspaceDocumentInsertMenuItems(), createDocsSharedActionMap(), {
+          restoreSelectionCommandIds: new Set()
+        })
+      );
     }
 
     if (mediaTarget && figureTarget) {
@@ -4456,11 +4499,10 @@ function renderMarkdownPreview(
     }
     saveDocsSelectionRange();
     hideDocsTableContextMenu();
-    const canvasRect = docsCanvas.getBoundingClientRect();
     const actions = buildDocsContextMenuActions(resolvedTarget);
     showDocsTableContextMenu({
-      left: clientX - canvasRect.left + 10,
-      top: clientY - canvasRect.top + 10,
+      left: clientX + 8,
+      top: clientY + 8,
       actions
     });
   };
@@ -4967,68 +5009,23 @@ function renderMarkdownPreview(
     updateDocsToolbarStatus("Saved automatically");
   };
 
-  const createDocsWorkspaceCommandAdapter = () => ({
-      bold: (_command, { fromContextMenu = false } = {}) => {
-        const fallback = () => toggleActiveBlockStyle("fontWeight", "700", "");
-        if (fromContextMenu) {
-          runInlineCommandFromContextMenu("bold", fallback);
-          return;
-        }
-        runInlineCommand("bold");
-      },
-      italic: (_command, { fromContextMenu = false } = {}) => {
-        const fallback = () => toggleActiveBlockStyle("fontStyle", "italic", "");
-        if (fromContextMenu) {
-          runInlineCommandFromContextMenu("italic", fallback);
-          return;
-        }
-        runInlineCommand("italic");
-      },
-      underline: (_command, { fromContextMenu = false } = {}) => {
-        if (fromContextMenu) {
-          runInlineCommandFromContextMenu("underline", toggleActiveBlockUnderline);
-          return;
-        }
-        runInlineCommand("underline");
-      },
-      strikethrough: () => {
-        runInlineCommandWithSelection("strikeThrough", null, toggleActiveBlockStrikethrough, "Strikethrough updated");
-      },
-      fontSize: (_command, { value = "" } = {}) => {
-        applyBlockFontSize(value);
-      },
-      fontFamily: (_command, { value = "" } = {}) => {
-        applyBlockFontFamily(value);
-      },
-      textColor: (_command, { value = "" } = {}) => {
-        if (value) {
-          runInlineCommandWithSelection("foreColor", value, () => applyBlockTextColor(value), "Text color updated");
-          return;
-        }
-        applyBlockTextColor("");
-      },
-      highlightColor: (_command, { value = "" } = {}) => {
-        if (value) {
-          runInlineCommandWithSelection("hiliteColor", value, () => applyBlockHighlightColor(value), "Highlight updated");
-          return;
-        }
-        applyBlockHighlightColor("");
-      },
-      alignLeft: () => applyBlockAlignment("left"),
-      alignCenter: () => applyBlockAlignment("center"),
-      alignRight: () => applyBlockAlignment("right"),
-      alignJustify: () => applyBlockAlignment("justify"),
-      clearFormatting: () => {
-        runInlineCommandWithSelection("removeFormat", null, resetActiveBlockFormatting, "Formatting reset");
-      }
-  });
-
-  const dispatchDocsWorkspaceCommand = createWorkspaceCommandDispatcher({
-    docs: createDocsWorkspaceCommandAdapter()
-  });
-
-  const executeDocsWorkspaceCommand = (commandId = "", options = {}) =>
-    dispatchDocsWorkspaceCommand(commandId, { target: "docs", ...options });
+  const executeDocsWorkspaceCommand = createWorkspaceCommandExecutor(
+    "docs",
+    createDocsWorkspaceCommandAdapter({
+      runInlineCommand,
+      runInlineCommandFromContextMenu,
+      runInlineCommandWithSelection,
+      toggleActiveBlockStyle,
+      toggleActiveBlockUnderline,
+      toggleActiveBlockStrikethrough,
+      applyBlockFontSize,
+      applyBlockFontFamily,
+      applyBlockTextColor,
+      applyBlockHighlightColor,
+      applyBlockAlignment,
+      resetActiveBlockFormatting
+    })
+  );
 
   const insertChecklist = () => {
     if (!shell) {
@@ -5323,14 +5320,24 @@ function renderMarkdownPreview(
       const menuFieldSyncHandlers = [];
       const menuDropdownRegistry = [];
 
-      const addMenuAction = (label, onClick, accent = false, { closeOnClick = true } = {}) => {
+      const addMenuAction = (itemOrLabel, onClick, accent = false, { closeOnClick = true } = {}) => {
+        const item =
+          itemOrLabel && typeof itemOrLabel === "object"
+            ? itemOrLabel
+            : { label: itemOrLabel };
+        const action = typeof onClick === "function" ? onClick : item.onSelect;
         const button = createWorkspaceMenuActionButton(
-          { label },
+          item,
           {
             actionClassName: `workspace-docs-menu-action${accent ? " accent" : ""}`,
+            iconClassName: "workspace-docs-menu-action-icon",
+            labelClassName: "workspace-docs-menu-action-label",
+            metaClassName: "workspace-docs-menu-action-meta",
+            createIconNode: createWorkspaceIconNode,
+            resolveIconName: getWorkspaceCommandIcon,
             onClick: async () => {
               try {
-                await onClick?.();
+                await action?.(item);
               } catch (error) {
                 console.error(error);
                 updateDocsToolbarStatus(error?.message || "Action unavailable");
@@ -5357,7 +5364,9 @@ function renderMarkdownPreview(
           if (item.separator || item.heading || item.disabled || typeof item.onSelect !== "function") {
             return;
           }
-          addMenuAction(item.label, item.onSelect, accentCommandIds.has(item.commandId));
+          addMenuAction(item, item.onSelect, accentCommandIds.has(item.commandId), {
+            closeOnClick: item.closeOnClick !== false
+          });
         });
       };
 
@@ -5737,65 +5746,79 @@ function renderMarkdownPreview(
 
       if (menuId === "Format") {
         addBoundMenuActions(createWorkspaceDocumentFormatMenuItems(), createDocsSharedActionMap());
-        addMenuAction("En-tetes et pieds de page", toggleDocsHeaderFooter);
-        addMenuAction(
-          "Numeros de page",
-          () => {
-            renderDocsPageNumberSettingsView();
-          },
-          false,
-          { closeOnClick: false }
-        );
-        addMenuAction("Orientation de la page", toggleDocsPageOrientation);
-        addMenuDropdownField(
-          getWorkspaceCommandLabel("fontFamily"),
-          DOCS_FONT_FAMILY_OPTIONS,
-          (item) => executeDocsWorkspaceCommand("fontFamily", { value: item?.value || "" }),
+        addBoundMenuActions(
+          createWorkspaceDocumentPageFormatMenuItems(),
           {
-            placeholder: "Choose font",
-            initialValue: getDocsCurrentFormattingState().fontFamilyLabel,
-            note: "The current selection stays targeted while you pick a preset font.",
-            getCurrentValue: (state) => state.fontFamilyLabel || "Default font",
-            decorateOption: (button, item) => {
-              if (item?.value) {
-                button.style.fontFamily = item.value;
+            toggleHeaderFooter: toggleDocsHeaderFooter,
+            pageNumbers: () => renderDocsPageNumberSettingsView(),
+            pageOrientation: toggleDocsPageOrientation
+          }
+        );
+        createWorkspaceDocumentFormatFieldItems().forEach((field) => {
+          if (field.fieldId === "fontFamily") {
+            addMenuDropdownField(
+              field.label,
+              DOCS_FONT_FAMILY_OPTIONS,
+              (item) => executeDocsWorkspaceCommand("fontFamily", { value: item?.value || "" }),
+              {
+                placeholder: "Choose font",
+                initialValue: getDocsCurrentFormattingState().fontFamilyLabel,
+                note: "The current selection stays targeted while you pick a preset font.",
+                getCurrentValue: (state) => state.fontFamilyLabel || "Default font",
+                decorateOption: (button, item) => {
+                  if (item?.value) {
+                    button.style.fontFamily = item.value;
+                  }
+                }
               }
-            }
+            );
+            return;
           }
-        );
-        addMenuDropdownField(
-          getWorkspaceCommandLabel("fontSize"),
-          DOCS_FONT_SIZE_OPTIONS,
-          (item, rawValue) => executeDocsWorkspaceCommand("fontSize", { value: item?.value || rawValue || "" }),
-          {
-            placeholder: "Choose size",
-            initialValue: getDocsCurrentFormattingState().fontSizeLabel,
-            note: "Pick a preset size or type your own value.",
-            getCurrentValue: (state) => state.fontSizeLabel || "Auto size",
-            customEntry: {
-              placeholder: "Custom size",
-              buttonLabel: "Apply",
-              normalizeValue: (value) => normalizeDocsFontSizeValue(value)
-            }
+          if (field.fieldId === "fontSize") {
+            addMenuDropdownField(
+              field.label,
+              DOCS_FONT_SIZE_OPTIONS,
+              (item, rawValue) => executeDocsWorkspaceCommand("fontSize", { value: item?.value || rawValue || "" }),
+              {
+                placeholder: "Choose size",
+                initialValue: getDocsCurrentFormattingState().fontSizeLabel,
+                note: "Pick a preset size or type your own value.",
+                getCurrentValue: (state) => state.fontSizeLabel || "Auto size",
+                customEntry: {
+                  placeholder: "Custom size",
+                  buttonLabel: "Apply",
+                  normalizeValue: (value) => normalizeDocsFontSizeValue(value)
+                }
+              }
+            );
+            return;
           }
-        );
-        addMenuDropdownField("Alignment", DOCS_ALIGNMENT_OPTIONS, (item) => executeDocsWorkspaceCommand(item?.commandId || "alignLeft"), {
-          placeholder: "Choose alignment",
-          initialValue: "Alignment",
-          getCurrentValue: () => "Alignment"
+          if (field.fieldId === "alignment") {
+            addMenuDropdownField(field.label, DOCS_ALIGNMENT_OPTIONS, (item) => executeDocsWorkspaceCommand(item?.commandId || "alignLeft"), {
+              placeholder: "Choose alignment",
+              initialValue: "Alignment",
+              getCurrentValue: () => "Alignment"
+            });
+            return;
+          }
+          if (field.fieldId === "textColor") {
+            addMenuColorPaletteField(
+              field.label,
+              DOCS_TEXT_COLOR_OPTIONS,
+              (item) => executeDocsWorkspaceCommand("textColor", { value: item?.value || "" }),
+              field.label
+            );
+            return;
+          }
+          if (field.fieldId === "highlightColor") {
+            addMenuColorPaletteField(
+              field.label,
+              DOCS_HIGHLIGHT_COLOR_OPTIONS,
+              (item) => executeDocsWorkspaceCommand("highlightColor", { value: item?.value || "" }),
+              field.label
+            );
+          }
         });
-        addMenuColorPaletteField(
-          getWorkspaceCommandLabel("textColor"),
-          DOCS_TEXT_COLOR_OPTIONS,
-          (item) => executeDocsWorkspaceCommand("textColor", { value: item?.value || "" }),
-          getWorkspaceCommandLabel("textColor")
-        );
-        addMenuColorPaletteField(
-          getWorkspaceCommandLabel("highlightColor"),
-          DOCS_HIGHLIGHT_COLOR_OPTIONS,
-          (item) => executeDocsWorkspaceCommand("highlightColor", { value: item?.value || "" }),
-          getWorkspaceCommandLabel("highlightColor")
-        );
         if (menuFieldSyncHandlers.length) {
           const syncMenuFields = () => {
             menuFieldSyncHandlers.forEach((handler) => handler());
@@ -5850,12 +5873,19 @@ function renderMarkdownPreview(
       }
 
       if (menuId === "View") {
-        addMenuAction("Scroll to page", () => focusDocsPage());
-        if (!isDocsCanvasFullscreen()) {
-          addMenuAction("Scroll to outline", () => focusDocsOutline());
-        }
-        addMenuAction("Find in document", () => openDocumentSearch(), true);
-        addMenuAction(isDocsCanvasFullscreen() ? "Exit fullscreen" : "Open fullscreen", toggleDocsFullscreen, true);
+        addBoundMenuActions(
+          createWorkspaceDocumentViewMenuItems({
+            isFullscreen: isDocsCanvasFullscreen(),
+            includeOutline: !isDocsCanvasFullscreen()
+          }),
+          {
+            focusPage: () => focusDocsPage(),
+            focusOutline: () => focusDocsOutline(),
+            findDocument: () => openDocumentSearch(),
+            toggleFullscreen: toggleDocsFullscreen
+          },
+          { accentCommandIds: new Set(["findDocument", "toggleFullscreen"]) }
+        );
         addMenuLabel("Press Esc to leave fullscreen quickly.");
       }
     };
@@ -6203,10 +6233,43 @@ function renderMarkdownPreview(
     docsTableControls = document.createElement("div");
     docsTableControls.className = "workspace-docs-table-controls hidden";
     docsTableContextMenu = document.createElement("div");
-    docsTableContextMenu.className = "workspace-docs-table-menu hidden";
+    docsTableContextMenu.className = "workspace-docs-table-menu";
+    docsTableContextMenu.hidden = true;
+    docsTableContextMenu.setAttribute("role", "menu");
     installWorkspaceMenuEventBlockers(docsTableContextMenu);
+    docsTableContextMenuApi = createWorkspaceContextMenu({
+      root: docsTableContextMenu,
+      controllerOptions: {
+        rootOpenLeftClassName: "opens-left",
+        submenuClassName: "workspace-docs-table-submenu",
+        itemOpenClassName: "is-open",
+        removeRootOnClose: true,
+        submenuZIndexBase: 1850,
+        leftLookaheadWidth: 480
+      },
+      renderOptions: {
+        itemClassName: "workspace-docs-table-menu-row",
+        itemDisabledClassName: "is-disabled",
+        itemOpenClassName: "is-open",
+        separatorClassName: "workspace-docs-table-menu-separator",
+        headingClassName: "workspace-docs-table-menu-label",
+        submenuClassName: "workspace-docs-table-submenu",
+        actionOptions: (item) => ({
+          actionClassName: `workspace-docs-table-menu-item${item.danger ? " is-danger" : ""}`,
+          iconClassName: "workspace-docs-table-menu-icon",
+          labelClassName: "workspace-docs-table-menu-text",
+          metaClassName: "workspace-docs-table-menu-meta",
+          chevronClassName: "workspace-docs-table-menu-chevron",
+          role: "menuitem",
+          createIconNode: createWorkspaceIconNode,
+          resolveIconName: getWorkspaceCommandIcon
+        }),
+        onActionSelect: (item) => {
+          item.onSelect?.();
+        }
+      }
+    });
     docsCanvas.appendChild(docsTableControls);
-    docsCanvas.appendChild(docsTableContextMenu);
     syncDocsFullscreenButtonState();
     previewShell.addEventListener("fullscreenchange", () => {
       if (isDocsCanvasFullscreen()) {
@@ -8704,6 +8767,7 @@ function renderSpreadsheetClonePreview(
   );
 
   let selectionRange = { ...initialSelectionState.selectionRange };
+  let contextMenuSelectionSnapshot = null;
   let selectionDragState = {
     active: false,
     anchorRowIndex: 0,
@@ -9329,6 +9393,27 @@ function renderSpreadsheetClonePreview(
     maxColumn: Math.max(selectionRange.startColumnIndex, selectionRange.endColumnIndex)
   });
 
+  const isCellInsideBounds = (rowIndex = 0, columnIndex = 0, bounds = getSelectionBounds()) =>
+    rowIndex >= bounds.minRow &&
+    rowIndex <= bounds.maxRow &&
+    columnIndex >= bounds.minColumn &&
+    columnIndex <= bounds.maxColumn;
+
+  const isMultiCellBounds = (bounds = getSelectionBounds()) =>
+    bounds.minRow !== bounds.maxRow || bounds.minColumn !== bounds.maxColumn;
+
+  const captureRangeContextMenuSelection = (rowIndex = 0, columnIndex = 0) => {
+    const bounds = getSelectionBounds();
+    if (!isMultiCellBounds(bounds) || !isCellInsideBounds(rowIndex, columnIndex, bounds)) {
+      return null;
+    }
+    return {
+      activeSelection: { ...activeSelection },
+      selectionRange: { ...selectionRange },
+      bounds
+    };
+  };
+
   const setSelectionRange = ({
     startRowIndex = activeSelection.rowIndex,
     startColumnIndex = activeSelection.columnIndex,
@@ -9903,47 +9988,20 @@ function renderSpreadsheetClonePreview(
     }));
   };
 
-  const createSheetWorkspaceCommandAdapter = () => ({
-      bold: () => toggleSelectedTextStyle("bold"),
-      italic: () => toggleSelectedTextStyle("italic"),
-      underline: () => toggleSelectedTextStyle("underline"),
-      fontSize: (_command, { value = null, delta = null } = {}) => {
-        const numericDelta = Number(delta);
-        if (Number.isFinite(numericDelta) && numericDelta !== 0) {
-          adjustSelectedFontSize(numericDelta);
-          return;
-        }
-        const numericValue = Number(value);
-        if (Number.isFinite(numericValue)) {
-          setSelectedFontSize(numericValue);
-        }
-      },
-      fontFamily: (_command, { value = "" } = {}) => {
-        setSelectedFontFamily(value);
-      },
-      textColor: (_command, { value = "" } = {}) => {
-        setSelectedTextColor(value);
-      },
-      fillColor: (_command, { value = "" } = {}) => {
-        setSelectedFillColor(value);
-      },
-      alignLeft: () => setSelectedHorizontalAlign("left"),
-      alignCenter: () => setSelectedHorizontalAlign("center"),
-      alignRight: () => setSelectedHorizontalAlign("right"),
-      alignTop: () => setSelectedVerticalAlign("top"),
-      alignMiddle: () => setSelectedVerticalAlign("middle"),
-      alignBottom: () => setSelectedVerticalAlign("bottom"),
-      clearFormatting: () => {
-        clearSelectedFormatting();
-      }
-  });
-
-  const dispatchSheetWorkspaceCommand = createWorkspaceCommandDispatcher({
-    sheets: createSheetWorkspaceCommandAdapter()
-  });
-
-  const executeSheetWorkspaceCommand = (commandId = "", options = {}) =>
-    dispatchSheetWorkspaceCommand(commandId, { target: "sheets", ...options });
+  const executeSheetWorkspaceCommand = createWorkspaceCommandExecutor(
+    "sheets",
+    createSheetWorkspaceCommandAdapter({
+      toggleSelectedTextStyle,
+      adjustSelectedFontSize: (delta) => adjustSelectedFontSize(delta),
+      setSelectedFontSize: (fontSize) => setSelectedFontSize(fontSize),
+      setSelectedFontFamily: (fontFamily) => setSelectedFontFamily(fontFamily),
+      setSelectedTextColor: (color) => setSelectedTextColor(color),
+      setSelectedFillColor: (color) => setSelectedFillColor(color),
+      setSelectedHorizontalAlign: (alignment) => setSelectedHorizontalAlign(alignment),
+      setSelectedVerticalAlign: (alignment) => setSelectedVerticalAlign(alignment),
+      clearSelectedFormatting: () => clearSelectedFormatting()
+    })
+  );
 
   const createSheetCommandAction = (commandId = "", options = {}) =>
     () => executeSheetWorkspaceCommand(commandId, options);
@@ -11463,32 +11521,65 @@ function renderSpreadsheetClonePreview(
     return nextBounds;
   };
 
-  const readDataRangeRow = (rowIndex = 0, minColumn = 0, maxColumn = 0) => ({
-    values: Array.from({ length: maxColumn - minColumn + 1 }, (_, offset) =>
-      getRawCellValue(rowIndex, minColumn + offset)
-    ),
-    formats: Array.from({ length: maxColumn - minColumn + 1 }, (_, offset) =>
-      getCellFormat(rowIndex, minColumn + offset)
-    )
-  });
+  // Data operations move full cell payloads, not only displayed values, so
+  // formats, notes, validations and sparklines stay attached to sorted rows.
+  const readDataRangeRow = (rowIndex = 0, minColumn = 0, maxColumn = 0) => {
+    const cells = Array.from({ length: maxColumn - minColumn + 1 }, (_, offset) =>
+      getRangeCellPayload(rowIndex, minColumn + offset)
+    );
+    return {
+      values: cells.map((cell) => cell.value),
+      cells
+    };
+  };
 
   const writeDataRangeRow = (rowIndex = 0, minColumn = 0, row = {}) => {
+    if (Array.isArray(row.cells)) {
+      row.cells.forEach((cell, offset) => {
+        applyRangeCellPayload(rowIndex, minColumn + offset, cell);
+      });
+      return;
+    }
     (row.values || []).forEach((value, offset) => {
-      setRawCellValue(rowIndex, minColumn + offset, value);
-      setCellFormat(rowIndex, minColumn + offset, row.formats?.[offset] || {});
+      applyRangeCellPayload(rowIndex, minColumn + offset, {
+        value,
+        format: row.formats?.[offset] || {}
+      });
     });
   };
 
   const clearDataRange = (minRow = 0, maxRow = 0, minColumn = 0, maxColumn = 0) => {
     for (let rowIndex = minRow; rowIndex <= maxRow; rowIndex += 1) {
       for (let columnIndex = minColumn; columnIndex <= maxColumn; columnIndex += 1) {
-        setRawCellValue(rowIndex, columnIndex, "");
-        setCellFormat(rowIndex, columnIndex, {});
+        clearRangeCellPayload(rowIndex, columnIndex);
       }
     }
   };
 
+  // Excel-style table sorting: sorting one selected table column must reorder
+  // every data cell in that table row, while headers/totals remain in place.
+  const getTableForActiveSortColumn = () => {
+    const selectionBounds = getSelectionBounds();
+    return (
+      getActiveSheetTables().find((table) => {
+        const tableBounds = getStructureBounds(table);
+        if (activeSelection.columnIndex < tableBounds.minColumn || activeSelection.columnIndex > tableBounds.maxColumn) {
+          return false;
+        }
+        return (
+          boundsContainsCell(tableBounds, activeSelection.rowIndex, activeSelection.columnIndex) ||
+          boundsIntersect(tableBounds, selectionBounds)
+        );
+      }) || null
+    );
+  };
+
   const sortActiveColumn = (direction = "asc") => {
+    const activeTable = getTableForActiveSortColumn();
+    if (activeTable) {
+      // Delegate table-aware sorting before falling back to plain range sort.
+      return sortTableColumn(activeTable, activeSelection.columnIndex, direction);
+    }
     const { minRow, maxRow, minColumn, maxColumn } = getDataSelectionBounds({
       preferTable: true,
       skipHeader: true
@@ -18379,94 +18470,11 @@ function renderSpreadsheetClonePreview(
   const toolbar = document.createElement("div");
   toolbar.className = "workspace-sheet-toolbar";
   const resolveToolbarDisabled = (disabled = false) => (typeof disabled === "function" ? Boolean(disabled()) : Boolean(disabled));
-  const sheetIconSvg = {
-    alignBottom: '<path d="M5 19h14"/><path d="M8 5h8v10H8z"/>',
-    alignCenter: '<path d="M4 7h16"/><path d="M7 12h10"/><path d="M4 17h16"/>',
-    alignLeft: '<path d="M4 6h16"/><path d="M4 11h10"/><path d="M4 16h16"/><path d="M4 21h10"/>',
-    alignMiddle: '<path d="M4 12h16"/><path d="M8 5h8v14H8z"/>',
-    alignRight: '<path d="M4 6h16"/><path d="M10 11h10"/><path d="M4 16h16"/><path d="M10 21h10"/>',
-    alignTop: '<path d="M5 5h14"/><path d="M8 9h8v10H8z"/>',
-    areaChart: '<path d="M4 18l5-7 4 3 4-8 3 12H4z"/><path d="M4 20h16"/>',
-    axes: '<path d="M5 4v15h15"/><path d="M5 14h15"/><path d="M10 19v-3"/><path d="M15 19v-6"/><path d="M20 19v-10"/>',
-    barChart: '<path d="M4 19h16"/><path d="M6 16h3"/><path d="M6 11h8"/><path d="M6 6h12"/>',
-    bold: '<path d="M7 5h6a3 3 0 0 1 0 6H7z"/><path d="M7 11h7a4 4 0 0 1 0 8H7z"/>',
-    border: '<rect x="5" y="5" width="14" height="14"/><path d="M5 12h14"/><path d="M12 5v14"/>',
-    calendar: '<path d="M7 3v4"/><path d="M17 3v4"/><rect x="4" y="5" width="16" height="16" rx="2"/><path d="M4 10h16"/>',
-    chart: '<path d="M4 19h16"/><rect x="6" y="10" width="3" height="7"/><rect x="11" y="5" width="3" height="12"/><rect x="16" y="8" width="3" height="9"/>',
-    check: '<path d="M5 12l4 4 10-10"/>',
-    checkbox: '<rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 12l3 3 6-7"/>',
-    chevronDown: '<path d="M7 10l5 5 5-5"/>',
-    chevronLeft: '<path d="M15 18l-6-6 6-6"/>',
-    chevronRight: '<path d="M9 18l6-6-6-6"/>',
-    chevronUp: '<path d="M7 14l5-5 5 5"/>',
-    clean: '<path d="M4 20h16"/><path d="M8 17l8-8"/><path d="M10 5l9 9"/><path d="M5 16l3 3"/>',
-    close: '<path d="M6 6l12 12"/><path d="M18 6L6 18"/>',
-    copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><rect x="4" y="4" width="12" height="12" rx="2"/>',
-    csv: '<path d="M6 3h9l4 4v14H6z"/><path d="M15 3v5h5"/><path d="M8 15h8"/><path d="M8 18h5"/>',
-    currency: '<path d="M17 5.5A6.5 6.5 0 1 0 17 18.5"/><path d="M5 10h9"/><path d="M5 14h9"/>',
-    cut: '<circle cx="6" cy="6" r="2"/><circle cx="6" cy="18" r="2"/><path d="M8 8l12 12"/><path d="M8 16L20 4"/>',
-    delete: '<path d="M5 7h14"/><path d="M9 7V5h6v2"/><path d="M8 7l1 13h6l1-13"/>',
-    duplicate: '<rect x="8" y="8" width="11" height="11" rx="2"/><path d="M5 15V5h10"/>',
-    eraser: '<path d="M4 16l8-8 6 6-5 5H7z"/><path d="M12 19h8"/>',
-    eyeOff: '<path d="M3 3l18 18"/><path d="M10.6 10.6a2 2 0 0 0 2.8 2.8"/><path d="M9.5 5.3A9.8 9.8 0 0 1 12 5c5 0 8 4 9 7a12 12 0 0 1-2.4 3.7"/><path d="M6.1 6.8A12 12 0 0 0 3 12c1 3 4 7 9 7a9.8 9.8 0 0 0 3.5-.6"/>',
-    fileSpreadsheet: '<path d="M6 3h9l4 4v14H6z"/><path d="M15 3v5h5"/><path d="M8 12h9"/><path d="M8 16h9"/><path d="M11 9v10"/>',
-    fill: '<path d="M4 14l7-7 7 7-5 5H9z"/><path d="M14 19h6"/><path d="M16 14l3 3 2-2"/>',
-    filter: '<path d="M4 5h16l-6 7v6l-4 2v-8z"/>',
-    filterClear: '<path d="M4 5h13l-5 6v5l-3 2v-7z"/><path d="M16 14l5 5"/><path d="M21 14l-5 5"/>',
-    freeze: '<path d="M5 5h14v14H5z"/><path d="M5 10h14"/><path d="M10 5v14"/>',
-    function: '<path d="M8 19c2-6 3-10 4-14"/><path d="M5 9h8"/><path d="M14 13l5 5"/><path d="M19 13l-5 5"/>',
-    grid: '<rect x="4" y="4" width="16" height="16"/><path d="M4 10h16"/><path d="M4 16h16"/><path d="M10 4v16"/><path d="M16 4v16"/>',
-    image: '<rect x="4" y="5" width="16" height="14" rx="2"/><circle cx="9" cy="10" r="1.5"/><path d="M5 18l5-5 3 3 2-2 4 4"/>',
-    insert: '<path d="M12 5v14"/><path d="M5 12h14"/>',
-    italic: '<path d="M10 5h8"/><path d="M6 19h8"/><path d="M14 5l-4 14"/>',
-    lineChart: '<path d="M4 18l5-6 4 3 6-8"/><path d="M4 20h16"/>',
-    lock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
-    merge: '<rect x="4" y="7" width="16" height="10" rx="1"/><path d="M9 7v10"/><path d="M15 7v10"/><path d="M8 12h8"/><path d="M13 9l3 3-3 3"/><path d="M11 9l-3 3 3 3"/>',
-    move: '<path d="M12 3v18"/><path d="M3 12h18"/><path d="M8 7l4-4 4 4"/><path d="M8 17l4 4 4-4"/><path d="M7 8l-4 4 4 4"/><path d="M17 8l4 4-4 4"/>',
-    note: '<path d="M5 4h14v12l-5 5H5z"/><path d="M14 16v5"/><path d="M14 16h5"/>',
-    number: '<path d="M8 4L6 20"/><path d="M16 4l-2 16"/><path d="M4 9h16"/><path d="M3 15h16"/>',
-    palette: '<path d="M12 4a8 8 0 0 0 0 16h1.5a1.8 1.8 0 0 0 .5-3.5 1.7 1.7 0 0 1 .5-3.3H16a4 4 0 0 0 0-8.1A9.8 9.8 0 0 0 12 4z"/><circle cx="8.5" cy="10" r=".8"/><circle cx="11" cy="7.8" r=".8"/><circle cx="14" cy="8.5" r=".8"/>',
-    paste: '<path d="M8 4h8v4H8z"/><path d="M6 6H5a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-1"/>',
-    pdf: '<path d="M6 3h9l4 4v14H6z"/><path d="M15 3v5h5"/><path d="M8 16h3"/><path d="M8 13h8"/>',
-    percent: '<path d="M19 5L5 19"/><circle cx="7" cy="7" r="2"/><circle cx="17" cy="17" r="2"/>',
-    pieChart: '<path d="M11 3v9h9a9 9 0 1 1-9-9z"/><path d="M13 3.2A9 9 0 0 1 20.8 10H13z"/>',
-    pivot: '<rect x="4" y="5" width="16" height="14" rx="1"/><path d="M4 10h16"/><path d="M10 5v14"/><path d="M14 14h4"/><path d="M16 12v4"/><path d="M6 7.5h2"/><path d="M12 7.5h6"/>',
-    print: '<path d="M7 8V4h10v4"/><rect x="6" y="14" width="12" height="7"/><path d="M6 18H4a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2"/>',
-    redo: '<path d="M15 7h5v5"/><path d="M20 7c-2.8-2.8-7.2-3-10.2-.4-3.1 2.7-3.2 7.4-.3 10.2 2.1 2.1 5.2 2.7 7.8 1.5"/>',
-    refresh: '<path d="M20 12a8 8 0 1 1-2.3-5.7"/><path d="M20 4v6h-6"/>',
-    rename: '<path d="M4 20h16"/><path d="M13 5l6 6-8 8H5v-6z"/><path d="M16 8l-8 8"/>',
-    search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="M16 16l4 4"/>',
-    shape: '<rect x="4" y="9" width="8" height="8" rx="1"/><circle cx="16" cy="9" r="4"/><path d="M15 14l5 6h-10z"/>',
-    sheet: '<path d="M6 3h9l4 4v14H6z"/><path d="M15 3v5h5"/><path d="M8 12h8"/><path d="M8 16h8"/>',
-    slicer: '<path d="M4 5h16"/><path d="M7 10h10"/><path d="M9 15h6"/><path d="M11 20h2"/>',
-    sort: '<path d="M8 5v14"/><path d="M5 8l3-3 3 3"/><path d="M16 19V5"/><path d="M13 16l3 3 3-3"/>',
-    sortAsc: '<path d="M8 5v14"/><path d="M5 8l3-3 3 3"/><path d="M14 7h6"/><path d="M14 12h4"/><path d="M14 17h2"/>',
-    sortDesc: '<path d="M8 19V5"/><path d="M5 16l3 3 3-3"/><path d="M14 7h2"/><path d="M14 12h4"/><path d="M14 17h6"/>',
-    sparkline: '<path d="M4 17l4-5 3 3 5-8 4 6"/><path d="M4 20h16"/>',
-    split: '<path d="M4 6h16"/><path d="M4 12h7"/><path d="M4 18h16"/><path d="M15 9l3 3-3 3"/>',
-    table: '<rect x="4" y="5" width="16" height="14" rx="1"/><path d="M4 10h16"/><path d="M9 5v14"/><path d="M15 5v14"/>',
-    text: '<path d="M4 6h16"/><path d="M12 6v14"/><path d="M8 20h8"/>',
-    textColor: '<path d="M6 19h12"/><path d="M9 15l3-10 3 10"/><path d="M10 12h4"/>',
-    transpose: '<path d="M5 5h7v7H5z"/><path d="M12 12h7v7h-7z"/><path d="M15 5h4v4"/><path d="M19 5l-6 6"/><path d="M9 19H5v-4"/><path d="M5 19l6-6"/>',
-    underline: '<path d="M7 5v6a5 5 0 0 0 10 0V5"/><path d="M5 21h14"/>',
-    undo: '<path d="M9 7H4v5"/><path d="M4 7c2.8-2.8 7.2-3 10.2-.4 3.1 2.7 3.2 7.4.3 10.2-2.1 2.1-5.2 2.7-7.8 1.5"/>',
-    zoom: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="M16 16l4 4"/><path d="M10.5 7v7"/><path d="M7 10.5h7"/>'
-  };
 
   const getSheetCommandIcon = getWorkspaceCommandIcon;
 
   const createSheetIconNode = (iconName = "", { className = "workspace-sheet-command-icon", label = "" } = {}) => {
-    const key = sheetIconSvg[iconName] ? iconName : getSheetCommandIcon(iconName || label);
-    const icon = document.createElement("span");
-    icon.className = className;
-    icon.setAttribute("aria-hidden", "true");
-    if (!sheetIconSvg[key]) {
-      icon.textContent = String(label || iconName || "").slice(0, 2).toUpperCase();
-      icon.classList.add("is-text-icon");
-      return icon;
-    }
-    icon.innerHTML = `<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">${sheetIconSvg[key]}</svg>`;
-    return icon;
+    return createWorkspaceIconNode(iconName || getSheetCommandIcon(label), { className, label });
   };
   ribbonOptionsButton.replaceChildren(
     createSheetIconNode("chevronDown", {
@@ -20172,18 +20180,10 @@ function renderSpreadsheetClonePreview(
   gridContent.append(table, chartLayer);
   gridShell.append(gridContent, clipboardOutline, selectionMoveFrame, fillHandle);
 
-  const contextMenuController = createWorkspaceNestedMenuController({
-    root: contextMenu,
-    rootOpenLeftClassName: "opens-left",
-    submenuClassName: "workspace-sheet-context-submenu",
-    itemOpenClassName: "is-open",
-    removeRootOnClose: true,
-    submenuZIndexBase: 1900,
-    leftLookaheadWidth: 540
-  });
+  let contextMenuApi = null;
 
   const closeContextMenu = () => {
-    contextMenuController.close();
+    contextMenuApi?.close?.();
   };
 
   const makeContextColorSwatchButton = (color = "", kind = "fill") => {
@@ -20259,8 +20259,17 @@ function renderSpreadsheetClonePreview(
     host.appendChild(palette);
   };
 
-  const renderContextMenuItems = (items = [], host = contextMenu) => {
-    renderWorkspaceNestedMenuItems(items, host, {
+  contextMenuApi = createWorkspaceContextMenu({
+    root: contextMenu,
+    controllerOptions: {
+      rootOpenLeftClassName: "opens-left",
+      submenuClassName: "workspace-sheet-context-submenu",
+      itemOpenClassName: "is-open",
+      removeRootOnClose: true,
+      submenuZIndexBase: 1900,
+      leftLookaheadWidth: 540
+    },
+    renderOptions: {
       itemClassName: "workspace-sheet-context-item",
       itemDisabledClassName: "is-disabled",
       itemOpenClassName: "is-open",
@@ -20283,19 +20292,14 @@ function renderSpreadsheetClonePreview(
         appendContextColorPalette(targetHost, item.palette);
         return true;
       },
-      closeMenu: closeContextMenu,
-      openSubmenu: contextMenuController.openSubmenu,
-      closeSiblingSubmenus: contextMenuController.closeSiblingSubmenus,
       onActionSelect: (menuItem) => {
         menuItem.onSelect?.();
       }
-    });
-  };
+    }
+  });
 
   const openContextMenu = (clientX = 0, clientY = 0, items = []) => {
-    contextMenu.innerHTML = "";
-    renderContextMenuItems(items);
-    contextMenuController.open({ clientX, clientY });
+    contextMenuApi?.open?.(items, { clientX, clientY });
   };
 
   const sheetClipboardActions = {
@@ -21687,6 +21691,15 @@ function renderSpreadsheetClonePreview(
           return;
         }
         if (event.button !== 0) {
+          if (event.button === 2) {
+            contextMenuSelectionSnapshot = captureRangeContextMenuSelection(rowIndex, columnIndex);
+            if (contextMenuSelectionSnapshot) {
+              preserveRangeOnNextFocus = true;
+              suppressFormulaActivation = true;
+              event.preventDefault();
+              event.stopPropagation();
+            }
+          }
           return;
         }
         if (
@@ -21761,13 +21774,16 @@ function renderSpreadsheetClonePreview(
       });
       input.addEventListener("contextmenu", (event) => {
         event.preventDefault();
-        const { minRow, maxRow, minColumn, maxColumn } = getSelectionBounds();
-        if (
-          rowIndex < minRow ||
-          rowIndex > maxRow ||
-          columnIndex < minColumn ||
-          columnIndex > maxColumn
-        ) {
+        const snapshot = contextMenuSelectionSnapshot;
+        contextMenuSelectionSnapshot = null;
+        if (snapshot && isCellInsideBounds(rowIndex, columnIndex, snapshot.bounds)) {
+          activeSelection = { ...snapshot.activeSelection };
+          selectionRange = { ...snapshot.selectionRange };
+          preserveRangeOnNextFocus = false;
+          suppressFormulaActivation = false;
+          saveCurrentSelectionState();
+          syncSelectionUi();
+        } else if (!isCellInsideBounds(rowIndex, columnIndex)) {
           setSelectionRange({
             startRowIndex: rowIndex,
             startColumnIndex: columnIndex,
