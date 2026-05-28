@@ -41,6 +41,27 @@ export const apiClient = {
   getHealth() {
     return request("/api/health");
   },
+  getHydriaStatus() {
+    return request("/api/hydria/status");
+  },
+  getHydriaCapabilities() {
+    return request("/api/hydria/capabilities");
+  },
+  getHydriaControlSchema() {
+    return request("/api/hydria/control/schema");
+  },
+  askHydria(input, options = {}) {
+    return request("/api/hydria/ask", {
+      method: "POST",
+      body: JSON.stringify({ input, options })
+    });
+  },
+  runHydriaControl(payload = {}) {
+    return request("/api/hydria/control", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+  },
   listUsers() {
     return request("/api/users");
   },

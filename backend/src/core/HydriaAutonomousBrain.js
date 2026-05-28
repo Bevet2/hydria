@@ -31,6 +31,7 @@ import {
   detectTaskType,
   summarizeLearningUsage
 } from "../learning/learning.reuse.js";
+import { classifyAgenticRequest } from "./agenticClassifier.js";
 import { detectProjectIntent, updateProjectAfterTask } from "../projects/project.lifecycle.js";
 import { extractIntentProfile } from "./intentKernel.js";
 import { planEnvironment, inferEnvironmentObjectKind } from "./environmentPlanner.js";
@@ -54,6 +55,20 @@ import {
   finalizeAgenticFailure,
   finalizeAgenticSuccess
 } from "./hydria-autonomous/finalization.js";
+
+function shouldUseArtifactFastPath({ prompt, attachments = [], activeWorkObject = null, workObjectPath = "" }) {
+  if (activeWorkObject || workObjectPath || attachments.length) {
+    return false;
+  }
+
+  if (classifyAgenticRequest(prompt, attachments) !== "artifact_generation") {
+    return false;
+  }
+
+  return /\b(excel|xlsx|xls|csv|tableur|spreadsheet|sheet|dataset|document|docx|pdf|word|pptx|ppt|presentation|slides?|dashboard|workflow|wireframe|design)\b/i.test(
+    String(prompt || "")
+  );
+}
 
 class HydriaAutonomousBrain {
   constructor() {
@@ -170,6 +185,22 @@ class HydriaAutonomousBrain {
     if (this.learningMaintenancePromise) {
       await this.learningMaintenancePromise;
       this.learningMaintenancePromise = null;
+    }
+
+    if (
+      shouldUseArtifactFastPath({
+        prompt: effectivePrompt,
+        attachments,
+        activeWorkObject,
+        workObjectPath
+      })
+    ) {
+      return fallbackToLegacyChat({
+        userId,
+        conversationId,
+        prompt: effectivePrompt,
+        attachments
+      });
     }
 
     let conversation = conversationId

@@ -16,6 +16,7 @@ import artifactsRouter from "./routes/artifacts.js";
 import workObjectsRouter from "./routes/workObjects.js";
 import projectsRouter from "./routes/projects.js";
 import sheetsRouter from "./routes/sheets.js";
+import hydriaApiRouter from "./routes/hydriaApi.js";
 
 initDatabase();
 
@@ -31,6 +32,7 @@ app.use("/api/conversations", conversationsRouter);
 app.use("/api/preferences", preferencesRouter);
 app.use("/api/memory", memoryRouter);
 app.use("/api/chat", chatRouter);
+app.use("/api/hydria", hydriaApiRouter);
 app.use("/api/artifacts", artifactsRouter);
 app.use("/api/work-objects", workObjectsRouter);
 app.use("/api/projects", projectsRouter);

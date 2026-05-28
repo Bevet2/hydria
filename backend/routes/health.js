@@ -12,7 +12,8 @@ router.get("/", (req, res) => {
       database: "ready",
       llm: config.llm.enabled ? config.llm.routingMode : "disabled",
       localLlm: config.localLlm.enabled ? "configured" : "not_configured",
-      openrouter: config.openrouter.enabled ? "configured" : "not_configured"
+      openrouter: config.openrouter.enabled ? "configured" : "not_configured",
+      hydriaExternal: config.externalHydria.enabled ? "configured" : "not_configured"
     }
   });
 });

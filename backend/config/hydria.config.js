@@ -188,6 +188,38 @@ const config = {
     ),
     models
   },
+  externalHydria: {
+    apiUrl: firstDefined(
+      env.HYDRIA_API_URL,
+      "https://app.hydria.click/api/v1/ask"
+    ),
+    coreAskUrl: firstDefined(
+      env.HYDRIA_CORE_ASK_URL,
+      "https://app.hydria.click/api/core/ask"
+    ),
+    capabilitiesUrl: firstDefined(
+      env.HYDRIA_CAPABILITIES_URL,
+      "https://app.hydria.click/api/v1/capabilities"
+    ),
+    apiKey: env.HYDRIA_API_KEY || "",
+    timeoutMs: Math.max(5000, parseInteger(env.HYDRIA_API_TIMEOUT_MS, 45000)),
+    advisorEnabled: parseBoolean(env.HYDRIA_EXTERNAL_ADVISOR_ENABLED, true),
+    advisorTimeoutMs: Math.max(
+      3000,
+      parseInteger(env.HYDRIA_EXTERNAL_ADVISOR_TIMEOUT_MS, 12000)
+    ),
+    controlEnabled: parseBoolean(env.HYDRIA_EXTERNAL_CONTROL_ENABLED, true),
+    controlTimeoutMs: Math.max(
+      180000,
+      parseInteger(env.HYDRIA_EXTERNAL_CONTROL_TIMEOUT_MS, 180000)
+    ),
+    controlMaxActions: Math.max(
+      1,
+      parseInteger(env.HYDRIA_EXTERNAL_CONTROL_MAX_ACTIONS, 4)
+    ),
+    controlToken: env.HYDRIA_CONTROL_TOKEN || "",
+    enabled: Boolean(env.HYDRIA_API_KEY)
+  },
   localLlm: {
     enabled: parseBoolean(env.LOCAL_LLM_ENABLED, false),
     providerType: firstDefined(env.LOCAL_LLM_PROVIDER, "ollama").toLowerCase(),

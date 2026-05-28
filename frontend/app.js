@@ -9080,6 +9080,22 @@ function looksLikeCreationPrompt(prompt = "") {
   );
 }
 
+function hydriaExternalControlReady() {
+  const external = state.config?.config?.hydriaExternal;
+  return Boolean(external?.configured && external?.controlEnabled);
+}
+
+function shouldUseExternalHydriaControl({ attachments = [] } = {}) {
+  return hydriaExternalControlReady() && !attachments.length;
+}
+
+function controlPayloadWorkObjects(payload = {}) {
+  const results = payload.execution?.results || [];
+  return results
+    .flatMap((result) => [result.workObject, ...(result.workObjects || [])])
+    .filter((workObject) => workObject?.id);
+}
+
 async function applyChatPayload(payload = {}) {
   updateLastRun(payload);
   setStatus(
@@ -9112,6 +9128,45 @@ async function applyChatPayload(payload = {}) {
   }
 }
 
+async function applyHydriaControlPayload(payload = {}) {
+  const workObjects = controlPayloadWorkObjects(payload);
+  updateLastRun({
+    strategy: "hydria-core-control",
+    modelsUsed: [payload.control?.source === "public_api_v1" ? "Hydria Core API v1" : "Hydria Core"],
+    meta: {
+      externalHydriaControl: true,
+      executed: payload.execution?.executed || 0,
+      proposedActions: payload.proposedActions?.length || payload.control?.proposedActions?.length || 0
+    }
+  });
+  setStatus(payload.control?.reply || "Hydria Core a pilote Hydria OS.");
+
+  await loadMessages();
+  await loadProjects();
+  await loadWorkObjects();
+
+  if (state.currentProjectId) {
+    const workspacePayload = await apiClient.getProjectWorkspace(
+      state.currentProjectId,
+      state.currentUserId,
+      state.currentConversationId
+    );
+    state.currentWorkspace = workspacePayload.workspace || state.currentWorkspace;
+  }
+
+  if (workObjects.length) {
+    const newest = workObjects[0];
+    mergeWorkObject(newest);
+    await selectWorkObject(newest.id, preferredOpenPath(newest), {
+      syncProject: true
+    });
+    return;
+  }
+
+  renderWorkObjects();
+  renderWorkspace();
+}
+
 async function runHydriaPrompt({
   prompt,
   attachments = [],
@@ -9127,6 +9182,37 @@ async function runHydriaPrompt({
   setStatus("Hydria is working...");
 
   try {
+    if (shouldUseExternalHydriaControl({ attachments })) {
+      try {
+        const controlPayload = await apiClient.runHydriaControl({
+          userId: state.currentUserId,
+          conversationId: state.currentConversationId,
+          projectId: state.currentProjectId || "",
+          prompt,
+          workObjectId,
+          entryPath: workObjectPath,
+          execute: true
+        });
+
+        if (
+          controlPayload.control?.used &&
+          ((controlPayload.execution?.executed || 0) > 0 || controlPayload.control?.reply)
+        ) {
+          if (!preserveComposer) {
+            el["prompt-input"].value = "";
+            el["attachment-input"].value = "";
+            state.pendingAttachments = [];
+            renderPendingAttachments();
+          }
+
+          await applyHydriaControlPayload(controlPayload);
+          return controlPayload;
+        }
+      } catch (error) {
+        console.warn("Hydria Core control fallback to local chat", error);
+      }
+    }
+
     const payload = await apiClient.sendChat({
       userId: state.currentUserId,
       conversationId: state.currentConversationId,
