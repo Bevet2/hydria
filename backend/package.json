@@ -13,7 +13,8 @@
     "eval:system": "node scripts/projectSystemEval.mjs",
     "eval:quality": "node scripts/projectQualityEval.mjs",
     "eval:domains": "node scripts/domainBenchmarkEval.mjs",
-    "eval:realworld": "node scripts/realworldBenchmarkEval.mjs"
+    "eval:realworld": "node scripts/realworldBenchmarkEval.mjs",
+    "smoke:hydria-core-adapter": "node scripts/hydriaCoreAdapterSmoke.mjs"
   },
   "dependencies": {
     "adm-zip": "^0.5.16",
