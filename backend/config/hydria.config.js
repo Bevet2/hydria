@@ -201,6 +201,10 @@ const config = {
       env.HYDRIA_CAPABILITIES_URL,
       "https://app.hydria.click/api/v1/capabilities"
     ),
+    interactionsUrl: firstDefined(
+      env.HYDRIA_INTERACTIONS_URL,
+      "https://app.hydria.click/api/v1/interactions"
+    ),
     apiKey: env.HYDRIA_API_KEY || "",
     timeoutMs: Math.max(5000, parseInteger(env.HYDRIA_API_TIMEOUT_MS, 45000)),
     advisorEnabled: parseBoolean(env.HYDRIA_EXTERNAL_ADVISOR_ENABLED, true),

@@ -14,7 +14,8 @@
     "eval:quality": "node scripts/projectQualityEval.mjs",
     "eval:domains": "node scripts/domainBenchmarkEval.mjs",
     "eval:realworld": "node scripts/realworldBenchmarkEval.mjs",
-    "gate:workspace": "node scripts/workspaceToolIntegrationGate.mjs"
+    "gate:workspace": "node scripts/workspaceToolIntegrationGate.mjs",
+    "gate:hydria-interactions": "node scripts/hydriaInteractionsClientGate.mjs"
   },
   "dependencies": {
     "adm-zip": "^0.5.16",

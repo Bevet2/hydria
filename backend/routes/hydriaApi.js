@@ -7,7 +7,8 @@ import { AppError } from "../utils/errors.js";
 import {
   askExternalHydria,
   getExternalHydriaCapabilities,
-  getExternalHydriaStatus
+  getExternalHydriaStatus,
+  listExternalHydriaInteractions
 } from "../services/hydria/externalHydriaApiClient.js";
 import {
   executeExternalHydriaActions,
@@ -100,6 +101,24 @@ router.get("/capabilities", async (req, res, next) => {
     res.json({
       success: true,
       capabilities
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get("/interactions", async (req, res, next) => {
+  try {
+    const result = await listExternalHydriaInteractions({
+      sessionId: req.query?.sessionId || "",
+      scope: req.query?.scope || "",
+      limit: req.query?.limit || 100
+    });
+
+    res.json({
+      success: true,
+      result,
+      interactions: Array.isArray(result?.interactions) ? result.interactions : []
     });
   } catch (error) {
     next(error);

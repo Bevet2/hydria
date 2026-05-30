@@ -48,6 +48,17 @@ function endpointSummary(rawUrl) {
   }
 }
 
+function urlWithQuery(rawUrl, query = {}) {
+  const url = new URL(rawUrl);
+  Object.entries(query).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === "") {
+      return;
+    }
+    url.searchParams.set(key, String(value));
+  });
+  return url.toString();
+}
+
 async function requestHydria(url, { method = "GET", body = null, timeoutMs = null } = {}) {
   assertConfigured();
 
@@ -107,7 +118,8 @@ export function getExternalHydriaStatus() {
     configured: config.externalHydria.enabled,
     askEndpoint: endpointSummary(config.externalHydria.apiUrl),
     coreAskEndpoint: endpointSummary(config.externalHydria.coreAskUrl),
-    capabilitiesEndpoint: endpointSummary(config.externalHydria.capabilitiesUrl)
+    capabilitiesEndpoint: endpointSummary(config.externalHydria.capabilitiesUrl),
+    interactionsEndpoint: endpointSummary(config.externalHydria.interactionsUrl)
   };
 }
 
@@ -192,9 +204,24 @@ export async function getExternalHydriaCapabilities() {
   return requestHydria(config.externalHydria.capabilitiesUrl);
 }
 
+export async function listExternalHydriaInteractions({
+  sessionId = "",
+  scope = "",
+  limit = 100,
+  timeoutMs = null
+} = {}) {
+  const safeLimit = Math.max(1, Math.min(500, Number.parseInt(String(limit || 100), 10) || 100));
+  return requestHydria(urlWithQuery(config.externalHydria.interactionsUrl, {
+    sessionId: String(sessionId || "").trim(),
+    scope: String(scope || "").trim(),
+    limit: safeLimit
+  }), { timeoutMs });
+}
+
 export default {
   askExternalHydria,
   askExternalHydriaCore,
   getExternalHydriaCapabilities,
-  getExternalHydriaStatus
+  getExternalHydriaStatus,
+  listExternalHydriaInteractions
 };
