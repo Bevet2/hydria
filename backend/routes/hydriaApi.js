@@ -14,6 +14,11 @@ import {
   listExternalHydriaControlActions,
   runExternalHydriaControl
 } from "../services/hydria/externalHydriaControlBridge.js";
+import {
+  executeWorkspaceToolCalls,
+  listHydriaWorkspaceTools,
+  normalizeWorkspaceToolCallsFromCore
+} from "../services/hydria/workspaceToolDispatcher.js";
 
 const router = Router();
 const workObjectService = new WorkObjectService({
@@ -49,14 +54,18 @@ function getActiveWorkObject({ workObjectId = "", entryPath = "" } = {}) {
     };
   }
 
-  const activeWorkObject = workObjectService.get(workObjectId);
+  const activeWorkObject = workObjectService.get(workObjectId, {
+    includeContent: true,
+    entryPath
+  });
   if (!activeWorkObject) {
     throw new AppError("Work object not found.", 404);
   }
 
   return {
     activeWorkObject,
-    activeWorkObjectContent: workObjectService.getPrimaryContent(activeWorkObject, entryPath)
+    activeWorkObjectContent:
+      activeWorkObject.file?.content || workObjectService.getPrimaryContent(activeWorkObject, entryPath)
   };
 }
 
@@ -76,6 +85,7 @@ router.get("/control/schema", (req, res) => {
     success: true,
     schema: {
       actions: listExternalHydriaControlActions(),
+      workspaceTools: listHydriaWorkspaceTools(),
       directEndpoint: "/api/hydria/actions",
       localExchangeEndpoint: "/api/hydria/control",
       directEndpointRequiresToken: true
@@ -138,6 +148,7 @@ router.post("/control", async (req, res, next) => {
       activeWorkObject,
       activeWorkObjectContent,
       execute: req.body?.execute !== false,
+      confirmed: req.body?.confirmed === true,
       workObjectService
     });
 
@@ -160,18 +171,51 @@ router.post("/actions", async (req, res, next) => {
       throw new AppError("userId and conversationId are required for Hydria actions.", 400);
     }
 
+    const actionInput = req.body?.actions || req.body?.proposedActions || [];
+    const explicitWorkspaceCalls =
+      req.body?.workspaceToolCalls ||
+      req.body?.workspace_tool_calls ||
+      req.body?.workspace_tool_call;
+    const workspaceToolCalls = normalizeWorkspaceToolCallsFromCore(
+      explicitWorkspaceCalls !== undefined
+        ? { workspaceToolCalls: explicitWorkspaceCalls }
+        : { proposedActions: req.body?.proposedActions || actionInput }
+    );
+    const safeActionInput = workspaceToolCalls.length
+      ? (Array.isArray(actionInput) ? actionInput : []).filter((action) =>
+          ["reply", "set_work_object_metadata"].includes(String(action?.type || action?.action || ""))
+        )
+      : actionInput;
     const execution = await executeExternalHydriaActions({
-      actions: req.body?.actions || req.body?.proposedActions || [],
+      actions: safeActionInput,
       userId,
       conversationId,
       prompt: req.body?.prompt || "",
       projectId: req.body?.projectId || "",
       workObjectService
     });
+    const workspaceExecution = workspaceToolCalls.length
+      ? await executeWorkspaceToolCalls({
+          calls: workspaceToolCalls,
+          userId,
+          prompt: req.body?.prompt || "",
+          confirmed: req.body?.confirmed === true,
+          workObjectService
+        })
+      : {
+          executed: 0,
+          results: []
+        };
+    const combinedExecution = {
+      executed: execution.executed + workspaceExecution.executed,
+      results: [...execution.results, ...workspaceExecution.results],
+      workspaceToolResults: workspaceExecution.results
+    };
 
     res.json({
       success: true,
-      execution
+      execution: combinedExecution,
+      workspaceToolCalls
     });
   } catch (error) {
     next(error);

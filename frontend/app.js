@@ -9130,16 +9130,25 @@ async function applyChatPayload(payload = {}) {
 
 async function applyHydriaControlPayload(payload = {}) {
   const workObjects = controlPayloadWorkObjects(payload);
+  const workspaceToolResults = payload.workspaceToolResults || payload.execution?.workspaceToolResults || [];
+  const completedWorkspaceToolResult = workspaceToolResults.find((result) => result?.status === "completed");
+  const pendingWorkspaceToolResult = workspaceToolResults.find((result) => result?.status === "needs_confirmation");
   updateLastRun({
     strategy: "hydria-core-control",
     modelsUsed: [payload.control?.source === "public_api_v1" ? "Hydria Core API v1" : "Hydria Core"],
     meta: {
       externalHydriaControl: true,
       executed: payload.execution?.executed || 0,
-      proposedActions: payload.proposedActions?.length || payload.control?.proposedActions?.length || 0
+      proposedActions: payload.proposedActions?.length || payload.control?.proposedActions?.length || 0,
+      workspaceToolCalls: payload.workspaceToolCalls?.length || payload.control?.workspaceToolCalls?.length || 0
     }
   });
-  setStatus(payload.control?.reply || "Hydria Core a pilote Hydria OS.");
+  setStatus(
+    completedWorkspaceToolResult?.finalAnswer ||
+      pendingWorkspaceToolResult?.issues?.[0] ||
+      payload.control?.reply ||
+      "Hydria Core a pilote Hydria OS."
+  );
 
   await loadMessages();
   await loadProjects();
