@@ -1,9 +1,11 @@
+import { createHash } from "node:crypto";
 import config from "../../config/hydria.config.js";
 import { AppError } from "../../utils/errors.js";
 import { buildExecutionPlan } from "./planner.js";
 import { askExternalHydria, askExternalHydriaCore } from "./externalHydriaApiClient.js";
 import { generateDocumentArtifact } from "../artifacts/documentOrchestrator.js";
 import {
+  buildHydriaWorkspaceToolContract,
   buildWorkspaceContextFields,
   executeWorkspaceToolCalls,
   listHydriaWorkspaceTools,
@@ -36,6 +38,19 @@ function compact(value = "", maxChars = 1200) {
 
 function trimText(value = "", maxChars = 12000) {
   return String(value || "").slice(0, maxChars);
+}
+
+function stableUuidFromText(value = "") {
+  const text = String(value || "").trim();
+  if (!text) {
+    return "";
+  }
+
+  const chars = createHash("sha256").update(text).digest("hex").slice(0, 32).split("");
+  chars[12] = "5";
+  chars[16] = ((Number.parseInt(chars[16], 16) & 0x3) | 0x8).toString(16);
+  const hex = chars.join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
 }
 
 function safeJsonParse(rawText = "") {
@@ -226,6 +241,7 @@ function buildHydriaState({
   prompt,
   userId,
   conversationId,
+  projectId = "",
   activeWorkObject = null,
   activeWorkObjectContent = "",
   workObjectService = null
@@ -245,7 +261,8 @@ function buildHydriaState({
   return {
     user: {
       userId,
-      conversationId
+      conversationId,
+      projectId
     },
     userRequest: compact(prompt, 1600),
     allowedActions: [...CONTROL_ACTIONS],
@@ -253,6 +270,9 @@ function buildHydriaState({
       artifactFormats: ["docx", "pdf", "pptx", "xlsx", "csv", "html", "md", "txt", "json", "image"],
       workObjectKinds: ["document", "presentation", "dataset", "dashboard", "workflow", "design", "project", "app"],
       workspaceTools: workspaceFields.workspaceTools,
+      workspaceToolContract: buildHydriaWorkspaceToolContract({
+        workspaceTools: workspaceFields.workspaceTools
+      }),
       canCreateArtifacts: true,
       canCreateWorkObjects: true,
       canUpdateWorkObjects: true
@@ -265,6 +285,7 @@ function buildHydriaState({
           workspaceFamilyId: workspaceFields.workspaceFamilyId,
           primaryFile: activeWorkObject.file?.path || activeWorkObject.primaryFile || "",
           entryPath: activeWorkObject.file?.path || activeWorkObject.primaryFile || "",
+          contentFormat: workspaceFields.contentFormat,
           contentPreview: compact(activeWorkObjectContent, 1200),
           workspaceTools: workspaceFields.workspaceTools
         }
@@ -280,8 +301,10 @@ function buildHydriaState({
 }
 
 function buildPublicWorkspaceContext({
+  prompt = "",
   userId,
   conversationId,
+  projectId = "",
   activeWorkObject = null,
   activeWorkObjectContent = "",
   workObjectService = null
@@ -297,15 +320,27 @@ function buildPublicWorkspaceContext({
     activeWorkObject,
     contentPreview: activeWorkObjectContent
   });
+  const workspaceToolContract = buildHydriaWorkspaceToolContract({
+    workspaceTools: workspaceFields.workspaceTools
+  });
   const activeEntryPath = activeWorkObject?.file?.path || activeWorkObject?.primaryFile || activeWorkObject?.activeEntryPath || "";
 
   return {
     os: {
-      name: "Hydria OS"
+      name: "Hydria OS",
+      role: "workspace_controller_bridge"
     },
+    session: {
+      userId: String(userId || ""),
+      conversationId: String(conversationId || ""),
+      projectId: String(projectId || "")
+    },
+    userRequest: compact(prompt, 1600),
     workspaceFamilyId: workspaceFields.workspaceFamilyId,
+    contentFormat: workspaceFields.contentFormat,
     contentPreview: workspaceFields.contentPreview,
     workspaceTools: workspaceFields.workspaceTools,
+    workspaceToolContract,
     activeWorkObject: activeWorkObject
       ? {
           id: activeWorkObject.id,
@@ -313,6 +348,7 @@ function buildPublicWorkspaceContext({
           kind: activeWorkObject.objectKind || activeWorkObject.kind,
           workspaceFamilyId: workspaceFields.workspaceFamilyId,
           entryPath: activeEntryPath,
+          contentFormat: workspaceFields.contentFormat,
           contentPreview: workspaceFields.contentPreview,
           editable: true,
           workspaceTools: workspaceFields.workspaceTools
@@ -329,13 +365,26 @@ function buildPublicWorkspaceContext({
       actions: [...CONTROL_ACTIONS],
       artifactFormats: ["docx", "pdf", "pptx", "xlsx", "csv", "html", "md", "txt", "json", "image"],
       workObjectKinds: ["document", "presentation", "dataset", "dashboard", "workflow", "design", "project", "app"],
-      workspaceTools: workspaceFields.workspaceTools
+      workspaceTools: workspaceFields.workspaceTools,
+      workspaceToolContract
+    },
+    controlContract: {
+      responseMode: "return_actions_for_hydria_os_execution",
+      acceptedActionTypes: [...CONTROL_ACTIONS],
+      osExecutesReturnedActions: true,
+      preferredActionType: "workspace_tool_call",
+      directCallbackAvailable: Boolean(config.externalHydria.controlToken)
     },
     executionPolicy: {
-      mode: "dry_run",
-      requireConfirmation: false
+      mode: "propose_only",
+      requireConfirmation: false,
+      hydriaOsExecutesReturnedActions: true
     }
   };
+}
+
+export function buildExternalHydriaWorkspaceContext(args = {}) {
+  return buildPublicWorkspaceContext(args);
 }
 
 function buildQuestion(args) {
@@ -487,6 +536,7 @@ export async function requestExternalHydriaControl({
   prompt,
   userId,
   conversationId,
+  projectId = "",
   activeWorkObject = null,
   activeWorkObjectContent = "",
   workObjectService = null
@@ -501,28 +551,11 @@ export async function requestExternalHydriaControl({
     };
   }
 
-  const localWorkspaceToolCalls = synthesizeLocalWorkspaceToolCalls({
-    prompt,
-    activeWorkObject,
-    activeWorkObjectContent
-  });
-  if (localWorkspaceToolCalls.length) {
-    return {
-      used: true,
-      skippedReason: "",
-      reply: "",
-      actions: [],
-      workspaceToolCalls: makeWorkspaceToolCallsExecutable(localWorkspaceToolCalls),
-      proposedActions: localWorkspaceToolCalls,
-      raw: null,
-      source: "hydria_os_local_workspace_guardrail"
-    };
-  }
-
   const publicControl = await requestPublicHydriaControl({
     prompt,
     userId,
     conversationId,
+    projectId,
     activeWorkObject,
     activeWorkObjectContent,
     workObjectService
@@ -539,6 +572,27 @@ export async function requestExternalHydriaControl({
     return publicControl;
   }
 
+  const localWorkspaceToolCalls = synthesizeLocalWorkspaceToolCalls({
+    prompt,
+    activeWorkObject,
+    activeWorkObjectContent
+  });
+  if (localWorkspaceToolCalls.length) {
+    return {
+      used: true,
+      skippedReason: "",
+      reply: publicControl.reply || "",
+      actions: [],
+      workspaceToolCalls: makeWorkspaceToolCallsExecutable(localWorkspaceToolCalls),
+      proposedActions: localWorkspaceToolCalls,
+      raw: publicControl.raw || null,
+      publicSkippedReason: publicControl.skippedReason || "",
+      source: publicControl.skippedReason?.startsWith("public_api_failed")
+        ? "hydria_os_local_workspace_fallback_after_public_api_failure"
+        : "hydria_os_local_workspace_fallback_after_public_api"
+    };
+  }
+
   const result = await askExternalHydriaCore({
     mode: "local_model",
     system: buildSystemPrompt(),
@@ -546,6 +600,7 @@ export async function requestExternalHydriaControl({
       prompt,
       userId,
       conversationId,
+      projectId,
       activeWorkObject,
       activeWorkObjectContent,
       workObjectService
@@ -577,14 +632,14 @@ export async function requestExternalHydriaControl({
     };
   }
 
-  const workspaceToolCalls = mergeWorkspaceToolCalls(
-    manifest.workspaceToolCalls,
-    synthesizeLocalWorkspaceToolCalls({
+  const fallbackWorkspaceToolCalls = synthesizeLocalWorkspaceToolCalls({
       prompt,
       activeWorkObject,
       activeWorkObjectContent
-    })
-  );
+  });
+  const workspaceToolCalls = manifest.workspaceToolCalls.length
+    ? manifest.workspaceToolCalls
+    : fallbackWorkspaceToolCalls;
 
   return {
     used: true,
@@ -600,6 +655,7 @@ export async function requestPublicHydriaControl({
   prompt,
   userId,
   conversationId,
+  projectId = "",
   activeWorkObject = null,
   activeWorkObjectContent = "",
   workObjectService = null
@@ -617,20 +673,38 @@ export async function requestPublicHydriaControl({
   const result = await askExternalHydria({
     input: prompt,
     userId,
-    projectId: activeWorkObject?.projectId || "",
+    projectId: projectId || activeWorkObject?.projectId || "",
+    sessionId: stableUuidFromText(`hydria-os:${conversationId || ""}`),
     options: {
       includeSources: true,
       includeTrace: false,
       includeDiagnostics: false,
-      includeProposedActions: true
+      includeProposedActions: true,
+      workspaceToolMode: "return_workspace_tool_calls",
+      controlSurface: "hydria_os"
     },
     workspaceContext: buildPublicWorkspaceContext({
+      prompt,
       userId,
       conversationId,
+      projectId,
       activeWorkObject,
       activeWorkObjectContent,
       workObjectService
     }),
+    metadata: {
+      source: "hydria_os",
+      bridge: "external_hydria_control",
+      userId: String(userId || ""),
+      conversationId: String(conversationId || ""),
+      projectId: String(projectId || activeWorkObject?.projectId || ""),
+      activeWorkObjectId: activeWorkObject?.id || "",
+      activeEntryPath:
+        activeWorkObject?.file?.path ||
+        activeWorkObject?.primaryFile ||
+        activeWorkObject?.activeEntryPath ||
+        ""
+    },
     timeoutMs: config.externalHydria.controlTimeoutMs
   });
   const proposedActions = Array.isArray(result?.proposedActions) ? result.proposedActions : [];
@@ -649,7 +723,9 @@ export async function requestPublicHydriaControl({
     activeWorkObject,
     activeWorkObjectContent
   });
-  const workspaceToolCalls = localWorkspaceToolCalls.length
+  const shouldUseLocalFallback =
+    !actions.length && !publicWorkspaceToolCalls.length && localWorkspaceToolCalls.length;
+  const workspaceToolCalls = shouldUseLocalFallback
     ? makeWorkspaceToolCallsExecutable(localWorkspaceToolCalls)
     : publicWorkspaceToolCalls;
 
@@ -670,9 +746,9 @@ export async function requestPublicHydriaControl({
     reply: compact(result?.answer || "", 1600),
     actions: filterActionsForWorkspaceToolCalls(actions, workspaceToolCalls),
     workspaceToolCalls,
-    proposedActions: localWorkspaceToolCalls.length ? localWorkspaceToolCalls : proposedActions,
+    proposedActions: shouldUseLocalFallback ? localWorkspaceToolCalls : proposedActions,
     raw: result,
-    source: localWorkspaceToolCalls.length ? "public_api_v1_with_local_workspace_guardrail" : "public_api_v1"
+    source: shouldUseLocalFallback ? "public_api_v1_with_local_workspace_fallback" : "public_api_v1"
   };
 }
 
@@ -900,6 +976,7 @@ export async function runExternalHydriaControl({
     prompt,
     userId,
     conversationId,
+    projectId,
     activeWorkObject,
     activeWorkObjectContent,
     workObjectService
@@ -951,6 +1028,7 @@ export function listExternalHydriaControlActions() {
 }
 
 export default {
+  buildExternalHydriaWorkspaceContext,
   executeExternalHydriaActions,
   executeWorkspaceToolCalls,
   listExternalHydriaControlActions,

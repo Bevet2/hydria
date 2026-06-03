@@ -2736,6 +2736,113 @@ export function listWorkspaceToolsForWorkObject(workObject = null) {
   return [];
 }
 
+function workspaceToolEngine(toolName = "") {
+  if (String(toolName).startsWith("sheet.")) {
+    return "sheet";
+  }
+  if (String(toolName).startsWith("doc.")) {
+    return "doc";
+  }
+  if (String(toolName).startsWith("slide.")) {
+    return "slide";
+  }
+  return "";
+}
+
+function workspaceToolOperationTypes(toolName = "") {
+  if (toolName === "sheet.apply_formula") {
+    return ["sheet.set_formula", "sheet.add_column", "sheet.set_range"];
+  }
+  if (toolName === "doc.edit") {
+    return [...DOC_WORKSPACE_TOOLS];
+  }
+  if (toolName === "slide.edit") {
+    return [...SLIDE_WORKSPACE_TOOLS];
+  }
+  if (SUPPORTED_WORKSPACE_OPERATIONS.has(toolName)) {
+    return [toolName];
+  }
+  return [];
+}
+
+function workspaceToolDescription(toolName = "") {
+  if (toolName === "sheet.apply_formula") {
+    return "Compute spreadsheet values by writing formulas into cells, ranges, or a result column.";
+  }
+  if (toolName.startsWith("sheet.")) {
+    return "Manipulate a Hydria Sheet model while preserving its JSON structure.";
+  }
+  if (toolName === "doc.edit") {
+    return "Route a document editing request to one or more concrete doc.* operations.";
+  }
+  if (toolName.startsWith("doc.")) {
+    return "Manipulate a Hydria document block or section.";
+  }
+  if (toolName === "slide.edit") {
+    return "Route a presentation editing request to concrete slide.* operations.";
+  }
+  if (toolName.startsWith("slide.")) {
+    return "Manipulate a Hydria presentation.";
+  }
+  return "Hydria workspace tool.";
+}
+
+export function listHydriaWorkspaceToolCatalog(workspaceTools = null) {
+  const selectedTools = Array.isArray(workspaceTools) && workspaceTools.length
+    ? workspaceTools
+    : listHydriaWorkspaceTools();
+  return [...new Set(selectedTools)]
+    .filter(Boolean)
+    .map((toolName) => ({
+      name: toolName,
+      engine: workspaceToolEngine(toolName),
+      acceptedOperationTypes: workspaceToolOperationTypes(toolName),
+      description: workspaceToolDescription(toolName)
+    }));
+}
+
+export function buildHydriaWorkspaceToolContract({ workspaceTools = null } = {}) {
+  return {
+    responseShape: {
+      type: "workspace_tool_call",
+      target: {
+        workObjectId: "existing Hydria OS workObject id",
+        entryPath: "active editable entry path, for example table.csv"
+      },
+      payload: {
+        toolName: "one workspace tool name from workspaceTools",
+        operations: [
+          {
+            type: "one acceptedOperationTypes value for that tool",
+            target: {
+              cell: "A1 cell when relevant",
+              range: "A1 range when relevant",
+              columnName: "column header when relevant",
+              columnIndex: "zero-based column index when relevant",
+              rowIndex: "zero-based data-row index; spreadsheet row 2 is rowIndex 0",
+              blockId: "document block id when relevant",
+              heading: "document heading when relevant",
+              slideIndex: "zero-based slide index when relevant"
+            },
+            formula: "spreadsheet formula when relevant",
+            value: "cell or text value when relevant",
+            values: "row or table values when relevant"
+          }
+        ]
+      }
+    },
+    sheetModel: {
+      format: "hydria-sheet-json",
+      headers: "columns contains spreadsheet row 1 headers",
+      rows: "rows contains data rows only; rows[0] maps to spreadsheet row 2",
+      formulas: "formula values should be strings such as =A2*B2 or =SOMME(A2:B2)*C2",
+      intentRule:
+        "Use the active data and column semantics to choose the formula; do not assume a generic sum when quantity and price columns imply a product."
+    },
+    tools: listHydriaWorkspaceToolCatalog(workspaceTools)
+  };
+}
+
 export function buildWorkspaceContextFields({ activeWorkObject = null, contentPreview = "" } = {}) {
   const sheetLike = isHydriaSheetContent(contentPreview) || isSheetWorkObject(activeWorkObject);
   const workspaceTools = sheetLike
@@ -2748,6 +2855,7 @@ export function buildWorkspaceContextFields({ activeWorkObject = null, contentPr
     contentPreview: sheetLike
       ? buildSheetWorkspaceContentPreview(contentPreview)
       : compact(contentPreview, 2500),
+    contentFormat: sheetLike ? "hydria-sheet-json-preview" : "text-preview",
     workspaceTools
   };
 }
@@ -3588,8 +3696,10 @@ export default {
   applyHydriaDocumentToolOperationsToContent,
   applyHydriaSlideToolOperationsToContent,
   applyHydriaWorkspaceToolOperationsToContent,
+  buildHydriaWorkspaceToolContract,
   buildWorkspaceContextFields,
   executeWorkspaceToolCalls,
+  listHydriaWorkspaceToolCatalog,
   listHydriaWorkspaceTools,
   listWorkspaceToolsForWorkObject,
   normalizeWorkspaceToolCallsFromCore,

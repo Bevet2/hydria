@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import config from "../../config/hydria.config.js";
 import {
   AppError,
@@ -15,6 +16,34 @@ function withTimeout(timeoutMs) {
       clearTimeout(timeout);
     }
   };
+}
+
+const UUID_PATTERN =
+  /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/;
+
+export function isHydriaUuid(value = "") {
+  return UUID_PATTERN.test(String(value || "").trim());
+}
+
+function stableUuidFromText(value = "") {
+  const text = String(value || "").trim();
+  if (!text) {
+    return "";
+  }
+
+  const chars = createHash("sha256").update(text).digest("hex").slice(0, 32).split("");
+  chars[12] = "5";
+  chars[16] = ((Number.parseInt(chars[16], 16) & 0x3) | 0x8).toString(16);
+  const hex = chars.join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+}
+
+export function normalizeHydriaSessionId(value = "") {
+  const text = String(value || "").trim();
+  if (!text) {
+    return "";
+  }
+  return isHydriaUuid(text) ? text : stableUuidFromText(text);
 }
 
 function parseJsonMaybe(text, contentType) {
@@ -147,8 +176,9 @@ export async function askExternalHydria({
   if (workspaceContext && typeof workspaceContext === "object") {
     body.workspaceContext = workspaceContext;
   }
-  if (sessionId) {
-    body.sessionId = sessionId;
+  const normalizedSessionId = normalizeHydriaSessionId(sessionId);
+  if (normalizedSessionId) {
+    body.sessionId = normalizedSessionId;
   }
   if (userId) {
     body.userId = String(userId);
@@ -189,8 +219,9 @@ export async function askExternalHydriaCore({
     body.system = String(system).slice(0, 4000);
   }
 
-  if (sessionId) {
-    body.sessionId = sessionId;
+  const normalizedSessionId = normalizeHydriaSessionId(sessionId);
+  if (normalizedSessionId) {
+    body.sessionId = normalizedSessionId;
   }
 
   return requestHydria(config.externalHydria.coreAskUrl, {
@@ -212,7 +243,7 @@ export async function listExternalHydriaInteractions({
 } = {}) {
   const safeLimit = Math.max(1, Math.min(500, Number.parseInt(String(limit || 100), 10) || 100));
   return requestHydria(urlWithQuery(config.externalHydria.interactionsUrl, {
-    sessionId: String(sessionId || "").trim(),
+    sessionId: normalizeHydriaSessionId(sessionId),
     scope: String(scope || "").trim(),
     limit: safeLimit
   }), { timeoutMs });
@@ -223,5 +254,7 @@ export default {
   askExternalHydriaCore,
   getExternalHydriaCapabilities,
   getExternalHydriaStatus,
-  listExternalHydriaInteractions
+  isHydriaUuid,
+  listExternalHydriaInteractions,
+  normalizeHydriaSessionId
 };

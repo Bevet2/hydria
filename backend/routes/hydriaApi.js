@@ -11,11 +11,13 @@ import {
   listExternalHydriaInteractions
 } from "../services/hydria/externalHydriaApiClient.js";
 import {
+  buildExternalHydriaWorkspaceContext,
   executeExternalHydriaActions,
   listExternalHydriaControlActions,
   runExternalHydriaControl
 } from "../services/hydria/externalHydriaControlBridge.js";
 import {
+  buildHydriaWorkspaceToolContract,
   executeWorkspaceToolCalls,
   listHydriaWorkspaceTools,
   normalizeWorkspaceToolCallsFromCore
@@ -76,6 +78,9 @@ router.get("/status", (req, res) => {
     hydria: {
       ...getExternalHydriaStatus(),
       controlEnabled: config.externalHydria.controlEnabled,
+      controlLocalExchangeEndpointReady: Boolean(
+        config.externalHydria.enabled && config.externalHydria.controlEnabled
+      ),
       controlDirectEndpointReady: Boolean(config.externalHydria.controlToken)
     }
   });
@@ -87,6 +92,9 @@ router.get("/control/schema", (req, res) => {
     schema: {
       actions: listExternalHydriaControlActions(),
       workspaceTools: listHydriaWorkspaceTools(),
+      workspaceToolContract: buildHydriaWorkspaceToolContract({
+        workspaceTools: listHydriaWorkspaceTools()
+      }),
       directEndpoint: "/api/hydria/actions",
       localExchangeEndpoint: "/api/hydria/control",
       directEndpointRequiresToken: true
@@ -127,9 +135,50 @@ router.get("/interactions", async (req, res, next) => {
 
 router.post("/ask", async (req, res, next) => {
   try {
+    const body = req.body || {};
+    const input = body.input || body.prompt || "";
+    let workspaceContext =
+      body.workspaceContext && typeof body.workspaceContext === "object"
+        ? body.workspaceContext
+        : null;
+
+    if (!workspaceContext && body.workObjectId) {
+      const { activeWorkObject, activeWorkObjectContent } = getActiveWorkObject({
+        workObjectId: body.workObjectId,
+        entryPath: body.entryPath || ""
+      });
+      workspaceContext = buildExternalHydriaWorkspaceContext({
+        prompt: input,
+        userId: body.userId || "",
+        conversationId: body.conversationId || body.sessionId || "",
+        projectId: body.projectId || "",
+        activeWorkObject,
+        activeWorkObjectContent,
+        workObjectService
+      });
+    }
+
+    const metadata = body.metadata && typeof body.metadata === "object"
+      ? { ...body.metadata }
+      : {};
+    if (!metadata.source) {
+      metadata.source = "hydria_os";
+    }
+    if (body.workObjectId && !metadata.activeWorkObjectId) {
+      metadata.activeWorkObjectId = String(body.workObjectId);
+    }
+    if (body.entryPath && !metadata.activeEntryPath) {
+      metadata.activeEntryPath = String(body.entryPath);
+    }
+
     const result = await askExternalHydria({
-      input: req.body?.input || req.body?.prompt || "",
-      options: req.body?.options || {}
+      input,
+      options: body.options || {},
+      workspaceContext,
+      sessionId: body.sessionId || (body.conversationId ? `hydria-os:${body.conversationId}` : ""),
+      userId: body.userId || "",
+      projectId: body.projectId || "",
+      metadata
     });
 
     res.json({

@@ -3,6 +3,7 @@ import {
   applyHydriaDocumentToolOperationsToContent,
   applyHydriaSlideToolOperationsToContent,
   applyHydriaWorkspaceToolOperationsToContent,
+  buildHydriaWorkspaceToolContract,
   buildWorkspaceContextFields,
   executeWorkspaceToolCalls,
   listWorkspaceToolsForWorkObject,
@@ -431,6 +432,14 @@ const sheetTools = listWorkspaceToolsForWorkObject({
   "sheet.add_named_range",
   "sheet.freeze_panes"
 ].forEach((tool) => assert.ok(sheetTools.includes(tool), `${tool} should be exposed`));
+
+const sheetToolContract = buildHydriaWorkspaceToolContract({
+  workspaceTools: sheetTools
+});
+const applyFormulaContract = sheetToolContract.tools.find((tool) => tool.name === "sheet.apply_formula");
+assert.ok(applyFormulaContract);
+assert.ok(applyFormulaContract.acceptedOperationTypes.includes("sheet.set_formula"));
+assert.equal(sheetToolContract.sheetModel.rows, "rows contains data rows only; rows[0] maps to spreadsheet row 2");
 
 const contentTypedFields = buildWorkspaceContextFields({
   activeWorkObject: {

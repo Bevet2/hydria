@@ -50,10 +50,10 @@ export const apiClient = {
   getHydriaControlSchema() {
     return request("/api/hydria/control/schema");
   },
-  askHydria(input, options = {}) {
+  askHydria(input, options = {}, context = {}) {
     return request("/api/hydria/ask", {
       method: "POST",
-      body: JSON.stringify({ input, options })
+      body: JSON.stringify({ input, options, ...context })
     });
   },
   runHydriaControl(payload = {}) {
