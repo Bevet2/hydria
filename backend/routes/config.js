@@ -179,6 +179,11 @@ router.get("/public", (req, res) => {
         maxReadPages: config.web.maxReadPages,
         enableBrowserFetch: config.web.enableBrowserFetch
       },
+      hydriaExternal: {
+        configured: config.externalHydria.enabled,
+        advisorEnabled: config.externalHydria.advisorEnabled,
+        controlEnabled: config.externalHydria.controlEnabled
+      },
       tools: {
         enabled: config.tools.enabled,
         workspaceRoot: config.tools.workspaceRoot,

@@ -355,7 +355,8 @@ The frontend is plain HTML, CSS, and modular JavaScript. It includes:
 2. Add your `OPENROUTER_API_KEY`
 3. Optionally tune attachment OCR and file limits in `backend/.env`
 4. Optionally add API keys for `GNEWS_API_KEY`, `ALPHA_VANTAGE_API_KEY`, `OMDB_API_KEY`, and `THESPORTSDB_API_KEY`
-5. Install backend dependencies
+5. To proxy the hosted Hydria API from the backend, set `HYDRIA_API_KEY` and keep `HYDRIA_API_URL=https://app.hydria.click/api/v1/ask`
+6. Install backend dependencies
 
 Windows PowerShell:
 
@@ -387,6 +388,13 @@ cd backend
 npm.cmd run eval:agentic-smoke
 ```
 
+Workspace tool integration gate:
+
+```powershell
+cd backend
+npm.cmd run gate:workspace
+```
+
 ## Launch
 
 Once the backend is running, open:
@@ -402,6 +410,12 @@ The Express server also serves the frontend statically, so no separate frontend 
 - `GET /api/health`
 - `GET /api/config/public`
 - `POST /api/chat`
+- `GET /api/hydria/status`
+- `GET /api/hydria/capabilities`
+- `POST /api/hydria/ask`
+- `GET /api/hydria/control/schema`
+- `POST /api/hydria/control` - local exchange: send Hydria OS workspace context to Hydria Core, receive public API `proposedActions` when available, then execute allowed actions locally, including Sheet/Document/Slide `workspace_tool_call`; Sheet supports workbook/grid/formula/format/data/table/chart/protection/view operations, Document supports section/paragraph/block/table/list/link/media/comment/metadata operations; falls back to the internal Core manifest endpoint if needed
+- `POST /api/hydria/actions` - direct action execution endpoint for a trusted external controller; supports normal actions and Sheet/Document/Slide workspace tool calls; requires `HYDRIA_CONTROL_TOKEN`
 - `GET /api/users`
 - `POST /api/users`
 - `GET /api/users/:userId/conversations`
