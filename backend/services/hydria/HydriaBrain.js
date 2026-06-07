@@ -399,7 +399,8 @@ class HydriaBrain {
           meta: {
             usedJudge: false,
             durationMs: durationMs(startedAt),
-            usedFallback: generationResult.meta?.usedFallback || false
+            usedFallback: generationResult.meta?.usedFallback || false,
+            externalAdvice: generationResult.meta?.externalAdvice || null
           }
         };
       }

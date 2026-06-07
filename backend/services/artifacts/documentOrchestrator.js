@@ -16,6 +16,7 @@ import {
 } from "./generationIntentService.js";
 import { renderGeneratedArtifact } from "./generators/generatorRegistry.js";
 import { persistGeneratedArtifact } from "./generationStorageService.js";
+import { getExternalArtifactAdvice } from "../hydria/externalHydriaAdvisor.js";
 
 function attachInstruction(messages, instruction, attachments = []) {
   const instructionParts = [instruction].filter(Boolean);
@@ -689,6 +690,220 @@ function buildArtifactContextInstruction(context = {}, spec = null) {
   return lines.filter(Boolean).join("\n");
 }
 
+function formatExternalArtifactAdvice(advice = null) {
+  if (!advice?.used || !advice.summaryText) {
+    return "";
+  }
+
+  return [
+    "Hydria Core VPS artifact advice:",
+    advice.summaryText,
+    "Use this as context only. Hydria OS still owns the local file generation and should not claim that the VPS created the artifact."
+  ].join("\n");
+}
+
+function normalizeAdviceListItem(value = "") {
+  return String(value || "")
+    .replace(/^[-*\d.)\s]+/, "")
+    .replace(/\*\*/g, "")
+    .replace(/\s+/g, " ")
+    .replace(/[.;:]+$/g, "")
+    .trim()
+    .slice(0, 60);
+}
+
+function splitAdviceList(value = "") {
+  return String(value || "")
+    .split(/\s*(?:,|;|\||\bet\b|\band\b)\s*/i)
+    .map(normalizeAdviceListItem)
+    .filter((item) => item.length >= 2 && item.length <= 60)
+    .filter((item, index, array) => array.findIndex((other) => other.toLowerCase() === item.toLowerCase()) === index);
+}
+
+function extractExternalAdviceColumns(summary = "") {
+  const lines = String(summary || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const inlineMatch = String(summary || "").match(
+    /(?:columns?|colonnes?|fields?|champs?)\s*(?:recommand[eé]s?|recommended|suggested)?\s*[:\-]\s*([^\n]+)|(?:avec|with)\s+(?:columns?|colonnes?|fields?|champs?)\s+([^\n.]+)/i
+  );
+
+  if (inlineMatch) {
+    const columns = splitAdviceList(inlineMatch[1] || inlineMatch[2]);
+    if (columns.length >= 2) {
+      return columns.slice(0, 12);
+    }
+  }
+
+  let captureColumns = false;
+  const captured = [];
+
+  for (const line of lines) {
+    if (/(?:columns?|colonnes?|fields?|champs?)/i.test(line)) {
+      captureColumns = true;
+      const afterHeading = line.replace(
+        /^.*?(?:columns?|colonnes?|fields?|champs?)\s*(?:recommand[eé]s?|recommended|suggested)?\s*[:\-]?\s*/i,
+        ""
+      );
+      captured.push(...splitAdviceList(afterHeading));
+      continue;
+    }
+
+    if (!captureColumns) {
+      continue;
+    }
+
+    if (/^[-*]\s+/.test(line)) {
+      captured.push(normalizeAdviceListItem(line));
+      continue;
+    }
+
+    if (captured.length) {
+      break;
+    }
+  }
+
+  return captured
+    .filter((item, index, array) => array.findIndex((other) => other.toLowerCase() === item.toLowerCase()) === index)
+    .slice(0, 12);
+}
+
+function extractExternalAdviceSections(summary = "") {
+  const lines = String(summary || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const sectionPattern = /(?:sections?|sheets?|feuilles?|slides?|diapositives?|frames?|stages?|etapes?|étapes?)/i;
+  const inlineMatch = String(summary || "").match(
+    /(?:sections?|sheets?|feuilles?|slides?|diapositives?|frames?|stages?|etapes?|étapes?)\s*(?:recommand[eé]s?|recommended|suggested)?\s*[:\-]\s*([^\n]+)/i
+  );
+
+  if (inlineMatch) {
+    const sections = splitAdviceList(inlineMatch[1]);
+    if (sections.length >= 2) {
+      return sections.slice(0, 8);
+    }
+  }
+
+  let captureSections = false;
+  const captured = [];
+
+  for (const line of lines) {
+    if (sectionPattern.test(line)) {
+      captureSections = true;
+      const afterHeading = line.replace(
+        /^.*?(?:sections?|sheets?|feuilles?|slides?|diapositives?|frames?|stages?|etapes?|étapes?)\s*(?:recommand[eé]s?|recommended|suggested)?\s*[:\-]?\s*/i,
+        ""
+      );
+      captured.push(...splitAdviceList(afterHeading));
+      continue;
+    }
+
+    if (!captureSections) {
+      continue;
+    }
+
+    if (/^[-*]\s+/.test(line)) {
+      captured.push(normalizeAdviceListItem(line));
+      continue;
+    }
+
+    if (captured.length) {
+      break;
+    }
+  }
+
+  return captured
+    .filter((item, index, array) => array.findIndex((other) => other.toLowerCase() === item.toLowerCase()) === index)
+    .slice(0, 8);
+}
+
+function applyExternalAdviceToSpec(spec, advice = null) {
+  if (!advice?.used || !advice.summaryText) {
+    return spec;
+  }
+
+  const documentType = String(spec?.documentType || "").toLowerCase();
+  if (["spreadsheet", "dataset"].includes(documentType)) {
+    return spec;
+  }
+
+  const advisedSections = extractExternalAdviceSections(advice.summaryText);
+  if (advisedSections.length < 2) {
+    return spec;
+  }
+
+  return {
+    ...spec,
+    sections: advisedSections.map((heading) => ({
+      heading,
+      goal: `Cover ${heading} with concrete details from the user's request.`
+    }))
+  };
+}
+
+function applyForcedSpec(spec, forcedSpec = null, intent = null) {
+  if (!forcedSpec || typeof forcedSpec !== "object") {
+    return spec;
+  }
+
+  return normalizeSpec(
+    {
+      ...spec,
+      ...Object.fromEntries(
+        Object.entries({
+          title: forcedSpec.title,
+          format: forcedSpec.format,
+          documentType: forcedSpec.documentType,
+          audience: forcedSpec.audience,
+          tone: forcedSpec.tone
+        }).filter(([, value]) => value)
+      ),
+      sections: Array.isArray(forcedSpec.sections) && forcedSpec.sections.length
+        ? forcedSpec.sections
+        : spec.sections
+    },
+    intent
+  );
+}
+
+function spreadsheetSampleValue(column, rowIndex, capabilities = {}) {
+  const normalized = normalizePromptText(column);
+  const rowNumber = rowIndex + 1;
+  const moneyValues = ["12000 EUR", "8400 EUR", "15400 EUR"];
+
+  if (/\b(date|jour|day)\b/.test(normalized)) {
+    return `2026-05-${String(rowNumber + 3).padStart(2, "0")}`;
+  }
+  if (/\b(client|customer|company|entreprise|compte|account)\b/.test(normalized)) {
+    return `Client ${String.fromCharCode(64 + rowNumber)}`;
+  }
+  if (/\b(ca|revenue|chiffre|montant|amount|sales|vente|prix|price|budget|cost|cout)\b/.test(normalized)) {
+    return moneyValues[rowIndex % moneyValues.length];
+  }
+  if (/\b(marge|margin|profit|benefice)\b/.test(normalized)) {
+    return ["28%", "22%", "31%"][rowIndex % 3];
+  }
+  if (/\b(status|statut|etat|state)\b/.test(normalized)) {
+    return ["A qualifier", "En cours", "Valide"][rowIndex % 3];
+  }
+  if (/\b(priority|priorite|urgence)\b/.test(normalized)) {
+    return ["Haute", "Moyenne", "Basse"][rowIndex % 3];
+  }
+  if (/\b(owner|responsable|assigne|assigned|team|equipe)\b/.test(normalized)) {
+    return ["Ops", "Sales", "Direction"][rowIndex % 3];
+  }
+  if (/\b(next|prochain|action|move|suivi|follow)\b/.test(normalized)) {
+    return ["Relancer", "Verifier", "Planifier"][rowIndex % 3];
+  }
+  if (/\b(note|comment|commentaire|memo)\b/.test(normalized)) {
+    return ["A completer", "Point a suivre", "Pret pour revue"][rowIndex % 3];
+  }
+
+  return `${capabilities.entitySingular || "item"} ${rowNumber}`;
+}
+
 function toTitleCase(value = "") {
   return String(value || "")
     .split(/\s+/)
@@ -731,7 +946,14 @@ function deriveArtifactSubject(spec, prompt = "", context = {}) {
 
 function inferArtifactCapabilities(spec, prompt = "", context = {}) {
   const normalized = normalizePromptText(
-    [spec?.title, prompt, context?.headline, context?.problem, context?.promise]
+    [
+      spec?.title,
+      prompt,
+      context?.headline,
+      context?.problem,
+      context?.promise,
+      context?.externalAdviceSummary
+    ]
       .filter(Boolean)
       .join(" ")
   );
@@ -1159,6 +1381,11 @@ function buildArtifactBlueprint(spec, prompt = "", context = {}) {
   };
 
   const preset = presets[capabilities.theme] || presets.generic;
+  const advisedColumns = extractExternalAdviceColumns(context?.externalAdviceSummary);
+  const requestedColumns = extractExternalAdviceColumns(
+    [prompt, spec?.title].filter(Boolean).join("\n")
+  );
+  const spreadsheetColumns = advisedColumns.length >= 2 ? advisedColumns : requestedColumns;
   const specializedTable =
     capabilities.entitySingular === "booking"
       ? {
@@ -1179,7 +1406,9 @@ function buildArtifactBlueprint(spec, prompt = "", context = {}) {
             ]
           }
         : null;
-  const tableHeaders = [...(specializedTable?.headers || preset.headers)];
+  const tableHeaders = [
+    ...(spreadsheetColumns.length >= 2 ? spreadsheetColumns : specializedTable?.headers || preset.headers)
+  ];
   if (capabilities.hasCategories && !tableHeaders.includes("Category")) {
     tableHeaders.splice(Math.min(1, tableHeaders.length), 0, "Category");
   }
@@ -1187,7 +1416,12 @@ function buildArtifactBlueprint(spec, prompt = "", context = {}) {
     tableHeaders.push("Plan");
   }
 
-  const tableRows = (specializedTable?.rows || preset.rows).map((row) => {
+  const sourceRows = spreadsheetColumns.length >= 2
+    ? Array.from({ length: 3 }, (_, rowIndex) =>
+        tableHeaders.map((column) => spreadsheetSampleValue(column, rowIndex, capabilities))
+      )
+    : specializedTable?.rows || preset.rows;
+  const tableRows = sourceRows.map((row) => {
     const cells = [...row];
     if (capabilities.hasCategories && tableHeaders.includes("Category") && cells.length < tableHeaders.length) {
       cells.splice(1, 0, `${subject} ${capabilities.entitySingular}`);
@@ -2249,7 +2483,10 @@ export async function generateDocumentArtifact({
   project = null,
   activeWorkObject = null,
   activeWorkObjectContent = "",
-  seedDocument = null
+  seedDocument = null,
+  externalAdviceOverride = null,
+  skipExternalAdvice = false,
+  forcedSpec = null
 }) {
   const startedAt = Date.now();
   const artifacts = [];
@@ -2280,6 +2517,7 @@ export async function generateDocumentArtifact({
       : buildFallbackSpec(intent, prompt, attachments),
     intent
   );
+  spec = applyForcedSpec(spec, forcedSpec, intent);
   spec = applyProjectContextToSpec(spec, { project, activeWorkObject, activeWorkObjectContent, prompt });
   let markdown = "";
   let artifactContext = buildArtifactContext({
@@ -2289,6 +2527,58 @@ export async function generateDocumentArtifact({
     activeWorkObject,
     activeWorkObjectContent
   });
+  const externalAdvice = externalAdviceOverride?.used
+    ? externalAdviceOverride
+    : skipExternalAdvice
+      ? {
+          used: false,
+          skippedReason: "skipped"
+        }
+      : await getExternalArtifactAdvice({
+          prompt,
+          intent,
+          plan,
+          project,
+          activeWorkObject,
+          activeWorkObjectContent,
+          attachments
+        });
+  spec = applyExternalAdviceToSpec(spec, externalAdvice);
+  const externalAdviceInstruction = formatExternalArtifactAdvice(externalAdvice);
+  if (externalAdvice?.used) {
+    artifactContext = {
+      ...artifactContext,
+      ...buildArtifactContext({
+        spec,
+        prompt,
+        project,
+        activeWorkObject,
+        activeWorkObjectContent
+      }),
+      externalAdviceSummary: externalAdvice.summaryText
+    };
+  }
+  const externalAdviceMeta = externalAdvice?.used
+    ? {
+        used: true,
+        providerId: externalAdvice.providerId,
+        capability: externalAdvice.capability
+      }
+    : {
+        used: false,
+        skippedReason: externalAdvice?.skippedReason || "not_available"
+      };
+  if (externalAdvice?.used) {
+    candidates.push(
+      normalizeCandidate(
+        "tool",
+        externalAdvice.providerId,
+        "hydria-core-vps",
+        externalAdvice.capability,
+        externalAdvice.summaryText
+      )
+    );
+  }
 
   if (shouldUseDirectLocalArtifact(intent, prompt, attachments, seedDocument)) {
     usedFallback = false;
@@ -2343,7 +2633,8 @@ export async function generateDocumentArtifact({
       meta: {
         durationMs: durationMs(startedAt),
         usedFallback,
-        localFastPath: true
+        localFastPath: true,
+        externalAdvice: externalAdviceMeta
       }
     };
   }
@@ -2362,6 +2653,7 @@ export async function generateDocumentArtifact({
         projectContextInstruction
           ? `Ground the spec in the current project and visible source object.\n${projectContextInstruction}`
           : "",
+        externalAdviceInstruction,
         seedDocument
           ? `You are revising an existing work object. Preserve its intent and improve it according to the request.\nCurrent title: ${seedDocument.title || spec.title}\nCurrent format: ${seedDocument.format || spec.format}`
           : ""
@@ -2390,6 +2682,7 @@ export async function generateDocumentArtifact({
       const parsedSpec = safeJsonParse(specResponse.content);
       if (parsedSpec) {
         spec = normalizeSpec(parsedSpec, intent);
+        spec = applyForcedSpec(spec, forcedSpec, intent);
         spec = applyProjectContextToSpec(spec, {
           project,
           activeWorkObject,
@@ -2432,6 +2725,7 @@ export async function generateDocumentArtifact({
       modelContext.messages,
       [
         buildDraftInstruction(spec, artifactContext),
+        externalAdviceInstruction,
         seedDocument?.content
           ? `You are updating an existing work object.\nStart from the current content below, keep what is useful, and apply the new request instead of rewriting blindly.\n\nCurrent content:\n${seedDocument.content}`
           : ""
@@ -2485,6 +2779,7 @@ export async function generateDocumentArtifact({
         "Improve the following Markdown document for clarity, structure, and factual grounding.",
         "Return Markdown only without code fences.",
         buildArtifactContextInstruction(artifactContext, spec),
+        externalAdviceInstruction,
         seedDocument?.content
           ? "Keep continuity with the existing work object and only make justified improvements."
           : "",
@@ -2575,7 +2870,8 @@ export async function generateDocumentArtifact({
     },
     meta: {
       durationMs: durationMs(startedAt),
-      usedFallback
+      usedFallback,
+      externalAdvice: externalAdviceMeta
     }
   };
 }

@@ -16,7 +16,9 @@
     "test:visual-workspace": "node scripts/visual-workspace-smoke.mjs",
     "test:visual-workspace:headed": "node scripts/visual-workspace-smoke.mjs --headed",
     "test:visual-workspace:list": "node scripts/visual-workspace-smoke.mjs --list",
-    "eval:realworld": "node scripts/realworldBenchmarkEval.mjs"
+    "eval:realworld": "node scripts/realworldBenchmarkEval.mjs",
+    "gate:workspace": "node scripts/workspaceToolIntegrationGate.mjs",
+    "gate:hydria-interactions": "node scripts/hydriaInteractionsClientGate.mjs"
   },
   "dependencies": {
     "adm-zip": "^0.5.16",
