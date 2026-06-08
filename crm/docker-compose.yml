@@ -1,0 +1,46 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-northstar_crm}
+      POSTGRES_USER: ${POSTGRES_USER:-northstar}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-northstar_dev}
+    ports:
+      - "5434:5432"
+    volumes:
+      - northstar_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-northstar} -d ${POSTGRES_DB:-northstar_crm}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-northstar}:${POSTGRES_PASSWORD:-northstar_dev}@postgres:5432/${POSTGRES_DB:-northstar_crm}?schema=public
+      JWT_SECRET: ${JWT_SECRET:-northstar-local-development-secret}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-8h}
+      API_PORT: 4010
+      WEB_ORIGIN: http://localhost:4174
+    ports:
+      - "4010:4010"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        VITE_API_URL: http://localhost:4010/api
+    ports:
+      - "4174:80"
+    depends_on:
+      - api
+
+volumes:
+  northstar_postgres:

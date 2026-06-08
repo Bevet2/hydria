@@ -780,6 +780,218 @@ button:hover {
   font-size: 0.74rem;
 }
 
+/* Dedicated workspace pages */
+
+body[data-workspace-page="overview"] {
+  --workspace-page-accent: #da8b45;
+  --workspace-page-accent-soft: rgba(218, 139, 69, 0.1);
+}
+
+body[data-workspace-page="docs"] {
+  --workspace-page-accent: #2f7583;
+  --workspace-page-accent-soft: rgba(47, 117, 131, 0.1);
+}
+
+body[data-workspace-page="sheets"] {
+  --workspace-page-accent: #2c7f4c;
+  --workspace-page-accent-soft: rgba(44, 127, 76, 0.1);
+}
+
+body[data-workspace-page="slides"] {
+  --workspace-page-accent: #a85a18;
+  --workspace-page-accent-soft: rgba(168, 90, 24, 0.1);
+}
+
+body[data-workspace-page="dashboard"] {
+  --workspace-page-accent: #315f91;
+  --workspace-page-accent-soft: rgba(49, 95, 145, 0.1);
+}
+
+body[data-workspace-page="crm"] {
+  --workspace-page-accent: #167d68;
+  --workspace-page-accent-soft: rgba(22, 125, 104, 0.1);
+}
+
+body[data-workspace-page="automation"] {
+  --workspace-page-accent: #47704d;
+  --workspace-page-accent-soft: rgba(71, 112, 77, 0.1);
+}
+
+body[data-workspace-page="app-builder"] {
+  --workspace-page-accent: #9a6a1a;
+  --workspace-page-accent-soft: rgba(154, 106, 26, 0.1);
+}
+
+body[data-workspace-page="whiteboard"] {
+  --workspace-page-accent: #8a5669;
+  --workspace-page-accent-soft: rgba(138, 86, 105, 0.1);
+}
+
+body[data-workspace-page="code"] {
+  --workspace-page-accent: #505b66;
+  --workspace-page-accent-soft: rgba(80, 91, 102, 0.1);
+}
+
+.workspace-switcher {
+  position: sticky;
+  top: 10px;
+  z-index: 35;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 14px;
+  padding: 8px;
+  overflow-x: auto;
+  border: 1px solid rgba(73, 84, 95, 0.1);
+  border-radius: 8px;
+  background: rgba(255, 252, 247, 0.96);
+  box-shadow: 0 12px 28px rgba(56, 43, 28, 0.08);
+  scrollbar-width: thin;
+}
+
+.workspace-switcher-chip {
+  min-width: max-content;
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0.55rem 0.72rem;
+  border-radius: 6px;
+  border-color: transparent;
+  background: transparent;
+  color: #5f6b76;
+  white-space: nowrap;
+}
+
+.workspace-switcher-chip:hover {
+  transform: none;
+  border-color: rgba(73, 84, 95, 0.1);
+  background: rgba(73, 84, 95, 0.05);
+}
+
+.workspace-switcher-chip.active {
+  border-color: color-mix(in srgb, var(--workspace-page-accent) 28%, transparent);
+  background: var(--workspace-page-accent-soft);
+  color: var(--workspace-page-accent);
+}
+
+.workspace-switcher-chip small {
+  min-width: 20px;
+  height: 20px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: rgba(73, 84, 95, 0.08);
+  color: currentColor;
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.workspace-switcher-home {
+  padding-inline: 0.9rem;
+}
+
+.workspace-panel {
+  border-radius: 8px;
+}
+
+.workspace-launcher {
+  min-height: 480px;
+  display: grid;
+  align-content: start;
+  padding: 24px 0 4px;
+}
+
+.workspace-launcher-grid-single {
+  grid-template-columns: minmax(260px, 520px);
+}
+
+.workspace-launcher-grid-single .workspace-launcher-card {
+  min-height: 150px;
+  justify-content: center;
+  border-color: color-mix(in srgb, var(--workspace-page-accent) 24%, transparent);
+  background: var(--workspace-page-accent-soft);
+}
+
+.workspace-launcher-card {
+  border-radius: 8px;
+}
+
+.workspace-launcher-card[data-workspace="docs"] {
+  border-left: 4px solid #2f7583;
+}
+
+.workspace-launcher-card[data-workspace="sheets"] {
+  border-left: 4px solid #2c7f4c;
+}
+
+.workspace-launcher-card[data-workspace="slides"] {
+  border-left: 4px solid #a85a18;
+}
+
+.workspace-launcher-card[data-workspace="dashboard"] {
+  border-left: 4px solid #315f91;
+}
+
+.workspace-launcher-card[data-workspace="crm"] {
+  border-left: 4px solid #167d68;
+}
+
+.workspace-launcher-card[data-workspace="automation"] {
+  border-left: 4px solid #47704d;
+}
+
+.workspace-launcher-card[data-workspace="app-builder"] {
+  border-left: 4px solid #9a6a1a;
+}
+
+.workspace-launcher-card[data-workspace="whiteboard"] {
+  border-left: 4px solid #8a5669;
+}
+
+.workspace-launcher-card[data-workspace="code"] {
+  border-left: 4px solid #505b66;
+}
+
+body[data-workspace-page]:not([data-workspace-page="overview"]) #workspace-context-label {
+  color: var(--workspace-page-accent);
+}
+
+@media (max-width: 1024px) {
+  .workspace-switcher {
+    top: 6px;
+  }
+}
+
+@media (max-width: 640px) {
+  .workspace-switcher {
+    margin-inline: -4px;
+    padding: 6px;
+  }
+
+  .workspace-switcher-chip {
+    min-height: 36px;
+    padding: 0.48rem 0.62rem;
+    font-size: 0.74rem;
+  }
+
+  .workspace-panel {
+    padding: 18px 14px;
+  }
+
+  .workspace-launcher {
+    min-height: 360px;
+  }
+
+  .workspace-launcher-grid,
+  .workspace-launcher-grid-single {
+    grid-template-columns: 1fr;
+  }
+}
+
 .workspace-layout {
   display: grid;
   grid-template-columns: 280px minmax(0, 1fr);

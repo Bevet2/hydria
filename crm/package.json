@@ -1,0 +1,20 @@
+{
+  "name": "northstar-crm",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "dotenv -e .env -- concurrently -n api,web -c green,cyan \"npm run dev -w @northstar/api\" \"npm run dev -w @northstar/web\"",
+    "build": "npm run build -w @northstar/api && npm run build -w @northstar/web",
+    "typecheck": "npm run typecheck -w @northstar/api && npm run typecheck -w @northstar/web",
+    "db:generate": "npm run db:generate -w @northstar/api",
+    "db:migrate": "dotenv -e .env -- npm run db:migrate -w @northstar/api",
+    "db:seed": "dotenv -e .env -- npm run db:seed -w @northstar/api"
+  },
+  "devDependencies": {
+    "concurrently": "9.2.1",
+    "dotenv-cli": "8.0.0"
+  }
+}

@@ -5,6 +5,11 @@ backend/.env
 .env.*
 !.env.example
 !backend/.env.example
+crm/node_modules/
+crm/apps/*/node_modules/
+crm/apps/*/dist/
+crm/apps/*/*.tsbuildinfo
+crm/.env
 
 data/
 logs/

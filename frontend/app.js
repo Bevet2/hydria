@@ -19,6 +19,110 @@ import {
 import { apiClient } from "./services/apiClient.js";
 import { sessionStore } from "./services/sessionStore.js";
 
+const WORKSPACE_PAGES = Object.freeze([
+  {
+    slug: "docs",
+    kind: "document",
+    family: "document_knowledge",
+    label: "Docs",
+    title: "Documents",
+    description: "Write, structure and refine documents in a focused page.",
+    hint: "Create a document"
+  },
+  {
+    slug: "sheets",
+    kind: "dataset",
+    family: "data_spreadsheet",
+    label: "Sheets",
+    title: "Spreadsheets",
+    description: "Work with tables, formulas and structured data in a dedicated page.",
+    hint: "Create a spreadsheet"
+  },
+  {
+    slug: "slides",
+    kind: "presentation",
+    family: "presentation",
+    label: "Slides",
+    title: "Presentations",
+    description: "Build and edit presentations without mixing them with other workspaces.",
+    hint: "Create a presentation"
+  },
+  {
+    slug: "dashboard",
+    kind: "dashboard",
+    family: "analytics_dashboard",
+    label: "Dashboard",
+    title: "Dashboards",
+    description: "Review metrics, charts and operational signals on their own page.",
+    hint: "Create a dashboard"
+  },
+  {
+    slug: "crm",
+    kind: "project",
+    family: "crm_sales",
+    label: "CRM",
+    title: "CRM",
+    description: "Manage contacts, companies, deals and sales follow-up in a dedicated workspace.",
+    hint: "Create a CRM workspace"
+  },
+  {
+    slug: "automation",
+    kind: "workflow",
+    family: "workflow_automation",
+    label: "Automation",
+    title: "Automations",
+    description: "Design workflows, stages and triggers in a dedicated environment.",
+    hint: "Create an automation"
+  },
+  {
+    slug: "app-builder",
+    kind: "project",
+    family: "app_builder",
+    label: "App Builder",
+    title: "App Builder",
+    description: "Build and preview applications in a workspace reserved for the product.",
+    hint: "Create an application"
+  },
+  {
+    slug: "whiteboard",
+    kind: "design",
+    family: "design",
+    label: "Whiteboard",
+    title: "Whiteboards",
+    description: "Explore layouts, frames and visual ideas on a dedicated canvas.",
+    hint: "Create a whiteboard"
+  },
+  {
+    slug: "code",
+    kind: "code",
+    family: "development",
+    label: "Code Studio",
+    title: "Code Studio",
+    description: "Inspect and edit project code in a focused development page.",
+    hint: "Open a code workspace"
+  }
+]);
+const WORKSPACE_ROUTE_PREFIX = "/workspace/";
+
+function workspacePageFromSlug(slug = "") {
+  return WORKSPACE_PAGES.find((page) => page.slug === String(slug || "").trim()) || null;
+}
+
+function parseWorkspacePagePath(pathname = window.location.pathname) {
+  const normalizedPath = String(pathname || "/").replace(/\/+$/, "") || "/";
+  if (normalizedPath === "/") {
+    return null;
+  }
+  if (!normalizedPath.startsWith(WORKSPACE_ROUTE_PREFIX)) {
+    return null;
+  }
+  return workspacePageFromSlug(
+    decodeURIComponent(normalizedPath.slice(WORKSPACE_ROUTE_PREFIX.length))
+  );
+}
+
+const initialWorkspacePage = parseWorkspacePagePath();
+
 const state = {
   config: null,
   users: [],
@@ -61,6 +165,9 @@ const state = {
   runtimeSyncRequestId: 0,
   documentProjectContextVisible: true,
   closedSheetDocumentIds: [],
+  workspacePageSlug: initialWorkspacePage?.slug || "",
+  routeHydrating: true,
+  routeTransitioning: false,
   ready: false,
   bootPromise: null
 };
@@ -277,16 +384,162 @@ async function createBlankWorkspace(kind, familyId, label) {
 }
 
 function workspaceSwitcherItems() {
-  return [
-    { kind: "document", family: "document_knowledge", label: "Docs" },
-    { kind: "dataset", family: "data_spreadsheet", label: "Sheets" },
-    { kind: "presentation", family: "presentation", label: "Slides" },
-    { kind: "dashboard", family: "analytics_dashboard", label: "Dashboard" },
-    { kind: "workflow", family: "workflow_automation", label: "Automation" },
-    { kind: "project", family: "app_builder", label: "App Builder" },
-    { kind: "design", family: "design", label: "Whiteboard" },
-    { kind: "code", family: "development", label: "Code Studio" }
-  ];
+  return WORKSPACE_PAGES;
+}
+
+function workspacePageForWorkObject(workObject = null) {
+  if (!workObject) {
+    return null;
+  }
+
+  const kind = String(workObject.objectKind || workObject.kind || "").toLowerCase();
+  const family = String(
+    workObject.workspaceFamilyId ||
+      workObject.metadata?.workspaceFamilyId ||
+      workObject.environmentPlan?.workspaceFamilyId ||
+      ""
+  ).toLowerCase();
+  const files = getEditableFiles(workObject).join(" ").toLowerCase();
+
+  if (kind === "dataset" || /\.(csv|tsv|xlsx|xlsm|xls)\b/i.test(files)) {
+    return workspacePageFromSlug("sheets");
+  }
+  if (kind === "presentation" || /(^|\/)slides\.md\b/i.test(files) || /\.pptx\b/i.test(files)) {
+    return workspacePageFromSlug("slides");
+  }
+  if (kind === "dashboard") {
+    return workspacePageFromSlug("dashboard");
+  }
+  if (family === "crm_sales") {
+    return workspacePageFromSlug("crm");
+  }
+  if (kind === "workflow") {
+    return workspacePageFromSlug("automation");
+  }
+  if (kind === "design") {
+    return workspacePageFromSlug("whiteboard");
+  }
+  if (kind === "code") {
+    return workspacePageFromSlug("code");
+  }
+  if (kind === "project" && family === "app_builder") {
+    return workspacePageFromSlug("app-builder");
+  }
+  if (
+    kind === "project" &&
+    (family === "development" || family === "integration_api" || isCodeLikePath(workObject.primaryFile))
+  ) {
+    return workspacePageFromSlug("code");
+  }
+  if (kind === "document") {
+    return workspacePageFromSlug("docs");
+  }
+
+  const familyPage = WORKSPACE_PAGES.find((page) => page.family === family);
+  return familyPage || workspacePageFromSlug("docs");
+}
+
+function currentWorkspacePage() {
+  return workspacePageFromSlug(state.workspacePageSlug);
+}
+
+function workspacePagePath(page = null) {
+  return page ? `${WORKSPACE_ROUTE_PREFIX}${page.slug}` : "/";
+}
+
+function setWorkspacePage(page = null, { historyMode = "push" } = {}) {
+  const nextPage = page || null;
+  const nextSlug = nextPage?.slug || "";
+  const nextPath = workspacePagePath(nextPage);
+  const currentPath = String(window.location.pathname || "/").replace(/\/+$/, "") || "/";
+
+  state.workspacePageSlug = nextSlug;
+  document.body.dataset.workspacePage = nextSlug || "overview";
+  document.title = nextPage ? `${nextPage.title} | Hydria` : "Hydria";
+
+  if (historyMode === "none" || currentPath === nextPath) {
+    return;
+  }
+
+  const method = historyMode === "replace" ? "replaceState" : "pushState";
+  window.history[method]({ workspace: nextSlug }, "", nextPath);
+}
+
+function allWorkspaceWorkObjects() {
+  if (state.currentWorkspace?.workObjects?.length) {
+    return state.currentWorkspace.workObjects;
+  }
+
+  if (state.currentProjectId) {
+    return state.workObjects.filter(
+      (workObject) => String(workObject.projectId || "") === String(state.currentProjectId)
+    );
+  }
+
+  return state.workObjects;
+}
+
+function clearCurrentWorkObjectState() {
+  clearRuntimeSessionState(true);
+  state.currentWorkObjectId = null;
+  state.currentWorkObject = null;
+  state.currentWorkObjectFile = "";
+  state.currentSections = [];
+  state.currentSectionId = "";
+  state.currentBlocks = [];
+  state.currentBlockId = "";
+  state.currentStructuredItemId = "";
+  state.currentStructuredSubItemId = "";
+  state.currentPreviewFilter = "";
+  state.currentDimension = "";
+  state.currentSurfaceId = "";
+  state.currentRuntimeSession = null;
+  state.liveRuntimeDraft = "";
+  state.editorDirty = false;
+  state.editorDraft = "";
+  state.editorDraftKey = "";
+  setWorkspaceMode("view");
+}
+
+async function activateWorkspacePage(page = null, { historyMode = "push" } = {}) {
+  if (state.routeTransitioning) {
+    return;
+  }
+
+  state.routeTransitioning = true;
+  try {
+    setWorkspacePage(page, { historyMode });
+
+    if (!page) {
+      await flushPendingWorkObjectChanges();
+      clearCurrentWorkObjectState();
+      renderWorkspace();
+      return;
+    }
+
+    const currentPage = workspacePageForWorkObject(state.currentWorkObject);
+    if (currentPage?.slug === page.slug) {
+      renderWorkspace();
+      return;
+    }
+
+    const existing = allWorkspaceWorkObjects().find(
+      (workObject) => workspacePageForWorkObject(workObject)?.slug === page.slug
+    );
+    if (existing) {
+      await selectWorkObject(existing.id, preferredOpenPath(existing), {
+        syncRoute: false,
+        syncProject: true
+      });
+      return;
+    }
+
+    await flushPendingWorkObjectChanges();
+    clearCurrentWorkObjectState();
+    renderWorkspace();
+  } finally {
+    state.routeTransitioning = false;
+  }
 }
 
 function filteredConversations() {
@@ -856,10 +1109,10 @@ function currentWorkspaceLens() {
     },
     crm_sales: {
       label: "CRM & Sales",
-      subtitle: "Track pipeline, leads and follow-up directly in the project workspace.",
-      helper: "Ask Hydria to add a pipeline stage, lead view, sales dashboard or follow-up workflow.",
-      promptPlaceholder: "Ex: add a pipeline view, create a lead score table, build a sales dashboard.",
-      nextStep: "Next: track pipeline or follow-up",
+      subtitle: "Run leads, accounts, opportunities, quotes, forecasts and follow-up in one sales workspace.",
+      helper: "Ask Hydria to qualify or convert leads, update opportunities, prepare quotes, inspect forecasts or plan follow-up.",
+      promptPlaceholder: "Ex: convert this lead, add products to the opportunity, prepare a quote, show the weighted forecast.",
+      nextStep: "Next: qualify, sell or forecast",
       priority: "operations_first"
     },
     operations: {
@@ -1505,9 +1758,9 @@ function currentDatasetWorkspaceProfile() {
     },
     crm_sales: {
       workspaceLabel: "CRM workspace",
-      heroCopy: "Track leads, pipeline and next actions like a CRM board, not a plain sheet.",
+      heroCopy: "Track leads, accounts, opportunities, products, quotes and forecasts like a complete sales CRM.",
       sheetName: "Pipeline",
-      tabs: ["Pipeline", "Forecast", "Summary"],
+      tabs: ["Pipeline", "Leads", "Forecast", "Quotes", "Summary"],
       sheetPanelTitle: "Pipeline views",
       sheetPanelHint: "Keep stages and ownership visible while you update the pipeline.",
       profilePanelTitle: "Pipeline profile",
@@ -1515,7 +1768,7 @@ function currentDatasetWorkspaceProfile() {
       selectionPanelTitle: "Current pipeline",
       selectionPanelHint: "Keep the active pipeline range in view while you edit.",
       computedPanelTitle: "Sales signals",
-      computedPanelHint: "Expose stage totals, follow-up load and simple forecasting cues."
+      computedPanelHint: "Expose stage totals, weighted forecast, conversion, quote status and follow-up load."
     },
     knowledge_graph: {
       workspaceLabel: "Knowledge graph workspace",
@@ -3765,26 +4018,40 @@ function renderWorkspaceSwitcher(hasVisibleWorkspace = false) {
   }
   container.innerHTML = "";
   container.classList.remove("hidden");
+  container.setAttribute("aria-label", "Hydria workspaces");
 
   const items = workspaceSwitcherItems();
-  const currentFamily = currentWorkspaceFamilyId();
-  const projectObjects = workspaceWorkObjects();
+  const activePage = currentWorkspacePage();
+  const projectObjects = allWorkspaceWorkObjects();
+
+  const overview = document.createElement("button");
+  overview.type = "button";
+  overview.className = `workspace-switcher-chip workspace-switcher-home${
+    activePage ? "" : " active"
+  }`;
+  overview.textContent = "Overview";
+  overview.setAttribute("aria-current", activePage ? "false" : "page");
+  overview.addEventListener("click", () => {
+    activateWorkspacePage(null).catch(handleError);
+  });
+  container.appendChild(overview);
 
   items.forEach((item) => {
+    const count = projectObjects.filter(
+      (workObject) => workspacePageForWorkObject(workObject)?.slug === item.slug
+    ).length;
     const chip = document.createElement("button");
     chip.type = "button";
-    chip.className = `workspace-switcher-chip${currentFamily === item.family ? " active" : ""}`;
-    chip.textContent = item.label;
+    chip.className = `workspace-switcher-chip${activePage?.slug === item.slug ? " active" : ""}`;
+    chip.setAttribute("aria-current", activePage?.slug === item.slug ? "page" : "false");
+    const label = document.createElement("span");
+    label.textContent = item.label;
+    const badge = document.createElement("small");
+    badge.textContent = String(count);
+    badge.setAttribute("aria-label", `${count} ${item.label} objects`);
+    chip.append(label, badge);
     chip.addEventListener("click", () => {
-      const existing =
-        projectObjects.find((obj) => obj.workspaceFamilyId === item.family) ||
-        projectObjects.find((obj) => obj.workspaceFamilyLabel === item.label) ||
-        null;
-      if (existing) {
-        selectWorkObject(existing.id, preferredOpenPath(existing)).catch(handleError);
-        return;
-      }
-      createBlankWorkspace(item.kind, item.family, item.label).catch(handleError);
+      activateWorkspacePage(item).catch(handleError);
     });
     container.appendChild(chip);
   });
@@ -3829,15 +4096,14 @@ function renderTokenList(container, items = []) {
 }
 
 function workspaceWorkObjects() {
-  if (state.currentWorkspace?.workObjects?.length) {
-    return state.currentWorkspace.workObjects;
+  const objects = allWorkspaceWorkObjects();
+  const page = currentWorkspacePage();
+  if (!page) {
+    return objects;
   }
-
-  if (state.currentProjectId) {
-    return state.workObjects.filter((workObject) => workObject.projectId === state.currentProjectId);
-  }
-
-  return state.workObjects;
+  return objects.filter(
+    (workObject) => workspacePageForWorkObject(workObject)?.slug === page.slug
+  );
 }
 
 function isSheetWorkObject(workObject = null) {
@@ -8104,41 +8370,42 @@ function renderWorkspaceLauncher(hasVisibleWorkspace = false) {
   }
 
   container.innerHTML = "";
+  const activePage = currentWorkspacePage();
   const header = document.createElement("div");
   header.className = "workspace-launcher-header";
   const title = document.createElement("div");
   const heading = document.createElement("h3");
-  heading.textContent = "Open a workspace";
+  heading.textContent = activePage ? activePage.title : "Choose a workspace";
   const subtitle = document.createElement("p");
-  subtitle.textContent = "Pick a blank workspace to start working immediately.";
+  subtitle.textContent = activePage
+    ? activePage.description
+    : "Each workspace now opens on its own page with its own files and tools.";
   title.append(heading, subtitle);
   header.appendChild(title);
 
   const grid = document.createElement("div");
-  grid.className = "workspace-launcher-grid";
+  grid.className = `workspace-launcher-grid${activePage ? " workspace-launcher-grid-single" : ""}`;
 
-  const items = [
-    { kind: "document", family: "document_knowledge", label: "Docs", hint: "Write, summarize, structure." },
-    { kind: "dataset", family: "data_spreadsheet", label: "Sheets", hint: "Tables, CSV, quick analysis." },
-    { kind: "presentation", family: "presentation", label: "Slides", hint: "Pitch decks, reporting." },
-    { kind: "dashboard", family: "analytics_dashboard", label: "Dashboard", hint: "KPI and charts." },
-    { kind: "workflow", family: "workflow_automation", label: "Automation", hint: "Flows and triggers." },
-    { kind: "project", family: "app_builder", label: "App Builder", hint: "Build a live app." },
-    { kind: "design", family: "design", label: "Whiteboard", hint: "Layouts and brainstorming." },
-    { kind: "code", family: "development", label: "Code Studio", hint: "Edit code directly." }
-  ];
+  const items = activePage ? [activePage] : workspaceSwitcherItems();
 
   items.forEach((item) => {
     const card = document.createElement("button");
     card.type = "button";
     card.className = "workspace-launcher-card";
+    card.dataset.workspace = item.slug;
     const label = document.createElement("strong");
-    label.textContent = item.label;
+    label.textContent = activePage ? item.hint : item.title;
     const hint = document.createElement("span");
-    hint.textContent = item.hint;
+    hint.textContent = activePage
+      ? "A new object will be created on this page."
+      : item.description;
     card.append(label, hint);
     card.addEventListener("click", () => {
-      createBlankWorkspace(item.kind, item.family, item.label).catch(handleError);
+      if (activePage) {
+        createBlankWorkspace(item.kind, item.family, item.label).catch(handleError);
+        return;
+      }
+      activateWorkspacePage(item).catch(handleError);
     });
     grid.appendChild(card);
   });
@@ -8147,9 +8414,14 @@ function renderWorkspaceLauncher(hasVisibleWorkspace = false) {
 }
 
 function renderWorkspace() {
-  const workObject = state.currentWorkObject;
+  const activePage = currentWorkspacePage();
+  const selectedObjectPage = workspacePageForWorkObject(state.currentWorkObject);
+  const workObject =
+    activePage && selectedObjectPage?.slug !== activePage.slug
+      ? null
+      : state.currentWorkObject;
   const project = state.currentWorkspace?.project || null;
-  const hasVisibleWorkspace = Boolean(workObject || project);
+  const hasVisibleWorkspace = Boolean(workObject);
   const workspaceLens = currentWorkspaceLens();
   const workspaceFamilyId = currentWorkspaceFamilyId();
   const isDocumentCloneWorkspace = workspaceFamilyId === "document_knowledge";
@@ -8164,6 +8436,9 @@ function renderWorkspace() {
   const dimensions = project?.dimensions || workObject?.projectDimensions || [];
 
   el["work-object-empty"].classList.toggle("hidden", Boolean(workObject));
+  el["work-object-empty"].textContent = activePage
+    ? `No ${activePage.label} object is open on this page yet.`
+    : "Choose a workspace page to begin.";
   if (el["workspace-layout"]) {
     el["workspace-layout"].classList.toggle("hidden", !hasVisibleWorkspace);
   }
@@ -8179,18 +8454,25 @@ function renderWorkspace() {
     el["assistant-dock"].dataset.family = currentWorkspaceFamilyId() || "generic";
   }
   if (el["workspace-context-label"]) {
-    el["workspace-context-label"].classList.toggle("hidden", !hasVisibleWorkspace);
+    el["workspace-context-label"].classList.toggle("hidden", !activePage);
+    el["workspace-context-label"].textContent = activePage
+      ? `${activePage.label} workspace`
+      : "Workspace overview";
+  }
+  if (el["workspace-mode-nav"]?.parentElement) {
+    el["workspace-mode-nav"].parentElement.classList.toggle("hidden", !hasVisibleWorkspace);
   }
   if (el["workspace-title"]) {
     el["workspace-title"].textContent =
-      workObject?.title || project?.name || "Nothing open yet";
+      workObject?.title || activePage?.title || "Hydria workspaces";
   }
   if (el["workspace-subtitle"]) {
     el["workspace-subtitle"].textContent = hasVisibleWorkspace
       ? state.workspaceMode === "edit"
         ? "Change what is open on the right, or ask Hydria to continue the same project below."
         : friendlyWorkspaceSubtitle(project, workObject, workspaceLens)
-      : "Open a blank workspace or ask Hydria to create something. It will open here automatically.";
+      : activePage?.description ||
+        "Open Docs, Sheets, Slides or another workspace from its dedicated page.";
   }
   if (el["workspace-operating-strip"]) {
     el["workspace-operating-strip"].classList.toggle("hidden", !hasVisibleWorkspace || state.workspaceMode === "edit");
@@ -8213,12 +8495,16 @@ function renderWorkspace() {
   if (el["prompt-input"]) {
     el["prompt-input"].placeholder = hasVisibleWorkspace
       ?workspaceLens.promptPlaceholder
-      : "Describe what you want Hydria to create.";
+      : activePage
+        ? `Describe what Hydria should create in ${activePage.label}.`
+        : "Choose a workspace, then describe what you want Hydria to create.";
   }
   if (el["assistant-status-text"] && !state.loading) {
     el["assistant-status-text"].textContent = hasVisibleWorkspace
       ?workspaceLens.assistantStatus
-      : "Tell Hydria what you want to create, or open a blank workspace above.";
+      : activePage
+        ? `Ready to create something in ${activePage.label}.`
+        : "Choose a workspace page to start.";
   }
   applyWorkspaceLabels();
   if (el["workspace-view-status"]) {
@@ -8258,7 +8544,7 @@ function renderWorkspace() {
   ]);
   renderWorkspaceProjectMap(el["workspace-project-map"], {
     project,
-    workObjects: state.currentWorkspace?.workObjects || [],
+    workObjects: workspaceWorkObjects(),
     currentWorkObjectId: state.currentWorkObjectId,
     onSelectWorkObject: (workObjectId) => {
       const target =
@@ -8275,7 +8561,7 @@ function renderWorkspace() {
     state.workspaceMode === "edit" ||
       !showDocumentProjectContext ||
       !hasVisibleWorkspace ||
-      (state.currentWorkspace?.workObjects || []).length <= 1
+      workspaceWorkObjects().length <= 1
   );
   el["workspace-breadcrumb"]?.classList.toggle("hidden", state.workspaceMode === "edit" || !showDocumentProjectContext);
   el["workspace-project-meta"]?.classList.toggle("hidden", state.workspaceMode === "edit" || !showDocumentProjectContext);
@@ -8871,6 +9157,15 @@ async function selectWorkObject(workObjectId, filePath = "", options = {}) {
     return;
   }
 
+  if (options.syncRoute !== false && !state.routeHydrating) {
+    const page = workspacePageForWorkObject(workObject);
+    if (page) {
+      setWorkspacePage(page, {
+        historyMode: options.routeHistoryMode || "push"
+      });
+    }
+  }
+
   if (workObject.surfaceModel?.runtimeCapable) {
     await ensureRuntimeSessionForWorkObject(workObject);
   }
@@ -9397,6 +9692,11 @@ function handleError(error) {
 }
 
 function bindEvents() {
+  window.addEventListener("popstate", () => {
+    const page = parseWorkspacePagePath();
+    activateWorkspacePage(page, { historyMode: "none" }).catch(handleError);
+  });
+
   window.addEventListener("message", (event) => {
     const payload = event.data || {};
     if (!payload || payload.type !== "hydria-runtime-patch-ack") {
@@ -9530,6 +9830,7 @@ function bindEvents() {
 
 async function init() {
   cache();
+  setWorkspacePage(initialWorkspacePage, { historyMode: "none" });
   setInteractiveEnabled(false);
   bindEvents();
   setCopilotOpen(true);
@@ -9569,6 +9870,11 @@ async function init() {
   } else {
     setStatus("Create a user to begin.");
   }
+
+  state.routeHydrating = false;
+  await activateWorkspacePage(initialWorkspacePage, {
+    historyMode: "replace"
+  });
 }
 
 state.bootPromise = init();

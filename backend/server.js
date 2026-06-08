@@ -56,10 +56,13 @@ app.use(
   })
 );
 
-app.get("/", (req, res) => {
+function sendFrontendApp(req, res) {
   res.setHeader("Cache-Control", "no-store");
   res.sendFile(path.join(config.paths.frontendDir, "index.html"));
-});
+}
+
+app.get("/", sendFrontendApp);
+app.get(/^\/workspace(?:\/[^/]+)?\/?$/, sendFrontendApp);
 
 app.use((req, res, next) => {
   next(new AppError("Route not found", 404));
