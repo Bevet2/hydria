@@ -93,6 +93,20 @@ async function isVisible(locator) {
   }
 }
 
+async function maybeOpenWorkspacePage(page, label) {
+  const existingSheet = page.locator(".workspace-sheet-cell-input").first();
+  if (label === "Sheets" && (await isVisible(existingSheet))) {
+    return;
+  }
+
+  const workspaceButton = page.getByRole("button", { name: new RegExp(`^${label}\\b`, "i") }).first();
+  if (await isVisible(workspaceButton)) {
+    await workspaceButton.click({ timeout: 5000 });
+    await page.waitForLoadState("networkidle", { timeout: 3000 }).catch(() => {});
+    await page.waitForTimeout(800);
+  }
+}
+
 async function waitForWorkspace(page, baseUrl) {
   await page.goto(baseUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
   await page.waitForLoadState("networkidle", { timeout: 5000 }).catch(() => {});
@@ -351,6 +365,9 @@ const scenarios = [
     name: "sheets-toolbar-context-menu-fullscreen",
     tags: ["sheets", "menus", "fullscreen"],
     run: async ({ page }) => {
+      await maybeOpenWorkspacePage(page, "Sheets");
+      await page.locator(".workspace-sheet-cell-input").first().waitFor({ state: "visible", timeout: 10000 });
+
       const sheetToolbarSvgCount = await countLocator(page.locator(".workspace-sheet-toolbar-icon svg"));
       assert.ok(sheetToolbarSvgCount > 0, "Sheets toolbar should render shared SVG icons");
 
