@@ -16,6 +16,14 @@ import {
   renderWorkspaceSurfaceNav,
   renderWorkspaceSectionList
 } from "./components/workspacePanel.js";
+import {
+  createDashboardWorkspaceCommandAdapter,
+  createWorkspaceCommandExecutor,
+  createWorkspaceDashboardHomeMenuItems,
+  createWorkspaceIconNode,
+  createWorkspaceMenuActionButton,
+  getWorkspaceCommandIcon
+} from "./components/workspaceSharedCommands.js";
 import { apiClient } from "./services/apiClient.js";
 import { sessionStore } from "./services/sessionStore.js";
 
@@ -173,6 +181,52 @@ const state = {
 };
 
 const el = {};
+
+function createDashboardCommandButton(item = {}, executeCommand = null) {
+  return createWorkspaceMenuActionButton(item, {
+    actionClassName: "workspace-dashboard-command-button",
+    iconClassName: "workspace-dashboard-command-icon",
+    labelClassName: "workspace-dashboard-command-label",
+    metaClassName: "workspace-dashboard-command-meta",
+    createIconNode: createWorkspaceIconNode,
+    resolveIconName: getWorkspaceCommandIcon,
+    hasSubmenu: false,
+    onClick: (_event, menuItem) => {
+      if (!menuItem.commandId || typeof executeCommand !== "function") {
+        return;
+      }
+      executeCommand(menuItem.commandId, {
+        value: menuItem.value,
+        options: menuItem.options || {}
+      });
+    }
+  });
+}
+
+function appendDashboardCommandGroups(host = null, items = [], executeCommand = null) {
+  if (!host) {
+    return;
+  }
+  let group = null;
+  const ensureGroup = () => {
+    if (!group) {
+      group = document.createElement("div");
+      group.className = "workspace-dashboard-command-group";
+      host.appendChild(group);
+    }
+    return group;
+  };
+  items.forEach((item) => {
+    if (!item) {
+      return;
+    }
+    if (item.separator) {
+      group = null;
+      return;
+    }
+    ensureGroup().appendChild(createDashboardCommandButton(item, executeCommand));
+  });
+}
 
 function cache() {
   [
@@ -774,21 +828,6 @@ function updatePresentationPreviewInline(slideId = "", payload = {}) {
   const nextBody = normalizeEditorText(payload.body || "").trim();
   const nextBlock = nextBody ? `## ${nextTitle}\n\n${nextBody}` : `## ${nextTitle}`;
   syncPreviewInlineDraft(nextBlock);
-}
-
-function updateSpreadsheetHeaderFromPreview(columnIndex = 0, value = "") {
-  const model = deriveSpreadsheetDraft(currentDraftContent());
-  model.columns[columnIndex] = String(value || "").trim() || `Column ${columnIndex + 1}`;
-  updateSpreadsheetDraftFromPreview(model);
-}
-
-function updateSpreadsheetCellFromPreview(rowIndex = 0, columnIndex = 0, value = "") {
-  const model = deriveSpreadsheetDraft(currentDraftContent());
-  if (!model.rows[rowIndex]) {
-    model.rows[rowIndex] = Array.from({ length: model.columns.length }, () => "");
-  }
-  model.rows[rowIndex][columnIndex] = String(value || "");
-  updateSpreadsheetDraftFromPreview(model);
 }
 
 function updateSpreadsheetDraftFromPreview(model = {}, options = {}) {
@@ -4505,8 +4544,6 @@ function refreshPreviewPane() {
       selectWorkObject(workObject.id, preferredOpenPath(workObject)).catch(handleError),
     onPresentationSlideFocus: focusPresentationSlide,
     onPresentationSlideEdit: updatePresentationPreviewInline,
-    onDataHeaderEdit: updateSpreadsheetHeaderFromPreview,
-    onDataCellEdit: updateSpreadsheetCellFromPreview,
     onDataGridEdit: updateSpreadsheetDraftFromPreview,
     onDashboardFilterToggle: toggleDashboardPreviewFilter,
     onDashboardWidgetMove: moveDashboardWidget,
@@ -6571,6 +6608,436 @@ function renderDashboardStructuredEditor(container) {
     model.widgets[activeWidgetIndex] ||
     model.widgets[0] ||
     { id: "widget-1", title: "", type: "summary", size: "medium", summary: "" };
+  const writeDashboardDraft = (updater = null, { refreshWorkspace = true } = {}) => {
+    const next = deriveDashboardDraft(currentDraftContent(), state.currentWorkObject?.title || "Hydria Dashboard");
+    if (typeof updater === "function") {
+      updater(next);
+    }
+    syncEditorDraft(buildDashboardContent(next), { refreshWorkspace });
+  };
+  const executeDashboardCommand = createWorkspaceCommandExecutor(
+    "dashboard",
+    createDashboardWorkspaceCommandAdapter({
+      addMetric: () => {
+        writeDashboardDraft((next) => {
+          next.metrics.push({ label: `Metric ${next.metrics.length + 1}`, value: "", delta: "" });
+        });
+      },
+      addChart: (kind = "bar") => {
+        writeDashboardDraft((next) => {
+          const chartKind = String(kind || "bar");
+          next.charts.push({
+            title: `Chart ${next.charts.length + 1}`,
+            kind: chartKind,
+            points: [{ label: "P1", value: "" }, { label: "P2", value: "" }]
+          });
+          state.currentStructuredItemId = `chart-${next.charts.length}`;
+        });
+      },
+      addFilter: () => {
+        writeDashboardDraft((next) => {
+          next.filters.push(`Segment ${next.filters.length + 1}`);
+        });
+      },
+      addTableRow: () => {
+        writeDashboardDraft((next) => {
+          next.table.rows.push(Array.from({ length: next.table.columns.length }, () => ""));
+        });
+      },
+      addTableColumn: () => {
+        writeDashboardDraft((next) => {
+          next.table.columns.push(`Column ${next.table.columns.length + 1}`);
+          next.table.rows = next.table.rows.map((row) => [...row, ""]);
+        });
+      },
+      removeMetric: () => {
+        if (model.metrics.length <= 1) {
+          return;
+        }
+        writeDashboardDraft((next) => {
+          next.metrics = next.metrics.slice(0, -1);
+        });
+      },
+      removeChart: () => {
+        if (model.charts.length <= 1) {
+          return;
+        }
+        writeDashboardDraft((next) => {
+          next.charts = next.charts.filter((_, index) => index !== activeChartIndex);
+          state.currentStructuredItemId = next.charts.length
+            ? `chart-${Math.min(activeChartIndex + 1, next.charts.length)}`
+            : "";
+        });
+      },
+      moveWidget: (direction = 0) => {
+        moveDashboardWidget(activeWidget.id, direction);
+      },
+      refresh: () => {
+        writeDashboardDraft(null);
+      }
+    })
+  );
+
+  // The Power BI-style dashboard belongs in the main preview canvas. Keep this
+  // prototype dormant so the Modify drawer remains a compact editor.
+  const renderDashboardPowerBiDrawerPrototype = false;
+  if (renderDashboardPowerBiDrawerPrototype) {
+    const parseDashboardNumber = (value = "") => {
+      const normalized = String(value || "")
+        .replace(/\s+/g, "")
+        .replace(",", ".")
+        .replace(/[^0-9.-]/g, "");
+      const parsed = Number(normalized);
+      return Number.isFinite(parsed) ? parsed : null;
+    };
+    const formatDashboardNumber = (value = null) => {
+      if (!Number.isFinite(value)) {
+        return "-";
+      }
+      const absolute = Math.abs(value);
+      if (absolute >= 1000000) {
+        return `$${(value / 1000000).toFixed(2)}M`;
+      }
+      if (absolute >= 1000) {
+        return `$${Math.round(value / 1000)}K`;
+      }
+      return String(Math.round(value));
+    };
+    const tableColumns = model.table?.columns || [];
+    const tableRows = model.table?.rows || [];
+    const findColumnIndex = (patterns = []) =>
+      tableColumns.findIndex((column) => {
+        const text = String(column || "").toLowerCase();
+        return patterns.some((pattern) => text.includes(pattern));
+      });
+    const labelColumnIndex = Math.max(
+      0,
+      findColumnIndex(["region", "territory", "product", "month", "segment", "name"])
+    );
+    const valueColumnIndex = Math.max(
+      0,
+      findColumnIndex(["revenue", "sales", "amount", "value", "total", "units"])
+    );
+    const tablePoints = tableRows
+      .map((row, index) => ({
+        label: row[labelColumnIndex] || `Row ${index + 1}`,
+        value: row[valueColumnIndex] || "",
+        numeric: parseDashboardNumber(row[valueColumnIndex])
+      }))
+      .filter((point) => point.label && point.numeric !== null);
+    const activePoints = (activeChart.points || []).length ? activeChart.points : tablePoints;
+    const numericPoints = activePoints
+      .map((point) => ({
+        label: point.label || "Point",
+        value: point.value || "",
+        numeric: parseDashboardNumber(point.value)
+      }))
+      .filter((point) => point.numeric !== null);
+    const maxPointValue = Math.max(...numericPoints.map((point) => point.numeric), 1);
+    const totalValue = tablePoints.reduce((sum, point) => sum + (point.numeric || 0), 0);
+    const metricCards = [
+      ...(model.metrics || []).slice(0, 4).map((metric) => ({
+        label: metric.label || "KPI",
+        value: metric.value || "-",
+        meta: metric.delta || "Live"
+      })),
+      { label: "Revenue won", value: formatDashboardNumber(totalValue), meta: "From data model" },
+      { label: "Qualified pipeline", value: formatDashboardNumber(maxPointValue), meta: "Top signal" },
+      { label: "Forecast", value: numericPoints.length ? `${Math.round((totalValue / Math.max(maxPointValue, 1)) * 10)}%` : "100%", meta: "Scenario" },
+      { label: "Data rows", value: String(tableRows.length), meta: `${tableColumns.length} fields` }
+    ].slice(0, 4);
+
+    const createPowerIcon = (icon, className = "workspace-powerbi-icon") =>
+      createWorkspaceIconNode(icon, { className, label: icon });
+    const createRailButton = (label, icon, active = false) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = `workspace-powerbi-rail-button${active ? " is-active" : ""}`;
+      button.append(createPowerIcon(icon), document.createElement("span"));
+      button.lastChild.textContent = label;
+      return button;
+    };
+    const createTopButton = (label, icon, onClick = null) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "workspace-powerbi-top-command";
+      button.append(createPowerIcon(icon), document.createElement("span"));
+      button.lastChild.textContent = label;
+      if (typeof onClick === "function") {
+        button.addEventListener("click", onClick);
+      }
+      return button;
+    };
+    const createKpiCard = (metric) => {
+      const card = document.createElement("article");
+      card.className = "workspace-powerbi-kpi-card";
+      const label = document.createElement("span");
+      label.textContent = metric.label;
+      const value = document.createElement("strong");
+      value.textContent = metric.value;
+      const meta = document.createElement("small");
+      meta.textContent = metric.meta || "Updated";
+      card.append(label, value, meta);
+      return card;
+    };
+    const createHorizontalBarCard = (title, points = [], { stacked = false } = {}) => {
+      const card = document.createElement("article");
+      card.className = "workspace-powerbi-visual-card";
+      const heading = document.createElement("h3");
+      heading.textContent = title;
+      const list = document.createElement("div");
+      list.className = "workspace-powerbi-horizontal-bars";
+      points.slice(0, 5).forEach((point, index) => {
+        const numeric = Number.isFinite(point.numeric) ? point.numeric : parseDashboardNumber(point.value) || 0;
+        const width = Math.max(8, Math.round((numeric / maxPointValue) * 100));
+        const row = document.createElement("div");
+        row.className = "workspace-powerbi-bar-row";
+        const label = document.createElement("span");
+        label.textContent = point.label || `Item ${index + 1}`;
+        const track = document.createElement("div");
+        track.className = "workspace-powerbi-bar-track";
+        const fill = document.createElement("div");
+        fill.className = `workspace-powerbi-bar-fill color-${(index % 5) + 1}`;
+        fill.style.width = `${width}%`;
+        track.appendChild(fill);
+        if (stacked) {
+          const secondFill = document.createElement("div");
+          secondFill.className = "workspace-powerbi-bar-fill is-secondary";
+          secondFill.style.width = `${Math.max(8, 100 - width)}%`;
+          track.appendChild(secondFill);
+        }
+        const value = document.createElement("strong");
+        value.textContent = point.value || formatDashboardNumber(numeric);
+        row.append(label, track, value);
+        list.appendChild(row);
+      });
+      card.append(heading, list);
+      return card;
+    };
+    const createMatrixCard = (title, columns = [], rows = []) => {
+      const card = document.createElement("article");
+      card.className = "workspace-powerbi-visual-card workspace-powerbi-matrix-card";
+      const heading = document.createElement("h3");
+      heading.textContent = title;
+      const table = document.createElement("table");
+      const thead = document.createElement("thead");
+      const headerRow = document.createElement("tr");
+      columns.slice(0, 4).forEach((column) => {
+        const th = document.createElement("th");
+        th.textContent = column || "Field";
+        headerRow.appendChild(th);
+      });
+      thead.appendChild(headerRow);
+      table.appendChild(thead);
+      const tbody = document.createElement("tbody");
+      rows.slice(0, 7).forEach((row) => {
+        const tr = document.createElement("tr");
+        columns.slice(0, 4).forEach((_, index) => {
+          const td = document.createElement("td");
+          td.textContent = row[index] || "";
+          tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+      card.append(heading, table);
+      return card;
+    };
+    const createMapCard = () => {
+      const card = document.createElement("article");
+      card.className = "workspace-powerbi-visual-card workspace-powerbi-map-card";
+      const heading = document.createElement("h3");
+      heading.textContent = "Forecast by Location";
+      const map = document.createElement("div");
+      map.className = "workspace-powerbi-map";
+      ["WA", "CA", "TX", "CO", "IL", "NY", "FL", "NC", "GA", "AZ", "OR", "MI"].forEach((stateName, index) => {
+        const stateTile = document.createElement("span");
+        stateTile.className = `workspace-powerbi-state-tile tone-${(index % 4) + 1}`;
+        stateTile.textContent = stateName;
+        map.appendChild(stateTile);
+      });
+      card.append(heading, map);
+      return card;
+    };
+
+    const shell = document.createElement("div");
+    shell.className = "workspace-dashboard-powerbi";
+
+    const rail = document.createElement("aside");
+    rail.className = "workspace-powerbi-rail";
+    const launcher = document.createElement("div");
+    launcher.className = "workspace-powerbi-launcher";
+    launcher.textContent = "::";
+    rail.append(
+      launcher,
+      createRailButton("Accueil", "sheet", true),
+      createRailButton("Creer", "insert"),
+      createRailButton("Parcourir", "search"),
+      createRailButton("Hub de donnees", "database"),
+      createRailButton("Applications", "grid"),
+      createRailButton("Espaces de travail", "briefcase"),
+      createRailButton("Mon espace", "user"),
+      createRailButton("Rapports", "barChart")
+    );
+
+    const mainShell = document.createElement("div");
+    mainShell.className = "workspace-powerbi-main";
+    const serviceBar = document.createElement("div");
+    serviceBar.className = "workspace-powerbi-servicebar";
+    const titleWrap = document.createElement("div");
+    titleWrap.className = "workspace-powerbi-title";
+    const titleName = document.createElement("strong");
+    titleName.textContent = model.title || "Regional Sales Sample";
+    const titleMeta = document.createElement("span");
+    titleMeta.textContent = "Hydria BI";
+    titleWrap.append(titleName, titleMeta);
+    const search = document.createElement("input");
+    search.type = "search";
+    search.className = "workspace-powerbi-search";
+    search.placeholder = "Rechercher";
+    const serviceActions = document.createElement("div");
+    serviceActions.className = "workspace-powerbi-service-actions";
+    ["refresh", "settings", "download"].forEach((icon) => serviceActions.appendChild(createPowerIcon(icon)));
+    serviceBar.append(titleWrap, search, serviceActions);
+
+    const commandBar = document.createElement("div");
+    commandBar.className = "workspace-powerbi-commandbar";
+    commandBar.append(
+      createTopButton("Fichier", "page"),
+      createTopButton("Exporter", "download"),
+      createTopButton("Partager", "link"),
+      createTopButton("Obtenir des insights", "sparkline"),
+      createTopButton("S'abonner au rapport", "note"),
+      createTopButton("Definir une alerte", "checkbox"),
+      createTopButton("Modifier", "rename")
+    );
+    const dashboardActions = document.createElement("div");
+    dashboardActions.className = "workspace-powerbi-commandbar-actions";
+    appendDashboardCommandGroups(
+      dashboardActions,
+      createWorkspaceDashboardHomeMenuItems({
+        canRemoveMetric: model.metrics.length > 1,
+        canRemoveChart: model.charts.length > 1,
+        canMoveWidgetLeft: activeWidgetIndex > 0,
+        canMoveWidgetRight: activeWidgetIndex < model.widgets.length - 1
+      }),
+      executeDashboardCommand
+    );
+    commandBar.appendChild(dashboardActions);
+
+    const reportShell = document.createElement("section");
+    reportShell.className = "workspace-powerbi-report-shell";
+    const reportHeader = document.createElement("header");
+    reportHeader.className = "workspace-powerbi-report-header";
+    const brand = document.createElement("div");
+    brand.className = "workspace-powerbi-brand";
+    const brandMark = document.createElement("span");
+    brandMark.className = "workspace-powerbi-brand-mark";
+    const brandText = document.createElement("strong");
+    brandText.textContent = "Hydria";
+    brand.append(brandMark, brandText);
+    const reportTitle = document.createElement("div");
+    reportTitle.className = "workspace-powerbi-report-title";
+    const reportName = document.createElement("strong");
+    reportName.textContent = String(model.title || "Regional Sales").toUpperCase();
+    const reportSub = document.createElement("span");
+    reportSub.textContent = model.summary || "Sales Overview";
+    reportTitle.append(reportName, reportSub);
+    const reportTabs = document.createElement("nav");
+    reportTabs.className = "workspace-powerbi-report-tabs";
+    ["Overview", "Trends", "Insights"].forEach((label, index) => {
+      const tab = document.createElement("button");
+      tab.type = "button";
+      tab.className = index === 0 ? "is-active" : "";
+      tab.textContent = label;
+      reportTabs.appendChild(tab);
+    });
+    reportHeader.append(brand, reportTitle, reportTabs);
+
+    const canvas = document.createElement("div");
+    canvas.className = "workspace-powerbi-canvas";
+    const kpiRow = document.createElement("div");
+    kpiRow.className = "workspace-powerbi-kpi-row";
+    metricCards.forEach((metric) => kpiRow.appendChild(createKpiCard(metric)));
+    const grid = document.createElement("div");
+    grid.className = "workspace-powerbi-report-grid";
+    grid.append(
+      createHorizontalBarCard("Revenue Open par Sales Stage", numericPoints.slice(0, 4)),
+      createHorizontalBarCard("Revenue Won and Revenue in Pipeline", numericPoints.slice(0, 4), { stacked: true }),
+      createMatrixCard("Forecast by Territory", tableColumns, tableRows),
+      createMapCard(),
+      createMatrixCard("Product Category", tableColumns.slice(0, 4), tableRows.slice(0, 8))
+    );
+    canvas.append(kpiRow, grid);
+
+    const inspector = document.createElement("aside");
+    inspector.className = "workspace-powerbi-inspector";
+    const inspectorTitle = document.createElement("div");
+    inspectorTitle.className = "workspace-powerbi-inspector-title";
+    inspectorTitle.innerHTML = "<strong>Visualisations</strong><span>Donnees</span>";
+    const visualGrid = document.createElement("div");
+    visualGrid.className = "workspace-powerbi-visual-picker";
+    ["barChart", "lineChart", "areaChart", "pieChart", "table", "slicer", "map", "number"].forEach((icon) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.appendChild(createPowerIcon(icon));
+      visualGrid.appendChild(button);
+    });
+    const fields = document.createElement("div");
+    fields.className = "workspace-powerbi-fields";
+    tableColumns.slice(0, 8).forEach((column, index) => {
+      const field = document.createElement("label");
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.checked = index < 4;
+      const text = document.createElement("span");
+      text.textContent = column || `Field ${index + 1}`;
+      field.append(checkbox, text);
+      fields.appendChild(field);
+    });
+    const formatPanel = document.createElement("div");
+    formatPanel.className = "workspace-powerbi-format-panel";
+    const chartTitleLabel = document.createElement("label");
+    chartTitleLabel.textContent = "Titre du visuel";
+    const chartTitleInput = document.createElement("input");
+    chartTitleInput.type = "text";
+    chartTitleInput.value = activeChart.title || "";
+    chartTitleInput.addEventListener("input", (event) => {
+      const next = deriveDashboardDraft(currentDraftContent(), state.currentWorkObject?.title || "Hydria Dashboard");
+      next.charts = next.charts.map((chart, index) =>
+        index === activeChartIndex ? { ...chart, title: event.target.value } : chart
+      );
+      syncEditorDraft(buildDashboardContent(next));
+    });
+    chartTitleLabel.appendChild(chartTitleInput);
+    const chartKindLabel = document.createElement("label");
+    chartKindLabel.textContent = "Type";
+    const chartKindInput = document.createElement("select");
+    ["bar", "line", "area", "progress"].forEach((kind) => {
+      const option = document.createElement("option");
+      option.value = kind;
+      option.textContent = kind;
+      option.selected = (activeChart.kind || "bar") === kind;
+      chartKindInput.appendChild(option);
+    });
+    chartKindInput.addEventListener("change", (event) => {
+      const next = deriveDashboardDraft(currentDraftContent(), state.currentWorkObject?.title || "Hydria Dashboard");
+      next.charts = next.charts.map((chart, index) =>
+        index === activeChartIndex ? { ...chart, kind: event.target.value } : chart
+      );
+      syncEditorDraft(buildDashboardContent(next), { refreshWorkspace: true });
+    });
+    chartKindLabel.appendChild(chartKindInput);
+    formatPanel.append(chartTitleLabel, chartKindLabel);
+    inspector.append(inspectorTitle, visualGrid, fields, formatPanel);
+
+    reportShell.append(reportHeader, canvas);
+    mainShell.append(serviceBar, commandBar, reportShell);
+    shell.append(rail, mainShell, inspector);
+    container.appendChild(shell);
+    return;
+  }
+
   const shell = document.createElement("div");
   shell.className = "workspace-app-builder workspace-dashboard-editor workspace-dashboard-workbench";
 
@@ -6581,76 +7048,15 @@ function renderDashboardStructuredEditor(container) {
   stats.textContent = `${model.widgets.length} widgets | ${model.metrics.length} metrics | ${model.charts.length} charts`;
   const actions = document.createElement("div");
   actions.className = "workspace-structured-actions";
-
-  const addMetricButton = document.createElement("button");
-  addMetricButton.type = "button";
-  addMetricButton.className = "ghost-button";
-  addMetricButton.textContent = "Add metric";
-  addMetricButton.addEventListener("click", () => {
-    const next = deriveDashboardDraft(currentDraftContent(), state.currentWorkObject?.title || "Hydria Dashboard");
-    next.metrics.push({ label: `Metric ${next.metrics.length + 1}`, value: "", delta: "" });
-    syncEditorDraft(buildDashboardContent(next), { refreshWorkspace: true });
-  });
-
-  const addChartButton = document.createElement("button");
-  addChartButton.type = "button";
-  addChartButton.className = "ghost-button";
-  addChartButton.textContent = "Add chart";
-  addChartButton.addEventListener("click", () => {
-    const next = deriveDashboardDraft(currentDraftContent(), state.currentWorkObject?.title || "Hydria Dashboard");
-    next.charts.push({ title: `Chart ${next.charts.length + 1}`, kind: "line", points: [{ label: "P1", value: "" }, { label: "P2", value: "" }] });
-    state.currentStructuredItemId = `chart-${next.charts.length}`;
-    syncEditorDraft(buildDashboardContent(next), { refreshWorkspace: true });
-  });
-
-  const removeMetricButton = document.createElement("button");
-  removeMetricButton.type = "button";
-  removeMetricButton.className = "ghost-button";
-  removeMetricButton.textContent = "Remove metric";
-  removeMetricButton.disabled = model.metrics.length <= 1;
-  removeMetricButton.addEventListener("click", () => {
-    const next = deriveDashboardDraft(currentDraftContent(), state.currentWorkObject?.title || "Hydria Dashboard");
-    next.metrics = next.metrics.slice(0, -1);
-    syncEditorDraft(buildDashboardContent(next), { refreshWorkspace: true });
-  });
-
-  const removeChartButton = document.createElement("button");
-  removeChartButton.type = "button";
-  removeChartButton.className = "ghost-button";
-  removeChartButton.textContent = "Remove chart";
-  removeChartButton.disabled = model.charts.length <= 1;
-  removeChartButton.addEventListener("click", () => {
-    const next = deriveDashboardDraft(currentDraftContent(), state.currentWorkObject?.title || "Hydria Dashboard");
-    next.charts = next.charts.slice(0, -1);
-    state.currentStructuredItemId = next.charts.length ? `chart-${Math.max(1, next.charts.length)}` : "";
-    syncEditorDraft(buildDashboardContent(next), { refreshWorkspace: true });
-  });
-
-  const moveWidgetLeftButton = document.createElement("button");
-  moveWidgetLeftButton.type = "button";
-  moveWidgetLeftButton.className = "ghost-button";
-  moveWidgetLeftButton.textContent = "Widget left";
-  moveWidgetLeftButton.disabled = activeWidgetIndex <= 0;
-  moveWidgetLeftButton.addEventListener("click", () => {
-    moveDashboardWidget(activeWidget.id, -1);
-  });
-
-  const moveWidgetRightButton = document.createElement("button");
-  moveWidgetRightButton.type = "button";
-  moveWidgetRightButton.className = "ghost-button";
-  moveWidgetRightButton.textContent = "Widget right";
-  moveWidgetRightButton.disabled = activeWidgetIndex >= model.widgets.length - 1;
-  moveWidgetRightButton.addEventListener("click", () => {
-    moveDashboardWidget(activeWidget.id, 1);
-  });
-
-  actions.append(
-    addMetricButton,
-    addChartButton,
-    removeMetricButton,
-    removeChartButton,
-    moveWidgetLeftButton,
-    moveWidgetRightButton
+  appendDashboardCommandGroups(
+    actions,
+    createWorkspaceDashboardHomeMenuItems({
+      canRemoveMetric: model.metrics.length > 1,
+      canRemoveChart: model.charts.length > 1,
+      canMoveWidgetLeft: activeWidgetIndex > 0,
+      canMoveWidgetRight: activeWidgetIndex < model.widgets.length - 1
+    }),
+    executeDashboardCommand
   );
   toolbar.append(stats, actions);
   const dashboardInsightGrid = createStructuredInsightGrid([
@@ -7177,29 +7583,14 @@ function renderDashboardStructuredEditor(container) {
   tableStats.textContent = `${model.table.rows.length} rows · ${model.table.columns.length} columns`;
   const tableActions = document.createElement("div");
   tableActions.className = "workspace-structured-actions";
-
-  const addTableRowButton = document.createElement("button");
-  addTableRowButton.type = "button";
-  addTableRowButton.className = "ghost-button";
-  addTableRowButton.textContent = "Add row";
-  addTableRowButton.addEventListener("click", () => {
-    const next = deriveDashboardDraft(currentDraftContent(), state.currentWorkObject?.title || "Hydria Dashboard");
-    next.table.rows.push(Array.from({ length: next.table.columns.length }, () => ""));
-    syncEditorDraft(buildDashboardContent(next), { refreshWorkspace: true });
-  });
-
-  const addTableColumnButton = document.createElement("button");
-  addTableColumnButton.type = "button";
-  addTableColumnButton.className = "ghost-button";
-  addTableColumnButton.textContent = "Add column";
-  addTableColumnButton.addEventListener("click", () => {
-    const next = deriveDashboardDraft(currentDraftContent(), state.currentWorkObject?.title || "Hydria Dashboard");
-    next.table.columns.push(`Column ${next.table.columns.length + 1}`);
-    next.table.rows = next.table.rows.map((row) => [...row, ""]);
-    syncEditorDraft(buildDashboardContent(next), { refreshWorkspace: true });
-  });
-
-  tableActions.append(addTableRowButton, addTableColumnButton);
+  appendDashboardCommandGroups(
+    tableActions,
+    [
+      { label: "Add row", icon: "rowInsert", commandId: "dashboardAddTableRow" },
+      { label: "Add column", icon: "columnInsert", commandId: "dashboardAddTableColumn" }
+    ],
+    executeDashboardCommand
+  );
   tableToolbar.append(tableStats, tableActions);
 
   const tableWrap = document.createElement("div");

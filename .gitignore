@@ -11,6 +11,11 @@ crm/apps/*/dist/
 crm/apps/*/*.tsbuildinfo
 crm/.env
 
+.tools/
+backend/backend/
+backend/chart-*.png
+backend/popup-debug.png
+
 data/
 logs/
 hydria_models/
