@@ -7631,6 +7631,791 @@ body.workspace-sheet-expanded {
   flex-wrap: wrap;
 }
 
+.workspace-dashboard-command-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding-right: 8px;
+  border-right: 1px solid rgba(73, 84, 95, 0.08);
+}
+
+.workspace-dashboard-command-group:last-child {
+  padding-right: 0;
+  border-right: 0;
+}
+
+.workspace-dashboard-command-button {
+  appearance: none;
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid rgba(73, 84, 95, 0.1);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.78);
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.84rem;
+  padding: 0.42rem 0.68rem;
+}
+
+.workspace-dashboard-command-button:hover,
+.workspace-dashboard-command-button:focus {
+  outline: none;
+  border-color: rgba(43, 114, 129, 0.2);
+  background: rgba(240, 249, 250, 0.88);
+  color: var(--cyan);
+}
+
+.workspace-dashboard-command-button:disabled {
+  color: rgba(73, 84, 95, 0.42);
+  background: rgba(255, 255, 255, 0.52);
+  cursor: not-allowed;
+}
+
+.workspace-dashboard-command-icon,
+.workspace-dashboard-command-meta {
+  display: inline-grid;
+  place-items: center;
+  color: currentColor;
+}
+
+.workspace-dashboard-command-icon svg,
+.workspace-dashboard-command-meta svg {
+  display: block;
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.workspace-dashboard-command-meta {
+  opacity: 0.7;
+}
+
+.workspace-dashboard-preview-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border: 1px solid #dadce0;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #ffffff;
+  box-shadow: 0 12px 28px rgba(60, 64, 67, 0.12);
+}
+
+.workspace-dashboard-preview-topbar {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.9fr) minmax(180px, 1.1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 62px;
+  padding: 8px 12px;
+  border-bottom: 1px solid #eceff1;
+  background: #f5f6f8;
+}
+
+.workspace-dashboard-command-search {
+  justify-self: center;
+}
+
+.workspace-dashboard-preview-tabs {
+  justify-content: flex-end;
+  flex-wrap: nowrap;
+}
+
+.workspace-dashboard-expand-button {
+  min-width: 94px;
+  justify-content: center;
+  padding-inline: 14px;
+  font-size: 0.95rem;
+}
+
+.workspace-dashboard-preview-viewport {
+  min-height: 560px;
+  overflow: auto;
+  background: #eef1f4;
+}
+
+.workspace-dashboard-preview-card.is-expanded {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 125%;
+  height: 125%;
+  min-width: 125%;
+  min-height: 125%;
+  max-width: none;
+  border-radius: 0;
+  transform: scale(0.8);
+  transform-origin: top left;
+  overflow: hidden;
+  box-shadow: none;
+}
+
+.workspace-dashboard-preview-card.is-expanded .workspace-dashboard-preview-viewport {
+  min-height: 0;
+  height: 100%;
+}
+
+.workspace-dashboard-preview-card.is-expanded .workspace-dashboard-powerbi--preview {
+  min-height: calc(125vh - 78px);
+}
+
+.workspace-dashboard-powerbi {
+  --powerbi-navy: #17385f;
+  --powerbi-blue: #2e74b5;
+  --powerbi-mid-blue: #5fa8dc;
+  --powerbi-panel: #f5f6f8;
+  --powerbi-line: #d9e0e8;
+  --powerbi-text: #1f2a37;
+  min-height: clamp(720px, calc(100vh - 180px), 960px);
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr) 268px;
+  border: 1px solid rgba(33, 48, 64, 0.14);
+  border-radius: 8px;
+  overflow: hidden;
+  background: #eef1f4;
+  color: var(--powerbi-text);
+  box-shadow: 0 22px 44px rgba(32, 43, 56, 0.12);
+}
+
+.workspace-dashboard-powerbi--preview {
+  width: 100%;
+  min-width: 1000px;
+  min-height: 720px;
+  grid-template-columns: 54px minmax(0, 1fr);
+  border-radius: 4px;
+  box-shadow: none;
+}
+
+.workspace-dashboard-powerbi--preview .workspace-powerbi-inspector {
+  display: none;
+}
+
+.workspace-dashboard-powerbi--preview .workspace-powerbi-canvas {
+  width: min(1060px, calc(100% - 28px));
+}
+
+.workspace-dashboard-powerbi--preview .workspace-powerbi-report-grid {
+  grid-template-columns: 1fr 1.2fr 0.95fr;
+}
+
+.workspace-powerbi-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  padding: 8px 5px;
+  border-right: 1px solid #d8dde4;
+  background: #f8fafc;
+}
+
+.workspace-powerbi-launcher {
+  height: 34px;
+  display: grid;
+  place-items: center;
+  color: #586576;
+  font-weight: 800;
+  letter-spacing: 2px;
+  transform: rotate(90deg);
+}
+
+.workspace-powerbi-rail-button {
+  appearance: none;
+  min-height: 48px;
+  display: grid;
+  justify-items: center;
+  gap: 3px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #4f5d6e;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.58rem;
+  line-height: 1.1;
+  padding: 5px 2px;
+}
+
+.workspace-powerbi-rail-button:hover,
+.workspace-powerbi-rail-button.is-active {
+  background: #eaf2fb;
+  color: #175f9f;
+}
+
+.workspace-powerbi-icon svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.workspace-powerbi-main {
+  min-width: 0;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  background: #fff;
+}
+
+.workspace-powerbi-servicebar {
+  min-height: 42px;
+  display: grid;
+  grid-template-columns: minmax(150px, 240px) minmax(260px, 520px) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 6px 12px;
+  border-bottom: 1px solid #d9dee6;
+  background: #f3f4f6;
+}
+
+.workspace-powerbi-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.workspace-powerbi-title strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.86rem;
+  font-weight: 650;
+}
+
+.workspace-powerbi-title span {
+  color: #697586;
+  font-size: 0.72rem;
+}
+
+.workspace-powerbi-search {
+  width: 100%;
+  height: 30px;
+  border: 1px solid #d3d9e2;
+  border-radius: 2px;
+  background: #fff;
+  font: inherit;
+  font-size: 0.78rem;
+  padding: 0 12px;
+}
+
+.workspace-powerbi-service-actions {
+  display: inline-flex;
+  justify-content: flex-end;
+  gap: 14px;
+  color: #5e6b7a;
+}
+
+.workspace-powerbi-commandbar {
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-bottom: 1px solid #d8dde4;
+  background: #fff;
+  overflow-x: auto;
+}
+
+.workspace-powerbi-top-command,
+.workspace-powerbi-commandbar .workspace-dashboard-command-button {
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #334155;
+  font: inherit;
+  font-size: 0.76rem;
+  white-space: nowrap;
+  padding: 0.26rem 0.48rem;
+}
+
+.workspace-powerbi-top-command:hover,
+.workspace-powerbi-commandbar .workspace-dashboard-command-button:hover {
+  background: #eef4fb;
+  color: #185f9f;
+}
+
+.workspace-powerbi-commandbar-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 8px;
+  padding-left: 8px;
+  border-left: 1px solid #d8dde4;
+}
+
+.workspace-powerbi-report-shell {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  background: #dfe4ea;
+  overflow: auto;
+}
+
+.workspace-powerbi-report-shell.has-filters {
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+
+.workspace-powerbi-report-header {
+  min-height: 78px;
+  display: grid;
+  grid-template-columns: 170px minmax(260px, 1fr) auto;
+  align-items: stretch;
+  background: linear-gradient(90deg, #17385f, #244f79);
+  color: #fff;
+}
+
+.workspace-powerbi-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 18px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.workspace-powerbi-brand-mark {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background:
+    radial-gradient(circle at 65% 45%, #87bdf0 0 28%, transparent 29%),
+    radial-gradient(circle at 38% 55%, #244f79 0 30%, transparent 31%),
+    linear-gradient(135deg, #0a2445, #4f8ed0);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16);
+}
+
+.workspace-powerbi-brand strong {
+  font-size: 0.88rem;
+}
+
+.workspace-powerbi-report-title {
+  display: grid;
+  align-content: center;
+  gap: 8px;
+  padding: 10px 18px;
+}
+
+.workspace-powerbi-report-title strong {
+  font-size: 1.08rem;
+  letter-spacing: 0.04em;
+}
+
+.workspace-powerbi-report-title span {
+  color: #d6e2ef;
+  font-size: 1rem;
+}
+
+.workspace-powerbi-report-tabs {
+  display: flex;
+  align-items: end;
+  gap: 0;
+  padding-right: 12px;
+}
+
+.workspace-powerbi-report-tabs button {
+  appearance: none;
+  min-width: 110px;
+  height: 42px;
+  border: 0;
+  border-left: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.06);
+  color: #c9d7e7;
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.workspace-powerbi-report-tabs button.is-active {
+  background: #fff;
+  color: #1f3552;
+}
+
+.workspace-powerbi-filter-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 12px;
+  border-bottom: 1px solid #d8dde4;
+  background: #fff;
+}
+
+.workspace-powerbi-filter-row button {
+  appearance: none;
+  border: 1px solid #d5dce5;
+  border-radius: 2px;
+  background: #fff;
+  color: #334155;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.72rem;
+  padding: 0.32rem 0.65rem;
+}
+
+.workspace-powerbi-filter-row button.is-active {
+  border-color: #2b74b6;
+  background: #eaf3fd;
+  color: #185f9f;
+}
+
+.workspace-powerbi-canvas {
+  width: min(1180px, calc(100% - 36px));
+  margin: 18px auto 24px;
+  display: grid;
+  gap: 14px;
+}
+
+.workspace-powerbi-kpi-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(130px, 1fr));
+  gap: 12px;
+}
+
+.workspace-powerbi-kpi-card,
+.workspace-powerbi-visual-card {
+  border: 1px solid #d9e0e8;
+  background: #fff;
+  box-shadow: 0 2px 7px rgba(37, 48, 61, 0.12);
+}
+
+.workspace-powerbi-kpi-card {
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+  min-height: 86px;
+}
+
+.workspace-powerbi-kpi-card span,
+.workspace-powerbi-visual-card h3 {
+  color: #526174;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.workspace-powerbi-kpi-card strong {
+  font-size: 1.42rem;
+  font-weight: 650;
+}
+
+.workspace-powerbi-kpi-card small {
+  color: #7c8795;
+  font-size: 0.68rem;
+}
+
+.workspace-powerbi-report-grid {
+  display: grid;
+  grid-template-columns: 1.05fr 1.3fr 1fr;
+  grid-auto-rows: minmax(210px, auto);
+  gap: 14px;
+}
+
+.workspace-powerbi-visual-card {
+  min-width: 0;
+  padding: 12px;
+  overflow: hidden;
+}
+
+.workspace-powerbi-visual-card h3 {
+  margin: 0 0 12px;
+}
+
+.workspace-powerbi-horizontal-bars {
+  display: grid;
+  gap: 14px;
+}
+
+.workspace-powerbi-bar-row {
+  display: grid;
+  grid-template-columns: 92px minmax(90px, 1fr) 74px;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.74rem;
+}
+
+.workspace-powerbi-bar-track {
+  height: 28px;
+  display: flex;
+  align-items: stretch;
+  border-left: 1px solid #b8c4d1;
+  border-bottom: 1px solid #b8c4d1;
+  background: #edf4fb;
+}
+
+.workspace-powerbi-bar-fill {
+  height: 100%;
+  background: #2c96df;
+}
+
+.workspace-powerbi-bar-fill.color-1 {
+  background: #7db9e8;
+}
+
+.workspace-powerbi-bar-fill.color-2 {
+  background: #3b9bdc;
+}
+
+.workspace-powerbi-bar-fill.color-3 {
+  background: #1f78bd;
+}
+
+.workspace-powerbi-bar-fill.color-4 {
+  background: #155c96;
+}
+
+.workspace-powerbi-bar-fill.color-5 {
+  background: #88c6f2;
+}
+
+.workspace-powerbi-bar-fill.is-secondary {
+  background: #9ecdf0;
+}
+
+.workspace-powerbi-bar-row strong {
+  text-align: right;
+  font-size: 0.7rem;
+  color: #586778;
+}
+
+.workspace-powerbi-matrix-card {
+  grid-row: span 1;
+}
+
+.workspace-powerbi-matrix-card table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.72rem;
+}
+
+.workspace-powerbi-matrix-card th {
+  background: #24578d;
+  color: #fff;
+  text-align: left;
+}
+
+.workspace-powerbi-matrix-card th,
+.workspace-powerbi-matrix-card td {
+  padding: 6px 7px;
+  border: 1px solid #d4dbe5;
+}
+
+.workspace-powerbi-matrix-card tbody tr:nth-child(even) td {
+  background: #eef5fc;
+}
+
+.workspace-powerbi-map {
+  min-height: 170px;
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 6px;
+  align-content: center;
+  padding: 10px;
+  background:
+    linear-gradient(135deg, rgba(210, 221, 229, 0.42), rgba(255, 255, 255, 0.84)),
+    #f6f9fb;
+}
+
+.workspace-powerbi-state-tile {
+  min-height: 34px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #b7c5d4;
+  color: #17385f;
+  font-size: 0.65rem;
+  font-weight: 700;
+}
+
+.workspace-powerbi-state-tile.tone-1 {
+  background: #d9ebf8;
+}
+
+.workspace-powerbi-state-tile.tone-2 {
+  background: #afd5f1;
+}
+
+.workspace-powerbi-state-tile.tone-3 {
+  background: #71b8e9;
+}
+
+.workspace-powerbi-state-tile.tone-4 {
+  background: #2e96db;
+  color: #fff;
+}
+
+.workspace-powerbi-whatif {
+  display: grid;
+  gap: 14px;
+  padding: 12px 4px 4px;
+}
+
+.workspace-powerbi-whatif input {
+  width: 100%;
+  accent-color: #285f9d;
+}
+
+.workspace-powerbi-whatif div {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.workspace-powerbi-whatif button {
+  min-height: 30px;
+  border: 1px solid #d5dce5;
+  background: #fff;
+  color: #64748b;
+  font: inherit;
+  font-size: 0.7rem;
+}
+
+.workspace-powerbi-whatif button.is-active {
+  border: 2px solid #305d93;
+  color: #17385f;
+  font-weight: 700;
+}
+
+.workspace-powerbi-inspector {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  padding: 14px;
+  border-left: 1px solid #d8dde4;
+  background: #f7f8fa;
+  overflow-y: auto;
+}
+
+.workspace-powerbi-inspector-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.workspace-powerbi-inspector-title strong {
+  font-size: 1rem;
+}
+
+.workspace-powerbi-inspector-title span {
+  color: #5b6675;
+  font-size: 0.8rem;
+}
+
+.workspace-powerbi-visual-picker {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid #d8dde4;
+  background: #fff;
+}
+
+.workspace-powerbi-visual-picker button {
+  appearance: none;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #d6dde7;
+  border-radius: 3px;
+  background: #fff;
+  color: #236aa3;
+  cursor: pointer;
+}
+
+.workspace-powerbi-fields,
+.workspace-powerbi-format-panel {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid #d8dde4;
+  background: #fff;
+}
+
+.workspace-powerbi-fields label,
+.workspace-powerbi-format-panel label {
+  display: grid;
+  gap: 6px;
+  color: #334155;
+  font-size: 0.76rem;
+}
+
+.workspace-powerbi-fields label {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+}
+
+.workspace-powerbi-format-panel input,
+.workspace-powerbi-format-panel select {
+  width: 100%;
+  min-height: 30px;
+  border: 1px solid #cfd7e2;
+  border-radius: 3px;
+  background: #fff;
+  font: inherit;
+  font-size: 0.78rem;
+  padding: 0 8px;
+}
+
+@media (max-width: 1180px) {
+  .workspace-dashboard-powerbi {
+    grid-template-columns: 50px minmax(0, 1fr);
+  }
+
+  .workspace-powerbi-inspector {
+    display: none;
+  }
+
+  .workspace-dashboard-powerbi--preview {
+    min-width: 900px;
+  }
+
+  .workspace-powerbi-report-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 820px) {
+  .workspace-dashboard-preview-topbar {
+    grid-template-columns: minmax(140px, 1fr) auto auto;
+  }
+
+  .workspace-dashboard-command-search {
+    display: none;
+  }
+
+  .workspace-dashboard-powerbi {
+    grid-template-columns: 1fr;
+  }
+
+  .workspace-powerbi-rail {
+    display: none;
+  }
+
+  .workspace-powerbi-servicebar,
+  .workspace-powerbi-report-header,
+  .workspace-powerbi-kpi-row,
+  .workspace-powerbi-report-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .workspace-powerbi-report-tabs {
+    align-items: stretch;
+    padding: 0;
+  }
+}
+
 .workspace-grid-editor-wrap {
   overflow: auto;
   border-radius: 22px;

@@ -75,7 +75,17 @@ export const WORKSPACE_COMMON_COMMANDS = {
   numberFormat: { id: "numberFormat", label: "Formats", frLabel: "Formats", icon: "number" },
   currency: { id: "currency", label: "Currency", frLabel: "Devise", icon: "currency" },
   percent: { id: "percent", label: "Percent", frLabel: "Pourcentage", icon: "percent" },
-  date: { id: "date", label: "Date", frLabel: "Date", icon: "calendar" }
+  date: { id: "date", label: "Date", frLabel: "Date", icon: "calendar" },
+  dashboardAddMetric: { id: "dashboardAddMetric", label: "Add KPI", frLabel: "Ajouter un KPI", icon: "number" },
+  dashboardAddChart: { id: "dashboardAddChart", label: "Add visual", frLabel: "Ajouter un visuel", icon: "chart" },
+  dashboardAddFilter: { id: "dashboardAddFilter", label: "Add slicer", frLabel: "Ajouter un segment", icon: "slicer" },
+  dashboardAddTableRow: { id: "dashboardAddTableRow", label: "Add data row", frLabel: "Ajouter une ligne", icon: "rowInsert" },
+  dashboardAddTableColumn: { id: "dashboardAddTableColumn", label: "Add data column", frLabel: "Ajouter une colonne", icon: "columnInsert" },
+  dashboardRemoveMetric: { id: "dashboardRemoveMetric", label: "Remove KPI", frLabel: "Supprimer le KPI", icon: "delete" },
+  dashboardRemoveChart: { id: "dashboardRemoveChart", label: "Remove visual", frLabel: "Supprimer le visuel", icon: "delete" },
+  dashboardMoveWidgetLeft: { id: "dashboardMoveWidgetLeft", label: "Move widget left", frLabel: "Widget a gauche", icon: "chevronLeft" },
+  dashboardMoveWidgetRight: { id: "dashboardMoveWidgetRight", label: "Move widget right", frLabel: "Widget a droite", icon: "chevronRight" },
+  dashboardRefresh: { id: "dashboardRefresh", label: "Refresh dashboard", frLabel: "Actualiser", icon: "refresh" }
 };
 
 export const WORKSPACE_TEXT_STYLE_COMMAND_IDS = ["bold", "italic", "underline", "strikethrough"];

@@ -132,6 +132,8 @@ const spreadsheetRibbonDisplayStore = new Map();
 const spreadsheetExpandedStore = new Map();
 const spreadsheetExpandedPopupHostStore = new Map();
 const spreadsheetRecentFormulaStore = new Map();
+const dashboardExpandedStore = new Map();
+const dashboardExpandedPopupHostStore = new Map();
 const SPREADSHEET_MIN_VISIBLE_COLUMNS = 26;
 const SPREADSHEET_MIN_VISIBLE_ROWS = 200;
 
@@ -24093,6 +24095,7 @@ function renderDashboardExperiencePreview(
     activeFilter = "",
     activeWidgetId = "",
     activeChartId = "",
+    previewKey = "",
     onFilterToggle = null,
     onWidgetMove = null,
     onWidgetDrop = null,
@@ -24122,6 +24125,440 @@ function renderDashboardExperiencePreview(
   const visibleCharts = normalizedFilter
     ? (model.charts || []).filter((chart) => matchesFilter(chart.title))
     : model.charts || [];
+
+  {
+    const dashboardKey = String(previewKey || model.title || "dashboard-preview");
+    let isDashboardExpanded = dashboardExpandedStore.get(dashboardKey) === true;
+    let expandedOverlay = null;
+    let expandedDialog = null;
+    let expandedScaleFrame = null;
+    const getStoredExpandedHost = () => {
+      const host = dashboardExpandedPopupHostStore.get(dashboardKey);
+      if (host?.overlay?.isConnected && host?.dialog?.isConnected && host?.scaleFrame?.isConnected) {
+        return host;
+      }
+      dashboardExpandedPopupHostStore.delete(dashboardKey);
+      return null;
+    };
+    const destroyExpandedHost = ({ preserveHost = false } = {}) => {
+      if (!preserveHost) {
+        document.body.classList.remove("workspace-dashboard-expanded");
+      }
+      if (expandedScaleFrame?.contains(previewShell)) {
+        expandedScaleFrame.removeChild(previewShell);
+      }
+      if (preserveHost) {
+        return;
+      }
+      const storedHost = getStoredExpandedHost();
+      if (!expandedOverlay && storedHost) {
+        expandedOverlay = storedHost.overlay;
+        expandedDialog = storedHost.dialog;
+        expandedScaleFrame = storedHost.scaleFrame;
+      }
+      if (expandedOverlay) {
+        expandedOverlay.remove();
+        expandedOverlay = null;
+        expandedDialog = null;
+        expandedScaleFrame = null;
+      }
+      dashboardExpandedPopupHostStore.delete(dashboardKey);
+    };
+    const setExpandedMode = (nextExpanded = false) => {
+      isDashboardExpanded = Boolean(nextExpanded);
+      dashboardExpandedStore.set(dashboardKey, isDashboardExpanded);
+      mountPreviewShell();
+    };
+    const ensureExpandedHost = () => {
+      if (expandedOverlay?.isConnected && expandedDialog && expandedScaleFrame) {
+        return expandedScaleFrame;
+      }
+      const storedHost = getStoredExpandedHost();
+      if (storedHost) {
+        expandedOverlay = storedHost.overlay;
+        expandedDialog = storedHost.dialog;
+        expandedScaleFrame = storedHost.scaleFrame;
+        return expandedScaleFrame;
+      }
+      expandedOverlay = document.createElement("div");
+      expandedOverlay.className = "workspace-sheet-modal-overlay workspace-dashboard-modal-overlay";
+      const backdrop = document.createElement("div");
+      backdrop.className = "workspace-sheet-modal-backdrop";
+      backdrop.addEventListener("click", () => setExpandedMode(false));
+      expandedDialog = document.createElement("div");
+      expandedDialog.className = "workspace-sheet-modal-dialog workspace-dashboard-modal-dialog";
+      expandedScaleFrame = document.createElement("div");
+      expandedScaleFrame.className = "workspace-sheet-modal-scale-frame workspace-dashboard-modal-scale-frame";
+      expandedOverlay.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          setExpandedMode(false);
+        }
+      });
+      expandedDialog.appendChild(expandedScaleFrame);
+      expandedOverlay.append(backdrop, expandedDialog);
+      document.body.appendChild(expandedOverlay);
+      expandedOverlay.tabIndex = -1;
+      expandedOverlay.focus({ preventScroll: true });
+      dashboardExpandedPopupHostStore.set(dashboardKey, {
+        overlay: expandedOverlay,
+        dialog: expandedDialog,
+        scaleFrame: expandedScaleFrame
+      });
+      return expandedScaleFrame;
+    };
+    const tableColumns = Array.isArray(model.table?.columns) ? model.table.columns : [];
+    const tableRows = Array.isArray(model.table?.rows) ? model.table.rows : [];
+    const findColumnIndex = (patterns = []) =>
+      tableColumns.findIndex((column) => {
+        const text = String(column || "").toLowerCase();
+        return patterns.some((pattern) => text.includes(pattern));
+      });
+    const labelColumnIndex = Math.max(
+      0,
+      findColumnIndex(["region", "territory", "product", "month", "segment", "name"])
+    );
+    const valueColumnIndex = Math.max(
+      0,
+      findColumnIndex(["revenue", "sales", "amount", "value", "total", "units"])
+    );
+    const tablePoints = tableRows
+      .map((row, index) => {
+        const numeric = parsePreviewNumber(row[valueColumnIndex]);
+        return {
+          label: row[labelColumnIndex] || `Row ${index + 1}`,
+          value: row[valueColumnIndex] || "",
+          numeric
+        };
+      })
+      .filter((point) => point.numeric !== null);
+    const activeChart =
+      (model.charts || []).find((_, index) => `chart-${index + 1}` === String(activeChartId || "")) ||
+      visibleCharts[0] ||
+      (model.charts || [])[0] ||
+      null;
+    const chartPoints = ((activeChart?.points || []).length ? activeChart.points : tablePoints)
+      .map((point, index) => ({
+        label: point.label || `Point ${index + 1}`,
+        value: point.value || "",
+        numeric: parsePreviewNumber(point.value)
+      }))
+      .filter((point) => point.numeric !== null);
+    const maxPointValue = Math.max(...chartPoints.map((point) => point.numeric), 1);
+    const totalValue = tablePoints.reduce((sum, point) => sum + (point.numeric || 0), 0);
+    const formatPowerValue = (value) => {
+      const numeric = typeof value === "number" ? value : parsePreviewNumber(value);
+      if (numeric === null || !Number.isFinite(numeric)) {
+        return String(value || "-");
+      }
+      const absolute = Math.abs(numeric);
+      if (absolute >= 1000000) {
+        return `$${(numeric / 1000000).toFixed(2)}M`;
+      }
+      if (absolute >= 1000) {
+        return `$${(numeric / 1000).toFixed(1)}K`;
+      }
+      return String(Math.round(numeric));
+    };
+    const metricCards = [
+      ...(visibleMetrics || []).slice(0, 4).map((metric) => ({
+        label: metric.label || "KPI",
+        value: metric.value || "-",
+        meta: metric.delta || "Live"
+      })),
+      { label: "Revenue won", value: formatPowerValue(totalValue), meta: "From report table" },
+      { label: "Qualified pipeline", value: formatPowerValue(maxPointValue), meta: "Top point" },
+      {
+        label: "Forecast",
+        value: chartPoints.length ? `${Math.round((totalValue / Math.max(maxPointValue, 1)) * 10)}%` : "100%",
+        meta: "Scenario"
+      },
+      { label: "Rows", value: String(tableRows.length), meta: `${tableColumns.length} fields` }
+    ].slice(0, 4);
+    const createPowerIcon = (icon, className = "workspace-powerbi-icon") =>
+      createWorkspaceIconNode(icon, { className, label: icon });
+    const createRailButton = (label, icon, active = false) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = `workspace-powerbi-rail-button${active ? " is-active" : ""}`;
+      button.append(createPowerIcon(icon), document.createElement("span"));
+      button.lastChild.textContent = label;
+      return button;
+    };
+    const createTopButton = (label, icon) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "workspace-powerbi-top-command";
+      button.append(createPowerIcon(icon), document.createElement("span"));
+      button.lastChild.textContent = label;
+      return button;
+    };
+    const createKpiCard = (metric) => {
+      const card = document.createElement("article");
+      card.className = "workspace-powerbi-kpi-card";
+      const label = document.createElement("span");
+      label.textContent = metric.label;
+      const value = document.createElement("strong");
+      value.textContent = metric.value;
+      const meta = document.createElement("small");
+      meta.textContent = metric.meta || "Updated";
+      card.append(label, value, meta);
+      return card;
+    };
+    const createVisualCard = (title, extraClass = "") => {
+      const card = document.createElement("article");
+      card.className = `workspace-powerbi-visual-card${extraClass ? ` ${extraClass}` : ""}`;
+      const heading = document.createElement("h3");
+      heading.textContent = title;
+      card.appendChild(heading);
+      return card;
+    };
+    const appendHorizontalBars = (card, points = [], { stacked = false } = {}) => {
+      const list = document.createElement("div");
+      list.className = "workspace-powerbi-horizontal-bars";
+      points.slice(0, 5).forEach((point, index) => {
+        const width = Math.max(8, Math.round(((point.numeric || 0) / maxPointValue) * 100));
+        const row = document.createElement("div");
+        row.className = "workspace-powerbi-bar-row";
+        const label = document.createElement("span");
+        label.textContent = point.label || `Item ${index + 1}`;
+        const track = document.createElement("div");
+        track.className = "workspace-powerbi-bar-track";
+        const fill = document.createElement("div");
+        fill.className = `workspace-powerbi-bar-fill color-${(index % 5) + 1}`;
+        fill.style.width = `${width}%`;
+        track.appendChild(fill);
+        if (stacked) {
+          const secondFill = document.createElement("div");
+          secondFill.className = "workspace-powerbi-bar-fill is-secondary";
+          secondFill.style.width = `${Math.max(8, 100 - width)}%`;
+          track.appendChild(secondFill);
+        }
+        const value = document.createElement("strong");
+        value.textContent = point.value || formatPowerValue(point.numeric);
+        row.append(label, track, value);
+        list.appendChild(row);
+      });
+      card.appendChild(list);
+    };
+    const appendMatrix = (card, columns = [], rows = []) => {
+      const table = document.createElement("table");
+      const thead = document.createElement("thead");
+      const headerRow = document.createElement("tr");
+      columns.slice(0, 4).forEach((column) => {
+        const th = document.createElement("th");
+        th.textContent = column || "Field";
+        headerRow.appendChild(th);
+      });
+      thead.appendChild(headerRow);
+      table.appendChild(thead);
+      const tbody = document.createElement("tbody");
+      rows.slice(0, 7).forEach((row) => {
+        const tr = document.createElement("tr");
+        columns.slice(0, 4).forEach((_, index) => {
+          const td = document.createElement("td");
+          td.textContent = row[index] || "";
+          tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+      card.appendChild(table);
+    };
+    const previewShell = document.createElement("section");
+    previewShell.className = "workspace-dashboard-preview-card";
+    const previewTopbar = document.createElement("div");
+    previewTopbar.className = "workspace-dashboard-preview-topbar";
+    const previewTitleGroup = document.createElement("div");
+    previewTitleGroup.className = "workspace-sheet-title-group";
+    const previewTitle = document.createElement("strong");
+    previewTitle.textContent = model.title || "New Dashboard";
+    const previewMeta = document.createElement("span");
+    previewMeta.className = "tiny";
+    previewMeta.textContent = `${tableRows.length} ROWS | ${tableColumns.length} COLUMNS | ${visibleCharts.length} VISUALS`;
+    previewTitleGroup.append(previewTitle, previewMeta);
+    const previewSearch = document.createElement("label");
+    previewSearch.className = "workspace-sheet-command-search workspace-dashboard-command-search";
+    const previewSearchIcon = document.createElement("span");
+    previewSearchIcon.className = "workspace-sheet-command-search-icon";
+    const previewSearchInput = document.createElement("input");
+    previewSearchInput.type = "search";
+    previewSearchInput.placeholder = "Rechercher dans le rapport ou les commandes";
+    previewSearch.append(previewSearchIcon, previewSearchInput);
+    const previewTabs = document.createElement("div");
+    previewTabs.className = "workspace-sheet-tabs workspace-dashboard-preview-tabs";
+    ["Overview", "Data"].forEach((label, index) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = `workspace-sheet-tab${index === 0 ? " active" : ""}`;
+      button.textContent = label;
+      previewTabs.appendChild(button);
+    });
+    const expandButton = document.createElement("button");
+    expandButton.type = "button";
+    expandButton.className = "workspace-sheet-tab workspace-dashboard-expand-button";
+    expandButton.addEventListener("click", () => setExpandedMode(!isDashboardExpanded));
+    previewTopbar.append(previewTitleGroup, previewSearch, previewTabs, expandButton);
+    const dashboardViewport = document.createElement("div");
+    dashboardViewport.className = "workspace-dashboard-preview-viewport";
+
+    const shell = document.createElement("div");
+    shell.className = "workspace-dashboard-powerbi workspace-dashboard-powerbi--preview";
+    const rail = document.createElement("aside");
+    rail.className = "workspace-powerbi-rail";
+    const launcher = document.createElement("div");
+    launcher.className = "workspace-powerbi-launcher";
+    launcher.textContent = "::";
+    rail.append(
+      launcher,
+      createRailButton("Accueil", "sheet", true),
+      createRailButton("Creer", "insert"),
+      createRailButton("Parcourir", "search"),
+      createRailButton("Donnees", "database"),
+      createRailButton("Rapports", "barChart")
+    );
+    const mainShell = document.createElement("div");
+    mainShell.className = "workspace-powerbi-main";
+    const serviceBar = document.createElement("div");
+    serviceBar.className = "workspace-powerbi-servicebar";
+    const titleWrap = document.createElement("div");
+    titleWrap.className = "workspace-powerbi-title";
+    const titleName = document.createElement("strong");
+    titleName.textContent = model.title || "Regional Sales Sample";
+    const titleMeta = document.createElement("span");
+    titleMeta.textContent = "Hydria BI";
+    titleWrap.append(titleName, titleMeta);
+    const search = document.createElement("input");
+    search.type = "search";
+    search.className = "workspace-powerbi-search";
+    search.placeholder = "Rechercher";
+    const serviceActions = document.createElement("div");
+    serviceActions.className = "workspace-powerbi-service-actions";
+    ["refresh", "settings", "download"].forEach((icon) => serviceActions.appendChild(createPowerIcon(icon)));
+    serviceBar.append(titleWrap, search, serviceActions);
+    const commandBar = document.createElement("div");
+    commandBar.className = "workspace-powerbi-commandbar";
+    commandBar.append(
+      createTopButton("Fichier", "page"),
+      createTopButton("Exporter", "download"),
+      createTopButton("Partager", "link"),
+      createTopButton("Explorer les donnees", "database"),
+      createTopButton("Obtenir des insights", "sparkline"),
+      createTopButton("Modifier", "rename")
+    );
+    const reportShell = document.createElement("section");
+    reportShell.className = "workspace-powerbi-report-shell";
+    const reportHeader = document.createElement("header");
+    reportHeader.className = "workspace-powerbi-report-header";
+    const brand = document.createElement("div");
+    brand.className = "workspace-powerbi-brand";
+    const brandMark = document.createElement("span");
+    brandMark.className = "workspace-powerbi-brand-mark";
+    const brandText = document.createElement("strong");
+    brandText.textContent = "Hydria";
+    brand.append(brandMark, brandText);
+    const reportTitle = document.createElement("div");
+    reportTitle.className = "workspace-powerbi-report-title";
+    const reportName = document.createElement("strong");
+    reportName.textContent = String(model.title || "Regional Sales").toUpperCase();
+    const reportSub = document.createElement("span");
+    reportSub.textContent = normalizedFilter
+      ? `${model.summary || "Sales Overview"} - Focus: ${activeFilter}`
+      : model.summary || "Sales Overview";
+    reportTitle.append(reportName, reportSub);
+    const reportTabs = document.createElement("nav");
+    reportTabs.className = "workspace-powerbi-report-tabs";
+    ["Overview", "Trends", "Insights"].forEach((label, index) => {
+      const tab = document.createElement("button");
+      tab.type = "button";
+      tab.className = index === 0 ? "is-active" : "";
+      tab.textContent = label;
+      reportTabs.appendChild(tab);
+    });
+    reportHeader.append(brand, reportTitle, reportTabs);
+    if ((model.filters || []).length) {
+      reportShell.classList.add("has-filters");
+      const filters = document.createElement("div");
+      filters.className = "workspace-powerbi-filter-row";
+      (model.filters || []).forEach((filter) => {
+        const chip = document.createElement("button");
+        chip.type = "button";
+        chip.className = String(filter || "") === String(activeFilter || "") ? "is-active" : "";
+        chip.textContent = filter;
+        chip.addEventListener("click", () => onFilterToggle?.(filter));
+        filters.appendChild(chip);
+      });
+      reportShell.append(reportHeader, filters);
+    } else {
+      reportShell.appendChild(reportHeader);
+    }
+    const canvas = document.createElement("div");
+    canvas.className = "workspace-powerbi-canvas";
+    const kpiRow = document.createElement("div");
+    kpiRow.className = "workspace-powerbi-kpi-row";
+    metricCards.forEach((metric) => kpiRow.appendChild(createKpiCard(metric)));
+    const grid = document.createElement("div");
+    grid.className = "workspace-powerbi-report-grid";
+    const stageCard = createVisualCard("Revenue Open par Sales Stage");
+    appendHorizontalBars(stageCard, chartPoints.slice(0, 4));
+    stageCard.addEventListener("click", () => onChartFocus?.(activeChart ? `chart-${(model.charts || []).indexOf(activeChart) + 1}` : "chart-1"));
+    const pipelineCard = createVisualCard("Revenue Won and Revenue in Pipeline");
+    appendHorizontalBars(pipelineCard, chartPoints.slice(0, 4), { stacked: true });
+    const whatIfCard = createVisualCard("WHAT IF the forecast was adjusted");
+    const whatIf = document.createElement("div");
+    whatIf.className = "workspace-powerbi-whatif";
+    const input = document.createElement("input");
+    input.type = "range";
+    input.min = "-80";
+    input.max = "80";
+    input.value = "0";
+    const tabs = document.createElement("div");
+    tabs.innerHTML = "<button>By Team + User</button><button class=\"is-active\">By Product</button>";
+    whatIf.append(input, tabs);
+    whatIfCard.appendChild(whatIf);
+    const territoryCard = createVisualCard("Forecast by Territory", "workspace-powerbi-matrix-card");
+    appendMatrix(territoryCard, tableColumns, tableRows);
+    const mapCard = createVisualCard("Forecast by Location", "workspace-powerbi-map-card");
+    const map = document.createElement("div");
+    map.className = "workspace-powerbi-map";
+    ["WA", "CA", "TX", "CO", "IL", "NY", "FL", "NC", "GA", "AZ", "OR", "MI"].forEach((stateName, index) => {
+      const stateTile = document.createElement("span");
+      stateTile.className = `workspace-powerbi-state-tile tone-${(index % 4) + 1}`;
+      stateTile.textContent = stateName;
+      map.appendChild(stateTile);
+    });
+    mapCard.appendChild(map);
+    const detailCard = createVisualCard("Product Category", "workspace-powerbi-matrix-card");
+    appendMatrix(detailCard, tableColumns.slice(0, 4), tableRows.slice(0, 8));
+    grid.append(stageCard, pipelineCard, whatIfCard, territoryCard, mapCard, detailCard);
+    canvas.append(kpiRow, grid);
+    reportShell.appendChild(canvas);
+    mainShell.append(serviceBar, commandBar, reportShell);
+    shell.append(rail, mainShell);
+    dashboardViewport.appendChild(shell);
+    previewShell.append(previewTopbar, dashboardViewport);
+
+    function mountPreviewShell() {
+      previewShell.classList.toggle("is-expanded", isDashboardExpanded);
+      expandButton.textContent = isDashboardExpanded ? "Exit full screen" : "Full screen";
+      expandButton.title = isDashboardExpanded ? "Exit full screen" : "Open full screen";
+      expandButton.setAttribute("aria-pressed", isDashboardExpanded ? "true" : "false");
+      if (isDashboardExpanded) {
+        const scaleFrame = ensureExpandedHost();
+        document.body.classList.add("workspace-dashboard-expanded");
+        scaleFrame.replaceChildren(previewShell);
+        expandedOverlay?.focus({ preventScroll: true });
+        return;
+      }
+      if (previewShell.parentElement !== container) {
+        container.appendChild(previewShell);
+      }
+      destroyExpandedHost();
+    }
+
+    mountPreviewShell();
+    return;
+  }
 
   const summary = document.createElement("div");
   summary.className = "workspace-preview-summary";
@@ -25794,6 +26231,7 @@ export function renderWorkspacePreview(
       activeFilter: activePreviewFilter,
       activeWidgetId: selectedStructuredSubItemId,
       activeChartId: selectedStructuredItemId,
+      previewKey: workObject?.id || normalizedPath || workObject?.title || "dashboard",
       onFilterToggle: onDashboardFilterToggle,
       onWidgetMove: onDashboardWidgetMove,
       onWidgetDrop: onDashboardWidgetDrop,
@@ -25902,6 +26340,7 @@ export function renderWorkspacePreview(
         activeFilter: activePreviewFilter,
         activeWidgetId: selectedStructuredSubItemId,
         activeChartId: selectedStructuredItemId,
+        previewKey: workObject?.id || normalizedPath || workObject?.title || "dashboard",
         onFilterToggle: onDashboardFilterToggle,
         onWidgetMove: onDashboardWidgetMove,
         onWidgetDrop: onDashboardWidgetDrop,

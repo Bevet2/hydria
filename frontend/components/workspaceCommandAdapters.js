@@ -110,3 +110,23 @@ export function createSheetWorkspaceCommandAdapter(operations = {}) {
     clearFormatting: () => call("clearSelectedFormatting")
   };
 }
+
+export function createDashboardWorkspaceCommandAdapter(operations = {}) {
+  const call = (name = "", ...args) => callWorkspaceOperation(operations, name, ...args);
+
+  // Dashboard is the first Power BI-style surface. Keep its visible commands
+  // shared, but let the dashboard model decide how KPIs, visuals and slicers
+  // are stored and refreshed.
+  return {
+    dashboardAddMetric: () => call("addMetric"),
+    dashboardAddChart: (_command, { value = "line" } = {}) => call("addChart", value || "line"),
+    dashboardAddFilter: () => call("addFilter"),
+    dashboardAddTableRow: () => call("addTableRow"),
+    dashboardAddTableColumn: () => call("addTableColumn"),
+    dashboardRemoveMetric: () => call("removeMetric"),
+    dashboardRemoveChart: () => call("removeChart"),
+    dashboardMoveWidgetLeft: () => call("moveWidget", -1),
+    dashboardMoveWidgetRight: () => call("moveWidget", 1),
+    dashboardRefresh: () => call("refresh")
+  };
+}

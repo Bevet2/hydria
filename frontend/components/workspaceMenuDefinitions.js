@@ -481,3 +481,49 @@ export function createWorkspaceHomeEditingMenuItems() {
     { label: "Note", icon: "note", commandId: "note" }
   ];
 }
+
+export const WORKSPACE_DASHBOARD_VISUAL_TYPES = [
+  { label: "Colonnes", value: "bar", icon: "barChart" },
+  { label: "Courbe", value: "line", icon: "lineChart" },
+  { label: "Aires", value: "area", icon: "areaChart" },
+  { label: "Progression", value: "progress", icon: "chart" }
+];
+
+export function createWorkspaceDashboardVisualTypeMenuItems() {
+  return WORKSPACE_DASHBOARD_VISUAL_TYPES.map((visual) => ({
+    label: visual.label,
+    icon: visual.icon,
+    commandId: "dashboardAddChart",
+    value: visual.value
+  }));
+}
+
+export function createWorkspaceDashboardHomeMenuItems({
+  canRemoveMetric = true,
+  canRemoveChart = true,
+  canMoveWidgetLeft = true,
+  canMoveWidgetRight = true
+} = {}) {
+  return normalizeWorkspaceMenuItems([
+    { label: "KPI", icon: "number", commandId: "dashboardAddMetric" },
+    {
+      label: "Visuel",
+      icon: "chart",
+      commandId: "dashboardAddChart",
+      value: "bar",
+      items: createWorkspaceDashboardVisualTypeMenuItems()
+    },
+    { label: "Segment", icon: "slicer", commandId: "dashboardAddFilter" },
+    { separator: true },
+    { label: "Ligne de donnees", icon: "rowInsert", commandId: "dashboardAddTableRow" },
+    { label: "Colonne de donnees", icon: "columnInsert", commandId: "dashboardAddTableColumn" },
+    { separator: true },
+    { label: "Widget gauche", icon: "chevronLeft", commandId: "dashboardMoveWidgetLeft", disabled: !canMoveWidgetLeft },
+    { label: "Widget droite", icon: "chevronRight", commandId: "dashboardMoveWidgetRight", disabled: !canMoveWidgetRight },
+    { separator: true },
+    { label: "Supprimer KPI", icon: "delete", commandId: "dashboardRemoveMetric", disabled: !canRemoveMetric },
+    { label: "Supprimer visuel", icon: "delete", commandId: "dashboardRemoveChart", disabled: !canRemoveChart },
+    { separator: true },
+    { label: "Actualiser", icon: "refresh", commandId: "dashboardRefresh" }
+  ]);
+}
