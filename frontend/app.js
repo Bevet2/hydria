@@ -279,6 +279,7 @@ async function createBlankWorkspace(kind, familyId, label) {
 function workspaceSwitcherItems() {
   return [
     { kind: "document", family: "document_knowledge", label: "Docs" },
+    { kind: "document", family: "document_knowledge", label: "Canvas", surface: "canvas" },
     { kind: "dataset", family: "data_spreadsheet", label: "Sheets" },
     { kind: "presentation", family: "presentation", label: "Slides" },
     { kind: "dashboard", family: "analytics_dashboard", label: "Dashboard" },
@@ -1301,12 +1302,32 @@ function currentSurfaceModel() {
   return state.currentWorkObject?.surfaceModel || null;
 }
 
+function shouldExposeCanvasSurface(workObject = null) {
+  return workObject?.workspaceFamilyId === "document_knowledge";
+}
+
+function buildSurfaceList(workObject = null) {
+  const baseSurfaces = Array.isArray(workObject?.surfaceModel?.availableSurfaces)
+    ? workObject.surfaceModel.availableSurfaces.filter(Boolean)
+    : [];
+
+  if (!shouldExposeCanvasSurface(workObject)) {
+    return baseSurfaces;
+  }
+
+  if (baseSurfaces.some((surface) => surface.id === "canvas")) {
+    return baseSurfaces;
+  }
+
+  return [...baseSurfaces, { id: "canvas", label: "Canvas", enabled: true }];
+}
+
 function currentSurfaces() {
-  return currentSurfaceModel()?.availableSurfaces || [];
+  return buildSurfaceList(state.currentWorkObject);
 }
 
 function preferredSurfaceForLens(workObject = null) {
-  const surfaces = (workObject?.surfaceModel?.availableSurfaces || []).map((surface) => surface.id);
+  const surfaces = buildSurfaceList(workObject).map((surface) => surface.id);
   const defaultSurface = workObject?.surfaceModel?.defaultSurface || surfaces[0] || "";
   const { priority = "focus" } = currentWorkspaceLens();
 
@@ -3167,6 +3188,8 @@ function friendlySurfaceLabel(surfaceId = "", surfaceModel = null) {
       return "Workflow";
     case "design":
       return "Design";
+    case "canvas":
+      return "Canvas";
     case "app":
       return runtimeCapable ?"Static preview" : "Preview";
     case "preview":
@@ -3771,11 +3794,52 @@ function renderWorkspaceSwitcher(hasVisibleWorkspace = false) {
   const projectObjects = workspaceWorkObjects();
 
   items.forEach((item) => {
+    const isCanvasShortcut = item.surface === "canvas";
+    const isDocsSwitcherItem = item.family === "document_knowledge" && !isCanvasShortcut;
+    const isActive = isCanvasShortcut
+      ? currentFamily === "document_knowledge" && state.currentSurfaceId === "canvas"
+      : isDocsSwitcherItem
+        ? currentFamily === item.family && state.currentSurfaceId !== "canvas"
+        : currentFamily === item.family;
     const chip = document.createElement("button");
     chip.type = "button";
-    chip.className = `workspace-switcher-chip${currentFamily === item.family ? " active" : ""}`;
+    chip.className = `workspace-switcher-chip${isActive ? " active" : ""}`;
     chip.textContent = item.label;
     chip.addEventListener("click", () => {
+      if (isCanvasShortcut) {
+        if (state.currentWorkObject?.workspaceFamilyId === "document_knowledge") {
+          state.currentSurfaceId = "canvas";
+          setWorkspaceMode("view");
+          renderWorkspace();
+          return;
+        }
+
+        const existingDocument =
+          projectObjects.find((obj) => obj.workspaceFamilyId === "document_knowledge") ||
+          projectObjects.find((obj) => obj.workspaceFamilyLabel === "Docs") ||
+          null;
+
+        if (existingDocument) {
+          selectWorkObject(existingDocument.id, preferredOpenPath(existingDocument))
+            .then(() => {
+              state.currentSurfaceId = "canvas";
+              setWorkspaceMode("view");
+              renderWorkspace();
+            })
+            .catch(handleError);
+          return;
+        }
+
+        createBlankWorkspace("document", "document_knowledge", "Docs")
+          .then(() => {
+            state.currentSurfaceId = "canvas";
+            setWorkspaceMode("view");
+            renderWorkspace();
+          })
+          .catch(handleError);
+        return;
+      }
+
       const existing =
         projectObjects.find((obj) => obj.workspaceFamilyId === item.family) ||
         projectObjects.find((obj) => obj.workspaceFamilyLabel === item.label) ||
@@ -8341,7 +8405,7 @@ function renderWorkspace() {
     );
   renderWorkspaceSurfaceNav(
     el["workspace-surface-nav"],
-    surfaceModel?.availableSurfaces || [],
+    currentSurfaces(),
     state.currentSurfaceId,
     (surfaceId) => {
       state.currentSurfaceId = surfaceId;

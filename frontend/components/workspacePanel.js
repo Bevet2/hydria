@@ -1,3 +1,27 @@
+import { getWorkspaceCommandIcon } from "./workspaceCommandRegistry.js";
+import {
+  bindWorkspaceMenuActions,
+  createWorkspaceDocumentAlignmentMenuItems,
+  createWorkspaceDocumentBlockMenuItems,
+  createWorkspaceDocumentFontSizeMenuItems,
+  createWorkspaceDocumentFormatFieldItems,
+  createWorkspaceDocumentFormatMenuItems,
+  createWorkspaceDocumentInsertMenuItems,
+  createWorkspaceDocumentPageFormatMenuItems,
+  createWorkspaceDocumentTableMenuItems,
+  createWorkspaceDocumentViewMenuItems,
+  normalizeWorkspaceMenuItems
+} from "./workspaceMenuDefinitions.js";
+import {
+  closeWorkspaceDropdown,
+  createWorkspaceContextMenu,
+  createWorkspaceIconNode,
+  createWorkspaceMenuActionButton,
+  createWorkspaceMenuOutsideController,
+  toggleWorkspaceDropdown
+} from "./workspaceMenuUi.js";
+import { renderWorkspaceCanvasPanel } from "./workspaceCanvasPanel.js";
+
 function createTextFragment(text = "") {
   const fragment = document.createDocumentFragment();
   const pattern = /(!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)|\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)|`([^`]+)`|\*\*([^*]+)\*\*)/g;
@@ -1581,6 +1605,8 @@ function toSurfaceLabel(surfaceId = "") {
       return "Workflow";
     case "design":
       return "Design";
+    case "canvas":
+      return "Canvas";
     case "preview":
     case "app":
       return "Preview";
@@ -1720,11 +1746,106 @@ const DOCS_FONT_SIZE_OPTIONS = [
   { label: "96", value: "96px" }
 ];
 const DOCS_ALIGNMENT_OPTIONS = [
-  { label: "Left align", value: "left" },
-  { label: "Center align", value: "center" },
-  { label: "Right align", value: "right" },
-  { label: "Justify", value: "justify" }
+  { label: "Left align", value: "left", commandId: "alignLeft", icon: "alignLeft" },
+  { label: "Center align", value: "center", commandId: "alignCenter", icon: "alignCenter" },
+  { label: "Right align", value: "right", commandId: "alignRight", icon: "alignRight" },
+  { label: "Justify", value: "justify", commandId: "alignJustify", icon: "alignJustify" }
 ];
+const DOCS_CONTEXT_FONT_FAMILY_OPTIONS = [
+  { label: "Default font", value: "" },
+  { label: "IBM Plex Sans", value: "\"IBM Plex Sans\", sans-serif" },
+  { label: "Georgia", value: "Georgia, serif" },
+  { label: "Consolas", value: "Consolas, \"Courier New\", monospace" },
+  { label: "Arial", value: "Arial, sans-serif" },
+  { label: "Times New Roman", value: "\"Times New Roman\", Times, serif" }
+];
+const DOCS_IMPORT_FILE_ACCEPT = ".html,.htm,.md,.markdown,.txt,.rtf,.doc,.docx,.pdf";
+const DOCS_EXPORT_OPTIONS = [
+  { label: "PDF", value: "pdf" },
+  { label: "TXT", value: "txt" },
+  { label: "Word (.docx)", value: "docx" },
+  { label: "HTML", value: "html" }
+];
+const DOCS_IMPORT_ALLOWED_TAGS = new Set([
+  "a",
+  "article",
+  "blockquote",
+  "br",
+  "code",
+  "div",
+  "em",
+  "figcaption",
+  "figure",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "hr",
+  "img",
+  "input",
+  "li",
+  "mark",
+  "ol",
+  "p",
+  "section",
+  "span",
+  "strong",
+  "s",
+  "table",
+  "tbody",
+  "td",
+  "th",
+  "thead",
+  "tr",
+  "u",
+  "ul"
+]);
+const DOCS_IMPORT_STRIP_TAGS = new Set(["script", "style", "iframe", "object", "embed", "link", "meta"]);
+const DOCS_IMPORT_ALLOWED_CLASSES = new Set([
+  "workspace-checklist",
+  "workspace-checklist-box",
+  "workspace-document-page-sheet",
+  "workspace-docs-figure",
+  "workspace-docs-page-break",
+  "workspace-docs-page-footer",
+  "workspace-docs-page-footer-label",
+  "workspace-docs-page-header",
+  "workspace-docs-page-header-label",
+  "workspace-docs-page-meta",
+  "workspace-docs-page-number",
+  "workspace-inline-image"
+]);
+const DOCS_IMPORT_ALLOWED_DATA_ATTRIBUTES = new Set([
+  "data-checked",
+  "data-list-style",
+  "data-page",
+  "data-page-number-mode",
+  "data-page-number-position",
+  "data-page-number-show-on-first-page",
+  "data-page-number-start",
+  "data-page-orientation",
+  "data-rotation",
+  "data-show-header-footer",
+  "data-show-page-numbers"
+]);
+const DOCS_IMPORT_ALLOWED_STYLE_PROPERTIES = new Set([
+  "background-color",
+  "color",
+  "font-family",
+  "font-size",
+  "font-style",
+  "font-weight",
+  "height",
+  "left",
+  "max-width",
+  "text-align",
+  "text-decoration",
+  "text-decoration-line",
+  "top",
+  "transform",
+  "transform-origin",
+  "width"
+]);
 
 function shouldLinkifyOnBreak(event) {
   return ["insertParagraph", "insertLineBreak"].includes(String(event?.inputType || ""));
@@ -1881,6 +2002,534 @@ function normalizeLegacyDocumentTitle(value = "") {
     return "document";
   }
   return trimmed;
+}
+
+function escapeHtmlForDocumentExport(value = "") {
+  return String(value || "").replace(/[&<>"']/g, (character) => {
+    switch (character) {
+      case "&":
+        return "&amp;";
+      case "<":
+        return "&lt;";
+      case ">":
+        return "&gt;";
+      case '"':
+        return "&quot;";
+      case "'":
+        return "&#39;";
+      default:
+        return character;
+    }
+  });
+}
+
+function sanitizeDocsImportUrl(value = "", { allowDataImage = false } = {}) {
+  const trimmed = String(value || "").trim();
+  if (!trimmed) {
+    return "";
+  }
+  if (allowDataImage && /^data:image\/[a-z0-9.+-]+;base64,/i.test(trimmed)) {
+    return trimmed;
+  }
+  try {
+    const url = new URL(trimmed, window.location.origin);
+    if (["http:", "https:", "mailto:", "tel:", "blob:"].includes(url.protocol)) {
+      return url.href;
+    }
+  } catch {
+    return "";
+  }
+  return "";
+}
+
+function sanitizeDocsImportStyleText(styleText = "") {
+  return String(styleText || "")
+    .split(";")
+    .map((declaration) => declaration.trim())
+    .filter(Boolean)
+    .map((declaration) => {
+      const separatorIndex = declaration.indexOf(":");
+      if (separatorIndex <= 0) {
+        return "";
+      }
+      const property = declaration.slice(0, separatorIndex).trim().toLowerCase();
+      const rawValue = declaration.slice(separatorIndex + 1).trim();
+      if (!DOCS_IMPORT_ALLOWED_STYLE_PROPERTIES.has(property)) {
+        return "";
+      }
+      if (!rawValue || /expression|javascript:|url\(/i.test(rawValue)) {
+        return "";
+      }
+      return `${property}: ${rawValue.slice(0, 200)}`;
+    })
+    .filter(Boolean)
+    .join("; ");
+}
+
+function buildDocsRichSnapshotFromPlainText(content = "") {
+  const normalized = normalizeText(content);
+  const blocks = normalized
+    .split(/\n{2,}/)
+    .map((block) => block.trim())
+    .filter(Boolean);
+  const container = document.createElement("div");
+
+  for (const block of blocks) {
+    if (/^#{1,4}\s+/.test(block)) {
+      const heading = document.createElement(
+        block.startsWith("####") ? "h4" : block.startsWith("###") ? "h3" : block.startsWith("##") ? "h2" : "h1"
+      );
+      appendInlineContent(heading, block.replace(/^#{1,4}\s+/, ""));
+      container.appendChild(heading);
+      continue;
+    }
+
+    const lines = block
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    if (lines.length && lines.every((line) => /^>\s*/.test(line))) {
+      const quote = document.createElement("blockquote");
+      quote.textContent = lines.map((line) => line.replace(/^>\s*/, "")).join("\n");
+      container.appendChild(quote);
+      continue;
+    }
+
+    if (lines.length === 1 && /^(---|\*\*\*)$/.test(lines[0])) {
+      container.appendChild(document.createElement("hr"));
+      continue;
+    }
+
+    if (lines.length >= 2 && lines[0].startsWith("|") && lines[1].startsWith("|")) {
+      const rows = lines
+        .filter((line, index) => !(index === 1 && /^\|\s*[-:| ]+\|\s*$/.test(line)))
+        .map((line) =>
+          line
+            .split("|")
+            .map((cell) => cell.trim())
+            .filter(Boolean)
+        );
+      if (rows.length) {
+        const table = document.createElement("table");
+        table.className = "workspace-docs-table";
+        const thead = document.createElement("thead");
+        const headerRow = document.createElement("tr");
+        rows[0].forEach((cell) => {
+          const th = document.createElement("th");
+          th.textContent = cell;
+          headerRow.appendChild(th);
+        });
+        thead.appendChild(headerRow);
+        const tbody = document.createElement("tbody");
+        rows.slice(1).forEach((cells) => {
+          const row = document.createElement("tr");
+          cells.forEach((cell) => {
+            const td = document.createElement("td");
+            td.textContent = cell;
+            row.appendChild(td);
+          });
+          tbody.appendChild(row);
+        });
+        table.append(thead, tbody);
+        container.appendChild(table);
+        continue;
+      }
+    }
+
+    if (lines.length && lines.every((line) => /^-\s+\[[ xX]\]\s+/.test(line))) {
+      const list = document.createElement("ul");
+      list.dataset.listStyle = "checklist";
+      list.className = "workspace-checklist";
+      for (const line of lines) {
+        const item = document.createElement("li");
+        const isChecked = /\[[xX]\]/.test(line);
+        item.dataset.checked = isChecked ? "true" : "false";
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.className = "workspace-checklist-box";
+        if (isChecked) {
+          checkbox.checked = true;
+          checkbox.setAttribute("checked", "checked");
+        }
+        const text = document.createElement("span");
+        appendInlineContent(text, line.replace(/^-\s+\[[ xX]\]\s+/, ""));
+        item.append(checkbox, text);
+        list.appendChild(item);
+      }
+      container.appendChild(list);
+      continue;
+    }
+
+    if (lines.length && lines.every((line) => /^[-*]\s+/.test(line))) {
+      const list = document.createElement("ul");
+      for (const line of lines) {
+        const item = document.createElement("li");
+        appendInlineContent(item, line.replace(/^[-*]\s+/, ""));
+        list.appendChild(item);
+      }
+      container.appendChild(list);
+      continue;
+    }
+
+    if (lines.length && lines.every((line) => /^\d+\.\s+/.test(line))) {
+      const list = document.createElement("ol");
+      for (const line of lines) {
+        const item = document.createElement("li");
+        appendInlineContent(item, line.replace(/^\d+\.\s+/, ""));
+        list.appendChild(item);
+      }
+      container.appendChild(list);
+      continue;
+    }
+
+    const paragraph = document.createElement("p");
+    appendInlineContent(paragraph, block);
+    container.appendChild(paragraph);
+  }
+
+  if (!container.childNodes.length) {
+    const paragraph = document.createElement("p");
+    paragraph.innerHTML = "<br>";
+    container.appendChild(paragraph);
+  }
+
+  linkifyPlainUrlsInNode(container);
+  return String(container.innerHTML || "").trim();
+}
+
+function sanitizeDocsImportedHtmlSnapshot(rawHtml = "") {
+  const normalized = normalizeText(rawHtml).trim();
+  if (!normalized) {
+    return "";
+  }
+
+  const parser = new DOMParser();
+  const parsed = parser.parseFromString(normalized, "text/html");
+  const sourceRoot =
+    parsed.querySelector("[data-hydria-doc-root]") ||
+    parsed.querySelector(".workspace-document-shell") ||
+    parsed.body;
+  const wrapper = document.createElement("div");
+  wrapper.innerHTML = sourceRoot?.innerHTML || normalized;
+
+  const sanitizeNode = (node) => {
+    if (!node) {
+      return;
+    }
+    if (node.nodeType === Node.COMMENT_NODE) {
+      node.remove();
+      return;
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) {
+      return;
+    }
+
+    Array.from(node.childNodes).forEach((child) => sanitizeNode(child));
+
+    const tagName = String(node.tagName || "").toLowerCase();
+    if (!DOCS_IMPORT_ALLOWED_TAGS.has(tagName)) {
+      if (DOCS_IMPORT_STRIP_TAGS.has(tagName)) {
+        node.remove();
+      } else {
+        node.replaceWith(...Array.from(node.childNodes));
+      }
+      return;
+    }
+
+    Array.from(node.attributes).forEach((attribute) => {
+      const name = String(attribute.name || "").toLowerCase();
+      const value = String(attribute.value || "");
+      let keepAttribute = false;
+      let nextValue = value;
+
+      if (name === "class") {
+        const classNames = value
+          .split(/\s+/)
+          .map((item) => item.trim())
+          .filter((item) => DOCS_IMPORT_ALLOWED_CLASSES.has(item));
+        if (classNames.length) {
+          nextValue = classNames.join(" ");
+          keepAttribute = true;
+        }
+      } else if (name === "style") {
+        nextValue = sanitizeDocsImportStyleText(value);
+        keepAttribute = Boolean(nextValue);
+      } else if (name === "href" && tagName === "a") {
+        nextValue = sanitizeDocsImportUrl(value);
+        keepAttribute = Boolean(nextValue);
+      } else if (name === "src" && tagName === "img") {
+        nextValue = sanitizeDocsImportUrl(value, { allowDataImage: true });
+        keepAttribute = Boolean(nextValue);
+      } else if (name === "alt" || name === "title" || name === "hidden" || name === "aria-hidden") {
+        keepAttribute = true;
+      } else if (name === "id" && /^[-_a-z0-9]+$/i.test(value)) {
+        keepAttribute = true;
+      } else if ((name === "colspan" || name === "rowspan") && /^\d{1,2}$/.test(value)) {
+        keepAttribute = true;
+      } else if (name === "type" && tagName === "input" && value.toLowerCase() === "checkbox") {
+        nextValue = "checkbox";
+        keepAttribute = true;
+      } else if (name === "checked" && tagName === "input") {
+        nextValue = "checked";
+        keepAttribute = true;
+      } else if (name.startsWith("data-") && DOCS_IMPORT_ALLOWED_DATA_ATTRIBUTES.has(name)) {
+        keepAttribute = true;
+      }
+
+      if (keepAttribute) {
+        node.setAttribute(attribute.name, nextValue);
+      } else {
+        node.removeAttribute(attribute.name);
+      }
+    });
+
+    if (tagName === "a") {
+      node.setAttribute("target", "_blank");
+      node.setAttribute("rel", "noreferrer noopener");
+    }
+
+    if (tagName === "input" && node.getAttribute("type") !== "checkbox") {
+      node.remove();
+    }
+  };
+
+  Array.from(wrapper.childNodes).forEach((node) => sanitizeNode(node));
+  wrapper.querySelectorAll(".workspace-docs-page-control-bar, .workspace-docs-image-resize-handle").forEach((node) => node.remove());
+  wrapper.querySelectorAll(".workspace-docs-page-header, .workspace-docs-page-footer").forEach((node) => node.remove());
+  wrapper.querySelectorAll(".workspace-docs-search-match").forEach((node) => unwrapNodeContents(node));
+  wrapper.querySelectorAll(".workspace-document-page-sheet").forEach((page) => {
+    page.replaceWith(...Array.from(page.childNodes));
+  });
+  wrapper.querySelectorAll(".workspace-docs-figure").forEach((figure) => {
+    figure.classList.remove("is-media-selected", "is-dragging");
+  });
+  wrapper.querySelectorAll("[contenteditable]").forEach((node) => node.removeAttribute("contenteditable"));
+  wrapper.querySelectorAll("[spellcheck]").forEach((node) => node.removeAttribute("spellcheck"));
+  wrapper.querySelectorAll("[data-placeholder]").forEach((node) => node.removeAttribute("data-placeholder"));
+  wrapper.querySelectorAll(".workspace-inline-editable").forEach((node) => {
+    node.classList.remove("workspace-inline-editable");
+  });
+  wrapper.querySelectorAll("a[href]").forEach((link) => {
+    link.setAttribute("target", "_blank");
+    link.setAttribute("rel", "noreferrer noopener");
+  });
+  if (!wrapper.childNodes.length) {
+    return "";
+  }
+  linkifyPlainUrlsInNode(wrapper);
+  return String(wrapper.innerHTML || "").trim();
+}
+
+function extractDocsImportedSnapshot(content = "", fileName = "") {
+  const normalized = normalizeText(content);
+  const lowerFileName = String(fileName || "").toLowerCase();
+  const shouldTreatAsHtml =
+    /\.(html?|xhtml)$/i.test(lowerFileName) ||
+    /<\s*(html|body|article|section|div|p|h1|h2|h3|h4|table|figure)\b/i.test(normalized);
+  if (shouldTreatAsHtml) {
+    return sanitizeDocsImportedHtmlSnapshot(normalized);
+  }
+  return buildDocsRichSnapshotFromPlainText(normalized);
+}
+
+function buildDocsStandaloneHtmlDocument(bodyMarkup = "", { title = "Document", orientation = "portrait", autoPrint = false } = {}) {
+  const safeTitle = escapeHtmlForDocumentExport(title || "Document");
+  const safeOrientation = orientation === "landscape" ? "landscape" : "portrait";
+  const printScript = autoPrint
+    ? `<script>window.addEventListener("load", function () { window.setTimeout(function () { window.focus(); window.print(); }, 80); });</script>`
+    : "";
+  return `<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${safeTitle}</title>
+  <style>
+    :root {
+      color-scheme: light;
+    }
+    * {
+      box-sizing: border-box;
+    }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #f4eee5;
+      color: #202124;
+      font-family: "Arial", "Helvetica", sans-serif;
+    }
+    body {
+      padding: 24px 0 48px;
+    }
+    .hydria-doc-export {
+      display: grid;
+      gap: 24px;
+    }
+    .workspace-docs-page-meta {
+      display: none !important;
+    }
+    .workspace-document-page-sheet {
+      position: relative;
+      width: min(794px, calc(100vw - 48px));
+      min-height: 1123px;
+      margin: 0 auto;
+      padding: 56px 64px 72px;
+      border-radius: 8px;
+      border: 1px solid #e0e0e0;
+      background: #ffffff;
+      box-shadow: 0 1px 3px rgba(60, 64, 67, 0.18), 0 4px 8px rgba(60, 64, 67, 0.1);
+    }
+    .workspace-document-page-sheet[data-orientation="landscape"] {
+      width: min(1123px, calc(100vw - 48px));
+      min-height: 794px;
+    }
+    .workspace-docs-page-header,
+    .workspace-docs-page-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      color: rgba(95, 99, 104, 0.9);
+      font-size: 0.78rem;
+      letter-spacing: 0.02em;
+      user-select: none;
+    }
+    .workspace-docs-page-header {
+      min-height: 28px;
+      margin: -18px 0 24px;
+      padding-bottom: 10px;
+      border-bottom: 1px dashed rgba(73, 84, 95, 0.18);
+    }
+    .workspace-docs-page-footer {
+      min-height: 28px;
+      margin: 28px 0 -22px;
+      padding-top: 10px;
+      border-top: 1px dashed rgba(73, 84, 95, 0.18);
+    }
+    .workspace-docs-page-number {
+      margin-left: auto;
+      font-weight: 700;
+      color: #4b5563;
+    }
+    h1, h2, h3, h4 {
+      margin: 0 0 0.9rem;
+      line-height: 1.2;
+      color: #1f2937;
+    }
+    h1 {
+      font-size: 2rem;
+    }
+    h2 {
+      font-size: 1.5rem;
+    }
+    h3 {
+      font-size: 1.2rem;
+    }
+    h4 {
+      font-size: 1rem;
+    }
+    p, li, figcaption, blockquote, td, th {
+      line-height: 1.6;
+      color: #2d3440;
+    }
+    p, blockquote, table, figure, ul, ol {
+      margin: 0 0 1rem;
+    }
+    blockquote {
+      padding-left: 14px;
+      border-left: 4px solid rgba(213, 177, 106, 0.7);
+      color: #4b5563;
+    }
+    a {
+      color: #1a73e8;
+      text-decoration: underline;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    th, td {
+      padding: 10px 12px;
+      border: 1px solid rgba(73, 84, 95, 0.16);
+      vertical-align: top;
+      text-align: left;
+    }
+    .workspace-docs-figure {
+      display: grid;
+      width: fit-content;
+      max-width: 100%;
+      position: relative;
+      justify-items: start;
+      gap: 10px;
+      margin: 14px 0;
+    }
+    .workspace-inline-image {
+      max-width: 100%;
+      display: block;
+      margin: 10px 0;
+      border-radius: 14px;
+      border: 1px solid rgba(73, 84, 95, 0.12);
+      transform-origin: center center;
+    }
+    .workspace-checklist {
+      list-style: none;
+      padding-left: 0;
+    }
+    .workspace-checklist li {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+    }
+    .workspace-checklist-box {
+      flex: 0 0 auto;
+      width: 16px;
+      height: 16px;
+      margin-top: 5px;
+    }
+    .workspace-docs-page-break {
+      display: none;
+    }
+    @media print {
+      @page {
+        size: A4 ${safeOrientation};
+        margin: 12mm;
+      }
+      html, body {
+        background: #ffffff;
+      }
+      body {
+        padding: 0;
+      }
+      .hydria-doc-export {
+        gap: 0;
+      }
+      .workspace-document-page-sheet {
+        width: 100%;
+        min-height: 0;
+        margin: 0;
+        padding: 0;
+        border: 0;
+        border-radius: 0;
+        box-shadow: none;
+        break-after: page;
+        page-break-after: always;
+      }
+      .workspace-document-page-sheet:last-of-type {
+        break-after: auto;
+        page-break-after: auto;
+      }
+      .workspace-docs-page-break {
+        display: none !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="hydria-doc-export" data-hydria-doc-root="true">${bodyMarkup}</main>
+  ${printScript}
+</body>
+</html>`;
 }
 
 function safeJsonParse(value = "") {
@@ -2260,6 +2909,7 @@ function renderMarkdownPreview(
   let docsCanvas = null;
   let docsTableControls = null;
   let docsTableContextMenu = null;
+  let docsTableContextMenuApi = null;
   let docsTableControlSignature = "";
   let docsCommitHandle = null;
   let normalizedLegacyHeading = false;
@@ -2283,15 +2933,25 @@ function renderMarkdownPreview(
   let docsSearchAllSelected = false;
   let docsSearchUndoStack = [];
   let docsSearchRedoStack = [];
+  let docsSelectAllPendingDelete = false;
+  let docsEditUndoStack = [];
+  let docsEditRedoStack = [];
+  let docsEditCurrentSnapshot = "";
+  let docsEditApplyingSnapshot = false;
+  const DOCS_EDIT_HISTORY_LIMIT = 80;
   const docsSearchMatchClassName = "workspace-docs-search-match";
   const docsSearchActiveClassName = "is-active";
+  const docsPreviewFallbackTitle = "Document preview";
+  let triggerImageImport = () => {};
+  let triggerDocumentImport = () => {};
+  let openDocsFileMenuFromHeader = () => {};
 
   const previewToolbar = document.createElement("div");
   previewToolbar.className = "workspace-document-preview-toolbar";
   const previewMeta = document.createElement("div");
   previewMeta.className = "workspace-code-toolbar-meta";
   const previewTitle = document.createElement("strong");
-  previewTitle.textContent = headings[0]?.replace(/^#{1,3}\s+/, "") || "Document preview";
+  previewTitle.textContent = headings[0]?.replace(/^#{1,3}\s+/, "") || docsPreviewFallbackTitle;
   const previewHint = document.createElement("span");
   previewHint.className = "tiny";
   previewHint.textContent = isDocsClone
@@ -2314,6 +2974,14 @@ function renderMarkdownPreview(
       {
         label: "Find",
         onClick: () => openDocumentSearch()
+      },
+      {
+        label: "Importer",
+        onClick: () => triggerDocumentImport?.()
+      },
+      {
+        label: "Exporter",
+        onClick: () => openDocsFileMenuFromHeader?.()
       },
       {
         label: "Polish",
@@ -2440,15 +3108,113 @@ function renderMarkdownPreview(
   );
   previewShell.appendChild(docsSearchBar);
 
-  const commitDocumentShell = () => {
-    if (shell) {
-      onInlineEdit?.(serializeDocumentPreviewShell(shell));
+  const getCurrentDocumentShellSnapshot = () =>
+    shell?.dataset?.richDocument === "true" ? serializeDocumentPreviewShell(shell) : "";
+
+  const recordDocumentHistorySnapshot = (snapshot = getCurrentDocumentShellSnapshot()) => {
+    const normalizedSnapshot = String(snapshot || "");
+    if (!isDocsClone || docsEditApplyingSnapshot || !normalizedSnapshot) {
+      return false;
     }
+    if (!docsEditCurrentSnapshot) {
+      docsEditCurrentSnapshot = normalizedSnapshot;
+      return false;
+    }
+    if (normalizedSnapshot === docsEditCurrentSnapshot) {
+      return false;
+    }
+    docsEditUndoStack.push(docsEditCurrentSnapshot);
+    if (docsEditUndoStack.length > DOCS_EDIT_HISTORY_LIMIT) {
+      docsEditUndoStack.splice(0, docsEditUndoStack.length - DOCS_EDIT_HISTORY_LIMIT);
+    }
+    docsEditCurrentSnapshot = normalizedSnapshot;
+    docsEditRedoStack = [];
+    return true;
+  };
+
+  const commitDocumentShell = ({ skipHistory = false } = {}) => {
+    if (!shell) {
+      return "";
+    }
+    const snapshot = serializeDocumentPreviewShell(shell);
+    if (!skipHistory) {
+      recordDocumentHistorySnapshot(snapshot);
+    }
+    onInlineEdit?.(snapshot);
+    return snapshot;
+  };
+
+  const flushPendingDocumentCommit = () => {
+    if (!docsCommitHandle) {
+      return false;
+    }
+    window.clearTimeout(docsCommitHandle);
+    docsCommitHandle = null;
+    commitDocumentShell();
+    window.requestAnimationFrame(() => updateDocsTableControls(null, true));
+    return true;
   };
 
   const focusDocumentEditingTarget = () => {
     const target = activeEditable || shell?.querySelector?.(".workspace-inline-editable") || shell;
     target?.focus?.({ preventScroll: true });
+  };
+
+  const applyDocumentHistorySnapshot = (snapshot = "", statusLabel = "Saved automatically") => {
+    if (!shell || !snapshot) {
+      return false;
+    }
+    docsEditApplyingSnapshot = true;
+    const restored = restoreDocumentShellFromSnapshot(snapshot);
+    docsEditApplyingSnapshot = false;
+    if (!restored) {
+      return false;
+    }
+    docsEditCurrentSnapshot = String(snapshot || "");
+    docsSavedSelectionRange = null;
+    docsSelectAllPendingDelete = false;
+    activeEditable = shell.querySelector(".workspace-inline-editable") || activeEditable || shell;
+    commitDocumentShell({ skipHistory: true });
+    window.requestAnimationFrame(() => {
+      updateDocsTableControls(null, true);
+      focusDocumentEditingTarget();
+    });
+    updateDocsToolbarStatus(statusLabel);
+    return true;
+  };
+
+  const undoDocumentEdit = () => {
+    flushPendingDocumentCommit();
+    if (!docsEditUndoStack.length) {
+      updateDocsToolbarStatus("Nothing to undo");
+      return false;
+    }
+    const currentSnapshot = getCurrentDocumentShellSnapshot() || docsEditCurrentSnapshot;
+    if (currentSnapshot) {
+      docsEditRedoStack.push(currentSnapshot);
+      if (docsEditRedoStack.length > DOCS_EDIT_HISTORY_LIMIT) {
+        docsEditRedoStack.splice(0, docsEditRedoStack.length - DOCS_EDIT_HISTORY_LIMIT);
+      }
+    }
+    const previousSnapshot = docsEditUndoStack.pop();
+    return applyDocumentHistorySnapshot(previousSnapshot, "Modification undone");
+  };
+
+  const redoDocumentEdit = () => {
+    flushPendingDocumentCommit();
+    if (!docsEditRedoStack.length) {
+      updateDocsToolbarStatus("Nothing to redo");
+      return false;
+    }
+    const currentSnapshot = getCurrentDocumentShellSnapshot() || docsEditCurrentSnapshot;
+    if (currentSnapshot) {
+      docsEditUndoStack.push(currentSnapshot);
+      if (docsEditUndoStack.length > DOCS_EDIT_HISTORY_LIMIT) {
+        docsEditUndoStack.splice(0, docsEditUndoStack.length - DOCS_EDIT_HISTORY_LIMIT);
+      }
+    }
+    const nextSnapshot = docsEditRedoStack.pop();
+    return applyDocumentHistorySnapshot(nextSnapshot, "Modification restored");
   };
 
   const clearDocumentSearchHighlights = () => {
@@ -2909,6 +3675,14 @@ function renderMarkdownPreview(
     return `${normalizedNumber}${unit}`;
   };
 
+  const normalizeDocsColorValue = (value = "") => String(value || "").replace(/\s+/g, "").toLowerCase();
+
+  const isDocsTransparentColor = (value = "") =>
+    ["", "transparent", "rgba(0,0,0,0)", "rgba(255,255,255,0)"].includes(normalizeDocsColorValue(value));
+
+  const isDocsWhiteColor = (value = "") =>
+    ["#ffffff", "rgb(255,255,255)", "rgba(255,255,255,1)"].includes(normalizeDocsColorValue(value));
+
   const getDocsStylePropertyName = (property = "") =>
     ({
       fontSize: "font-size",
@@ -2947,6 +3721,8 @@ function renderMarkdownPreview(
     const sampleNode = getDocsFormattingSampleNode();
     const style = sampleNode ? window.getComputedStyle(sampleNode) : null;
     const rawFontFamily = String(style?.fontFamily || "");
+    const textColorValue = String(style?.color || "#111827");
+    const highlightColorValue = isDocsTransparentColor(style?.backgroundColor || "") ? "" : String(style?.backgroundColor || "");
     const fontFamilyLabel =
       DOCS_FONT_FAMILY_OPTIONS.find((item) => normalizeDocsFontFamilyKey(item.value || item.label) === normalizeDocsFontFamilyKey(rawFontFamily))
         ?.label ||
@@ -2957,7 +3733,9 @@ function renderMarkdownPreview(
       fontFamilyLabel,
       fontFamilyValue: rawFontFamily,
       fontSizeLabel,
-      fontSizeValue: normalizeDocsFontSizeValue(style?.fontSize || "") || ""
+      fontSizeValue: normalizeDocsFontSizeValue(style?.fontSize || "") || "",
+      textColorValue,
+      highlightColorValue
     };
   };
 
@@ -3408,6 +4186,143 @@ function renderMarkdownPreview(
     return true;
   };
 
+  const getDocsSelectableContentNodes = () => {
+    if (!shell) {
+      return [];
+    }
+
+    const directPages = Array.from(shell.querySelectorAll(":scope > .workspace-document-page-sheet"));
+    if (directPages.length) {
+      return directPages.flatMap((page) =>
+        Array.from(page.childNodes).filter(
+          (node) =>
+            !(
+              node.nodeType === Node.ELEMENT_NODE &&
+              (
+                node.classList?.contains("workspace-docs-page-control-bar") ||
+                node.classList?.contains("workspace-docs-page-header") ||
+                node.classList?.contains("workspace-docs-page-footer")
+              )
+            )
+        )
+      );
+    }
+
+    return Array.from(shell.childNodes).filter(
+      (node) =>
+        !(
+          node.nodeType === Node.ELEMENT_NODE &&
+          node.classList?.contains("workspace-docs-page-meta")
+        )
+    );
+  };
+
+  const buildDocsSelectAllRange = () => {
+    const nodes = getDocsSelectableContentNodes();
+    if (!nodes.length) {
+      return null;
+    }
+    const range = document.createRange();
+    range.setStartBefore(nodes[0]);
+    range.setEndAfter(nodes[nodes.length - 1]);
+    return range;
+  };
+
+  const areDocsRangesEqual = (leftRange, rightRange) => {
+    if (!leftRange || !rightRange) {
+      return false;
+    }
+    try {
+      return (
+        leftRange.compareBoundaryPoints(Range.START_TO_START, rightRange) === 0 &&
+        leftRange.compareBoundaryPoints(Range.END_TO_END, rightRange) === 0
+      );
+    } catch {
+      return false;
+    }
+  };
+
+  const syncDocsSelectAllDeleteState = () => {
+    if (!docsSelectAllPendingDelete) {
+      return false;
+    }
+    const selection = window.getSelection();
+    const activeRange = selection?.rangeCount ? selection.getRangeAt(0) : null;
+    const expectedRange = buildDocsSelectAllRange();
+    docsSelectAllPendingDelete = Boolean(
+      selection &&
+      !selection.isCollapsed &&
+      activeRange &&
+      expectedRange &&
+      shell?.contains(selection.anchorNode) &&
+      shell?.contains(selection.focusNode) &&
+      areDocsRangesEqual(activeRange, expectedRange)
+    );
+    return docsSelectAllPendingDelete;
+  };
+
+  const selectAllDocsContent = () => {
+    const range = buildDocsSelectAllRange();
+    const selection = window.getSelection();
+    if (!range || !selection) {
+      docsSelectAllPendingDelete = false;
+      return false;
+    }
+    selection.removeAllRanges();
+    selection.addRange(range);
+    docsSavedSelectionRange = range.cloneRange();
+    docsSelectAllPendingDelete = true;
+    updateDocsToolbarStatus("Document selected");
+    return true;
+  };
+
+  const clearAllDocsContent = () => {
+    if (!shell) {
+      return false;
+    }
+
+    clearDocsMediaSelection();
+    clearDocumentSearchHighlights();
+    unwrapDocsPageShell();
+    const settingsNode = shell.querySelector(":scope > .workspace-docs-page-meta");
+    shell.innerHTML = "";
+    if (settingsNode) {
+      shell.appendChild(settingsNode);
+    }
+
+    const paragraph = document.createElement("p");
+    paragraph.innerHTML = "<br>";
+    bindEditable(paragraph, { multiline: true });
+    shell.appendChild(paragraph);
+
+    activeEditable = paragraph;
+    docsSavedSelectionRange = null;
+    docsSelectAllPendingDelete = false;
+    rebuildDocsPageShell();
+    commitDocumentShell();
+
+    window.requestAnimationFrame(() => {
+      paragraph.focus({ preventScroll: true });
+      const selection = window.getSelection();
+      if (selection) {
+        const range = document.createRange();
+        range.selectNodeContents(paragraph);
+        range.collapse(true);
+        selection.removeAllRanges();
+        selection.addRange(range);
+        saveDocsSelectionRange();
+      }
+      updateDocsTableControls(null, true);
+      if (docsSearchInput?.value.trim()) {
+        applyDocumentSearch(docsSearchInput.value, { scrollToActive: false });
+      } else {
+        updateDocumentSearchStatus();
+      }
+    });
+    updateDocsToolbarStatus("Document cleared");
+    return true;
+  };
+
   const getDocsPageSheetFromNode = (node) => {
     const element = node?.nodeType === Node.TEXT_NODE ? node.parentElement : node;
     if (!element?.closest) {
@@ -3821,14 +4736,16 @@ function renderMarkdownPreview(
   };
 
   const hideDocsTableContextMenu = () => {
+    docsTableContextMenuApi?.close?.();
     if (!docsTableContextMenu) {
       return;
     }
     docsTableContextMenu.replaceChildren();
-    docsTableContextMenu.classList.add("hidden");
+    docsTableContextMenu.hidden = true;
+    docsTableContextMenu.classList.remove("opens-left");
     docsTableContextMenu.style.removeProperty("left");
     docsTableContextMenu.style.removeProperty("top");
-    docsTableContextMenu.style.removeProperty("visibility");
+    docsTableContextMenu.style.removeProperty("maxHeight");
   };
 
   const hideDocsTableControls = () => {
@@ -3865,45 +4782,42 @@ function renderMarkdownPreview(
       })
       .join("|");
 
+  const createDocsContextMenuItems = (actions = []) =>
+    normalizeWorkspaceMenuItems(
+      actions.map((action) => {
+        if (action.type === "label") {
+          return { heading: true, label: action.label };
+        }
+        if (action.separator || action.heading) {
+          return { ...action };
+        }
+        const nestedItems = Array.isArray(action.items) ? createDocsContextMenuItems(action.items) : [];
+        const actionHandler = action.onSelect || action.onClick;
+        return {
+          ...action,
+          icon: action.icon || getWorkspaceCommandIcon(action.commandId || action.label),
+          items: nestedItems.length ? nestedItems : undefined,
+          onSelect: typeof actionHandler === "function"
+            ? () => {
+                if (action.restoreSelection) {
+                  restoreDocsSelection();
+                }
+                actionHandler();
+              }
+            : undefined
+        };
+      })
+    );
+
   const showDocsTableContextMenu = ({ left, top, actions = [] }) => {
-    if (!docsCanvas || !docsTableContextMenu || !actions.length) {
+    if (!docsCanvas || !docsTableContextMenuApi || !actions.length) {
       return;
     }
-    docsTableContextMenu.replaceChildren();
-    actions.forEach((action) => {
-      if (action.type === "label") {
-        const label = document.createElement("span");
-        label.className = "workspace-docs-table-menu-label";
-        label.textContent = action.label;
-        docsTableContextMenu.appendChild(label);
-        return;
-      }
-      const item = document.createElement("button");
-      item.type = "button";
-      item.className = `workspace-docs-table-menu-item${action.danger ? " is-danger" : ""}`;
-      item.textContent = action.label;
-      item.addEventListener("click", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        hideDocsTableContextMenu();
-        if (action.restoreSelection) {
-          restoreDocsSelection();
-        }
-        action.onClick?.();
-      });
-      docsTableContextMenu.appendChild(item);
+    docsTableContextMenuApi.open(createDocsContextMenuItems(actions), {
+      clientX: left,
+      clientY: top,
+      appendTo: document.body
     });
-    docsTableContextMenu.classList.remove("hidden");
-    docsTableContextMenu.style.visibility = "hidden";
-    docsTableContextMenu.style.left = "0px";
-    docsTableContextMenu.style.top = "0px";
-    const menuWidth = docsTableContextMenu.offsetWidth || 180;
-    const menuHeight = docsTableContextMenu.offsetHeight || actions.length * 36;
-    const clampedLeft = Math.min(Math.max(12, left), Math.max(12, docsCanvas.clientWidth - menuWidth - 12));
-    const clampedTop = Math.min(Math.max(12, top), Math.max(12, docsCanvas.clientHeight - menuHeight - 12));
-    docsTableContextMenu.style.left = `${clampedLeft}px`;
-    docsTableContextMenu.style.top = `${clampedTop}px`;
-    docsTableContextMenu.style.visibility = "";
   };
 
   const bindDocsTableControl = (button, { onClick, onContextMenu }) => {
@@ -3998,8 +4912,8 @@ function renderMarkdownPreview(
             onClick: () => addTableRow(table, rowIndex),
             onContextMenu: (event) =>
               showDocsTableContextMenu({
-                left: event.clientX - canvasRect.left + 10,
-                top: event.clientY - canvasRect.top + 10,
+                left: event.clientX + 8,
+                top: event.clientY + 8,
                 actions: [
                   {
                     label: "Supprimer la ligne",
@@ -4029,8 +4943,8 @@ function renderMarkdownPreview(
             onClick: () => addTableRow(table, bodyRows.length),
             onContextMenu: (event) =>
               showDocsTableContextMenu({
-                left: event.clientX - canvasRect.left + 10,
-                top: event.clientY - canvasRect.top + 10,
+                left: event.clientX + 8,
+                top: event.clientY + 8,
                 actions: [
                   {
                     label: "Supprimer la ligne",
@@ -4061,8 +4975,8 @@ function renderMarkdownPreview(
             onClick: () => addTableColumn(table, columnIndex + 1),
             onContextMenu: (event) =>
               showDocsTableContextMenu({
-                left: event.clientX - canvasRect.left + 10,
-                top: event.clientY - canvasRect.top + 10,
+                left: event.clientX + 8,
+                top: event.clientY + 8,
                 actions: [
                   {
                     label: "Supprimer la colonne",
@@ -4452,6 +5366,117 @@ function renderMarkdownPreview(
     return "Delete block";
   };
 
+  const createDocsSharedActionMap = ({
+    fromContextMenu = false,
+    table = null,
+    rowIndex = null,
+    columnIndex = null
+  } = {}) => ({
+    bold: () => (
+      fromContextMenu
+        ? runInlineCommandFromContextMenu("bold", () => toggleActiveBlockStyle("fontWeight", "700", ""))
+        : runInlineCommand("bold")
+    ),
+    italic: () => (
+      fromContextMenu
+        ? runInlineCommandFromContextMenu("italic", () => toggleActiveBlockStyle("fontStyle", "italic", ""))
+        : runInlineCommand("italic")
+    ),
+    underline: () => (
+      fromContextMenu
+        ? runInlineCommandFromContextMenu("underline", toggleActiveBlockUnderline)
+        : runInlineCommand("underline")
+    ),
+    strikethrough: () =>
+      runInlineCommandWithSelection("strikeThrough", null, toggleActiveBlockStrikethrough, "Strikethrough updated"),
+    undo: () => undoDocumentEdit(),
+    redo: () => redoDocumentEdit(),
+    clearFormatting: () =>
+      runInlineCommandWithSelection("removeFormat", null, resetActiveBlockFormatting, "Formatting reset"),
+    fontSize: (item) => applyBlockFontSize(item?.value || ""),
+    fontFamily: (item) => applyBlockFontFamily(item?.value || ""),
+    textColor: (item) => (
+      item?.value
+        ? runInlineCommandWithSelection("foreColor", item.value, () => applyBlockTextColor(item.value), "Text color updated")
+        : applyBlockTextColor("")
+    ),
+    highlightColor: (item) => (
+      item?.value
+        ? runInlineCommandWithSelection("hiliteColor", item.value, () => applyBlockHighlightColor(item.value), "Highlight updated")
+        : applyBlockHighlightColor("")
+    ),
+    alignLeft: () => applyBlockAlignment("left"),
+    alignCenter: () => applyBlockAlignment("center"),
+    alignRight: () => applyBlockAlignment("right"),
+    alignJustify: () => applyBlockAlignment("justify"),
+    blockText: () => convertActiveBlockTag("p"),
+    blockTitle: () => convertActiveBlockTag("h1"),
+    blockHeading: () => convertActiveBlockTag("h2"),
+    blockSubhead: () => convertActiveBlockTag("h3"),
+    blockBullets: () => convertActiveBlockToList(false),
+    blockNumbered: () => convertActiveBlockToList(true),
+    insertChecklist,
+    insertQuote,
+    insertDivider,
+    insertTable,
+    insertImage: triggerImageImport,
+    insertImagePlaceholder,
+    insertImageUrl: insertImageFromUrl,
+    insertNewSection,
+    insertPageBreak,
+    tableInsertRowBelow: () =>
+      table && addTableRow(table, rowIndex === null ? getTableBodyRows(table).length : rowIndex + 1),
+    tableInsertColumnRight: () =>
+      table && addTableColumn(table, columnIndex === null ? getTableColumnCount(table) : columnIndex + 1),
+    tableDeleteRow: () => table && rowIndex !== null && removeTableRow(table, rowIndex),
+    tableDeleteColumn: () => table && columnIndex !== null && removeTableColumn(table, columnIndex),
+    tableDelete: () => table && removeTable(table)
+  });
+
+  const createDocsBoundContextMenuItems = (
+    menuItems,
+    actionMap,
+    { restoreSelectionCommandIds = new Set(["bold", "italic", "underline", "strikethrough"]) } = {}
+  ) => {
+    const convertBoundItem = (item) => {
+      if (item.separator || item.heading) {
+        return { ...item };
+      }
+      const nestedItems = Array.isArray(item.items)
+        ? normalizeWorkspaceMenuItems(item.items.map(convertBoundItem).filter(Boolean))
+        : [];
+      if (!nestedItems.length && !item.disabled && typeof item.onSelect !== "function") {
+        return null;
+      }
+      return {
+        label: item.label,
+        icon: item.icon,
+        commandId: item.commandId,
+        danger: item.danger,
+        disabled: item.disabled,
+        shortcut: item.shortcut,
+        items: nestedItems.length ? nestedItems : undefined,
+        restoreSelection: restoreSelectionCommandIds.has(item.commandId),
+        onClick: item.onSelect
+      };
+    };
+    return normalizeWorkspaceMenuItems(
+      bindWorkspaceMenuActions(menuItems, actionMap).map(convertBoundItem).filter(Boolean)
+    );
+  };
+
+  const appendDocsContextMenuItems = (actions, menuItems, actionMap, options = {}) => {
+    actions.push(...createDocsBoundContextMenuItems(menuItems, actionMap, options));
+  };
+
+  const appendDocsContextSubmenu = (actions, label, icon, items = []) => {
+    const nestedItems = normalizeWorkspaceMenuItems(items);
+    if (!nestedItems.length) {
+      return;
+    }
+    actions.push({ label, icon, items: nestedItems });
+  };
+
   const buildDocsContextMenuActions = (target = null) => {
     const resolvedTarget = target || getDocsActionTargetFromNode(activeEditable) || shell;
     const figureTarget = getDocsFigureTargetFromNode(resolvedTarget);
@@ -4467,39 +5492,63 @@ function renderMarkdownPreview(
       actions.push({
         label,
         onClick,
+        icon: options.icon,
+        shortcut: options.shortcut,
+        commandId: options.commandId,
         danger: options.danger,
         restoreSelection: options.restoreSelection
       });
 
     if (editableTarget || selectionActive) {
+      const textActionMap = createDocsSharedActionMap({ fromContextMenu: true });
+      addLabel("History");
+      addAction("Undo", undoDocumentEdit, { icon: "undo", shortcut: "Ctrl+Z", commandId: "undo" });
+      addAction("Redo", redoDocumentEdit, { icon: "redo", shortcut: "Ctrl+Y", commandId: "redo" });
       addLabel("Text");
-      addAction("Bold", () => runInlineCommandFromContextMenu("bold", () => toggleActiveBlockStyle("fontWeight", "700", "")), {
-        restoreSelection: true
-      });
-      addAction("Italic", () => runInlineCommandFromContextMenu("italic", () => toggleActiveBlockStyle("fontStyle", "italic", "")), {
-        restoreSelection: true
-      });
-      addAction("Underline", () => runInlineCommandFromContextMenu("underline", toggleActiveBlockUnderline), {
-        restoreSelection: true
-      });
-      addAction("Text", () => convertActiveBlockTag("p"));
-      addAction("Title", () => convertActiveBlockTag("h1"));
-      addAction("Heading", () => convertActiveBlockTag("h2"));
-      addAction("Subhead", () => convertActiveBlockTag("h3"));
-      addAction("Bullets", () => convertActiveBlockToList(false));
-      addAction("Numbered", () => convertActiveBlockToList(true));
-      addAction("Left align", () => applyBlockAlignment("left"));
-      addAction("Center align", () => applyBlockAlignment("center"));
-      addLabel("Size");
-      [
-        ["Auto size", ""],
-        ["12", "12px"],
-        ["14", "14px"],
-        ["16", "16px"],
-        ["18", "18px"],
-        ["24", "24px"],
-        ["32", "32px"]
-      ].forEach(([label, value]) => addAction(label, () => applyBlockFontSize(value)));
+      appendDocsContextMenuItems(
+        actions,
+        createWorkspaceDocumentFormatMenuItems({ includeHistory: false }),
+        textActionMap,
+        { restoreSelectionCommandIds: new Set(["bold", "italic", "underline", "strikethrough", "clearFormatting"]) }
+      );
+      appendDocsContextSubmenu(
+        actions,
+        "Structure",
+        "text",
+        createDocsBoundContextMenuItems(createWorkspaceDocumentBlockMenuItems(), textActionMap, {
+          restoreSelectionCommandIds: new Set()
+        })
+      );
+      appendDocsContextSubmenu(
+        actions,
+        "Alignement",
+        "alignLeft",
+        createDocsBoundContextMenuItems(createWorkspaceDocumentAlignmentMenuItems(), textActionMap, {
+          restoreSelectionCommandIds: new Set()
+        })
+      );
+      appendDocsContextSubmenu(
+        actions,
+        "Police",
+        "text",
+        createDocsBoundContextMenuItems(
+          DOCS_CONTEXT_FONT_FAMILY_OPTIONS.map((item) => ({
+            ...item,
+            icon: "text",
+            commandId: "fontFamily"
+          })),
+          textActionMap,
+          { restoreSelectionCommandIds: new Set(["fontFamily"]) }
+        )
+      );
+      appendDocsContextSubmenu(
+        actions,
+        "Taille",
+        "text",
+        createDocsBoundContextMenuItems(createWorkspaceDocumentFontSizeMenuItems(), textActionMap, {
+          restoreSelectionCommandIds: new Set(["fontSize"])
+        })
+      );
     }
 
     if (table) {
@@ -4507,46 +5556,57 @@ function renderMarkdownPreview(
       const cell = resolvedTarget.closest?.("th, td") || null;
       const rowIndex = row?.parentElement?.tagName?.toLowerCase?.() === "tbody" ? getTableBodyRows(table).indexOf(row) : null;
       const columnIndex = row && cell ? Array.from(row.children).indexOf(cell) : null;
-      addLabel("Table");
-      addAction("Insert row below", () => addTableRow(table, rowIndex === null ? getTableBodyRows(table).length : rowIndex + 1));
-      addAction("Insert column right", () => addTableColumn(table, columnIndex === null ? getTableColumnCount(table) : columnIndex + 1));
-      if (rowIndex !== null && rowIndex >= 0) {
-        addAction("Delete row", () => removeTableRow(table, rowIndex), { danger: true });
-      }
-      if (columnIndex !== null && columnIndex >= 0) {
-        addAction("Delete column", () => removeTableColumn(table, columnIndex), { danger: true });
-      }
-      addAction("Delete table", () => removeTable(table), { danger: true });
+      const tableActionMap = createDocsSharedActionMap({ table, rowIndex, columnIndex });
+      appendDocsContextSubmenu(
+        actions,
+        "Table",
+        "table",
+        createDocsBoundContextMenuItems(
+          createWorkspaceDocumentTableMenuItems({
+            canDeleteRow: rowIndex !== null && rowIndex >= 0,
+            canDeleteColumn: columnIndex !== null && columnIndex >= 0
+          }),
+          tableActionMap,
+          { restoreSelectionCommandIds: new Set() }
+        )
+      );
     } else if (!mediaTarget) {
-      addLabel("Insert");
-      addAction("Checklist", insertChecklist);
-      addAction("Quote", insertQuote);
-      addAction("Divider", insertDivider);
-      addAction("Table", insertTable);
-      addAction("Import image", triggerImageImport);
-      addAction("From URL", insertImageFromUrl);
-      addAction("New section", insertNewSection);
-      addAction("New page", insertPageBreak);
+      appendDocsContextSubmenu(
+        actions,
+        "Inserer",
+        "insert",
+        createDocsBoundContextMenuItems(
+          createWorkspaceDocumentInsertMenuItems({ includeImagePlaceholder: true, includePageBreaks: true }),
+          createDocsSharedActionMap(),
+          { restoreSelectionCommandIds: new Set() }
+        )
+      );
     }
 
     if (mediaTarget && figureTarget) {
       addLabel(imageTarget ? "Image" : "Media");
       if (imageTarget) {
-        addAction("Tourner a gauche", () => applyDocsMediaRotation(mediaNode, -90));
-        addAction("Tourner a droite", () => applyDocsMediaRotation(mediaNode, 90));
-        addAction("Reinitialiser la rotation", () => applyDocsMediaRotation(mediaNode, 0, 0));
-        addAction("Supprimer l'image", () => removeDocsActionTarget(figureTarget), { danger: true });
+        addAction("Tourner a gauche", () => applyDocsMediaRotation(mediaNode, -90), { icon: "undo" });
+        addAction("Tourner a droite", () => applyDocsMediaRotation(mediaNode, 90), { icon: "redo" });
+        addAction("Reinitialiser la rotation", () => applyDocsMediaRotation(mediaNode, 0, 0), { icon: "refresh" });
+        addAction("Supprimer l'image", () => removeDocsActionTarget(figureTarget), { danger: true, icon: "delete" });
       } else {
-        addAction("Delete media", () => removeDocsActionTarget(figureTarget), { danger: true });
+        addAction("Delete media", () => removeDocsActionTarget(figureTarget), { danger: true, icon: "delete" });
       }
     }
 
     addLabel("View");
-    addAction(isDocsCanvasFullscreen() ? "Exit fullscreen" : "Open fullscreen", toggleDocsFullscreen);
+    addAction(isDocsCanvasFullscreen() ? "Exit fullscreen" : "Open fullscreen", toggleDocsFullscreen, {
+      icon: "zoom",
+      commandId: "toggleFullscreen"
+    });
 
     if (resolvedTarget && resolvedTarget !== shell && !mediaTarget) {
       addLabel("Remove");
-      addAction(getDocsRemovalActionLabel(resolvedTarget), () => removeDocsActionTarget(resolvedTarget), { danger: true });
+      addAction(getDocsRemovalActionLabel(resolvedTarget), () => removeDocsActionTarget(resolvedTarget), {
+        danger: true,
+        icon: "delete"
+      });
     }
 
     return actions;
@@ -4564,11 +5624,10 @@ function renderMarkdownPreview(
     }
     saveDocsSelectionRange();
     hideDocsTableContextMenu();
-    const canvasRect = docsCanvas.getBoundingClientRect();
     const actions = buildDocsContextMenuActions(resolvedTarget);
     showDocsTableContextMenu({
-      left: clientX - canvasRect.left + 10,
-      top: clientY - canvasRect.top + 10,
+      left: clientX + 8,
+      top: clientY + 8,
       actions
     });
   };
@@ -4939,6 +5998,427 @@ function renderMarkdownPreview(
     return true;
   };
 
+  const getDocsExportTitle = () => {
+    const previewValue = normalizeText(previewTitle?.textContent || "").replace(/\s+/g, " ").trim();
+    if (previewValue && previewValue !== docsPreviewFallbackTitle) {
+      return previewValue;
+    }
+
+    const markdown = createDocsMarkdownSnapshot();
+    const explicitHeading = markdown.match(/^\s*#\s+(.+)$/m)?.[1];
+    if (explicitHeading) {
+      return normalizeText(explicitHeading).replace(/\s+/g, " ").trim();
+    }
+
+    const firstContentLine = markdown
+      .split(/\r?\n/)
+      .map((line) =>
+        normalizeText(line)
+          .replace(/^>\s*/, "")
+          .replace(/^[-*+]\s+/, "")
+          .replace(/^\d+\.\s+/, "")
+          .trim()
+      )
+      .find(Boolean);
+
+    return firstContentLine || normalizeText(workObject?.title || "").trim() || "Document";
+  };
+
+  const buildDocsExportBaseName = () => {
+    const rawTitle = getDocsExportTitle();
+    const safeName = String(rawTitle || "document")
+      .trim()
+      .replace(/[\\/:*?"<>|]+/g, " ")
+      .replace(/\s+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .toLowerCase();
+    return safeName || "document";
+  };
+
+  const buildDocsExportTimestamp = () => {
+    const now = new Date();
+    const pad = (value) => String(value).padStart(2, "0");
+    return [
+      now.getFullYear(),
+      pad(now.getMonth() + 1),
+      pad(now.getDate())
+    ].join("-") + `_${pad(now.getHours())}-${pad(now.getMinutes())}`;
+  };
+
+  const buildDocsExportFilename = (extension = "html") => {
+    const normalizedExtension = String(extension || "html")
+      .trim()
+      .replace(/^\.+/, "")
+      .toLowerCase() || "html";
+    return `${buildDocsExportBaseName()}_${buildDocsExportTimestamp()}.${normalizedExtension}`;
+  };
+
+  const downloadDocsBlobFile = (blob, filename = "document.html") => {
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(link.href), 1200);
+  };
+
+  const parseDownloadFilenameFromHeader = (headerValue = "", fallback = "document.bin") => {
+    const normalized = String(headerValue || "");
+    const utf8Match = normalized.match(/filename\*=UTF-8''([^;]+)/i);
+    if (utf8Match?.[1]) {
+      try {
+        return decodeURIComponent(utf8Match[1]);
+      } catch {
+        return utf8Match[1];
+      }
+    }
+    const plainMatch = normalized.match(/filename="?([^";]+)"?/i);
+    return plainMatch?.[1] || fallback;
+  };
+
+  const createDocsPresentationRoot = () => {
+    if (!shell) {
+      return null;
+    }
+    const clone = shell.cloneNode(true);
+    clone.querySelectorAll(".workspace-docs-page-control-bar").forEach((node) => node.remove());
+    clone.querySelectorAll(".workspace-docs-image-resize-handle").forEach((node) => node.remove());
+    clone.querySelectorAll(".workspace-docs-search-match").forEach((node) => unwrapNodeContents(node));
+    clone.querySelectorAll(".workspace-docs-figure").forEach((figure) => {
+      figure.classList.remove("is-media-selected", "is-dragging");
+    });
+    clone.querySelectorAll("[contenteditable]").forEach((node) => node.removeAttribute("contenteditable"));
+    clone.querySelectorAll("[spellcheck]").forEach((node) => node.removeAttribute("spellcheck"));
+    clone.querySelectorAll("[data-placeholder]").forEach((node) => node.removeAttribute("data-placeholder"));
+    clone.querySelectorAll(".workspace-inline-editable").forEach((node) => {
+      node.classList.remove("workspace-inline-editable");
+    });
+    clone.querySelectorAll("a[href]").forEach((link) => {
+      link.setAttribute("target", "_blank");
+      link.setAttribute("rel", "noreferrer noopener");
+    });
+    return clone;
+  };
+
+  const createDocsPresentationMarkup = () => {
+    const root = createDocsPresentationRoot();
+    return root ? String(root.innerHTML || "").trim() : "";
+  };
+
+  const getDocsListItemPlainText = (item) => {
+    if (!item) {
+      return "";
+    }
+    const clone = item.cloneNode(true);
+    clone.querySelectorAll(":scope > ul, :scope > ol").forEach((node) => node.remove());
+    clone.querySelectorAll(".workspace-checklist-box").forEach((node) => node.remove());
+    return normalizeText(clone.textContent || "")
+      .replace(/\u00A0/g, " ")
+      .replace(/\s+\n/g, "\n")
+      .replace(/\n\s+/g, "\n")
+      .trim();
+  };
+
+  const serializeDocsListToMarkdown = (list, depth = 0) => {
+    const lines = [];
+    if (!list?.matches?.("ul, ol")) {
+      return lines;
+    }
+    const isChecklist = list.dataset.listStyle === "checklist" || list.classList.contains("workspace-checklist");
+    const directItems = Array.from(list.children).filter((child) => child.matches?.("li"));
+    directItems.forEach((item, index) => {
+      const indent = "  ".repeat(depth);
+      const text = getDocsListItemPlainText(item);
+      if (text) {
+        if (isChecklist) {
+          const checked =
+            item.dataset.checked === "true" || item.querySelector(".workspace-checklist-box")?.checked;
+          lines.push(`${indent}- [${checked ? "x" : " "}] ${text}`);
+        } else if (list.tagName.toLowerCase() === "ol") {
+          lines.push(`${indent}${index + 1}. ${text}`);
+        } else {
+          lines.push(`${indent}- ${text}`);
+        }
+      }
+      Array.from(item.children)
+        .filter((child) => child.matches?.("ul, ol"))
+        .forEach((nestedList) => {
+          lines.push(...serializeDocsListToMarkdown(nestedList, depth + 1));
+        });
+    });
+    return lines;
+  };
+
+  const createDocsMarkdownSnapshot = () => {
+    const root = createDocsPresentationRoot();
+    if (!root) {
+      return "";
+    }
+
+    const blocks = [];
+    const appendBlock = (value = "") => {
+      const normalizedValue = String(value || "").trim();
+      if (normalizedValue) {
+        blocks.push(normalizedValue);
+      }
+    };
+
+    Array.from(root.childNodes).forEach((node) => {
+      if (node.nodeType !== Node.ELEMENT_NODE) {
+        const textValue = normalizeText(node.textContent || "").trim();
+        if (textValue) {
+          appendBlock(textValue);
+        }
+        return;
+      }
+
+      const tagName = String(node.tagName || "").toLowerCase();
+      if (tagName === "div" && node.classList.contains("workspace-docs-page-meta")) {
+        return;
+      }
+      if (/^h[1-4]$/.test(tagName)) {
+        const level = Number(tagName.slice(1)) || 1;
+        appendBlock(`${"#".repeat(level)} ${normalizeText(node.textContent || "").trim()}`);
+        return;
+      }
+      if (tagName === "p") {
+        appendBlock(normalizeText(node.textContent || "").trim());
+        return;
+      }
+      if (tagName === "blockquote") {
+        appendBlock(
+          normalizeText(node.textContent || "")
+            .split("\n")
+            .map((line) => `> ${line.trim()}`)
+            .join("\n")
+        );
+        return;
+      }
+      if (tagName === "hr") {
+        appendBlock("---");
+        return;
+      }
+      if (tagName === "ul" || tagName === "ol") {
+        appendBlock(serializeDocsListToMarkdown(node).join("\n"));
+        return;
+      }
+      if (tagName === "table") {
+        const rows = Array.from(node.querySelectorAll("tr")).map((row) =>
+          Array.from(row.children).map((cell) => normalizeText(cell.textContent || "").trim())
+        );
+        if (rows.length) {
+          const markdownRows = rows.map((row) => `| ${row.join(" | ")} |`);
+          if (rows[0]?.length) {
+            markdownRows.splice(1, 0, `| ${rows[0].map(() => "---").join(" | ")} |`);
+          }
+          appendBlock(markdownRows.join("\n"));
+        }
+        return;
+      }
+      if (tagName === "figure") {
+        const image = node.querySelector("img");
+        const caption = normalizeText(node.querySelector("figcaption")?.textContent || "").trim();
+        appendBlock(image ? `[Image${image.alt ? `: ${image.alt}` : ""}]` : "[Media]");
+        if (caption) {
+          appendBlock(caption);
+        }
+        return;
+      }
+      if (tagName === "div" && node.classList.contains("workspace-docs-page-break")) {
+        appendBlock("---");
+        return;
+      }
+      if (tagName === "figcaption" || tagName === "td" || tagName === "th") {
+        appendBlock(normalizeText(node.textContent || "").trim());
+        return;
+      }
+
+      const textValue = normalizeText(node.textContent || "").trim();
+      if (textValue) {
+        appendBlock(textValue);
+      }
+    });
+
+    return blocks.join("\n\n").trim();
+  };
+
+  const exportCurrentDocumentAsHtml = () => {
+    if (!shell) {
+      return;
+    }
+    const presentationMarkup = createDocsPresentationMarkup();
+    if (!presentationMarkup) {
+      updateDocsToolbarStatus("Nothing to download");
+      return;
+    }
+    const html = buildDocsStandaloneHtmlDocument(presentationMarkup, {
+      title: getDocsExportTitle(),
+      orientation: getDocsPageFormatState().orientation
+    });
+    downloadDocsBlobFile(new Blob([html], { type: "text/html;charset=utf-8" }), buildDocsExportFilename("html"));
+    updateDocsToolbarStatus("Document downloaded");
+  };
+
+  const exportCurrentDocumentAsText = () => {
+    const markdown = createDocsMarkdownSnapshot();
+    if (!markdown) {
+      updateDocsToolbarStatus("Nothing to download");
+      return;
+    }
+    downloadDocsBlobFile(new Blob([`\uFEFF${markdown}`], { type: "text/plain;charset=utf-8" }), buildDocsExportFilename("txt"));
+    updateDocsToolbarStatus("TXT downloaded");
+  };
+
+  const exportCurrentDocumentThroughBackend = async (format = "pdf") => {
+    const normalizedFormat = String(format || "").toLowerCase() === "doc" ? "docx" : String(format || "").toLowerCase();
+    if (!workObject?.id) {
+      throw new Error("Document export is unavailable for this page.");
+    }
+    const markdown = createDocsMarkdownSnapshot();
+    if (!markdown) {
+      throw new Error("Nothing to export.");
+    }
+
+    const response = await fetch(`/api/work-objects/${encodeURIComponent(String(workObject.id))}/document-export`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        format: normalizedFormat,
+        title: getDocsExportTitle(),
+        downloadName: buildDocsExportFilename(normalizedFormat === "doc" ? "docx" : normalizedFormat),
+        markdown
+      })
+    });
+
+    if (!response.ok) {
+      let message = `Export ${normalizedFormat.toUpperCase()} failed`;
+      try {
+        const payload = await response.json();
+        if (payload?.error) {
+          message = payload.error;
+        }
+      } catch {
+        // Ignore JSON parsing failures and keep the default message.
+      }
+      throw new Error(message);
+    }
+
+    const blob = await response.blob();
+    if (!blob.size) {
+      throw new Error("The exported file is empty.");
+    }
+    const fallbackExtension = normalizedFormat === "docx" ? "docx" : "pdf";
+    const filename = parseDownloadFilenameFromHeader(
+      response.headers.get("content-disposition") || "",
+      `${buildDocsExportBaseName()}.${fallbackExtension}`
+    );
+    downloadDocsBlobFile(blob, filename);
+    updateDocsToolbarStatus(normalizedFormat === "docx" ? "Word exported" : "PDF exported");
+  };
+
+  const exportCurrentDocumentAsFormat = async (format = "html") => {
+    const normalizedFormat = String(format || "").toLowerCase();
+    if (normalizedFormat === "html") {
+      exportCurrentDocumentAsHtml();
+      return;
+    }
+    if (normalizedFormat === "txt") {
+      exportCurrentDocumentAsText();
+      return;
+    }
+    if (normalizedFormat === "pdf" || normalizedFormat === "docx" || normalizedFormat === "doc") {
+      await exportCurrentDocumentThroughBackend(normalizedFormat);
+      return;
+    }
+    throw new Error("Unsupported export format.");
+  };
+
+  const printCurrentDocument = () => {
+    if (!shell) {
+      return;
+    }
+    const presentationMarkup = createDocsPresentationMarkup();
+    if (!presentationMarkup) {
+      updateDocsToolbarStatus("Nothing to print");
+      return;
+    }
+    const printWindow = window.open("", "_blank", "width=1100,height=900");
+    if (!printWindow) {
+      updateDocsToolbarStatus("Allow popups to print this document");
+      return;
+    }
+    const html = buildDocsStandaloneHtmlDocument(presentationMarkup, {
+      title: getDocsExportTitle(),
+      orientation: getDocsPageFormatState().orientation,
+      autoPrint: true
+    });
+    printWindow.document.open();
+    printWindow.document.write(html);
+    printWindow.document.close();
+    updateDocsToolbarStatus("Print dialog opened");
+  };
+
+  const importDocumentTextThroughBackend = async (file) => {
+    if (!file || !workObject?.id) {
+      throw new Error("Document import is unavailable for this page.");
+    }
+    const formData = new FormData();
+    formData.append("file", file);
+    const response = await fetch(`/api/work-objects/${encodeURIComponent(String(workObject.id))}/document-import`, {
+      method: "POST",
+      body: formData
+    });
+
+    if (!response.ok) {
+      let message = "This file could not be imported.";
+      try {
+        const payload = await response.json();
+        if (payload?.error) {
+          message = payload.error;
+        }
+      } catch {
+        // Ignore JSON parsing failures and keep the default message.
+      }
+      throw new Error(message);
+    }
+
+    const payload = await response.json();
+    return String(payload?.content || "");
+  };
+
+  const importDocumentFromFile = async (file) => {
+    if (!file) {
+      return false;
+    }
+    const fileName = String(file.name || "").toLowerCase();
+    const textContent = /\.(docx?|pdf|rtf)$/i.test(fileName)
+      ? await importDocumentTextThroughBackend(file)
+      : await file.text();
+    const importedText = String(textContent || "");
+    const snapshot =
+      importedText.trim()
+        ? extractDocsImportedSnapshot(importedText, file.name || "")
+        : /\.(docx?|pdf|rtf)$/i.test(fileName)
+          ? buildDocsRichSnapshotFromPlainText(
+              `# ${file.name || "Document"}\n\nAucun texte lisible n'a pu etre extrait de ce fichier.`
+            )
+          : extractDocsImportedSnapshot(importedText, file.name || "");
+    if (!snapshot) {
+      throw new Error("This file could not be imported.");
+    }
+    const restored = restoreDocumentShellFromSnapshot(snapshot);
+    if (!restored) {
+      throw new Error("Document import is unavailable here.");
+    }
+    commitDocumentShell();
+    window.requestAnimationFrame(() => updateDocsTableControls(null, true));
+    updateDocsToolbarStatus(`${file.name || "Document"} imported`);
+    return true;
+  };
+
   const pushDocumentSearchUndoSnapshot = (snapshot = "") => {
     if (!snapshot) {
       return;
@@ -4963,6 +6443,8 @@ function renderMarkdownPreview(
     const restored = restoreDocumentShellFromSnapshot(previousSnapshot);
     updateDocumentSearchStatus();
     if (restored) {
+      docsEditCurrentSnapshot = previousSnapshot;
+      commitDocumentShell({ skipHistory: true });
       updateDocsToolbarStatus("Deletion undone");
     }
   };
@@ -4979,6 +6461,8 @@ function renderMarkdownPreview(
     const restored = restoreDocumentShellFromSnapshot(nextSnapshot);
     updateDocumentSearchStatus();
     if (restored) {
+      docsEditCurrentSnapshot = nextSnapshot;
+      commitDocumentShell({ skipHistory: true });
       updateDocsToolbarStatus("Deletion restored");
     }
   };
@@ -5304,24 +6788,75 @@ function renderMarkdownPreview(
       await insertImagesFromFiles(files);
     });
     previewShell.appendChild(docsImageInput);
-
-    const triggerImageImport = () => {
-      restoreDocsFullscreenAfterImageImport = isDocsFullscreenActive();
-      if (restoreDocsFullscreenAfterImageImport) {
-        setDocsFullscreenFallbackActive(true);
-        if (docsFullscreenRestoreFocusHandler) {
-          window.removeEventListener("focus", docsFullscreenRestoreFocusHandler);
-        }
-        docsFullscreenRestoreFocusHandler = () => {
-          window.removeEventListener("focus", docsFullscreenRestoreFocusHandler);
-          docsFullscreenRestoreFocusHandler = null;
-          window.setTimeout(() => {
-            restoreDocsFullscreenIfNeeded().catch(() => {});
-          }, 60);
-        };
-        window.addEventListener("focus", docsFullscreenRestoreFocusHandler);
+    const docsFileImportInput = document.createElement("input");
+    docsFileImportInput.type = "file";
+    docsFileImportInput.accept = DOCS_IMPORT_FILE_ACCEPT;
+    docsFileImportInput.className = "workspace-docs-file-input";
+    docsFileImportInput.addEventListener("change", async (event) => {
+      const file = event.target.files?.[0] || null;
+      event.target.value = "";
+      await restoreDocsFullscreenIfNeeded();
+      if (!file) {
+        return;
       }
+      try {
+        await importDocumentFromFile(file);
+      } catch (error) {
+        console.error(error);
+        updateDocsToolbarStatus(error?.message || "Import failed");
+      }
+    });
+    previewShell.appendChild(docsFileImportInput);
+
+    const prepareDocsPickerFullscreenRestore = () => {
+      restoreDocsFullscreenAfterImageImport = isDocsFullscreenActive();
+      if (!restoreDocsFullscreenAfterImageImport) {
+        return;
+      }
+      setDocsFullscreenFallbackActive(true);
+      if (docsFullscreenRestoreFocusHandler) {
+        window.removeEventListener("focus", docsFullscreenRestoreFocusHandler);
+      }
+      docsFullscreenRestoreFocusHandler = () => {
+        window.removeEventListener("focus", docsFullscreenRestoreFocusHandler);
+        docsFullscreenRestoreFocusHandler = null;
+        window.setTimeout(() => {
+          restoreDocsFullscreenIfNeeded().catch(() => {});
+        }, 60);
+      };
+      window.addEventListener("focus", docsFullscreenRestoreFocusHandler);
+    };
+
+    triggerImageImport = () => {
+      prepareDocsPickerFullscreenRestore();
       docsImageInput.click();
+    };
+
+    triggerDocumentImport = () => {
+      prepareDocsPickerFullscreenRestore();
+      docsFileImportInput.click();
+    };
+
+    const docsMenuOutsideController = createWorkspaceMenuOutsideController({
+      isOpen: () => Boolean(docsMenuPanel && !docsMenuPanel.classList.contains("hidden") && docsMenuPanel.isConnected),
+      shouldKeepOpen: (event) =>
+        Boolean(docsMenuPanel?.contains?.(event.target) || docsMenuBar.contains(event.target)),
+      onClose: () => {
+        renderDocsMenu("");
+      }
+    });
+
+    const installDocsMenuOutsidePointerHandler = () => {
+      window.setTimeout(() => {
+        if (!docsMenuPanel || docsMenuPanel.classList.contains("hidden")) {
+          return;
+        }
+        docsMenuOutsideController.install();
+      }, 0);
+    };
+
+    const removeDocsMenuOutsidePointerHandler = () => {
+      docsMenuOutsideController.remove();
     };
 
     const renderDocsMenu = (menuId = "") => {
@@ -5332,19 +6867,22 @@ function renderMarkdownPreview(
       docsMenuFieldSyncCleanup = null;
       if (docsMenuPanel) {
         docsMenuPanel.dataset.openMenu = menuId;
+        docsMenuPanel.classList.toggle("is-file-menu", menuId === "File");
       }
       syncDocsSelectionPreviewState(Boolean(menuId));
       docsMenuPanel.innerHTML = "";
       docsMenuButtons.forEach((button) => button.classList.toggle("is-active", button.dataset.menu === menuId));
       if (!menuId) {
         docsMenuPanel.classList.add("hidden");
+        removeDocsMenuOutsidePointerHandler();
         return;
       }
       docsMenuPanel.classList.remove("hidden");
+      installDocsMenuOutsidePointerHandler();
       const menuFieldSyncHandlers = [];
       const menuDropdownRegistry = [];
 
-      const addMenuAction = (label, onClick, accent = false, { closeOnClick = true } = {}) => {
+      const addPlainMenuAction = (label, onClick, accent = false, { closeOnClick = true } = {}) => {
         const button = document.createElement("button");
         button.type = "button";
         button.className = `workspace-docs-menu-action${accent ? " accent" : ""}`;
@@ -5364,11 +6902,51 @@ function renderMarkdownPreview(
         docsMenuPanel.appendChild(button);
       };
 
+      const addMenuAction = (itemOrLabel, onClick, accent = false, { closeOnClick = true } = {}) => {
+        const item =
+          itemOrLabel && typeof itemOrLabel === "object"
+            ? itemOrLabel
+            : { label: itemOrLabel };
+        const action = typeof onClick === "function" ? onClick : item.onSelect;
+        const button = createWorkspaceMenuActionButton(item, {
+          actionClassName: `workspace-docs-menu-action${accent ? " accent" : ""}`,
+          iconClassName: "workspace-docs-menu-action-icon",
+          labelClassName: "workspace-docs-menu-action-label",
+          metaClassName: "workspace-docs-menu-action-meta",
+          createIconNode: createWorkspaceIconNode,
+          resolveIconName: getWorkspaceCommandIcon,
+          onClick: async () => {
+            try {
+              await action?.(item);
+            } catch (error) {
+              console.error(error);
+              updateDocsToolbarStatus(error?.message || "Action unavailable");
+            }
+            if (closeOnClick) {
+              renderDocsMenu("");
+            }
+          }
+        });
+        preserveDocsSelectionOnPointerDown(button);
+        docsMenuPanel.appendChild(button);
+      };
+
       const addMenuLabel = (label) => {
         const span = document.createElement("span");
         span.className = "workspace-docs-menu-label";
         span.textContent = label;
         docsMenuPanel.appendChild(span);
+      };
+
+      const addBoundMenuActions = (items, actionMap, { accentCommandIds = new Set() } = {}) => {
+        bindWorkspaceMenuActions(items, actionMap).forEach((item) => {
+          if (item.separator || item.heading || item.disabled || typeof item.onSelect !== "function") {
+            return;
+          }
+          addMenuAction(item, item.onSelect, accentCommandIds.has(item.commandId), {
+            closeOnClick: item.closeOnClick !== false
+          });
+        });
       };
 
       const addMenuDropdownField = (
@@ -5381,15 +6959,20 @@ function renderMarkdownPreview(
           note = "",
           getCurrentValue = null,
           decorateOption = null,
-          customEntry = null
+          customEntry = null,
+          customEntryPosition = "bottom",
+          focusCustomEntryOnOpen = false,
+          hideLabel = false,
+          className = ""
         } = {}
       ) => {
         const field = document.createElement("div");
-        field.className = "workspace-docs-menu-field workspace-docs-menu-dropdown-field";
+        field.className = `workspace-docs-menu-field workspace-docs-menu-dropdown-field${className ? ` ${className}` : ""}`;
 
         const fieldLabel = document.createElement("span");
         fieldLabel.className = "workspace-docs-menu-field-label";
         fieldLabel.textContent = label;
+        fieldLabel.hidden = hideLabel;
 
         const toggle = document.createElement("button");
         toggle.type = "button";
@@ -5401,8 +6984,7 @@ function renderMarkdownPreview(
         dropdown.className = "workspace-docs-menu-dropdown hidden";
 
         const closeDropdown = () => {
-          dropdown.classList.add("hidden");
-          toggle.setAttribute("aria-expanded", "false");
+          closeWorkspaceDropdown(dropdown, toggle);
         };
 
         const syncToggleLabel = () => {
@@ -5413,42 +6995,47 @@ function renderMarkdownPreview(
           toggle.textContent = nextLabel;
         };
 
+        let customInput = null;
         toggle.addEventListener("click", () => {
-          const willOpen = dropdown.classList.contains("hidden");
-          menuDropdownRegistry.forEach((entry) => {
-            if (entry.dropdown !== dropdown) {
-              entry.close();
-            }
-          });
-          dropdown.classList.toggle("hidden", !willOpen);
-          toggle.setAttribute("aria-expanded", willOpen ? "true" : "false");
+          const didOpen = toggleWorkspaceDropdown(dropdown, toggle, menuDropdownRegistry);
+          if (didOpen && focusCustomEntryOnOpen && customInput) {
+            window.requestAnimationFrame(() => {
+              customInput.focus();
+              customInput.select();
+            });
+          }
         });
 
-        options.forEach((item) => {
-          const optionButton = document.createElement("button");
-          optionButton.type = "button";
-          optionButton.className = "workspace-docs-menu-dropdown-item";
-          optionButton.textContent = item.label;
-          preserveDocsSelectionOnPointerDown(optionButton);
-          decorateOption?.(optionButton, item);
-          optionButton.addEventListener("click", async () => {
-            try {
-              await onSelect?.(item, item.label);
-            } catch (error) {
-              console.error(error);
-              updateDocsToolbarStatus(error?.message || "Action unavailable");
-            }
-            syncToggleLabel();
-            closeDropdown();
+        const appendOptionButtons = () => {
+          options.forEach((item) => {
+            const optionButton = document.createElement("button");
+            optionButton.type = "button";
+            optionButton.className = "workspace-docs-menu-dropdown-item";
+            optionButton.textContent = item.label;
+            preserveDocsSelectionOnPointerDown(optionButton);
+            decorateOption?.(optionButton, item);
+            optionButton.addEventListener("click", async () => {
+              try {
+                await onSelect?.(item, item.label);
+              } catch (error) {
+                console.error(error);
+                updateDocsToolbarStatus(error?.message || "Action unavailable");
+              }
+              syncToggleLabel();
+              closeDropdown();
+            });
+            dropdown.appendChild(optionButton);
           });
-          dropdown.appendChild(optionButton);
-        });
+        };
 
-        if (customEntry) {
+        const appendCustomEntry = () => {
+          if (!customEntry) {
+            return;
+          }
           const customRow = document.createElement("div");
           customRow.className = "workspace-docs-menu-dropdown-custom";
 
-          const customInput = document.createElement("input");
+          customInput = document.createElement("input");
           customInput.type = "text";
           customInput.className = "workspace-docs-select workspace-docs-menu-dropdown-input";
           customInput.placeholder = customEntry.placeholder || placeholder;
@@ -5506,6 +7093,14 @@ function renderMarkdownPreview(
 
           customRow.append(customInput, customButton);
           dropdown.appendChild(customRow);
+        };
+
+        if (customEntryPosition === "top") {
+          appendCustomEntry();
+          appendOptionButtons();
+        } else {
+          appendOptionButtons();
+          appendCustomEntry();
         }
 
         field.append(fieldLabel, toggle, dropdown);
@@ -5533,9 +7128,18 @@ function renderMarkdownPreview(
         docsMenuPanel.appendChild(field);
       };
 
-      const addMenuColorPaletteField = (label, options, onSelect, buttonLabel = "Choose color") => {
+      const addMenuColorPaletteField = (
+        label,
+        options,
+        onSelect,
+        {
+          buttonLabel = "Choose color",
+          compact = false,
+          getCurrentValue = null
+        } = {}
+      ) => {
         const field = document.createElement("div");
-        field.className = "workspace-docs-menu-field workspace-docs-menu-palette-field";
+        field.className = `workspace-docs-menu-field workspace-docs-menu-palette-field${compact ? " is-compact" : ""}`;
 
         const fieldLabel = document.createElement("span");
         fieldLabel.className = "workspace-docs-menu-field-label";
@@ -5543,29 +7147,47 @@ function renderMarkdownPreview(
 
         const toggle = document.createElement("button");
         toggle.type = "button";
-        toggle.className = "workspace-docs-menu-action workspace-docs-color-dropdown-toggle";
-        toggle.textContent = buttonLabel;
+        toggle.className = `workspace-docs-menu-action workspace-docs-color-dropdown-toggle${compact ? " is-compact" : ""}`;
+        toggle.setAttribute("aria-label", label);
+        toggle.title = label;
         toggle.setAttribute("aria-expanded", "false");
         preserveDocsSelectionOnPointerDown(toggle);
+
+        const toggleSwatch = document.createElement("span");
+        toggleSwatch.className = "workspace-docs-color-toggle-swatch";
+        const toggleText = document.createElement("span");
+        toggleText.className = "workspace-docs-color-toggle-text";
+        toggleText.textContent = buttonLabel;
+        toggle.append(toggleSwatch, toggleText);
 
         const palette = document.createElement("div");
         palette.className = "workspace-docs-color-palette hidden";
 
         const closePalette = () => {
-          palette.classList.add("hidden");
-          toggle.setAttribute("aria-expanded", "false");
+          closeWorkspaceDropdown(palette, toggle);
         };
 
-        toggle.addEventListener("click", () => {
-          const willOpen = palette.classList.contains("hidden");
-          menuDropdownRegistry.forEach((entry) => {
-            if (entry.dropdown !== palette) {
-              entry.close();
-            }
-          });
-          palette.classList.toggle("hidden", !willOpen);
-          toggle.setAttribute("aria-expanded", willOpen ? "true" : "false");
-        });
+        toggle.addEventListener("click", () => toggleWorkspaceDropdown(palette, toggle, menuDropdownRegistry));
+
+        const syncToggleColor = () => {
+          const formattingState = getDocsCurrentFormattingState();
+          const currentValue =
+            (typeof getCurrentValue === "function" ? getCurrentValue(formattingState) : "") ||
+            options.find((item) => item.value)?.value ||
+            "";
+          const isClearState = isDocsTransparentColor(currentValue);
+          toggle.classList.toggle("is-clear-state", isClearState);
+          toggleSwatch.classList.toggle("is-clear", isClearState);
+          toggleSwatch.style.background = isClearState ? "" : currentValue;
+          if (!isClearState) {
+            toggleSwatch.style.borderColor = isDocsWhiteColor(currentValue) ? "rgba(73, 84, 95, 0.26)" : "";
+          } else {
+            toggleSwatch.style.borderColor = "";
+          }
+          if (!compact) {
+            toggleText.textContent = buttonLabel;
+          }
+        };
 
         options.forEach((item) => {
           const button = document.createElement("button");
@@ -5591,6 +7213,7 @@ function renderMarkdownPreview(
               console.error(error);
               updateDocsToolbarStatus(error?.message || "Action unavailable");
             }
+            syncToggleColor();
             closePalette();
           });
 
@@ -5598,12 +7221,27 @@ function renderMarkdownPreview(
         });
 
         field.append(fieldLabel, toggle, palette);
+        syncToggleColor();
+        menuFieldSyncHandlers.push(syncToggleColor);
         menuDropdownRegistry.push({
           dropdown: palette,
           close: closePalette
         });
         docsMenuPanel.appendChild(field);
       };
+
+      if (menuId === "File") {
+        addPlainMenuAction("Importer", triggerDocumentImport);
+        addMenuDropdownField("Exporter", DOCS_EXPORT_OPTIONS, (item) => exportCurrentDocumentAsFormat(item?.value || ""), {
+          placeholder: "Exporter",
+          initialValue: "Exporter",
+          getCurrentValue: () => "Exporter",
+          hideLabel: true,
+          className: "workspace-docs-menu-field-file"
+        });
+        addPlainMenuAction("Imprimer", printCurrentDocument);
+        return;
+      }
 
       const renderDocsPageNumberSettingsView = () => {
         docsMenuFieldSyncCleanup?.();
@@ -5774,102 +7412,82 @@ function renderMarkdownPreview(
       };
 
       if (menuId === "Structure") {
-        addMenuAction("Text", () => convertActiveBlockTag("p"));
-        addMenuAction("Title", () => convertActiveBlockTag("h1"));
-        addMenuAction("Heading", () => convertActiveBlockTag("h2"));
-        addMenuAction("Subhead", () => convertActiveBlockTag("h3"));
-        addMenuAction("Bullets", () => convertActiveBlockToList(false));
-        addMenuAction("Numbered", () => convertActiveBlockToList(true));
-        addMenuAction("New section", insertNewSection);
-        addMenuAction("New page", insertPageBreak);
+        addBoundMenuActions(createWorkspaceDocumentBlockMenuItems({ includePageBreaks: true }), createDocsSharedActionMap());
         return;
       }
 
       if (menuId === "Format") {
-        addMenuAction("Bold", () => runInlineCommand("bold"));
-        addMenuAction("Italic", () => runInlineCommand("italic"));
-        addMenuAction("Underline", () => runInlineCommand("underline"));
-        addMenuAction("Strikethrough", () =>
-          runInlineCommandWithSelection("strikeThrough", null, toggleActiveBlockStrikethrough, "Strikethrough updated"));
-        addMenuAction("Undo", () => runInlineCommand("undo"));
-        addMenuAction("Redo", () => runInlineCommand("redo"));
-        addMenuAction("Clear formatting", () =>
-          runInlineCommandWithSelection("removeFormat", null, resetActiveBlockFormatting, "Formatting reset"));
-        addMenuAction("En-tetes et pieds de page", toggleDocsHeaderFooter);
-        addMenuAction(
-          "Numeros de page",
-          () => {
-            renderDocsPageNumberSettingsView();
-          },
-          false,
-          { closeOnClick: false }
-        );
-        addMenuAction("Orientation de la page", toggleDocsPageOrientation);
-        addMenuDropdownField(
-          "Font",
-          DOCS_FONT_FAMILY_OPTIONS,
-          (item) => applyBlockFontFamily(item?.value || ""),
+        addBoundMenuActions(createWorkspaceDocumentFormatMenuItems(), createDocsSharedActionMap());
+        addBoundMenuActions(
+          createWorkspaceDocumentPageFormatMenuItems(),
           {
-            placeholder: "Choose font",
-            initialValue: getDocsCurrentFormattingState().fontFamilyLabel,
-            note: "The current selection stays targeted while you pick a preset font.",
-            getCurrentValue: (state) => state.fontFamilyLabel || "Default font",
-            decorateOption: (button, item) => {
-              if (item?.value) {
-                button.style.fontFamily = item.value;
+            toggleHeaderFooter: toggleDocsHeaderFooter,
+            pageNumbers: () => renderDocsPageNumberSettingsView(),
+            pageOrientation: toggleDocsPageOrientation
+          }
+        );
+        createWorkspaceDocumentFormatFieldItems().forEach((field) => {
+          if (field.fieldId === "fontFamily") {
+            addMenuDropdownField(field.label, DOCS_FONT_FAMILY_OPTIONS, (item) => applyBlockFontFamily(item?.value || ""), {
+              placeholder: "Choose font",
+              initialValue: getDocsCurrentFormattingState().fontFamilyLabel,
+              note: "The current selection stays targeted while you pick a preset font.",
+              getCurrentValue: (state) => state.fontFamilyLabel || "Default font",
+              decorateOption: (button, item) => {
+                if (item?.value) {
+                  button.style.fontFamily = item.value;
+                }
               }
-            }
+            });
+            return;
           }
-        );
-        addMenuDropdownField(
-          "Size",
-          DOCS_FONT_SIZE_OPTIONS,
-          (item, rawValue) => applyBlockFontSize(item?.value || rawValue || ""),
-          {
-            placeholder: "Choose size",
-            initialValue: getDocsCurrentFormattingState().fontSizeLabel,
-            note: "Pick a preset size or type your own value.",
-            getCurrentValue: (state) => state.fontSizeLabel || "Auto size",
-            customEntry: {
-              placeholder: "Custom size",
-              buttonLabel: "Apply",
-              normalizeValue: (value) => normalizeDocsFontSizeValue(value)
-            }
+          if (field.fieldId === "fontSize") {
+            addMenuDropdownField(field.label, DOCS_FONT_SIZE_OPTIONS, (item, rawValue) => applyBlockFontSize(item?.value || rawValue || ""), {
+              placeholder: "Choose size",
+              initialValue: getDocsCurrentFormattingState().fontSizeLabel,
+              note: "Pick a preset size or type your own value.",
+              getCurrentValue: (state) => state.fontSizeLabel || "Auto size",
+              className: "workspace-docs-menu-field-font-size",
+              customEntryPosition: "top",
+              focusCustomEntryOnOpen: true,
+              customEntry: {
+                placeholder: "Custom size",
+                buttonLabel: "Apply",
+                normalizeValue: (value) => normalizeDocsFontSizeValue(value)
+              }
+            });
+            return;
           }
-        );
-        addMenuDropdownField("Alignment", DOCS_ALIGNMENT_OPTIONS, (item) => applyBlockAlignment(item?.value || "left"), {
-          placeholder: "Choose alignment",
-          initialValue: "Alignment",
-          getCurrentValue: () => "Alignment"
+          if (field.fieldId === "alignment") {
+            addMenuDropdownField(field.label, DOCS_ALIGNMENT_OPTIONS, (item) => {
+              createDocsSharedActionMap()[item?.commandId || "alignLeft"]?.();
+            }, {
+              placeholder: "Choose alignment",
+              initialValue: "Alignment",
+              getCurrentValue: () => "Alignment"
+            });
+            return;
+          }
+          if (field.fieldId === "textColor") {
+            addMenuColorPaletteField(field.label, DOCS_TEXT_COLOR_OPTIONS, (item) => {
+              createDocsSharedActionMap().textColor(item);
+            }, {
+              buttonLabel: field.label,
+              compact: true,
+              getCurrentValue: (state) => state.textColorValue || "#111827"
+            });
+            return;
+          }
+          if (field.fieldId === "highlightColor") {
+            addMenuColorPaletteField(field.label, DOCS_HIGHLIGHT_COLOR_OPTIONS, (item) => {
+              createDocsSharedActionMap().highlightColor(item);
+            }, {
+              buttonLabel: field.label,
+              compact: true,
+              getCurrentValue: (state) => state.highlightColorValue || ""
+            });
+          }
         });
-        addMenuColorPaletteField(
-          "Text color",
-          DOCS_TEXT_COLOR_OPTIONS,
-          (item) =>
-            item?.value
-              ? runInlineCommandWithSelection(
-                  "foreColor",
-                  item.value,
-                  () => applyBlockTextColor(item.value),
-                  "Text color updated"
-                )
-              : applyBlockTextColor(""),
-          "Text color"
-        );
-        addMenuColorPaletteField(
-          "Highlight",
-          DOCS_HIGHLIGHT_COLOR_OPTIONS,
-          (item) =>
-            item?.value
-              ? runInlineCommandWithSelection(
-                  "hiliteColor",
-                  item.value,
-                  () => applyBlockHighlightColor(item.value),
-                  "Highlight updated"
-                )
-              : applyBlockHighlightColor(""),
-          "Highlight color"
-        );
         if (menuFieldSyncHandlers.length) {
           const syncMenuFields = () => {
             menuFieldSyncHandlers.forEach((handler) => handler());
@@ -5887,15 +7505,10 @@ function renderMarkdownPreview(
       }
 
       if (menuId === "Insert") {
-        addMenuAction("Checklist", insertChecklist);
-        addMenuAction("Quote", insertQuote);
-        addMenuAction("Divider", insertDivider);
-        addMenuAction("Table", insertTable);
-        addMenuAction("Import image", triggerImageImport);
-        addMenuAction("Image placeholder", insertImagePlaceholder);
-        addMenuAction("From URL", insertImageFromUrl);
-        addMenuAction("New section", insertNewSection);
-        addMenuAction("Page", insertPageBreak);
+        addBoundMenuActions(
+          createWorkspaceDocumentInsertMenuItems({ includeImagePlaceholder: true, includePageBreaks: true }),
+          createDocsSharedActionMap()
+        );
         if (projectAssets.length) {
           addMenuLabel("Project assets");
           projectAssets.slice(0, 6).forEach((item) => addMenuAction(`Insert ${item.title || item.objectKind || "asset"}`, () => insertProjectAsset(item)));
@@ -5929,17 +7542,27 @@ function renderMarkdownPreview(
       }
 
       if (menuId === "View") {
-        addMenuAction("Scroll to page", () => focusDocsPage());
-        if (!isDocsCanvasFullscreen()) {
-          addMenuAction("Scroll to outline", () => focusDocsOutline());
-        }
-        addMenuAction("Find in document", () => openDocumentSearch(), true);
-        addMenuAction(isDocsCanvasFullscreen() ? "Exit fullscreen" : "Open fullscreen", toggleDocsFullscreen, true);
+        addBoundMenuActions(
+          createWorkspaceDocumentViewMenuItems({
+            isFullscreen: isDocsCanvasFullscreen(),
+            includeOutline: !isDocsCanvasFullscreen()
+          }),
+          {
+            focusPage: () => focusDocsPage(),
+            focusOutline: () => focusDocsOutline(),
+            findDocument: () => openDocumentSearch(),
+            toggleFullscreen: toggleDocsFullscreen
+          },
+          { accentCommandIds: new Set(["findDocument", "toggleFullscreen"]) }
+        );
         addMenuLabel("Press Esc to leave fullscreen quickly.");
       }
     };
+    openDocsFileMenuFromHeader = () => {
+      renderDocsMenu(docsMenuPanel?.dataset.openMenu === "File" ? "" : "File");
+    };
 
-    ["Structure", "Format", "Insert", "Project & AI", "View"].forEach((label) => {
+    ["File", "Structure", "Format", "Insert", "Project & AI", "View"].forEach((label) => {
       const button = document.createElement("button");
       button.type = "button";
       button.className = "workspace-docs-menu-item";
@@ -6282,9 +7905,39 @@ function renderMarkdownPreview(
     docsTableControls = document.createElement("div");
     docsTableControls.className = "workspace-docs-table-controls hidden";
     docsTableContextMenu = document.createElement("div");
-    docsTableContextMenu.className = "workspace-docs-table-menu hidden";
+    docsTableContextMenu.className = "workspace-docs-table-menu";
+    docsTableContextMenu.hidden = true;
+    docsTableContextMenuApi = createWorkspaceContextMenu({
+      root: docsTableContextMenu,
+      appendTo: document.body,
+      controllerOptions: {
+        removeRootOnClose: true,
+        submenuClassName: "workspace-docs-table-submenu",
+        itemOpenClassName: "is-open",
+        rootFallbackWidth: 240,
+        rootFallbackHeight: 360,
+        minSubmenuWidth: 210,
+        submenuZIndexBase: 1850
+      },
+      renderOptions: {
+        itemClassName: "workspace-docs-table-menu-row",
+        itemDisabledClassName: "is-disabled",
+        itemOpenClassName: "is-open",
+        separatorClassName: "workspace-docs-table-menu-separator",
+        headingClassName: "workspace-docs-table-menu-label",
+        submenuClassName: "workspace-docs-table-submenu",
+        actionOptions: {
+          actionClassName: "workspace-docs-table-menu-item",
+          iconClassName: "workspace-docs-menu-action-icon",
+          labelClassName: "workspace-docs-menu-action-label",
+          metaClassName: "workspace-docs-menu-action-meta",
+          createIconNode: createWorkspaceIconNode,
+          resolveIconName: getWorkspaceCommandIcon,
+          role: "menuitem"
+        }
+      }
+    });
     docsCanvas.appendChild(docsTableControls);
-    docsCanvas.appendChild(docsTableContextMenu);
     syncDocsFullscreenButtonState();
     previewShell.addEventListener("fullscreenchange", () => {
       if (isDocsCanvasFullscreen()) {
@@ -6302,6 +7955,7 @@ function renderMarkdownPreview(
     shell.classList.add("workspace-inline-editable");
     shell.dataset.placeholder = "Start typing here";
     shell.addEventListener("input", (event) => {
+      docsSelectAllPendingDelete = false;
       if (shouldLinkifyOnBreak(event)) {
         linkifyPlainUrlsInNode(shell);
       }
@@ -6318,6 +7972,35 @@ function renderMarkdownPreview(
       updateDocsToolbarStatus("Editing page");
     });
     shell.addEventListener("keydown", (event) => {
+      const normalizedKey = String(event.key || "").toLowerCase();
+      if ((event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey && normalizedKey === "z") {
+        event.preventDefault();
+        event.stopPropagation();
+        undoDocumentEdit();
+        return;
+      }
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        !event.altKey &&
+        (normalizedKey === "y" || (event.shiftKey && normalizedKey === "z"))
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        redoDocumentEdit();
+        return;
+      }
+      if ((event.ctrlKey || event.metaKey) && normalizedKey === "a") {
+        event.preventDefault();
+        event.stopPropagation();
+        selectAllDocsContent();
+        return;
+      }
+      if ((event.key === "Delete" || event.key === "Backspace") && syncDocsSelectAllDeleteState()) {
+        event.preventDefault();
+        event.stopPropagation();
+        clearAllDocsContent();
+        return;
+      }
       if (event.key !== "Tab") {
         return;
       }
@@ -6336,9 +8019,11 @@ function renderMarkdownPreview(
     });
     shell.addEventListener("mouseup", () => {
       saveDocsSelectionRange();
+      syncDocsSelectAllDeleteState();
     });
     shell.addEventListener("keyup", () => {
       saveDocsSelectionRange();
+      syncDocsSelectAllDeleteState();
     });
     shell.addEventListener("contextmenu", (event) => {
       if (
@@ -6368,6 +8053,9 @@ function renderMarkdownPreview(
   }
   previewShell.appendChild(previewLayout);
   container.appendChild(previewShell);
+  if (shell?.dataset?.richDocument === "true") {
+    docsEditCurrentSnapshot = serializeDocumentPreviewShell(shell);
+  }
   if (normalizedLegacyHeading) {
     commitDocumentShell();
   }
@@ -26607,6 +28295,19 @@ export function renderWorkspacePreview(
     return;
   }
 
+  if (resolvedSurfaceId === "canvas") {
+    renderWorkspaceCanvasPanel(container, {
+      workObject,
+      filePath: normalizedPath,
+      content,
+      sections,
+      blocks,
+      selectedSectionId,
+      onSectionFocus: onDocumentSectionFocus
+    });
+    return;
+  }
+
   if (resolvedSurfaceId === "presentation") {
     renderPresentationPreview(
       container,
@@ -26789,7 +28490,7 @@ export function renderWorkspaceSurfaceNav(
 
   const visibleSurfaces = surfaces
     .filter((item) => item?.enabled !== false)
-    .filter((surface) => surface.id !== "edit");
+    .filter((surface) => surface.id !== "edit" && surface.id !== "canvas");
 
   container.classList.toggle("hidden", visibleSurfaces.length < 2);
 

@@ -8,21 +8,30 @@ import {
 import { parseMarkdownDocument } from "./shared.js";
 
 export async function renderDocxArtifact({ title, markdown }) {
-  const documentModel = parseMarkdownDocument(markdown, title);
-  const children = [
-    new Paragraph({
-      text: documentModel.title,
-      heading: HeadingLevel.TITLE
-    })
-  ];
+  const normalizedMarkdown = String(markdown || "");
+  const hasExplicitTitle = /^\s*#\s+\S/m.test(normalizedMarkdown);
+  const hasExplicitSections = /^\s*##+\s+\S/m.test(normalizedMarkdown);
+  const documentModel = parseMarkdownDocument(normalizedMarkdown, "");
+  const children = [];
 
-  for (const section of documentModel.sections) {
+  if (hasExplicitTitle && documentModel.title) {
     children.push(
       new Paragraph({
-        text: section.heading,
-        heading: HeadingLevel.HEADING_1
+        text: documentModel.title,
+        heading: HeadingLevel.TITLE
       })
     );
+  }
+
+  for (const section of documentModel.sections) {
+    if (hasExplicitSections && section.heading) {
+      children.push(
+        new Paragraph({
+          text: section.heading,
+          heading: HeadingLevel.HEADING_1
+        })
+      );
+    }
 
     for (const paragraph of section.paragraphs) {
       children.push(
