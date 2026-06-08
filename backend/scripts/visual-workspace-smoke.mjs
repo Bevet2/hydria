@@ -419,6 +419,32 @@ const scenarios = [
         }
       };
     }
+  },
+  {
+    name: "crm-workspace-page",
+    tags: ["crm", "workspace"],
+    run: async ({ page, options }) => {
+      const baseUrl = String(options.baseUrl || "").replace(/\/+$/, "");
+      await page.goto(`${baseUrl}/workspace/crm`, { waitUntil: "domcontentloaded", timeout: 30000 });
+      await page.waitForLoadState("networkidle", { timeout: 5000 }).catch(() => {});
+      await page.waitForTimeout(800);
+
+      const crmPageCheck = await page.evaluate(() => {
+        const text = document.body.innerText || "";
+        return {
+          url: window.location.href,
+          hasCrmHeading: /CRM WORKSPACE|CRM/i.test(text),
+          hasCreateAction: /Create a CRM workspace|Create CRM workspace|Créer/i.test(text),
+          hasSalesLanguage: /contacts|companies|deals|sales|pipeline|follow-up|CRM/i.test(text)
+        };
+      });
+
+      assert.equal(crmPageCheck.hasCrmHeading, true, "CRM workspace page should render on direct navigation");
+      assert.equal(crmPageCheck.hasCreateAction, true, "CRM workspace page should expose a create action");
+      assert.equal(crmPageCheck.hasSalesLanguage, true, "CRM workspace page should describe CRM sales work");
+
+      return crmPageCheck;
+    }
   }
 ];
 
