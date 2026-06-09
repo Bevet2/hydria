@@ -184,6 +184,10 @@ router.get("/public", (req, res) => {
         advisorEnabled: config.externalHydria.advisorEnabled,
         controlEnabled: config.externalHydria.controlEnabled
       },
+      crm: {
+        apiUrl: config.crm.apiUrl,
+        webUrl: config.crm.webUrl
+      },
       tools: {
         enabled: config.tools.enabled,
         workspaceRoot: config.tools.workspaceRoot,
@@ -244,6 +248,12 @@ router.get("/public", (req, res) => {
       },
       taskPacks: listTaskPacks(),
       models: getPublicModelRegistry(),
+      hydriaCore: {
+        enabled: config.hydriaCore.enabled,
+        configured: Boolean(config.hydriaCore.apiKey),
+        baseUrl: config.hydriaCore.baseUrl,
+        routingMode: config.llm.routingMode
+      },
       apis: getPublicApiRegistry(),
       futureCapabilities
     }

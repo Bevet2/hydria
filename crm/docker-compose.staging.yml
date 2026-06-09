@@ -1,0 +1,55 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    env_file: staging.env
+    volumes:
+      - northstar_staging_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    env_file: staging.env
+    environment:
+      API_PORT: 4010
+      ATTACHMENT_DIR: /app/storage/attachments
+      BACKUP_DIR: /app/storage/backups
+      RUN_DB_SEED: "false"
+    ports:
+      - "127.0.0.1:4010:4010"
+    volumes:
+      - northstar_staging_attachments:/app/storage/attachments
+      - northstar_staging_backups:/app/storage/backups
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:4010/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        VITE_API_URL: ${PUBLIC_API_URL}
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:4174:80"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  northstar_staging_postgres:
+  northstar_staging_attachments:
+  northstar_staging_backups:

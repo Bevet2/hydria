@@ -723,8 +723,17 @@ export async function requestPublicHydriaControl({
     activeWorkObject,
     activeWorkObjectContent
   });
+  const activeWorkspaceFamily = String(
+    activeWorkObject?.workspaceFamilyId ||
+      activeWorkObject?.metadata?.workspaceFamilyId ||
+      ""
+  ).toLowerCase();
+  const preferCrmAdapterFallback =
+    activeWorkspaceFamily === "crm_sales" && localWorkspaceToolCalls.length > 0;
   const shouldUseLocalFallback =
-    !actions.length && !publicWorkspaceToolCalls.length && localWorkspaceToolCalls.length;
+    !publicWorkspaceToolCalls.length &&
+    localWorkspaceToolCalls.length &&
+    (preferCrmAdapterFallback || !actions.length);
   const workspaceToolCalls = shouldUseLocalFallback
     ? makeWorkspaceToolCallsExecutable(localWorkspaceToolCalls)
     : publicWorkspaceToolCalls;
@@ -970,7 +979,8 @@ export async function runExternalHydriaControl({
   projectId = "",
   execute = true,
   confirmed = false,
-  workObjectService
+  workObjectService,
+  workspaceToolExecutor = executeWorkspaceToolCalls
 } = {}) {
   const control = await requestExternalHydriaControl({
     prompt,
@@ -996,7 +1006,7 @@ export async function runExternalHydriaControl({
           results: []
         };
   const workspaceExecution = execute && (control.workspaceToolCalls || []).length
-    ? await executeWorkspaceToolCalls({
+    ? await workspaceToolExecutor({
         calls: control.workspaceToolCalls || [],
         userId,
         prompt,

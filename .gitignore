@@ -5,6 +5,20 @@ backend/.env
 .env.*
 !.env.example
 !backend/.env.example
+crm/node_modules/
+crm/apps/*/node_modules/
+crm/apps/*/dist/
+crm/apps/*/*.tsbuildinfo
+crm/apps/web/test-results/
+crm/apps/web/playwright-report/
+crm/apps/api/storage/
+crm/.env
+crm/staging.env
+
+.tools/
+backend/backend/
+backend/chart-*.png
+backend/popup-debug.png
 
 data/
 logs/
@@ -21,3 +35,4 @@ ollama/
 *.tmp
 __pycache__/
 *.pyc
+crm/storage/

@@ -1,6 +1,7 @@
 import config from "../../../config/hydria.config.js";
 import logger from "../../../utils/logger.js";
 import { getPrimaryModelTarget, getProviderModelChain } from "../../registry/modelRegistry.js";
+import { callHydriaCoreModel } from "../hydriaCore/hydriaCoreService.js";
 import { callLocalModel } from "../local/localLlmService.js";
 import {
   callChatModel as callOpenRouterChatModel,
@@ -59,6 +60,14 @@ async function callOpenRouter(kind, messages, target, options = {}) {
 }
 
 async function callTarget(kind, messages, target, options = {}) {
+  if (target.provider === "hydria-core") {
+    return callHydriaCoreModel(messages, {
+      ...options,
+      kind,
+      model: target.model
+    });
+  }
+
   if (target.provider === "local") {
     return callLocalModel(messages, {
       ...options,

@@ -402,6 +402,76 @@ function buildBlankWorkspaceFiles(kind = "document", title = "Hydria Workspace",
     };
   }
 
+  if (kind === "project" && workspaceFamilyId === "crm_sales") {
+    const crmConfig = {
+      title: headline,
+      description: "Original open source sales CRM for leads, accounts, opportunities, quotes and forecasts.",
+      theme: "light",
+      navigation: ["Dashboard", "Leads", "Contacts", "Companies", "Pipeline", "Products & Quotes", "Tasks", "Reports"],
+      api: {
+        baseUrl: "http://localhost:4010/api",
+        authentication: "JWT",
+        capabilities: ["lead-conversion", "forecasting", "product-catalog", "quotes", "global-search", "reports"]
+      },
+      pages: [
+        { id: "dashboard", title: "Dashboard", blocks: ["metrics", "pipeline", "activity"] },
+        { id: "leads", title: "Leads", blocks: ["qualification", "conversion", "activity"] },
+        { id: "contacts", title: "Contacts", blocks: ["search", "table", "detail"] },
+        { id: "companies", title: "Companies", blocks: ["filters", "table", "detail"] },
+        { id: "pipeline", title: "Pipeline", blocks: ["kanban", "forecast", "deal-detail"] },
+        { id: "products", title: "Products & Quotes", blocks: ["catalog", "line-items", "quotes"] },
+        { id: "tasks", title: "Tasks", blocks: ["queue", "calendar"] },
+        { id: "reports", title: "Reports", blocks: ["funnel", "conversion", "owner-forecast"] }
+      ]
+    };
+    return {
+      sourceFormat: "json",
+      primaryPath: "app.config.json",
+      files: [
+        {
+          path: "app.config.json",
+          content: JSON.stringify(crmConfig, null, 2)
+        },
+        {
+          path: "index.html",
+          content:
+            `<!DOCTYPE html>\n<html lang="fr">\n<head>\n` +
+            `  <meta charset="UTF-8" />\n` +
+            `  <meta name="viewport" content="width=device-width, initial-scale=1.0" />\n` +
+            `  <title>${headline}</title>\n` +
+            `  <link rel="stylesheet" href="styles.css" />\n` +
+            `</head>\n<body>\n` +
+            `  <main class="crm-shell">\n` +
+            `    <aside><strong>${headline}</strong>${crmConfig.navigation
+              .map((item, index) => `<button class="${index === 0 ? "active" : ""}">${item}</button>`)
+              .join("")}</aside>\n` +
+            `    <section><header><div><small>Sales workspace</small><h1>Dashboard</h1></div><button class="primary">New deal</button></header>` +
+            `<div class="metrics"><article><span>Weighted forecast</span><strong>EUR 0</strong></article><article><span>Active leads</span><strong>0</strong></article><article><span>Tasks due</span><strong>0</strong></article></div>` +
+            `<div class="board"><article><h2>Pipeline & forecast</h2><p>Qualify leads, move opportunities and track team commitments.</p></article><article><h2>Quotes & activity</h2><p>Products, proposals, notes, calls and updates appear here.</p></article></div>` +
+            `</section>\n  </main>\n</body>\n</html>\n`
+        },
+        {
+          path: "styles.css",
+          content:
+            `*{box-sizing:border-box}body{margin:0;background:#f5f7f6;color:#17211f;font-family:Inter,system-ui,sans-serif}` +
+            `.crm-shell{min-height:100vh;display:grid;grid-template-columns:220px 1fr}` +
+            `aside{padding:28px 18px;background:#16211f;color:#f7fbfa;display:flex;flex-direction:column;gap:8px}` +
+            `aside strong{font-size:20px;margin-bottom:22px}button{border:0;border-radius:6px;padding:11px 12px;background:transparent;color:inherit;text-align:left}` +
+            `aside button.active{background:#29413c}.primary{background:#167d68;color:white;padding:11px 16px}` +
+            `section{padding:32px}header{display:flex;justify-content:space-between;align-items:center}h1{margin:4px 0 24px}` +
+            `.metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}.metrics article,.board article{padding:20px;background:white;border:1px solid #e1e8e5;border-radius:8px}` +
+            `.metrics span{display:block;color:#6a7773}.metrics strong{display:block;margin-top:12px;font-size:26px}.board{display:grid;grid-template-columns:1.4fr 1fr;gap:14px;margin-top:14px}` +
+            `@media(max-width:760px){.crm-shell{grid-template-columns:1fr}aside{display:none}.metrics,.board{grid-template-columns:1fr}section{padding:20px}}`
+        },
+        {
+          path: "README.md",
+          content:
+            `# ${headline}\n\nThis Hydria workspace is linked to the full React, Express and Prisma implementation in the repository \`crm/\` directory.\n`
+        }
+      ]
+    };
+  }
+
   if (kind === "project") {
     return {
       sourceFormat: "json",

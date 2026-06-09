@@ -16,6 +16,7 @@ import artifactsRouter from "./routes/artifacts.js";
 import workObjectsRouter from "./routes/workObjects.js";
 import projectsRouter from "./routes/projects.js";
 import sheetsRouter from "./routes/sheets.js";
+import docsRouter from "./routes/docs.js";
 import hydriaApiRouter from "./routes/hydriaApi.js";
 
 initDatabase();
@@ -37,6 +38,7 @@ app.use("/api/artifacts", artifactsRouter);
 app.use("/api/work-objects", workObjectsRouter);
 app.use("/api/projects", projectsRouter);
 app.use("/api/sheets", sheetsRouter);
+app.use("/api/docs", docsRouter);
 
 app.get("/favicon.ico", (req, res) => {
   res.sendFile(path.join(config.paths.frontendDir, "favicon.svg"));
@@ -56,10 +58,13 @@ app.use(
   })
 );
 
-app.get("/", (req, res) => {
+function sendFrontendApp(req, res) {
   res.setHeader("Cache-Control", "no-store");
   res.sendFile(path.join(config.paths.frontendDir, "index.html"));
-});
+}
+
+app.get("/", sendFrontendApp);
+app.get(/^\/workspace(?:\/[^/]+)?\/?$/, sendFrontendApp);
 
 app.use((req, res, next) => {
   next(new AppError("Route not found", 404));

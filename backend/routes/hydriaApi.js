@@ -4,6 +4,14 @@ import agenticConfig from "../src/config/agenticConfig.js";
 import HydriaBrainProvider from "../src/core/HydriaBrainProvider.js";
 import WorkObjectService from "../src/work-objects/workObject.service.js";
 import { AppError } from "../utils/errors.js";
+import { getUserById } from "../services/memory/historyService.js";
+import {
+  createCrmLiveWorkObject,
+  createCrmSession,
+  executeCrmWorkspaceToolCalls,
+  getCrmStatus,
+  getCrmWorkspaceContext
+} from "../services/crm/crmIntegrationClient.js";
 import {
   askExternalHydria,
   getExternalHydriaCapabilities,
@@ -72,6 +80,29 @@ function getActiveWorkObject({ workObjectId = "", entryPath = "" } = {}) {
   };
 }
 
+function isCrmWorkspace(body = {}, activeWorkObject = null) {
+  const requestedFamily = String(
+    body.workspaceFamilyId ||
+      body.workspaceContext?.workspaceFamilyId ||
+      body.workspaceContext?.activeWorkObject?.workspaceFamilyId ||
+      ""
+  ).toLowerCase();
+  const activeFamily = String(
+    activeWorkObject?.workspaceFamilyId ||
+      activeWorkObject?.metadata?.workspaceFamilyId ||
+      ""
+  ).toLowerCase();
+  return requestedFamily === "crm_sales" || activeFamily === "crm_sales";
+}
+
+function requireHydriaUser(userId) {
+  const user = getUserById(userId);
+  if (!user) {
+    throw new AppError("Hydria user not found.", 404);
+  }
+  return user;
+}
+
 router.get("/status", (req, res) => {
   res.json({
     success: true,
@@ -84,6 +115,30 @@ router.get("/status", (req, res) => {
       controlDirectEndpointReady: Boolean(config.externalHydria.controlToken)
     }
   });
+});
+
+router.get("/crm/status", async (req, res, next) => {
+  try {
+    res.json({
+      success: true,
+      crm: await getCrmStatus()
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/crm/session", async (req, res, next) => {
+  try {
+    const user = requireHydriaUser(req.body?.userId);
+    const session = await createCrmSession(user);
+    res.json({
+      success: true,
+      ...session
+    });
+  } catch (error) {
+    next(error);
+  }
 });
 
 router.get("/control/schema", (req, res) => {
@@ -204,10 +259,30 @@ router.post("/control", async (req, res, next) => {
       throw new AppError("prompt is required for Hydria control.", 400);
     }
 
-    const { activeWorkObject, activeWorkObjectContent } = getActiveWorkObject({
+    const current = getActiveWorkObject({
       workObjectId: req.body?.workObjectId || "",
       entryPath: req.body?.entryPath || ""
     });
+    let activeWorkObject = current.activeWorkObject;
+    let activeWorkObjectContent = current.activeWorkObjectContent;
+    let workspaceToolExecutor;
+
+    if (isCrmWorkspace(req.body, activeWorkObject)) {
+      const user = requireHydriaUser(userId);
+      const crmContext = await getCrmWorkspaceContext(user);
+      activeWorkObjectContent = crmContext.contentPreview;
+      activeWorkObject = createCrmLiveWorkObject({
+        contentPreview: activeWorkObjectContent
+      });
+      workspaceToolExecutor = (options) =>
+        executeCrmWorkspaceToolCalls({
+          calls: options.calls,
+          user,
+          prompt: options.prompt,
+          confirmed: options.confirmed
+        });
+    }
+
     const result = await runExternalHydriaControl({
       prompt,
       userId,
@@ -217,7 +292,8 @@ router.post("/control", async (req, res, next) => {
       activeWorkObjectContent,
       execute: req.body?.execute !== false,
       confirmed: req.body?.confirmed === true,
-      workObjectService
+      workObjectService,
+      workspaceToolExecutor
     });
 
     res.json({
@@ -249,6 +325,12 @@ router.post("/actions", async (req, res, next) => {
         ? { workspaceToolCalls: explicitWorkspaceCalls }
         : { proposedActions: req.body?.proposedActions || actionInput }
     );
+    const crmWorkspaceToolCalls = workspaceToolCalls.filter((call) =>
+      String(call?.payload?.toolName || "").startsWith("crm.")
+    );
+    const localWorkspaceToolCalls = workspaceToolCalls.filter((call) =>
+      !String(call?.payload?.toolName || "").startsWith("crm.")
+    );
     const safeActionInput = workspaceToolCalls.length
       ? (Array.isArray(actionInput) ? actionInput : []).filter((action) =>
           ["reply", "set_work_object_metadata"].includes(String(action?.type || action?.action || ""))
@@ -262,9 +344,9 @@ router.post("/actions", async (req, res, next) => {
       projectId: req.body?.projectId || "",
       workObjectService
     });
-    const workspaceExecution = workspaceToolCalls.length
+    const workspaceExecution = localWorkspaceToolCalls.length
       ? await executeWorkspaceToolCalls({
-          calls: workspaceToolCalls,
+          calls: localWorkspaceToolCalls,
           userId,
           prompt: req.body?.prompt || "",
           confirmed: req.body?.confirmed === true,
@@ -274,10 +356,21 @@ router.post("/actions", async (req, res, next) => {
           executed: 0,
           results: []
         };
+    const crmExecution = crmWorkspaceToolCalls.length
+      ? await executeCrmWorkspaceToolCalls({
+          calls: crmWorkspaceToolCalls,
+          user: requireHydriaUser(userId),
+          prompt: req.body?.prompt || "",
+          confirmed: req.body?.confirmed === true
+        })
+      : {
+          executed: 0,
+          results: []
+        };
     const combinedExecution = {
-      executed: execution.executed + workspaceExecution.executed,
-      results: [...execution.results, ...workspaceExecution.results],
-      workspaceToolResults: workspaceExecution.results
+      executed: execution.executed + workspaceExecution.executed + crmExecution.executed,
+      results: [...execution.results, ...workspaceExecution.results, ...crmExecution.results],
+      workspaceToolResults: [...workspaceExecution.results, ...crmExecution.results]
     };
 
     res.json({

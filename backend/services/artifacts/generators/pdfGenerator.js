@@ -43,6 +43,7 @@ function writeMarkdownToPdf(doc, markdown) {
 }
 
 export async function renderPdfArtifact({ title, markdown }) {
+  const normalizedTitle = String(title || "").trim();
   const doc = new PDFDocument({
     margin: 56,
     size: "A4"
@@ -54,9 +55,9 @@ export async function renderPdfArtifact({ title, markdown }) {
     doc.on("end", () => resolve(Buffer.concat(chunks)));
     doc.on("error", reject);
 
-    doc.info.Title = title || "Hydria Document";
-    doc.font("Helvetica-Bold").fontSize(24).text(title || "Hydria Document");
-    doc.moveDown(0.8);
+    if (normalizedTitle) {
+      doc.info.Title = normalizedTitle;
+    }
     writeMarkdownToPdf(doc, markdown);
     doc.end();
   });

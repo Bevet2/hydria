@@ -225,6 +225,36 @@ Rules implemented in code:
 - if a specialized model fails, Hydria falls back to `FALLBACK_MODEL`
 - if only `DEFAULT_FREE_MODEL` and `FALLBACK_MODEL` are configured, the app still runs
 
+## Hydria Core engine adapter
+
+Hydria V1 can use a deployed Hydria Core instance as its governed cognitive engine while keeping the OS workspace layer local.
+
+This does not replace projects, work objects, runtime surfaces, attachments, or local workspace continuity. The OS still builds the workspace context and execution plan; the LLM router can then send the current agent/model step to Hydria Core through `/api/v1/ask`.
+
+Backend environment:
+
+```env
+LLM_ROUTING_MODE=core-first
+HYDRIA_CORE_ENABLED=true
+HYDRIA_CORE_BASE_URL=https://app.hydria.click/api/v1
+HYDRIA_CORE_API_KEY=hydria_live_xxx
+```
+
+Modes:
+
+- `core-first`: try Hydria Core first, then fall back to local/OpenRouter providers if configured.
+- `core-only`: require Hydria Core for model calls.
+- `local-first`: keep the existing local-first behavior.
+
+Adapter smoke test:
+
+```bash
+cd backend
+npm run smoke:hydria-core-adapter
+```
+
+The smoke test uses a local fake Core endpoint and verifies that workspace context is forwarded to the Core adapter.
+
 ## API catalog
 
 Hydria does not hardcode all providers in service logic. API availability is driven by:

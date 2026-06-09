@@ -1,4 +1,5 @@
 import { AppError } from "../../utils/errors.js";
+import { CRM_WORKSPACE_TOOLS } from "../crm/crmIntegrationClient.js";
 
 const SHEET_WORKSPACE_TOOLS = Object.freeze([
   "sheet.apply_formula",
@@ -149,10 +150,12 @@ const SUPPORTED_SHEET_OPERATIONS = new Set([
 ]);
 const SUPPORTED_DOC_OPERATIONS = new Set(DOC_WORKSPACE_TOOLS);
 const SUPPORTED_SLIDE_OPERATIONS = new Set(SLIDE_WORKSPACE_TOOLS);
+const SUPPORTED_CRM_OPERATIONS = new Set(CRM_WORKSPACE_TOOLS);
 const SUPPORTED_WORKSPACE_OPERATIONS = new Set([
   ...SUPPORTED_SHEET_OPERATIONS,
   ...SUPPORTED_DOC_OPERATIONS,
-  ...SUPPORTED_SLIDE_OPERATIONS
+  ...SUPPORTED_SLIDE_OPERATIONS,
+  ...SUPPORTED_CRM_OPERATIONS
 ]);
 const SHEET_OPERATION_ALIASES = new Map([
   ["add_column", "sheet.add_column"],
@@ -396,6 +399,12 @@ function isPresentationWorkObject(workObject = null) {
   );
 }
 
+function isCrmWorkObject(workObject = null) {
+  const familyId = workObjectFamilyId(workObject).toLowerCase();
+  const entryPath = workObjectEntryPath(workObject).toLowerCase();
+  return familyId === "crm_sales" || entryPath.startsWith("crm://");
+}
+
 function workspaceEngineForWorkObject(workObject = null, call = null) {
   const toolName = String(call?.payload?.toolName || "").toLowerCase();
   const operationType = String(call?.payload?.operations?.[0]?.type || "").toLowerCase();
@@ -408,6 +417,9 @@ function workspaceEngineForWorkObject(workObject = null, call = null) {
   if (toolName.startsWith("slide.") || operationType.startsWith("slide.")) {
     return "slide";
   }
+  if (toolName.startsWith("crm.") || operationType.startsWith("crm.")) {
+    return "crm";
+  }
   if (isSheetWorkObject(workObject)) {
     return "sheet";
   }
@@ -416,6 +428,9 @@ function workspaceEngineForWorkObject(workObject = null, call = null) {
   }
   if (isDocumentWorkObject(workObject)) {
     return "doc";
+  }
+  if (isCrmWorkObject(workObject)) {
+    return "crm";
   }
   return "";
 }
@@ -2719,11 +2734,15 @@ export function listHydriaWorkspaceTools() {
     ...DOC_WORKSPACE_TOOL_ALIASES,
     ...DOC_WORKSPACE_TOOLS,
     ...SLIDE_WORKSPACE_TOOL_ALIASES,
-    ...SLIDE_WORKSPACE_TOOLS
+    ...SLIDE_WORKSPACE_TOOLS,
+    ...CRM_WORKSPACE_TOOLS
   ];
 }
 
 export function listWorkspaceToolsForWorkObject(workObject = null) {
+  if (isCrmWorkObject(workObject)) {
+    return [...CRM_WORKSPACE_TOOLS];
+  }
   if (isSheetWorkObject(workObject)) {
     return [...SHEET_WORKSPACE_TOOLS];
   }
@@ -2746,6 +2765,9 @@ function workspaceToolEngine(toolName = "") {
   if (String(toolName).startsWith("slide.")) {
     return "slide";
   }
+  if (String(toolName).startsWith("crm.")) {
+    return "crm";
+  }
   return "";
 }
 
@@ -2758,6 +2780,9 @@ function workspaceToolOperationTypes(toolName = "") {
   }
   if (toolName === "slide.edit") {
     return [...SLIDE_WORKSPACE_TOOLS];
+  }
+  if (SUPPORTED_CRM_OPERATIONS.has(toolName)) {
+    return [toolName];
   }
   if (SUPPORTED_WORKSPACE_OPERATIONS.has(toolName)) {
     return [toolName];
@@ -2783,6 +2808,9 @@ function workspaceToolDescription(toolName = "") {
   }
   if (toolName.startsWith("slide.")) {
     return "Manipulate a Hydria presentation.";
+  }
+  if (toolName.startsWith("crm.")) {
+    return "Create or update a record in the live Hydria CRM through the signed OS adapter.";
   }
   return "Hydria workspace tool.";
 }
@@ -2845,17 +2873,28 @@ export function buildHydriaWorkspaceToolContract({ workspaceTools = null } = {})
 
 export function buildWorkspaceContextFields({ activeWorkObject = null, contentPreview = "" } = {}) {
   const sheetLike = isHydriaSheetContent(contentPreview) || isSheetWorkObject(activeWorkObject);
-  const workspaceTools = sheetLike
+  const crmLike = isCrmWorkObject(activeWorkObject);
+  const workspaceTools = crmLike
+    ? [...CRM_WORKSPACE_TOOLS]
+    : sheetLike
     ? [...SHEET_WORKSPACE_TOOLS]
     : listWorkspaceToolsForWorkObject(activeWorkObject);
   return {
-    workspaceFamilyId: sheetLike
+    workspaceFamilyId: crmLike
+      ? "crm_sales"
+      : sheetLike
       ? "data_spreadsheet"
       : workObjectFamilyId(activeWorkObject),
-    contentPreview: sheetLike
+    contentPreview: crmLike
+      ? compact(contentPreview, 5000)
+      : sheetLike
       ? buildSheetWorkspaceContentPreview(contentPreview)
       : compact(contentPreview, 2500),
-    contentFormat: sheetLike ? "hydria-sheet-json-preview" : "text-preview",
+    contentFormat: crmLike
+      ? "hydria-crm-json-preview"
+      : sheetLike
+        ? "hydria-sheet-json-preview"
+        : "text-preview",
     workspaceTools
   };
 }
@@ -3272,11 +3311,199 @@ function formulaForRow({ prompt = "", rowNumber = 2, targetColumn = "", sheet = 
   return `=${leftColumn}${rowNumber}`;
 }
 
+function crmContextPreview(content = "") {
+  try {
+    return JSON.parse(String(content || "{}"));
+  } catch {
+    return {};
+  }
+}
+
+function extractCrmPersonName(prompt = "") {
+  const match = String(prompt).match(
+    /\b(?:contact|client|lead|prospect)\s+(?:nomme|appele|named|called)?\s*["']?([A-Za-zÀ-ÖØ-öø-ÿ'-]{2,})\s+([A-Za-zÀ-ÖØ-öø-ÿ'-]{2,})/i
+  );
+  return {
+    firstName: compact(match?.[1] || "", 80),
+    lastName: compact(match?.[2] || "", 80)
+  };
+}
+
+function extractCrmCompanyName(prompt = "") {
+  const value =
+    String(prompt).match(
+      /\b(?:entreprise|societe|company)\s+(?:nommee|appelee|named|called)?\s*["']?([^"',.;]+?)(?=\s+(?:avec|with|email|tel|phone|dans|in|pour|for)\b|$)/i
+    )?.[1] ||
+    String(prompt).match(
+      /\b(?:pour|chez|for|at)\s+["']?([^"',.;]+?)(?=\s+(?:avec|with|email|tel|phone|de|worth)\b|$)/i
+    )?.[1] ||
+    "";
+  return compact(value, 160);
+}
+
+function extractCrmEmail(prompt = "") {
+  return String(prompt).match(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i)?.[0] || "";
+}
+
+function crmCreationVerb(prompt = "") {
+  return /\b(cree|creer|ajoute|add|create|planifie|schedule)\b/.test(normalizeLabel(prompt));
+}
+
+function synthesizeCrmToolCallsFromPrompt({
+  prompt = "",
+  activeWorkObject = null,
+  activeWorkObjectContent = ""
+} = {}) {
+  if (!isCrmWorkObject(activeWorkObject)) {
+    return [];
+  }
+
+  const normalized = normalizeLabel(prompt);
+  const person = extractCrmPersonName(prompt);
+  const email = extractCrmEmail(prompt);
+  const companyName = extractCrmCompanyName(prompt);
+  const operation = (() => {
+    if (crmCreationVerb(prompt) && /\b(contact|client)\b/.test(normalized) && person.firstName && person.lastName) {
+      return {
+        type: "crm.create_contact",
+        firstName: person.firstName,
+        lastName: person.lastName,
+        email,
+        companyName
+      };
+    }
+    if (crmCreationVerb(prompt) && /\b(lead|prospect)\b/.test(normalized) && person.firstName && person.lastName) {
+      return {
+        type: "crm.create_lead",
+        firstName: person.firstName,
+        lastName: person.lastName,
+        email,
+        companyName
+      };
+    }
+    if (crmCreationVerb(prompt) && /\b(entreprise|societe|company)\b/.test(normalized) && companyName) {
+      return {
+        type: "crm.create_company",
+        name: companyName
+      };
+    }
+    if (crmCreationVerb(prompt) && /\b(tache|task|relance|follow-up)\b/.test(normalized)) {
+      const title = compact(
+        String(prompt)
+          .replace(/^.*?\b(?:tache|task|relance|follow-up)\b\s*/i, "")
+          .replace(/\s+\b(?:pour|avant|due|le|on)\b.*$/i, ""),
+        180
+      );
+      return title ? { type: "crm.create_task", title } : null;
+    }
+
+    const context = crmContextPreview(activeWorkObjectContent);
+    const stages = Array.isArray(context.pipelineStages) ? context.pipelineStages : [];
+    const deals = Array.isArray(context.recentDeals) ? context.recentDeals : [];
+    const leads = Array.isArray(context.recentLeads) ? context.recentLeads : [];
+    const companies = Array.isArray(context.recentCompanies) ? context.recentCompanies : [];
+    const products = Array.isArray(context.products) ? context.products : [];
+    const stage = stages.find((item) => normalizeLabel(item?.name || "") && normalized.includes(normalizeLabel(item.name)));
+    const deal = deals.find((item) => normalizeLabel(item?.name || "") && normalized.includes(normalizeLabel(item.name)));
+    const lead = leads.find((item) => {
+      const fullName = `${item?.firstName || ""} ${item?.lastName || ""}`.trim();
+      return (item?.email && normalized.includes(normalizeLabel(item.email))) ||
+        (fullName && normalized.includes(normalizeLabel(fullName)));
+    });
+    if (/\b(convertis|convertir|transforme|convert)\b/.test(normalized) && /\b(lead|prospect)\b/.test(normalized) && lead) {
+      return {
+        type: "crm.convert_lead",
+        email: lead.email,
+        createDeal: !/\b(sans deal|sans opportunite|without deal)\b/.test(normalized),
+        target: { recordId: lead.id }
+      };
+    }
+    const product = products.find((item) =>
+      normalizeLabel(item?.name || "") && normalized.includes(normalizeLabel(item.name)) ||
+      normalizeLabel(item?.sku || "") && normalized.includes(normalizeLabel(item.sku))
+    );
+    if (/\b(ajoute|add)\b/.test(normalized) && /\b(produit|product|article)\b/.test(normalized) && deal && product) {
+      return {
+        type: "crm.add_product_to_deal",
+        dealName: deal.name,
+        productName: product.name,
+        sku: product.sku,
+        quantity: 1,
+        target: { recordId: deal.id }
+      };
+    }
+    if (/\b(cree|creer|genere|create|generate)\b/.test(normalized) && /\b(devis|quote|proposal|proposition)\b/.test(normalized) && deal) {
+      return {
+        type: "crm.create_quote",
+        dealName: deal.name,
+        name: `Proposition ${deal.name}`,
+        target: { recordId: deal.id }
+      };
+    }
+    const company = companies.find((item) => normalizeLabel(item?.name || "") && normalized.includes(normalizeLabel(item.name)));
+    if (/\b(resume|resumer|summary|synthese|recap)\b/.test(normalized) && /\b(client|entreprise|societe|company)\b/.test(normalized) && company) {
+      return {
+        type: "crm.summarize_customer",
+        companyName: company.name,
+        target: { recordId: company.id }
+      };
+    }
+    if (
+      /\b(passe|deplace|move|mets|set)\b/.test(normalized) &&
+      /\b(deal|opportunite|opportunity)\b/.test(normalized) &&
+      stage &&
+      deal
+    ) {
+      return {
+        type: "crm.update_deal_stage",
+        dealName: deal.name,
+        stageName: stage.name,
+        target: {
+          recordId: deal.id
+        }
+      };
+    }
+    return null;
+  })();
+
+  if (!operation) {
+    return [];
+  }
+
+  return [
+    normalizeWorkspaceToolCall({
+      id: `hydria-os-local-${operation.type}`,
+      type: "workspace_tool_call",
+      title: "Apply CRM operation",
+      target: {
+        workObjectId: activeWorkObject?.id || "crm-live",
+        entryPath: "crm://live"
+      },
+      payload: {
+        instruction: prompt,
+        workspaceFamilyId: "crm_sales",
+        currentKind: "app",
+        toolName: operation.type,
+        operations: [operation]
+      }
+    })
+  ].filter(Boolean);
+}
+
 export function synthesizeWorkspaceToolCallsFromPrompt({
   prompt = "",
   activeWorkObject = null,
   activeWorkObjectContent = ""
 } = {}) {
+  const crmCalls = synthesizeCrmToolCallsFromPrompt({
+    prompt,
+    activeWorkObject,
+    activeWorkObjectContent
+  });
+  if (crmCalls.length) {
+    return crmCalls;
+  }
+
   const documentCalls = synthesizeDocumentToolCallsFromPrompt({
     prompt,
     activeWorkObject,

@@ -24,6 +24,13 @@ function openRouterTarget(model) {
   };
 }
 
+function hydriaCoreTarget(model = "hydria-core-v1") {
+  return {
+    provider: "hydria-core",
+    model
+  };
+}
+
 function isPremiumKind(kind = "general") {
   return [
     "premium_general",
@@ -54,6 +61,10 @@ function fallbackLocalKindForPremium(kind = "general") {
 
 function getProviderOrder() {
   switch (config.llm.routingMode) {
+    case "core-only":
+      return ["hydria-core"];
+    case "core-first":
+      return ["hydria-core", "local", "openrouter"];
     case "local-only":
       return ["local"];
     case "openrouter-only":
@@ -64,6 +75,14 @@ function getProviderOrder() {
     default:
       return ["local", "openrouter"];
   }
+}
+
+function getHydriaCoreChain() {
+  if (!config.hydriaCore.enabled) {
+    return [];
+  }
+
+  return [hydriaCoreTarget()];
 }
 
 function getLocalChain(kind = "general") {
@@ -229,6 +248,11 @@ export function getProviderModelChain(kind = "general", override = null) {
 
   const targets = [];
   for (const provider of getProviderOrder()) {
+    if (provider === "hydria-core") {
+      targets.push(...getHydriaCoreChain(kind));
+      continue;
+    }
+
     if (provider === "local") {
       targets.push(...getLocalChain(kind));
       continue;
@@ -265,6 +289,8 @@ export function getPublicModelRegistry() {
     localReasoning: config.localLlm.models.reasoning,
     localFast: config.localLlm.models.fast,
     localAgent: config.localLlm.models.agent,
+    hydriaCoreConfigured: config.hydriaCore.enabled && Boolean(config.hydriaCore.apiKey),
+    hydriaCoreBaseUrl: config.hydriaCore.baseUrl,
     defaultFree: config.openrouter.models.defaultFree,
     fallback: config.openrouter.models.fallback,
     freeGeneral: config.openrouter.models.freeGeneral,

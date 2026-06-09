@@ -1,0 +1,84 @@
+name: CRM CI
+
+on:
+  push:
+    paths:
+      - "crm/**"
+      - ".github/workflows/crm-ci.yml"
+  pull_request:
+    paths:
+      - "crm/**"
+      - ".github/workflows/crm-ci.yml"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: northstar_ci
+          POSTGRES_USER: northstar
+          POSTGRES_PASSWORD: northstar_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U northstar -d northstar_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    defaults:
+      run:
+        working-directory: crm
+    env:
+      DATABASE_URL: postgresql://northstar:northstar_ci@localhost:5432/northstar_ci?schema=public
+      JWT_SECRET: northstar-ci-secret-at-least-32-characters
+      SECRET_ENCRYPTION_KEY: northstar-ci-encryption-key-32-chars
+      API_PORT: 4010
+      WEB_ORIGIN: http://127.0.0.1:5174
+      PUBLIC_WEB_URL: http://127.0.0.1:5174
+      VITE_API_URL: http://127.0.0.1:4010/api
+      CRM_API_URL: http://127.0.0.1:4010/api
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: crm/package-lock.json
+      - run: npm ci
+      - run: npm run db:generate
+      - run: npm run db:deploy -w @northstar/api
+      - run: npm run db:seed -w @northstar/api
+      - run: npm run typecheck
+      - run: npm run build
+      - name: Start API
+        run: |
+          npm run start -w @northstar/api > api-ci.log 2>&1 &
+          for i in {1..30}; do
+            curl --fail --silent http://127.0.0.1:4010/api/health && exit 0
+            sleep 2
+          done
+          cat api-ci.log
+          exit 1
+      - run: npm run gate:operations
+      - run: npm run gate:productivity
+      - run: npm run gate:platform
+      - run: npm run gate:resilience
+      - run: npm run gate:oauth
+      - run: npm run gate:communications
+      - run: npm run gate:commercial
+      - name: Multi-organization load gate
+        env:
+          CRM_LOAD_ORGS: 4
+          CRM_LOAD_RECORDS: 20
+          CRM_LOAD_REQUESTS: 150
+          CRM_LOAD_CONCURRENCY: 30
+        run: npm run gate:load
+      - name: Upload API log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crm-api-log
+          path: crm/api-ci.log

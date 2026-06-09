@@ -1,0 +1,28 @@
+{
+  "name": "northstar-crm",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "dotenv -e .env -- concurrently -n api,web -c green,cyan \"npm run dev -w @northstar/api\" \"npm run dev -w @northstar/web\"",
+    "build": "npm run build -w @northstar/api && npm run build -w @northstar/web",
+    "typecheck": "npm run typecheck -w @northstar/api && npm run typecheck -w @northstar/web",
+    "gate:operations": "dotenv -e .env -- npm run gate:operations -w @northstar/api",
+    "gate:productivity": "dotenv -e .env -- npm run gate:productivity -w @northstar/api",
+    "gate:platform": "dotenv -e .env -- npm run gate:platform -w @northstar/api",
+    "gate:resilience": "dotenv -e .env -- npm run gate:resilience -w @northstar/api",
+    "gate:oauth": "dotenv -e .env -- npm run gate:oauth -w @northstar/api",
+    "gate:communications": "dotenv -e .env -- npm run gate:communications -w @northstar/api",
+    "gate:load": "dotenv -e .env -- npm run gate:load -w @northstar/api",
+    "gate:commercial": "dotenv -e .env -- npm run gate:commercial -w @northstar/api",
+    "db:generate": "npm run db:generate -w @northstar/api",
+    "db:migrate": "dotenv -e .env -- npm run db:migrate -w @northstar/api",
+    "db:seed": "dotenv -e .env -- npm run db:seed -w @northstar/api"
+  },
+  "devDependencies": {
+    "concurrently": "9.2.1",
+    "dotenv-cli": "8.0.0"
+  }
+}
