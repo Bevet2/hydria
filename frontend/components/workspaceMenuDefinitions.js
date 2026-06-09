@@ -40,6 +40,12 @@ export const WORKSPACE_DOCUMENT_PAGE_FORMAT_MENU_ITEMS = [
   { label: "Orientation de la page", icon: "page", commandId: "pageOrientation" }
 ];
 
+export const WORKSPACE_DOCUMENT_OUTPUT_MENU_ITEMS = [
+  { label: "Telecharger DOCX", icon: "docx", commandId: "downloadDocx" },
+  { label: "Exporter PDF", icon: "pdf", commandId: "exportPdf" },
+  { label: "Imprimer", icon: "print", commandId: "printDocument" }
+];
+
 export const WORKSPACE_DOCUMENT_FORMAT_FIELD_ITEMS = [
   { type: "dropdown", fieldId: "fontFamily", labelCommandId: "fontFamily" },
   { type: "dropdown", fieldId: "fontSize", labelCommandId: "fontSize" },
@@ -180,6 +186,13 @@ export function createWorkspaceDocumentInsertMenuItems({
 
 export function createWorkspaceDocumentPageFormatMenuItems() {
   return normalizeWorkspaceMenuItems(WORKSPACE_DOCUMENT_PAGE_FORMAT_MENU_ITEMS.map((item) => ({ ...item })));
+}
+
+export function createWorkspaceDocumentOutputMenuItems({ locale = "fr" } = {}) {
+  return WORKSPACE_DOCUMENT_OUTPUT_MENU_ITEMS.map((item) => ({
+    ...item,
+    label: getWorkspaceCommandLabel(item.commandId, locale, item.label)
+  }));
 }
 
 export function createWorkspaceDocumentFormatFieldItems() {

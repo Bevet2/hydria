@@ -85,7 +85,10 @@ export const WORKSPACE_COMMON_COMMANDS = {
   dashboardRemoveChart: { id: "dashboardRemoveChart", label: "Remove visual", frLabel: "Supprimer le visuel", icon: "delete" },
   dashboardMoveWidgetLeft: { id: "dashboardMoveWidgetLeft", label: "Move widget left", frLabel: "Widget a gauche", icon: "chevronLeft" },
   dashboardMoveWidgetRight: { id: "dashboardMoveWidgetRight", label: "Move widget right", frLabel: "Widget a droite", icon: "chevronRight" },
-  dashboardRefresh: { id: "dashboardRefresh", label: "Refresh dashboard", frLabel: "Actualiser", icon: "refresh" }
+  dashboardRefresh: { id: "dashboardRefresh", label: "Refresh dashboard", frLabel: "Actualiser", icon: "refresh" },
+  downloadDocx: { id: "downloadDocx", label: "Download DOCX", frLabel: "Telecharger DOCX", icon: "docx" },
+  exportPdf: { id: "exportPdf", label: "Export PDF", frLabel: "Exporter PDF", icon: "pdf" },
+  printDocument: { id: "printDocument", label: "Print", frLabel: "Imprimer", icon: "print", shortcut: "Ctrl+P" }
 };
 
 export const WORKSPACE_TEXT_STYLE_COMMAND_IDS = ["bold", "italic", "underline", "strikethrough"];
@@ -215,6 +218,7 @@ export function getWorkspaceCommandIcon(label = "") {
   if (text.includes("lookup") || text.includes("go to") || text.includes("find") || text.includes("search") || text.includes("recherche")) return "search";
   if (text.includes("protect")) return "lock";
   if (text.includes("print") || text.includes("imprimer")) return "print";
+  if (text.includes("docx") || text.includes("word")) return "docx";
   if (text.includes("pdf")) return "pdf";
   if (text.includes("xlsx") || text.includes("csv") || text.includes("import") || text.includes("export") || text.includes("download")) return text.includes("csv") ? "csv" : "fileSpreadsheet";
   if (text.includes("zoom")) return "zoom";

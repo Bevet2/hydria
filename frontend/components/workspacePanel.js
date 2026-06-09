@@ -26,9 +26,9 @@ import {
   createWorkspaceDocumentFormatFieldItems,
   createWorkspaceDocumentFormatMenuItems,
   createWorkspaceDocumentInsertMenuItems,
+  createWorkspaceDocumentOutputMenuItems,
   createWorkspaceDocumentPageFormatMenuItems,
   createWorkspaceDocumentTableMenuItems,
-  createWorkspaceDocumentViewMenuItems,
   createWorkspaceFontSizeOptions,
   createWorkspaceFilterMenuItems,
   createWorkspaceHomeCellsMenuItems,
@@ -47,6 +47,8 @@ import {
   createWorkspaceSortMenuItems,
   createWorkspaceTableContextMenuItems,
   createWorkspaceValidationMenuItems,
+  formatWorkspaceFamilyLabel,
+  formatWorkspaceObjectKindLabel,
   getWorkspaceCommandIcon,
   getWorkspaceCommandLabel,
   installWorkspaceMenuEventBlockers,
@@ -134,6 +136,8 @@ const spreadsheetExpandedPopupHostStore = new Map();
 const spreadsheetRecentFormulaStore = new Map();
 const dashboardExpandedStore = new Map();
 const dashboardExpandedPopupHostStore = new Map();
+const applicationPreviewExpandedStore = new Map();
+const applicationPreviewExpandedPopupHostStore = new Map();
 const SPREADSHEET_MIN_VISIBLE_COLUMNS = 26;
 const SPREADSHEET_MIN_VISIBLE_ROWS = 200;
 
@@ -2071,11 +2075,13 @@ function renderMarkdownPreview(
   onInlineEdit = null,
   workObject = null,
   projectWorkObjects = [],
-  onProjectObjectSelect = null
+  onProjectObjectSelect = null,
+  sourceFilePath = ""
 ) {
   const profile = getDocumentWorkspacePreviewProfile(workObject);
   const isDocsClone = workObject?.workspaceFamilyId === "document_knowledge";
   const usesRichDocument = isDocsClone && isRichDocumentHtml(content);
+  const documentSourcePath = normalizePath(sourceFilePath || workObject?.primaryFile || workObject?.sourcePath || "");
   let activeEditable = null;
   let docsMenuPanel = null;
   let docsMenuButtons = [];
@@ -2107,13 +2113,18 @@ function renderMarkdownPreview(
   let docsToolbar = null;
   let docsToolbarStatus = null;
   let shell = null;
+  let previewLayout = null;
   let outline = null;
   let docsCanvas = null;
+  let docsPageRuler = null;
+  let docsVerticalRuler = null;
   let docsTableControls = null;
   let docsTableContextMenu = null;
   let docsTableContextMenuApi = null;
   let docsTableControlSignature = "";
   let docsCommitHandle = null;
+  let docsPageReflowHandle = null;
+  let docsPendingPageReflow = false;
   let normalizedLegacyHeading = false;
   let docsFullscreenButtons = [];
   let docsSavedSelectionRange = null;
@@ -2125,6 +2136,7 @@ function renderMarkdownPreview(
   let triggerImageImport = () => {};
   let docsSearchBar = null;
   let docsSearchInput = null;
+  let docsApplicationSearchInput = null;
   let docsSearchCount = null;
   let docsSearchUndoButton = null;
   let docsSearchRedoButton = null;
@@ -2136,6 +2148,9 @@ function renderMarkdownPreview(
   let docsSearchAllSelected = false;
   let docsSearchUndoStack = [];
   let docsSearchRedoStack = [];
+  let docsOutlineVisible = false;
+  let docsHeaderPageButton = null;
+  let docsHeaderOutlineButton = null;
   const docsSearchMatchClassName = "workspace-docs-search-match";
   const docsSearchActiveClassName = "is-active";
 
@@ -2156,11 +2171,13 @@ function renderMarkdownPreview(
   if (isDocsClone) {
     [
       {
+        key: "page",
         label: "Edit page",
         modifier: "is-active",
         onClick: () => focusDocsPage()
       },
       {
+        key: "outline",
         label: "Outline",
         onClick: () => focusDocsOutline()
       },
@@ -2179,6 +2196,11 @@ function renderMarkdownPreview(
       button.className = `workspace-code-tab workspace-docs-header-action${action.modifier ? ` ${action.modifier}` : ""}`;
       button.textContent = action.label;
       button.addEventListener("click", action.onClick);
+      if (action.key === "page") {
+        docsHeaderPageButton = button;
+      } else if (action.key === "outline") {
+        docsHeaderOutlineButton = button;
+      }
       previewTabs.appendChild(button);
     });
   } else {
@@ -2190,7 +2212,9 @@ function renderMarkdownPreview(
     });
   }
   previewToolbar.append(previewMeta, previewTabs);
-  previewShell.appendChild(previewToolbar);
+  if (!isDocsClone) {
+    previewShell.appendChild(previewToolbar);
+  }
 
   docsSearchBar = document.createElement("div");
   docsSearchBar.className = "workspace-docs-searchbar hidden";
@@ -2203,6 +2227,7 @@ function renderMarkdownPreview(
   docsSearchInput.placeholder = "Search a word or phrase";
   docsSearchInput.setAttribute("aria-label", "Find in document");
   docsSearchInput.addEventListener("input", (event) => {
+    syncDocumentSearchInputs(event.target.value, docsSearchInput);
     applyDocumentSearch(event.target.value, { scrollToActive: false });
   });
   docsSearchInput.addEventListener("keydown", (event) => {
@@ -2304,6 +2329,177 @@ function renderMarkdownPreview(
     target?.focus?.({ preventScroll: true });
   };
 
+  const buildDocumentDownloadBaseName = () =>
+    (String(workObject?.title || friendlyPathLabel(documentSourcePath) || "hydria-document")
+      .trim()
+      .replace(/\.[^.]+$/, "")
+      .replace(/[\\/:*?"<>|]+/g, "-")
+      .replace(/[^\w.-]+/g, "-") || "hydria-document");
+
+  const downloadDocsBlobFile = (blob, filename = "hydria-document.docx") => {
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+  };
+
+  const readDocsApiError = async (response) => {
+    try {
+      const payload = await response.clone().json();
+      return payload?.error || payload?.message || response.statusText || "Request failed";
+    } catch {
+      const text = await response.text().catch(() => "");
+      return text || response.statusText || "Request failed";
+    }
+  };
+
+  const buildDocumentOutputSnapshot = () => {
+    if (!shell) {
+      throw new Error("No document is open.");
+    }
+    if (isDocsClone) {
+      flushDocsPageReflow({ preserveSelection: false });
+    }
+    commitDocumentShell();
+    const title =
+      String(shell.querySelector("h1, h2, h3")?.textContent || workObject?.title || friendlyPathLabel(documentSourcePath) || "Hydria Document")
+        .trim() || "Hydria Document";
+    return {
+      title,
+      filenameBase: buildDocumentDownloadBaseName(),
+      sourcePath: documentSourcePath,
+      html: shell.dataset.richDocument === "true" ? serializeDocumentPreviewShell(shell) : shell.innerHTML,
+      text: String(shell.innerText || "").trim()
+    };
+  };
+
+  const cleanDocsPrintableClone = () => {
+    const clone = shell?.cloneNode(true);
+    if (!clone) {
+      return null;
+    }
+    clone.querySelectorAll(".workspace-docs-page-control-bar").forEach((node) => node.remove());
+    clone.querySelectorAll(".workspace-docs-vertical-ruler").forEach((node) => node.remove());
+    clone.querySelectorAll(".workspace-docs-image-resize-handle").forEach((node) => node.remove());
+    clone.querySelectorAll(".workspace-docs-search-match").forEach((node) => unwrapNodeContents(node));
+    clone.querySelectorAll(".workspace-docs-figure").forEach((node) => {
+      node.classList.remove("is-media-selected", "is-dragging");
+    });
+    clone.querySelectorAll(".workspace-document-page-sheet.is-active-docs-page").forEach((node) => {
+      node.classList.remove("is-active-docs-page");
+    });
+    clone.querySelectorAll("[contenteditable]").forEach((node) => node.removeAttribute("contenteditable"));
+    clone.querySelectorAll("[spellcheck]").forEach((node) => node.removeAttribute("spellcheck"));
+    clone.querySelectorAll("[data-placeholder]").forEach((node) => node.removeAttribute("data-placeholder"));
+    clone.querySelectorAll(".workspace-inline-editable").forEach((node) => {
+      node.classList.remove("workspace-inline-editable");
+    });
+    return clone;
+  };
+
+  const removeDocsPrintRoot = () => {
+    document.body.classList.remove("is-docs-printing");
+    document.querySelectorAll(".workspace-docs-print-root").forEach((node) => node.remove());
+  };
+
+  const scheduleDocsPrintCleanup = () => {
+    const cleanup = () => {
+      window.setTimeout(removeDocsPrintRoot, 700);
+    };
+    window.addEventListener("focus", cleanup, { once: true });
+    window.addEventListener("afterprint", cleanup, { once: true });
+  };
+
+  const buildDocsPrintRoot = () => {
+    const snapshot = buildDocumentOutputSnapshot();
+    const root = document.createElement("div");
+    root.className = "workspace-docs-print-root";
+    root.dataset.title = snapshot.title;
+
+    const printableClone = cleanDocsPrintableClone();
+    const pageNodes = Array.from(printableClone?.querySelectorAll?.(".workspace-document-page-sheet") || []);
+    if (pageNodes.length) {
+      pageNodes.forEach((page) => {
+        const printPage = page.cloneNode(true);
+        printPage.classList.add("workspace-docs-print-page");
+        root.appendChild(printPage);
+      });
+    } else {
+      const page = document.createElement("section");
+      page.className = "workspace-document-page-sheet workspace-docs-print-page";
+      page.innerHTML = snapshot.html;
+      root.appendChild(page);
+    }
+    return root;
+  };
+
+  const printCurrentDocument = () => {
+    try {
+      removeDocsPrintRoot();
+      const root = buildDocsPrintRoot();
+      document.body.appendChild(root);
+      document.body.classList.add("is-docs-printing");
+      scheduleDocsPrintCleanup();
+      window.print();
+      updateDocsToolbarStatus("Print dialog opened");
+      return true;
+    } catch (error) {
+      console.error(error);
+      updateDocsToolbarStatus(error?.message || "Print unavailable");
+      return false;
+    }
+  };
+
+  const exportCurrentDocumentFile = async (format = "docx") => {
+    const normalizedFormat = format === "pdf" ? "pdf" : "docx";
+    const snapshot = buildDocumentOutputSnapshot();
+    const filename = `${snapshot.filenameBase}.${normalizedFormat}`;
+    const response = await fetch(`/api/docs/export-${normalizedFormat}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        filename,
+        title: snapshot.title,
+        html: snapshot.html,
+        text: snapshot.text,
+        sourcePath: snapshot.sourcePath
+      })
+    });
+    if (!response.ok) {
+      throw new Error(await readDocsApiError(response));
+    }
+    const blob = await response.blob();
+    if (!blob.size) {
+      throw new Error(`${normalizedFormat.toUpperCase()} export is empty.`);
+    }
+    downloadDocsBlobFile(blob, filename);
+    updateDocsToolbarStatus(`${normalizedFormat.toUpperCase()} exported`);
+    return true;
+  };
+
+  const downloadCurrentDocumentDocx = async () => {
+    try {
+      return await exportCurrentDocumentFile("docx");
+    } catch (error) {
+      console.error(error);
+      window.alert(`DOCX export failed: ${error.message || error}`);
+      return false;
+    }
+  };
+
+  const exportCurrentDocumentPdf = async () => {
+    try {
+      return await exportCurrentDocumentFile("pdf");
+    } catch (error) {
+      console.error(error);
+      window.alert(`PDF export failed: ${error.message || error}`);
+      return false;
+    }
+  };
+
   const clearDocumentSearchHighlights = () => {
     if (!shell) {
       docsSearchMatches = [];
@@ -2346,6 +2542,16 @@ function renderMarkdownPreview(
     }
     if (docsSearchNextButton) {
       docsSearchNextButton.disabled = totalMatches < 2;
+    }
+  };
+
+  const syncDocumentSearchInputs = (value = "", sourceInput = null) => {
+    const nextValue = String(value || "");
+    if (docsSearchInput && docsSearchInput !== sourceInput) {
+      docsSearchInput.value = nextValue;
+    }
+    if (docsApplicationSearchInput && docsApplicationSearchInput !== sourceInput) {
+      docsApplicationSearchInput.value = nextValue;
     }
   };
 
@@ -2513,7 +2719,7 @@ function renderMarkdownPreview(
 
   const moveDocumentSearch = (direction = 1) => {
     if (!docsSearchMatches.length) {
-      applyDocumentSearch(docsSearchInput?.value || "");
+      applyDocumentSearch(docsApplicationSearchInput?.value || docsSearchInput?.value || "");
       return;
     }
     setActiveDocumentSearchMatch(docsSearchActiveIndex + direction);
@@ -2527,6 +2733,9 @@ function renderMarkdownPreview(
     if (docsSearchInput && clearQuery) {
       docsSearchInput.value = "";
     }
+    if (docsApplicationSearchInput && clearQuery) {
+      docsApplicationSearchInput.value = "";
+    }
     updateDocumentSearchStatus();
     focusDocumentEditingTarget();
     updateDocsToolbarStatus("Search closed");
@@ -2537,7 +2746,9 @@ function renderMarkdownPreview(
       return;
     }
 
-    if (seedFromSelection && !docsSearchInput.value.trim()) {
+    const activeSearchInput = docsApplicationSearchInput || docsSearchInput;
+
+    if (seedFromSelection && !activeSearchInput.value.trim()) {
       const selection = window.getSelection();
       if (
         selection &&
@@ -2545,18 +2756,21 @@ function renderMarkdownPreview(
         shell?.contains(selection.anchorNode) &&
         shell?.contains(selection.focusNode)
       ) {
-        docsSearchInput.value = String(selection.toString() || "").trim();
+        syncDocumentSearchInputs(String(selection.toString() || "").trim());
       }
     }
 
-    docsSearchBar.classList.remove("hidden");
-    if (docsSearchInput.value.trim()) {
-      applyDocumentSearch(docsSearchInput.value, { preserveIndex: true, scrollToActive: false });
+    if (!docsApplicationSearchInput) {
+      docsSearchBar.classList.remove("hidden");
+    }
+    syncDocumentSearchInputs(activeSearchInput.value, activeSearchInput);
+    if (activeSearchInput.value.trim()) {
+      applyDocumentSearch(activeSearchInput.value, { preserveIndex: true, scrollToActive: false });
     } else {
       updateDocumentSearchStatus();
     }
-    docsSearchInput.focus();
-    docsSearchInput.select();
+    activeSearchInput.focus();
+    activeSearchInput.select();
     updateDocsToolbarStatus("Search opened");
   };
 
@@ -2620,14 +2834,49 @@ function renderMarkdownPreview(
   };
   updateDocumentSearchStatus();
 
+  const syncDocsOutlineNavigationState = () => {
+    if (!isDocsClone) {
+      return;
+    }
+    docsHeaderPageButton?.classList.toggle("is-active", !docsOutlineVisible);
+    docsHeaderOutlineButton?.classList.toggle("is-active", docsOutlineVisible);
+    const applicationTabs = previewShell
+      .closest?.(".workspace-application-preview-card")
+      ?.querySelectorAll?.(".workspace-application-preview-tabs .workspace-sheet-tab");
+    applicationTabs?.forEach((button) => {
+      const label = String(button.textContent || "").trim().toLowerCase();
+      if (label === "document") {
+        button.classList.toggle("active", !docsOutlineVisible);
+      } else if (label === "outline") {
+        button.classList.toggle("active", docsOutlineVisible);
+      }
+    });
+  };
+
+  const setDocsOutlineVisible = (visible = false, { focusFirstItem = false } = {}) => {
+    if (!isDocsClone) {
+      return;
+    }
+    docsOutlineVisible = Boolean(visible);
+    previewLayout?.classList.toggle("is-outline-hidden", !docsOutlineVisible);
+    outline?.classList.toggle("hidden", !docsOutlineVisible);
+    outline?.setAttribute("aria-hidden", docsOutlineVisible ? "false" : "true");
+    syncDocsOutlineNavigationState();
+    if (docsOutlineVisible && focusFirstItem) {
+      outline?.scrollIntoView?.({ behavior: "smooth", block: "nearest", inline: "nearest" });
+      outline?.querySelector?.("button")?.focus?.({ preventScroll: true });
+    }
+  };
+
   const focusDocsPage = () => {
+    setDocsOutlineVisible(false);
     previewShell.scrollIntoView({ behavior: "smooth", block: "start" });
     focusDocumentEditingTarget();
     updateDocsToolbarStatus("Editing page");
   };
 
   const focusDocsOutline = () => {
-    outline?.querySelector?.("button")?.focus?.({ preventScroll: true });
+    setDocsOutlineVisible(true, { focusFirstItem: true });
     updateDocsToolbarStatus("Outline ready");
   };
 
@@ -3256,9 +3505,14 @@ function renderMarkdownPreview(
     if (!selection) {
       return false;
     }
-    selection.removeAllRanges();
-    selection.addRange(docsSavedSelectionRange);
-    return true;
+    try {
+      selection.removeAllRanges();
+      selection.addRange(docsSavedSelectionRange);
+      return true;
+    } catch {
+      docsSavedSelectionRange = null;
+      return false;
+    }
   };
 
   const getDocsPageSheetFromNode = (node) => {
@@ -3292,6 +3546,78 @@ function renderMarkdownPreview(
       shell?.querySelector(".workspace-document-page-sheet") ||
       shell
     );
+  };
+
+  const getDocsRulerMetrics = (orientation = "portrait") => {
+    if (orientation === "landscape") {
+      return { widthCm: 29.7, heightCm: 21 };
+    }
+    return { widthCm: 21, heightCm: 29.7 };
+  };
+
+  const renderDocsLinearRuler = (ruler, axis = "horizontal", orientation = "portrait") => {
+    if (!ruler) {
+      return;
+    }
+    const normalizedOrientation = orientation === "landscape" ? "landscape" : "portrait";
+    const metrics = getDocsRulerMetrics(normalizedOrientation);
+    const lengthCm = axis === "vertical" ? metrics.heightCm : metrics.widthCm;
+    const metricKey = `${axis}:${normalizedOrientation}:${lengthCm}`;
+    if (ruler.dataset.rulerMetric === metricKey && ruler.childElementCount > 0) {
+      return;
+    }
+    const tickCount = Math.floor(lengthCm * 2);
+    ruler.replaceChildren();
+    ruler.dataset.orientation = normalizedOrientation;
+    ruler.dataset.rulerAxis = axis;
+    ruler.dataset.rulerMetric = metricKey;
+    for (let index = 1; index <= tickCount; index += 1) {
+      const cm = index / 2;
+      if (cm > lengthCm) {
+        break;
+      }
+      const isMajor = Number.isInteger(cm);
+      const tick = document.createElement("span");
+      tick.className = `${axis === "vertical" ? "workspace-docs-vertical-ruler-tick" : "workspace-docs-ruler-tick"} ${
+        isMajor ? "is-major" : "is-minor"
+      }`;
+      tick.textContent = isMajor ? `${cm}` : "";
+      tick.style.setProperty(axis === "vertical" ? "top" : "left", `${(cm / lengthCm) * 100}%`);
+      ruler.appendChild(tick);
+    }
+  };
+
+  const ensureDocsVerticalRuler = () => {
+    if (docsVerticalRuler) {
+      return docsVerticalRuler;
+    }
+    docsVerticalRuler = document.createElement("div");
+    docsVerticalRuler.className = "workspace-docs-vertical-ruler";
+    docsVerticalRuler.contentEditable = "false";
+    docsVerticalRuler.setAttribute("aria-hidden", "true");
+    return docsVerticalRuler;
+  };
+
+  const updateDocsActivePageRuler = (anchor = null) => {
+    if (!isDocsClone || !shell) {
+      return;
+    }
+    const activePage = getActiveDocsPageSheet(anchor);
+    if (!activePage?.classList?.contains("workspace-document-page-sheet")) {
+      docsVerticalRuler?.remove();
+      shell.querySelectorAll(".workspace-document-page-sheet.is-active-docs-page").forEach((page) => {
+        page.classList.remove("is-active-docs-page");
+      });
+      return;
+    }
+    shell.querySelectorAll(".workspace-document-page-sheet.is-active-docs-page").forEach((page) => {
+      page.classList.toggle("is-active-docs-page", page === activePage);
+    });
+    const orientation = activePage.dataset.orientation === "landscape" ? "landscape" : "portrait";
+    renderDocsLinearRuler(docsPageRuler, "horizontal", orientation);
+    renderDocsLinearRuler(ensureDocsVerticalRuler(), "vertical", orientation);
+    activePage.classList.add("is-active-docs-page");
+    activePage.appendChild(ensureDocsVerticalRuler());
   };
 
   const isDocsCanvasFullscreen = () => Boolean(previewShell && document.fullscreenElement === previewShell);
@@ -3584,6 +3910,460 @@ function renderMarkdownPreview(
     syncDocsFullscreenButtonState();
   };
 
+  const normalizeDocsPasteText = (value = "") =>
+    String(value || "")
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n")
+      .replace(/\u00a0/g, " ")
+      .trim();
+
+  const createDocsPasteParagraph = (text = "") => {
+    const paragraph = document.createElement("p");
+    paragraph.textContent = text || "";
+    return paragraph;
+  };
+
+  const isSafeDocsPasteStyleValue = (value = "") => {
+    const trimmed = String(value || "").trim();
+    return Boolean(trimmed && !/url\s*\(|expression\s*\(|javascript:/i.test(trimmed));
+  };
+
+  const copyDocsPasteTextStyles = (source, target) => {
+    const style = source?.style;
+    if (!style || !target?.style) {
+      return;
+    }
+    if (style.fontWeight && style.fontWeight !== "normal") {
+      target.style.fontWeight = style.fontWeight;
+    }
+    if (style.fontStyle && style.fontStyle !== "normal") {
+      target.style.fontStyle = style.fontStyle;
+    }
+    const textDecoration = style.textDecorationLine || style.textDecoration;
+    if (isSafeDocsPasteStyleValue(textDecoration) && /underline|line-through/i.test(textDecoration)) {
+      target.style.textDecoration = textDecoration;
+    }
+    if (isSafeDocsPasteStyleValue(style.color)) {
+      target.style.color = style.color;
+    }
+    if (isSafeDocsPasteStyleValue(style.backgroundColor)) {
+      target.style.backgroundColor = style.backgroundColor;
+    }
+    if (isSafeDocsPasteStyleValue(style.fontSize) && /^-?\d+(?:\.\d+)?(?:px|pt|em|rem|%)$/i.test(style.fontSize)) {
+      target.style.fontSize = style.fontSize;
+    }
+    if (isSafeDocsPasteStyleValue(style.fontFamily)) {
+      target.style.fontFamily = style.fontFamily;
+    }
+  };
+
+  const copyDocsPasteBlockStyles = (source, target) => {
+    const textAlign = source?.style?.textAlign;
+    if (["left", "right", "center", "justify"].includes(String(textAlign || "").toLowerCase())) {
+      target.style.textAlign = textAlign;
+    }
+    copyDocsPasteTextStyles(source, target);
+  };
+
+  const appendDocsPasteInlineChildren = (target, source) => {
+    Array.from(source?.childNodes || []).forEach((child) => {
+      const sanitized = sanitizeDocsPasteInlineNode(child);
+      if (sanitized) {
+        target.appendChild(sanitized);
+      }
+    });
+  };
+
+  const sanitizeDocsPasteInlineNode = (node) => {
+    if (node?.nodeType === Node.TEXT_NODE) {
+      return document.createTextNode(node.nodeValue || "");
+    }
+    if (node?.nodeType !== Node.ELEMENT_NODE) {
+      return null;
+    }
+
+    const tag = node.tagName.toLowerCase();
+    if (tag === "br") {
+      return document.createElement("br");
+    }
+
+    const style = node.style || {};
+    const fontWeight = String(style.fontWeight || "");
+    const isBold = ["b", "strong"].includes(tag) || fontWeight === "bold" || Number.parseInt(fontWeight, 10) >= 600;
+    const isItalic = ["i", "em"].includes(tag) || String(style.fontStyle || "").toLowerCase() === "italic";
+    const textDecoration = String(style.textDecorationLine || style.textDecoration || "");
+    const isUnderline = tag === "u" || /underline/i.test(textDecoration);
+    const isStrike = ["s", "strike", "del"].includes(tag) || /line-through/i.test(textDecoration);
+    const semanticTag =
+      (isBold && "strong") ||
+      (isItalic && "em") ||
+      (isUnderline && "u") ||
+      (isStrike && "s") ||
+      (["code", "sub", "sup"].includes(tag) && tag) ||
+      "";
+
+    if (tag === "a") {
+      const href = normalizeHyperlinkHref(node.getAttribute("href") || node.textContent || "");
+      const link = href ? document.createElement("a") : document.createElement("span");
+      if (href) {
+        link.href = href;
+        link.target = "_blank";
+        link.rel = "noreferrer noopener";
+      }
+      appendDocsPasteInlineChildren(link, node);
+      copyDocsPasteTextStyles(node, link);
+      return link;
+    }
+
+    const shouldKeepStyledSpan =
+      tag === "span" &&
+      ["color", "backgroundColor", "fontWeight", "fontStyle", "textDecoration", "fontSize", "fontFamily"].some((property) =>
+        isSafeDocsPasteStyleValue(style[property])
+      );
+    const target = document.createElement(semanticTag || (shouldKeepStyledSpan ? "span" : "span"));
+    appendDocsPasteInlineChildren(target, node);
+    copyDocsPasteTextStyles(node, target);
+    if (!semanticTag && !shouldKeepStyledSpan && tag !== "span") {
+      const fragment = document.createDocumentFragment();
+      while (target.firstChild) {
+        fragment.appendChild(target.firstChild);
+      }
+      return fragment;
+    }
+    return target;
+  };
+
+  const sanitizeDocsPasteListItem = (item) => {
+    const nextItem = document.createElement("li");
+    Array.from(item.childNodes || []).forEach((child) => {
+      const element = child.nodeType === Node.ELEMENT_NODE ? child : null;
+      const tag = element?.tagName?.toLowerCase?.() || "";
+      if (["ul", "ol"].includes(tag)) {
+        const nestedList = sanitizeDocsPasteBlockNode(element);
+        if (nestedList) {
+          nextItem.appendChild(nestedList);
+        }
+        return;
+      }
+      if (["p", "div"].includes(tag)) {
+        appendDocsPasteInlineChildren(nextItem, element);
+        return;
+      }
+      const inline = sanitizeDocsPasteInlineNode(child);
+      if (inline) {
+        nextItem.appendChild(inline);
+      }
+    });
+    if (!String(nextItem.textContent || "").trim() && !nextItem.querySelector("ul, ol")) {
+      nextItem.appendChild(document.createElement("br"));
+    }
+    return nextItem;
+  };
+
+  const sanitizeDocsPasteTable = (table) => {
+    const nextTable = document.createElement("table");
+    nextTable.className = "workspace-docs-table";
+    const sourceRows = Array.from(table.querySelectorAll("tr"));
+    const body = document.createElement("tbody");
+    sourceRows.forEach((row, rowIndex) => {
+      const nextRow = document.createElement("tr");
+      Array.from(row.children || [])
+        .filter((cell) => ["td", "th"].includes(cell.tagName?.toLowerCase?.()))
+        .forEach((cell) => {
+          const nextCell = document.createElement(rowIndex === 0 || cell.tagName.toLowerCase() === "th" ? "th" : "td");
+          appendDocsPasteInlineChildren(nextCell, cell);
+          copyDocsPasteBlockStyles(cell, nextCell);
+          nextRow.appendChild(nextCell);
+        });
+      if (nextRow.children.length) {
+        body.appendChild(nextRow);
+      }
+    });
+    if (!body.children.length) {
+      return null;
+    }
+    nextTable.appendChild(body);
+    return nextTable;
+  };
+
+  const sanitizeDocsPasteBlockNode = (node) => {
+    if (node?.nodeType === Node.TEXT_NODE) {
+      const text = normalizeDocsPasteText(node.nodeValue || "");
+      return text ? createDocsPasteParagraph(text) : null;
+    }
+    if (node?.nodeType !== Node.ELEMENT_NODE) {
+      return null;
+    }
+
+    const tag = node.tagName.toLowerCase();
+    if (["script", "style", "meta", "link", "iframe", "object", "embed", "svg", "canvas"].includes(tag)) {
+      return null;
+    }
+    if (["h1", "h2", "h3", "h4", "p", "blockquote", "figcaption"].includes(tag)) {
+      const block = document.createElement(tag);
+      appendDocsPasteInlineChildren(block, node);
+      copyDocsPasteBlockStyles(node, block);
+      if (!String(block.textContent || "").trim() && !block.querySelector("br")) {
+        block.appendChild(document.createElement("br"));
+      }
+      return block;
+    }
+    if (["ul", "ol"].includes(tag)) {
+      const list = document.createElement(tag);
+      Array.from(node.children || [])
+        .filter((child) => child.tagName?.toLowerCase?.() === "li")
+        .forEach((item) => list.appendChild(sanitizeDocsPasteListItem(item)));
+      return list.children.length ? list : null;
+    }
+    if (tag === "table") {
+      return sanitizeDocsPasteTable(node);
+    }
+    return null;
+  };
+
+  const collectDocsPasteBlocks = (root, blocks = []) => {
+    let inlineBuffer = null;
+    const flushInlineBuffer = () => {
+      if (inlineBuffer && (String(inlineBuffer.textContent || "").trim() || inlineBuffer.querySelector("br"))) {
+        blocks.push(inlineBuffer);
+      }
+      inlineBuffer = null;
+    };
+
+    Array.from(root?.childNodes || []).forEach((child) => {
+      const element = child.nodeType === Node.ELEMENT_NODE ? child : null;
+      const tag = element?.tagName?.toLowerCase?.() || "";
+      const isWrapper = ["html", "body", "main", "section", "article", "div"].includes(tag);
+      const isBlock = ["h1", "h2", "h3", "h4", "p", "blockquote", "ul", "ol", "table", "figcaption"].includes(tag);
+      if (isWrapper && !element.closest?.("li")) {
+        flushInlineBuffer();
+        collectDocsPasteBlocks(element, blocks);
+        return;
+      }
+      if (isBlock) {
+        flushInlineBuffer();
+        const block = sanitizeDocsPasteBlockNode(element);
+        if (block) {
+          blocks.push(block);
+        }
+        return;
+      }
+      const inline = sanitizeDocsPasteInlineNode(child);
+      if (!inline) {
+        return;
+      }
+      if (!inlineBuffer) {
+        inlineBuffer = document.createElement("p");
+      }
+      inlineBuffer.appendChild(inline);
+    });
+    flushInlineBuffer();
+    return blocks;
+  };
+
+  const createDocsPasteNodesFromHtml = (html = "") => {
+    const normalizedHtml = String(html || "").trim();
+    if (!normalizedHtml) {
+      return [];
+    }
+    const template = document.createElement("template");
+    template.innerHTML = normalizedHtml;
+    return collectDocsPasteBlocks(template.content).filter((node) =>
+      Boolean(String(node.textContent || "").trim() || node.querySelector?.("br, img, table, ul, ol"))
+    );
+  };
+
+  const insertDocsInlineChildrenAtRange = (range, node) => {
+    if (!range || !node) {
+      return null;
+    }
+    const children = Array.from(node.childNodes || []);
+    if (!children.length) {
+      return null;
+    }
+    const fragment = document.createDocumentFragment();
+    children.forEach((child) => fragment.appendChild(child));
+    range.insertNode(fragment);
+    return children[children.length - 1] || null;
+  };
+
+  const insertDocsPasteNodesAtSelection = (nodes = [], fallbackText = "") => {
+    const pasteNodes = Array.from(nodes || []).filter(Boolean);
+    if (!pasteNodes.length || !shell) {
+      return false;
+    }
+
+    const normalizedText = normalizeDocsPasteText(
+      fallbackText || pasteNodes.map((node) => node.textContent || "").join("\n")
+    );
+    const range = getDocsSelectionRangeInShell();
+    const activeBlock = getDocsEditableTargetFromNode(range?.startContainer || null) || getActiveBlockTarget();
+    const topLevelAnchor = getDocsTopLevelContentNode(activeBlock || range?.startContainer || null) || getActiveDocsPageSheet();
+    const hasStructuralBlocks = pasteNodes.some((node) => node.matches?.("h1, h2, h3, h4, blockquote, ul, ol, table"));
+    const pasteLooksLikeDocument = pasteNodes.length > 1 || normalizedText.length > 160 || hasStructuralBlocks;
+    const isHeadingTarget = activeBlock?.matches?.("h1, h2, h3, h4");
+    const shouldPasteAfterHeading = isHeadingTarget && pasteLooksLikeDocument;
+    let lastInserted = null;
+
+    if (range && (!shouldPasteAfterHeading || range.collapsed)) {
+      range.deleteContents();
+    }
+
+    if (range && activeBlock && !pasteLooksLikeDocument && pasteNodes[0]?.matches?.("p, figcaption")) {
+      lastInserted = insertDocsInlineChildrenAtRange(range, pasteNodes[0]);
+      if (lastInserted) {
+        placeDocsCaretAfterNode(lastInserted);
+      }
+      return true;
+    }
+
+    if (range && activeBlock && !shouldPasteAfterHeading && pasteNodes[0]?.matches?.("p")) {
+      lastInserted = insertDocsInlineChildrenAtRange(range, pasteNodes.shift());
+    }
+
+    if (pasteNodes.length) {
+      const anchor =
+        topLevelAnchor?.classList?.contains?.("workspace-document-page-sheet") || topLevelAnchor === shell
+          ? null
+          : topLevelAnchor;
+      if (anchor?.parentNode) {
+        anchor.after(...pasteNodes);
+      } else {
+        const targetPage = getActiveDocsPageSheet(activeBlock || range?.startContainer || null);
+        if (targetPage && targetPage !== shell) {
+          targetPage.append(...pasteNodes);
+        } else {
+          shell.append(...pasteNodes);
+        }
+      }
+      lastInserted = pasteNodes[pasteNodes.length - 1];
+    }
+
+    if (lastInserted) {
+      placeDocsCaretAfterNode(lastInserted);
+    }
+    return true;
+  };
+
+  const insertDocsRichHtmlAtSelection = (html = "", fallbackText = "") => {
+    const nodes = createDocsPasteNodesFromHtml(html);
+    if (!nodes.length) {
+      return false;
+    }
+    return insertDocsPasteNodesAtSelection(nodes, fallbackText);
+  };
+
+  const getDocsSelectionRangeInShell = () => {
+    const selection = window.getSelection();
+    if (
+      selection &&
+      selection.rangeCount &&
+      shell?.contains(selection.anchorNode) &&
+      shell?.contains(selection.focusNode)
+    ) {
+      return selection.getRangeAt(0);
+    }
+    return null;
+  };
+
+  const getDocsTopLevelContentNode = (node) => {
+    let current = node?.nodeType === Node.TEXT_NODE ? node.parentElement : node;
+    if (!current?.closest) {
+      return null;
+    }
+    current = current.closest("h1, h2, h3, h4, p, blockquote, li, table, figure, figcaption, th, td") || current;
+    while (
+      current?.parentElement &&
+      current.parentElement !== shell &&
+      !current.parentElement.classList?.contains("workspace-document-page-sheet")
+    ) {
+      current = current.parentElement;
+    }
+    return current;
+  };
+
+  const placeDocsCaretAfterNode = (node) => {
+    if (!node || !shell?.contains(node)) {
+      return;
+    }
+    activeEditable = getDocsEditableTargetFromNode(node) || node;
+    const selection = window.getSelection();
+    if (!selection) {
+      return;
+    }
+    const range = document.createRange();
+    range.selectNodeContents(activeEditable);
+    range.collapse(false);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    saveDocsSelectionRange();
+  };
+
+  const insertDocsPlainTextAtSelection = (plainText = "") => {
+    const normalizedText = normalizeDocsPasteText(plainText);
+    if (!normalizedText || !shell) {
+      return false;
+    }
+    const blocks = normalizedText
+      .split(/\n+/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    if (!blocks.length) {
+      return false;
+    }
+
+    const range = getDocsSelectionRangeInShell();
+    const activeBlock = getDocsEditableTargetFromNode(range?.startContainer || null) || getActiveBlockTarget();
+    const topLevelAnchor = getDocsTopLevelContentNode(activeBlock || range?.startContainer || null) || getActiveDocsPageSheet();
+    const pasteLooksLikeDocument = blocks.length > 1 || normalizedText.length > 160;
+    const isHeadingTarget = activeBlock?.matches?.("h1, h2, h3, h4");
+    const shouldPasteAfterHeading = isHeadingTarget && pasteLooksLikeDocument;
+    let lastInserted = null;
+
+    if (range) {
+      range.deleteContents();
+    }
+
+    if (range && activeBlock && !pasteLooksLikeDocument) {
+      const textNode = document.createTextNode(blocks[0]);
+      range.insertNode(textNode);
+      lastInserted = textNode;
+      placeDocsCaretAfterNode(textNode);
+      return true;
+    }
+
+    const paragraphNodes = blocks.map((block) => createDocsPasteParagraph(block));
+    if (range && activeBlock && !shouldPasteAfterHeading && blocks.length) {
+      const textNode = document.createTextNode(blocks[0]);
+      range.insertNode(textNode);
+      lastInserted = textNode;
+      paragraphNodes.shift();
+    }
+
+    if (paragraphNodes.length) {
+      const anchor =
+        topLevelAnchor?.classList?.contains?.("workspace-document-page-sheet") || topLevelAnchor === shell
+          ? null
+          : topLevelAnchor;
+      if (anchor?.parentNode) {
+        anchor.after(...paragraphNodes);
+      } else {
+        const targetPage = getActiveDocsPageSheet(activeBlock || range?.startContainer || null);
+        if (targetPage && targetPage !== shell) {
+          targetPage.append(...paragraphNodes);
+        } else {
+          shell.append(...paragraphNodes);
+        }
+      }
+      lastInserted = paragraphNodes[paragraphNodes.length - 1];
+    }
+
+    if (lastInserted) {
+      placeDocsCaretAfterNode(lastInserted);
+    }
+    return true;
+  };
+
   const insertDocsNodes = (...nodes) => {
     if (!shell || !nodes.length) {
       return;
@@ -3688,6 +4468,73 @@ function renderMarkdownPreview(
     docsTableControlSignature = "";
     docsTableControls.replaceChildren();
     docsTableControls.classList.add("hidden");
+  };
+
+  const reflowDocsPages = ({ preserveSelection = false } = {}) => {
+    if (!isDocsClone || !shell) {
+      return false;
+    }
+    if (docsPageReflowHandle) {
+      window.clearTimeout(docsPageReflowHandle);
+      docsPageReflowHandle = null;
+    }
+    docsPendingPageReflow = false;
+    if (preserveSelection) {
+      saveDocsSelectionRange();
+    }
+    rebuildDocsPageShell();
+    if (preserveSelection) {
+      restoreDocsSelection();
+    }
+    return true;
+  };
+
+  const isDocsEditorActive = () => {
+    if (!shell) {
+      return false;
+    }
+    const selection = window.getSelection();
+    return Boolean(
+      shell === document.activeElement ||
+        shell.contains(document.activeElement) ||
+        shell.contains(selection?.anchorNode || null) ||
+        shell.contains(selection?.focusNode || null)
+    );
+  };
+
+  const scheduleDocsPageReflow = ({ delay = 800, preserveSelection = false, force = false } = {}) => {
+    if (!isDocsClone || !shell) {
+      return false;
+    }
+    docsPendingPageReflow = true;
+    if (!force && isDocsEditorActive()) {
+      return false;
+    }
+    if (docsPageReflowHandle) {
+      window.clearTimeout(docsPageReflowHandle);
+    }
+    docsPageReflowHandle = window.setTimeout(() => {
+      docsPageReflowHandle = null;
+      reflowDocsPages({ preserveSelection });
+      updateDocsTableControls(null, true);
+    }, delay);
+    return true;
+  };
+
+  const flushDocsPageReflow = ({ preserveSelection = false } = {}) => {
+    if (!isDocsClone || !shell) {
+      return false;
+    }
+    if (docsPageReflowHandle) {
+      window.clearTimeout(docsPageReflowHandle);
+      docsPageReflowHandle = null;
+    }
+    if (!docsPendingPageReflow && shell.querySelector?.(".workspace-document-page-sheet")) {
+      return false;
+    }
+    const didReflow = reflowDocsPages({ preserveSelection });
+    window.requestAnimationFrame(() => updateDocsTableControls(null, true));
+    return didReflow;
   };
 
   const getTableColumnCount = (table) =>
@@ -3940,8 +4787,8 @@ function renderMarkdownPreview(
     { rebuildPageShell = false } = {}
   ) => {
     hideDocsTableContextMenu();
-    if (isDocsClone && rebuildPageShell) {
-      rebuildDocsPageShell();
+    if (isDocsClone && (rebuildPageShell || shell?.querySelector?.(".workspace-document-page-sheet"))) {
+      reflowDocsPages();
     }
     commitDocumentShell();
     window.requestAnimationFrame(() => updateDocsTableControls(tableOverride, true));
@@ -4139,6 +4986,9 @@ function renderMarkdownPreview(
   };
 
   const commitDocsVisualChange = (statusLabel = "Saved automatically") => {
+    if (isDocsClone) {
+      reflowDocsPages({ preserveSelection: true });
+    }
     commitDocumentShell();
     window.requestAnimationFrame(() => updateDocsTableControls(null, true));
     updateDocsToolbarStatus(statusLabel);
@@ -4335,7 +5185,10 @@ function renderMarkdownPreview(
     tableInsertColumnRight: () => table && addTableColumn(table, columnIndex === null ? getTableColumnCount(table) : columnIndex + 1),
     tableDeleteRow: () => table && rowIndex !== null && removeTableRow(table, rowIndex),
     tableDeleteColumn: () => table && columnIndex !== null && removeTableColumn(table, columnIndex),
-    tableDelete: () => table && removeTable(table)
+    tableDelete: () => table && removeTable(table),
+    downloadDocx: downloadCurrentDocumentDocx,
+    exportPdf: exportCurrentDocumentPdf,
+    printDocument: printCurrentDocument
   });
 
   const createDocsBoundContextMenuItems = (
@@ -4576,7 +5429,8 @@ function renderMarkdownPreview(
                 (
                   node.classList?.contains("workspace-docs-page-control-bar") ||
                   node.classList?.contains("workspace-docs-page-header") ||
-                  node.classList?.contains("workspace-docs-page-footer")
+                  node.classList?.contains("workspace-docs-page-footer") ||
+                  node.classList?.contains("workspace-docs-vertical-ruler")
                 )
               )
           )
@@ -4593,6 +5447,7 @@ function renderMarkdownPreview(
       return;
     }
     unwrapDocsPageShell();
+    mergeDocsSplitContinuationBlocks(shell);
     const rawNodes = Array.from(shell.childNodes);
     const settingsNode =
       rawNodes.find((node) => node.nodeType === Node.ELEMENT_NODE && node.classList?.contains("workspace-docs-page-meta")) || null;
@@ -4603,27 +5458,146 @@ function renderMarkdownPreview(
       shell.appendChild(settingsNode);
     }
     let pageIndex = 0;
-    let currentPage = document.createElement("section");
-    currentPage.className = "workspace-document-page-sheet";
-    currentPage.dataset.page = String(pageIndex + 1);
+    let renderedPageCount = 0;
+    const isDocsPageChromeNode = (node) =>
+      node.nodeType === Node.ELEMENT_NODE &&
+      (
+        node.classList?.contains("workspace-docs-page-control-bar") ||
+        node.classList?.contains("workspace-docs-page-header") ||
+        node.classList?.contains("workspace-docs-page-footer") ||
+        node.classList?.contains("workspace-docs-vertical-ruler")
+      );
+    const getDocsPageContentNodes = (page) =>
+      Array.from(page.childNodes).filter((node) => !isDocsPageChromeNode(node));
+    const createPage = () => {
+      const page = document.createElement("section");
+      page.className = "workspace-document-page-sheet";
+      page.dataset.page = String(pageIndex + 1);
+      page.dataset.orientation = formatState.orientation === "landscape" ? "landscape" : "portrait";
+      shell.appendChild(page);
+      return page;
+    };
+    const finalizePage = (page) => {
+      if (!page || page.dataset.finalized === "true") {
+        return;
+      }
+      applyDocsPageChrome(page, pageIndex, formatState);
+      page.dataset.finalized = "true";
+      renderedPageCount += 1;
+    };
+    const pageOverflows = (page) => {
+      if (!page?.isConnected) {
+        return false;
+      }
+      const visibleHeight = page.clientHeight || page.getBoundingClientRect?.().height || 0;
+      if (visibleHeight <= 0) {
+        return false;
+      }
+      return page.scrollHeight > visibleHeight + 6;
+    };
+    const isDocsSplittableTextBlock = (node) =>
+      node?.nodeType === Node.ELEMENT_NODE &&
+      node.matches?.("p, blockquote, h1, h2, h3, h4, figcaption") &&
+      !node.querySelector?.("table, img, video, figure, ul, ol, input, button, .workspace-docs-page-break");
+    const splitPlainDocsBlockToFit = (page, block) => {
+      if (!isDocsSplittableTextBlock(block)) {
+        return null;
+      }
+      const originalText = block.textContent || "";
+      const parts = originalText.split(/(\s+)/);
+      if (parts.length < 4 || !originalText.trim()) {
+        return null;
+      }
+      let low = 1;
+      let high = parts.length - 1;
+      let best = 0;
+
+      // Use the browser layout as the source of truth, so pagination follows the real page size.
+      while (low <= high) {
+        const mid = Math.floor((low + high) / 2);
+        block.textContent = parts.slice(0, mid).join("").trimEnd();
+        if (block.textContent.trim() && !pageOverflows(page)) {
+          best = mid;
+          low = mid + 1;
+        } else {
+          high = mid - 1;
+        }
+      }
+
+      if (best <= 0 || best >= parts.length) {
+        block.textContent = originalText;
+        return null;
+      }
+
+      const fittedText = parts.slice(0, best).join("").trimEnd();
+      const remainderText = parts.slice(best).join("").trimStart();
+      if (!fittedText || !remainderText) {
+        block.textContent = originalText;
+        return null;
+      }
+
+      block.textContent = fittedText;
+      const continuation = /^H[1-4]$/.test(block.tagName || "") ? document.createElement("p") : block.cloneNode(false);
+      continuation.removeAttribute("id");
+      const splitGroup =
+        block.dataset.docsSplitGroup ||
+        `docs-split-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+      block.dataset.docsSplitGroup = splitGroup;
+      continuation.dataset.docsSplitGroup = splitGroup;
+      continuation.dataset.docsSplitContinuation = "true";
+      continuation.textContent = remainderText;
+      return continuation;
+    };
+    let currentPage = createPage();
+    const appendNodeToCurrentPage = (node) => {
+      currentPage.appendChild(node);
+      if (!pageOverflows(currentPage)) {
+        return;
+      }
+
+      if (getDocsPageContentNodes(currentPage).length > 1) {
+        currentPage.removeChild(node);
+        finalizePage(currentPage);
+        pageIndex += 1;
+        currentPage = createPage();
+        currentPage.appendChild(node);
+      }
+
+      let splitGuard = 0;
+      while (
+        pageOverflows(currentPage) &&
+        getDocsPageContentNodes(currentPage).length === 1 &&
+        splitGuard < 40
+      ) {
+        const [onlyNode] = getDocsPageContentNodes(currentPage);
+        const continuation = splitPlainDocsBlockToFit(currentPage, onlyNode);
+        if (!continuation) {
+          break;
+        }
+        finalizePage(currentPage);
+        pageIndex += 1;
+        currentPage = createPage();
+        currentPage.appendChild(continuation);
+        splitGuard += 1;
+      }
+    };
     for (const node of contentNodes) {
       if (node.nodeType === Node.ELEMENT_NODE && node.classList?.contains("workspace-docs-page-break")) {
-        applyDocsPageChrome(currentPage, pageIndex, formatState);
-        shell.appendChild(currentPage);
+        finalizePage(currentPage);
         shell.appendChild(node);
         pageIndex += 1;
-        currentPage = document.createElement("section");
-        currentPage.className = "workspace-document-page-sheet";
-        currentPage.dataset.page = String(pageIndex + 1);
+        currentPage = createPage();
         continue;
       }
-      currentPage.appendChild(node);
+      appendNodeToCurrentPage(node);
     }
-    if (currentPage.childNodes.length || !shell.querySelector(".workspace-document-page-sheet")) {
-      applyDocsPageChrome(currentPage, pageIndex, formatState);
-      shell.appendChild(currentPage);
+    if (getDocsPageContentNodes(currentPage).length || !renderedPageCount) {
+      finalizePage(currentPage);
+    } else {
+      currentPage.remove();
     }
     syncDocsPageFullscreenControls();
+    updateDocsActivePageRuler(activeEditable);
   };
 
   const projectLinkedObjects = (projectWorkObjects || []).filter((item) => item.id !== workObject?.id);
@@ -4724,6 +5698,7 @@ function renderMarkdownPreview(
       selection.removeAllRanges();
       selection.addRange(range);
       saveDocsSelectionRange();
+      updateDocsActivePageRuler(target);
     });
   };
 
@@ -5306,23 +6281,49 @@ function renderMarkdownPreview(
       }
       docsMenuFieldSyncCleanup?.();
       docsMenuFieldSyncCleanup = null;
+      const requestedMenuId = menuId || "Accueil";
+      const activeMenuId =
+        {
+          Structure: "Accueil",
+          Format: "Accueil",
+          Insert: "Insertion",
+          "Project & AI": "Révision",
+          View: "Affichage"
+        }[requestedMenuId] || requestedMenuId;
       if (docsMenuPanel) {
-        docsMenuPanel.dataset.openMenu = menuId;
+        docsMenuPanel.dataset.openMenu = activeMenuId;
       }
       syncDocsSelectionPreviewState(Boolean(menuId));
       docsMenuPanel.innerHTML = "";
-      docsMenuButtons.forEach((button) => button.classList.toggle("is-active", button.dataset.menu === menuId));
-      if (!menuId) {
-        docsMenuPanel.classList.add("hidden");
-        removeDocsMenuOutsidePointerHandler();
-        return;
-      }
+      docsMenuButtons.forEach((button) => button.classList.toggle("is-active", button.dataset.menu === activeMenuId));
       docsMenuPanel.classList.remove("hidden");
-      installDocsMenuOutsidePointerHandler();
+      removeDocsMenuOutsidePointerHandler();
       const menuFieldSyncHandlers = [];
       const menuDropdownRegistry = [];
+      let activeDocsMenuTarget = docsMenuPanel;
 
-      const addMenuAction = (itemOrLabel, onClick, accent = false, { closeOnClick = true } = {}) => {
+      const appendDocsMenuNode = (node) => {
+        activeDocsMenuTarget.appendChild(node);
+      };
+
+      const addMenuGroup = (label, renderGroup) => {
+        const group = document.createElement("div");
+        group.className = "workspace-docs-ribbon-group";
+        const body = document.createElement("div");
+        body.className = "workspace-docs-ribbon-group-body";
+        const caption = document.createElement("span");
+        caption.className = "workspace-docs-ribbon-group-label";
+        caption.textContent = label;
+        group.append(body, caption);
+        docsMenuPanel.appendChild(group);
+
+        const previousTarget = activeDocsMenuTarget;
+        activeDocsMenuTarget = body;
+        renderGroup?.();
+        activeDocsMenuTarget = previousTarget;
+      };
+
+      const addMenuAction = (itemOrLabel, onClick, accent = false, { closeOnClick = false } = {}) => {
         const item =
           itemOrLabel && typeof itemOrLabel === "object"
             ? itemOrLabel
@@ -5345,20 +6346,20 @@ function renderMarkdownPreview(
                 updateDocsToolbarStatus(error?.message || "Action unavailable");
               }
               if (closeOnClick) {
-                renderDocsMenu("");
+                renderDocsMenu(activeMenuId);
               }
             }
           }
         );
         preserveDocsSelectionOnPointerDown(button);
-        docsMenuPanel.appendChild(button);
+        appendDocsMenuNode(button);
       };
 
       const addMenuLabel = (label) => {
         const span = document.createElement("span");
         span.className = "workspace-docs-menu-label";
         span.textContent = label;
-        docsMenuPanel.appendChild(span);
+        appendDocsMenuNode(span);
       };
 
       const addBoundMenuActions = (items, actionMap, { accentCommandIds = new Set() } = {}) => {
@@ -5521,7 +6522,7 @@ function renderMarkdownPreview(
           dropdown,
           close: closeDropdown
         });
-        docsMenuPanel.appendChild(field);
+        appendDocsMenuNode(field);
       };
 
       const addMenuColorPaletteField = (label, options, onSelect, buttonLabel = "Choose color") => {
@@ -5570,7 +6571,76 @@ function renderMarkdownPreview(
           dropdown: palette,
           close: closePalette
         });
-        docsMenuPanel.appendChild(field);
+        appendDocsMenuNode(field);
+      };
+
+      const addDocsFormatFields = (fieldIds = []) => {
+        const allowedFields = new Set(fieldIds);
+        createWorkspaceDocumentFormatFieldItems()
+          .filter((field) => !allowedFields.size || allowedFields.has(field.fieldId))
+          .forEach((field) => {
+            if (field.fieldId === "fontFamily") {
+              addMenuDropdownField(
+                field.label,
+                DOCS_FONT_FAMILY_OPTIONS,
+                (item) => executeDocsWorkspaceCommand("fontFamily", { value: item?.value || "" }),
+                {
+                  placeholder: "Police",
+                  initialValue: getDocsCurrentFormattingState().fontFamilyLabel,
+                  getCurrentValue: (state) => state.fontFamilyLabel || "Police",
+                  decorateOption: (button, item) => {
+                    if (item?.value) {
+                      button.style.fontFamily = item.value;
+                    }
+                  }
+                }
+              );
+              return;
+            }
+            if (field.fieldId === "fontSize") {
+              addMenuDropdownField(
+                field.label,
+                DOCS_FONT_SIZE_OPTIONS,
+                (item, rawValue) => executeDocsWorkspaceCommand("fontSize", { value: item?.value || rawValue || "" }),
+                {
+                  placeholder: "Taille",
+                  initialValue: getDocsCurrentFormattingState().fontSizeLabel,
+                  getCurrentValue: (state) => state.fontSizeLabel || "Taille",
+                  customEntry: {
+                    placeholder: "Taille",
+                    buttonLabel: "Apply",
+                    normalizeValue: (value) => normalizeDocsFontSizeValue(value)
+                  }
+                }
+              );
+              return;
+            }
+            if (field.fieldId === "alignment") {
+              addMenuDropdownField(field.label, DOCS_ALIGNMENT_OPTIONS, (item) => executeDocsWorkspaceCommand(item?.commandId || "alignLeft"), {
+                placeholder: "Aligner",
+                initialValue: "Aligner",
+                getCurrentValue: () => "Aligner"
+              });
+              return;
+            }
+            if (field.fieldId === "textColor") {
+              addMenuColorPaletteField(
+                field.label,
+                DOCS_TEXT_COLOR_OPTIONS,
+                (item) => executeDocsWorkspaceCommand("textColor", { value: item?.value || "" }),
+                "Couleur"
+              );
+              return;
+            }
+            if (field.fieldId === "highlightColor") {
+              addMenuColorPaletteField(
+                field.label,
+                DOCS_HIGHLIGHT_COLOR_OPTIONS,
+                (item) => executeDocsWorkspaceCommand("highlightColor", { value: item?.value || "" }),
+                "Surlignage"
+              );
+            }
+          });
       };
 
       const renderDocsPageNumberSettingsView = () => {
@@ -5714,7 +6784,7 @@ function renderMarkdownPreview(
         cancelButton.textContent = "Annuler";
         preserveDocsSelectionOnPointerDown(cancelButton);
         cancelButton.addEventListener("click", () => {
-          renderDocsMenu("Format");
+          renderDocsMenu("Mise en page");
         });
 
         const applyButton = document.createElement("button");
@@ -5733,7 +6803,7 @@ function renderMarkdownPreview(
             },
             "Page numbers updated"
           );
-          renderDocsMenu("Format");
+          renderDocsMenu("Mise en page");
         });
 
         actions.append(cancelButton, applyButton);
@@ -5741,115 +6811,201 @@ function renderMarkdownPreview(
         docsMenuPanel.appendChild(sheet);
       };
 
-      if (menuId === "Structure") {
-        addBoundMenuActions(createWorkspaceDocumentBlockMenuItems({ includePageBreaks: true }), createDocsSharedActionMap());
-        return;
-      }
+      const syncDocsRibbonFields = () => {
+        if (!menuFieldSyncHandlers.length) {
+          return;
+        }
+        const syncMenuFields = () => {
+          menuFieldSyncHandlers.forEach((handler) => handler());
+        };
+        syncMenuFields();
+        const selectionSyncHandler = () => {
+          window.requestAnimationFrame(syncMenuFields);
+        };
+        document.addEventListener("selectionchange", selectionSyncHandler);
+        docsMenuFieldSyncCleanup = () => {
+          document.removeEventListener("selectionchange", selectionSyncHandler);
+        };
+      };
 
-      if (menuId === "Format") {
-        addBoundMenuActions(createWorkspaceDocumentFormatMenuItems(), createDocsSharedActionMap());
-        addBoundMenuActions(
-          createWorkspaceDocumentPageFormatMenuItems(),
-          {
-            toggleHeaderFooter: toggleDocsHeaderFooter,
-            pageNumbers: () => renderDocsPageNumberSettingsView(),
-            pageOrientation: toggleDocsPageOrientation
-          }
-        );
-        createWorkspaceDocumentFormatFieldItems().forEach((field) => {
-          if (field.fieldId === "fontFamily") {
-            addMenuDropdownField(
-              field.label,
-              DOCS_FONT_FAMILY_OPTIONS,
-              (item) => executeDocsWorkspaceCommand("fontFamily", { value: item?.value || "" }),
-              {
-                placeholder: "Choose font",
-                initialValue: getDocsCurrentFormattingState().fontFamilyLabel,
-                note: "The current selection stays targeted while you pick a preset font.",
-                getCurrentValue: (state) => state.fontFamilyLabel || "Default font",
-                decorateOption: (button, item) => {
-                  if (item?.value) {
-                    button.style.fontFamily = item.value;
-                  }
-                }
-              }
-            );
-            return;
-          }
-          if (field.fieldId === "fontSize") {
-            addMenuDropdownField(
-              field.label,
-              DOCS_FONT_SIZE_OPTIONS,
-              (item, rawValue) => executeDocsWorkspaceCommand("fontSize", { value: item?.value || rawValue || "" }),
-              {
-                placeholder: "Choose size",
-                initialValue: getDocsCurrentFormattingState().fontSizeLabel,
-                note: "Pick a preset size or type your own value.",
-                getCurrentValue: (state) => state.fontSizeLabel || "Auto size",
-                customEntry: {
-                  placeholder: "Custom size",
-                  buttonLabel: "Apply",
-                  normalizeValue: (value) => normalizeDocsFontSizeValue(value)
-                }
-              }
-            );
-            return;
-          }
-          if (field.fieldId === "alignment") {
-            addMenuDropdownField(field.label, DOCS_ALIGNMENT_OPTIONS, (item) => executeDocsWorkspaceCommand(item?.commandId || "alignLeft"), {
-              placeholder: "Choose alignment",
-              initialValue: "Alignment",
-              getCurrentValue: () => "Alignment"
-            });
-            return;
-          }
-          if (field.fieldId === "textColor") {
-            addMenuColorPaletteField(
-              field.label,
-              DOCS_TEXT_COLOR_OPTIONS,
-              (item) => executeDocsWorkspaceCommand("textColor", { value: item?.value || "" }),
-              field.label
-            );
-            return;
-          }
-          if (field.fieldId === "highlightColor") {
-            addMenuColorPaletteField(
-              field.label,
-              DOCS_HIGHLIGHT_COLOR_OPTIONS,
-              (item) => executeDocsWorkspaceCommand("highlightColor", { value: item?.value || "" }),
-              field.label
-            );
-          }
+      const sharedDocsActions = createDocsSharedActionMap();
+
+      if (activeMenuId === "Fichier") {
+        addMenuGroup("Document", () => {
+          addMenuAction({ label: "Nouveau", icon: "insert" }, createNewProjectDoc, true);
+          addMenuAction({ label: "Rechercher", icon: "search", commandId: "findDocument" }, openDocumentSearch);
         });
-        if (menuFieldSyncHandlers.length) {
-          const syncMenuFields = () => {
-            menuFieldSyncHandlers.forEach((handler) => handler());
-          };
-          syncMenuFields();
-          const selectionSyncHandler = () => {
-            window.requestAnimationFrame(syncMenuFields);
-          };
-          document.addEventListener("selectionchange", selectionSyncHandler);
-          docsMenuFieldSyncCleanup = () => {
-            document.removeEventListener("selectionchange", selectionSyncHandler);
-          };
-        }
+        addMenuGroup("Exporter", () => {
+          addBoundMenuActions(createWorkspaceDocumentOutputMenuItems({ locale: "fr" }), sharedDocsActions, {
+            accentCommandIds: new Set(["downloadDocx", "exportPdf", "printDocument"])
+          });
+        });
+        addMenuGroup("Hydria", () => {
+          addMenuAction({ label: "Ameliorer", icon: "sparkle" }, focusPromptForDocs, true);
+          addMenuAction({ label: "Pret a partager", icon: "share" }, prepareShareReadyPrompt, true);
+        });
         return;
       }
 
-      if (menuId === "Insert") {
-        addBoundMenuActions(
-          createWorkspaceDocumentInsertMenuItems({ includeImagePlaceholder: true, includePageBreaks: true }),
-          createDocsSharedActionMap()
-        );
+      if (activeMenuId === "Accueil") {
+        addMenuGroup("Presse-papiers", () => {
+          addBoundMenuActions(createWorkspaceCommandMenuItems(["undo", "redo"], { locale: "fr" }), sharedDocsActions);
+        });
+        addMenuGroup("Police", () => {
+          addDocsFormatFields(["fontFamily", "fontSize"]);
+          addBoundMenuActions(
+            createWorkspaceDocumentFormatMenuItems({
+              locale: "fr",
+              includeHistory: false,
+              includeClearFormatting: false
+            }),
+            sharedDocsActions
+          );
+          addDocsFormatFields(["highlightColor", "textColor"]);
+          addBoundMenuActions(createWorkspaceCommandMenuItems(["clearFormatting"], { locale: "fr" }), sharedDocsActions);
+        });
+        addMenuGroup("Paragraphe", () => {
+          addDocsFormatFields(["alignment"]);
+          addBoundMenuActions(
+            [
+              { label: "Normal", icon: "text", commandId: "blockText", value: "p" },
+              { label: "Titre 1", icon: "text", commandId: "blockTitle", value: "h1" },
+              { label: "Titre 2", icon: "text", commandId: "blockHeading", value: "h2" },
+              { label: "Sous-titre", icon: "text", commandId: "blockSubhead", value: "h3" },
+              { label: "Puces", icon: "list", commandId: "blockBullets", value: "bullet" },
+              { label: "Numerotation", icon: "number", commandId: "blockNumbered", value: "numbered" }
+            ],
+            sharedDocsActions
+          );
+        });
+        syncDocsRibbonFields();
+        return;
+      }
+
+      if (activeMenuId === "Insertion") {
+        addMenuGroup("Pages", () => {
+          addBoundMenuActions(
+            [
+              { label: "Nouvelle section", icon: "insert", commandId: "insertNewSection" },
+              { label: "Saut de page", icon: "page", commandId: "insertPageBreak" }
+            ],
+            sharedDocsActions
+          );
+        });
+        addMenuGroup("Tableaux", () => {
+          addBoundMenuActions([{ label: "Tableau", icon: "table", commandId: "insertTable" }], sharedDocsActions);
+        });
+        addMenuGroup("Illustrations", () => {
+          addBoundMenuActions(
+            [
+              { label: "Images", icon: "image", commandId: "insertImage" },
+              { label: "Image depuis URL", icon: "link", commandId: "insertImageUrl" },
+              { label: "Espace image", icon: "image", commandId: "insertImagePlaceholder" }
+            ],
+            sharedDocsActions
+          );
+        });
+        addMenuGroup("Contenu", () => {
+          addBoundMenuActions(
+            [
+              { label: "Liste de controle", icon: "checkbox", commandId: "insertChecklist" },
+              { label: "Citation", icon: "quote", commandId: "insertQuote" },
+              { label: "Separateur", icon: "divider", commandId: "insertDivider" }
+            ],
+            sharedDocsActions
+          );
+        });
+        return;
+      }
+
+      if (activeMenuId === "Mise en page") {
+        addMenuGroup("Mise en page", () => {
+          addBoundMenuActions(
+            createWorkspaceDocumentPageFormatMenuItems(),
+            {
+              toggleHeaderFooter: toggleDocsHeaderFooter,
+              pageNumbers: () => renderDocsPageNumberSettingsView(),
+              pageOrientation: toggleDocsPageOrientation
+            }
+          );
+        });
+        addMenuGroup("Sauts", () => {
+          addBoundMenuActions(
+            [
+              { label: "Saut de page", icon: "page", commandId: "insertPageBreak" },
+              { label: "Nouvelle section", icon: "insert", commandId: "insertNewSection" }
+            ],
+            sharedDocsActions
+          );
+        });
+        return;
+      }
+
+      if (activeMenuId === "Références") {
+        addMenuGroup("Plan", () => {
+          addMenuAction({ label: "Afficher le plan", icon: "list" }, focusDocsOutline);
+          addMenuAction({ label: "Nouvelle section", icon: "insert", commandId: "insertNewSection" }, () => sharedDocsActions.insertNewSection?.());
+        });
+        if (projectDocs.length) {
+          addMenuGroup("Documents lies", () => {
+            projectDocs.slice(0, 6).forEach((item) => addMenuAction(item.title || "Document", () => onProjectObjectSelect?.(item)));
+          });
+        }
         if (projectAssets.length) {
-          addMenuLabel("Project assets");
-          projectAssets.slice(0, 6).forEach((item) => addMenuAction(`Insert ${item.title || item.objectKind || "asset"}`, () => insertProjectAsset(item)));
+          addMenuGroup("Ressources", () => {
+            projectAssets.slice(0, 6).forEach((item) => addMenuAction(item.title || item.objectKind || "Asset", () => insertProjectAsset(item)));
+          });
         }
         return;
       }
 
-      if (menuId === "Project & AI") {
+      if (activeMenuId === "Révision") {
+        addMenuGroup("Verification", () => {
+          addMenuAction({ label: "Rechercher", icon: "search", commandId: "findDocument" }, openDocumentSearch, true);
+          addMenuAction({ label: "Polish", icon: "sparkle" }, prepareShareReadyPrompt, true);
+        });
+        addMenuGroup("Hydria", () => {
+          addMenuAction({ label: "Demander a Hydria", icon: "sparkle" }, focusPromptForDocs, true);
+          addMenuAction({ label: "Nouveau document", icon: "insert" }, createNewProjectDoc);
+        });
+        return;
+      }
+
+      if (activeMenuId === "Affichage") {
+        addMenuGroup("Vues", () => {
+          addBoundMenuActions(
+            [
+              { label: "Page", icon: "page", commandId: "focusPage" },
+              ...(!isDocsCanvasFullscreen() ? [{ label: "Plan", icon: "list", commandId: "focusOutline" }] : []),
+              { label: "Rechercher", icon: "search", commandId: "findDocument" },
+              {
+                label: isDocsCanvasFullscreen() ? "Quitter le plein ecran" : "Plein ecran",
+                icon: "zoom",
+                commandId: "toggleFullscreen"
+              }
+            ],
+            {
+              focusPage: () => focusDocsPage(),
+              focusOutline: () => focusDocsOutline(),
+              findDocument: () => openDocumentSearch(),
+              toggleFullscreen: toggleDocsFullscreen
+            },
+            { accentCommandIds: new Set(["findDocument", "toggleFullscreen"]) }
+          );
+        });
+        return;
+      }
+
+      if (activeMenuId === "Aide") {
+        addMenuGroup("Aide", () => {
+          addMenuAction({ label: "Trouver dans le document", icon: "search" }, openDocumentSearch, true);
+          addMenuAction({ label: "Demander a Hydria", icon: "sparkle" }, focusPromptForDocs, true);
+        });
+        addMenuLabel("Les commandes utilisent le meme registre partage que Sheets.");
+        return;
+      }
+
+      if (activeMenuId === "Project & AI") {
         addMenuAction("Ask Hydria to improve this page", focusPromptForDocs, true);
         addMenuAction("Share-ready", prepareShareReadyPrompt, true);
         addMenuAction("New document in project", createNewProjectDoc, true);
@@ -5873,26 +7029,9 @@ function renderMarkdownPreview(
         }
         return;
       }
-
-      if (menuId === "View") {
-        addBoundMenuActions(
-          createWorkspaceDocumentViewMenuItems({
-            isFullscreen: isDocsCanvasFullscreen(),
-            includeOutline: !isDocsCanvasFullscreen()
-          }),
-          {
-            focusPage: () => focusDocsPage(),
-            focusOutline: () => focusDocsOutline(),
-            findDocument: () => openDocumentSearch(),
-            toggleFullscreen: toggleDocsFullscreen
-          },
-          { accentCommandIds: new Set(["findDocument", "toggleFullscreen"]) }
-        );
-        addMenuLabel("Press Esc to leave fullscreen quickly.");
-      }
     };
 
-    ["Structure", "Format", "Insert", "Project & AI", "View"].forEach((label) => {
+    ["Fichier", "Accueil", "Insertion", "Mise en page", "Références", "Révision", "Affichage", "Aide"].forEach((label) => {
       const button = document.createElement("button");
       button.type = "button";
       button.className = "workspace-docs-menu-item";
@@ -5900,7 +7039,7 @@ function renderMarkdownPreview(
       button.dataset.menu = label;
       preserveDocsSelectionOnPointerDown(button);
       button.addEventListener("click", () => {
-        renderDocsMenu(docsMenuPanel?.dataset.openMenu === label ? "" : label);
+        renderDocsMenu(label);
       });
       docsMenuButtons.push(button);
       docsMenuBar.appendChild(button);
@@ -5912,16 +7051,11 @@ function renderMarkdownPreview(
     docsToolbarStatus = docsMenuStatus;
     previewShell.appendChild(docsMenuBar);
     previewShell.appendChild(docsMenuPanel);
+    renderDocsMenu("Accueil");
 
-    const ruler = document.createElement("div");
-    ruler.className = "workspace-docs-ruler";
-    for (let index = 0; index < 12; index += 1) {
-      const tick = document.createElement("span");
-      tick.className = "workspace-docs-ruler-tick";
-      tick.textContent = `${(index + 1) * 10}`;
-      ruler.appendChild(tick);
-    }
-    previewShell.appendChild(ruler);
+    docsPageRuler = document.createElement("div");
+    docsPageRuler.className = "workspace-docs-ruler";
+    renderDocsLinearRuler(docsPageRuler, "horizontal", "portrait");
   }
 
   if (!isDocsClone) {
@@ -5967,7 +7101,7 @@ function renderMarkdownPreview(
     previewShell.appendChild(previewRibbon);
   }
 
-  const previewLayout = document.createElement("div");
+  previewLayout = document.createElement("div");
   previewLayout.className = `workspace-document-preview-layout${isDocsClone ? " workspace-document-preview-layout-docs" : ""}`;
   outline = document.createElement("aside");
   outline.className = `workspace-document-preview-outline${isDocsClone ? " workspace-document-preview-outline-docs" : ""}`;
@@ -6231,6 +7365,9 @@ function renderMarkdownPreview(
     rebuildDocsPageShell();
     docsCanvas = document.createElement("div");
     docsCanvas.className = "workspace-document-page-canvas";
+    if (docsPageRuler) {
+      docsCanvas.appendChild(docsPageRuler);
+    }
     docsCanvas.appendChild(shell);
     docsTableControls = document.createElement("div");
     docsTableControls.className = "workspace-docs-table-controls hidden";
@@ -6289,19 +7426,74 @@ function renderMarkdownPreview(
     shell.classList.add("workspace-inline-editable");
     shell.dataset.placeholder = "Start typing here";
     shell.addEventListener("input", (event) => {
+      const isPasteInput = ["insertFromPaste", "insertFromPasteAsQuotation", "insertFromDrop"].includes(event.inputType);
       if (shouldLinkifyOnBreak(event)) {
         linkifyPlainUrlsInNode(shell);
       }
+      docsPendingPageReflow = true;
       if (docsCommitHandle) {
         window.clearTimeout(docsCommitHandle);
       }
       docsCommitHandle = window.setTimeout(() => {
+        if (isPasteInput) {
+          reflowDocsPages({ preserveSelection: true });
+          commitDocumentShell();
+          updateDocsTableControls(null, true);
+          updateDocsToolbarStatus("Pasted and paginated");
+          return;
+        }
         commitDocumentShell();
+        scheduleDocsPageReflow({
+          delay: 600,
+          preserveSelection: false
+        });
         updateDocsTableControls(null, true);
         updateDocsToolbarStatus("Saved automatically");
-      }, 120);
+      }, isPasteInput ? 40 : 120);
+    });
+    shell.addEventListener("paste", (event) => {
+      const pastedHtml = event.clipboardData?.getData("text/html") || "";
+      const pastedText = event.clipboardData?.getData("text/plain") || "";
+      if (!pastedHtml.trim() && !pastedText.trim()) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      if (docsCommitHandle) {
+        window.clearTimeout(docsCommitHandle);
+        docsCommitHandle = null;
+      }
+      const didInsert =
+        (pastedHtml.trim() && insertDocsRichHtmlAtSelection(pastedHtml, pastedText)) ||
+        insertDocsPlainTextAtSelection(pastedText);
+      if (!didInsert) {
+        return;
+      }
+      linkifyPlainUrlsInNode(shell);
+      docsPendingPageReflow = true;
+      reflowDocsPages({ preserveSelection: false });
+      commitDocumentShell();
+      updateDocsTableControls(null, true);
+      updateDocsToolbarStatus("Pasted and paginated");
+    });
+    shell.addEventListener("focusout", (event) => {
+      if (event.relatedTarget && previewShell.contains(event.relatedTarget)) {
+        return;
+      }
+      if (docsCommitHandle) {
+        window.clearTimeout(docsCommitHandle);
+        docsCommitHandle = null;
+        commitDocumentShell();
+      }
+      if (docsPendingPageReflow) {
+        flushDocsPageReflow({ preserveSelection: false });
+      }
     });
     shell.addEventListener("click", () => {
+      if (docsOutlineVisible) {
+        setDocsOutlineVisible(false);
+      }
+      updateDocsActivePageRuler(window.getSelection()?.anchorNode || null);
       updateDocsToolbarStatus("Editing page");
     });
     shell.addEventListener("keydown", (event) => {
@@ -6323,9 +7515,11 @@ function renderMarkdownPreview(
     });
     shell.addEventListener("mouseup", () => {
       saveDocsSelectionRange();
+      updateDocsActivePageRuler(window.getSelection()?.anchorNode || null);
     });
     shell.addEventListener("keyup", () => {
       saveDocsSelectionRange();
+      updateDocsActivePageRuler(window.getSelection()?.anchorNode || null);
     });
     shell.addEventListener("contextmenu", (event) => {
       if (
@@ -6338,6 +7532,7 @@ function renderMarkdownPreview(
       showDocsContextMenuForTarget(event.target, event.clientX, event.clientY);
     });
     docsCanvas.addEventListener("pointerdown", (event) => {
+      updateDocsActivePageRuler(event.target);
       if (
         docsSelectedMediaFigure &&
         !event.target.closest?.(".workspace-docs-image-resize-handle") &&
@@ -6349,12 +7544,59 @@ function renderMarkdownPreview(
         hideDocsTableContextMenu();
       }
     });
-    window.requestAnimationFrame(() => updateDocsTableControls(null, true));
+    window.requestAnimationFrame(() => {
+      reflowDocsPages();
+      updateDocsActivePageRuler(activeEditable);
+      updateDocsTableControls(null, true);
+    });
   } else {
     previewLayout.append(outline, shell);
   }
+  setDocsOutlineVisible(false);
   previewShell.appendChild(previewLayout);
-  container.appendChild(previewShell);
+  if (isDocsClone) {
+    renderWorkspaceApplicationPreviewShell(container, {
+      previewKey: workObject?.id || workObject?.title || "docs-preview",
+      title: workObject?.title || "New Docs",
+      meta: `${headings.length || 1} SECTIONS | ${previewWordCount(normalized)} WORDS`,
+      tabs: ["Document", "Outline"],
+      onTabSelect: (label) => {
+        if (String(label || "").toLowerCase() === "outline") {
+          focusDocsOutline();
+        } else {
+          focusDocsPage();
+        }
+      },
+      searchPlaceholder: "Rechercher dans le document ou les commandes",
+      cardClassName: "workspace-docs-preview-card",
+      viewportClassName: "workspace-docs-preview-viewport",
+      contentClassName: "workspace-docs-preview-content",
+      buildContent: ({ searchInput }) => {
+        docsApplicationSearchInput = searchInput || null;
+        if (docsApplicationSearchInput) {
+          docsApplicationSearchInput.setAttribute("aria-label", "Rechercher dans le document");
+          docsApplicationSearchInput.addEventListener("input", (event) => {
+            syncDocumentSearchInputs(event.target.value, docsApplicationSearchInput);
+            applyDocumentSearch(event.target.value, { scrollToActive: false });
+          });
+          docsApplicationSearchInput.addEventListener("keydown", (event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              moveDocumentSearch(event.shiftKey ? -1 : 1);
+              return;
+            }
+            if (event.key === "Escape") {
+              event.preventDefault();
+              closeDocumentSearch();
+            }
+          });
+        }
+        return previewShell;
+      }
+    });
+  } else {
+    container.appendChild(previewShell);
+  }
   if (normalizedLegacyHeading) {
     commitDocumentShell();
   }
@@ -6404,11 +7646,33 @@ function wireInlineEditable(element, { multiline = false, onCommit = null, onFoc
   });
 }
 
+function mergeDocsSplitContinuationBlocks(root) {
+  if (!root?.querySelectorAll) {
+    return;
+  }
+  Array.from(root.querySelectorAll("[data-docs-split-continuation='true']")).forEach((node) => {
+    const group = node.getAttribute("data-docs-split-group") || "";
+    const previous = node.previousElementSibling;
+    if (!group || !previous || previous.getAttribute("data-docs-split-group") !== group) {
+      return;
+    }
+    const left = String(previous.textContent || "").trimEnd();
+    const right = String(node.textContent || "").trimStart();
+    previous.textContent = `${left}${left && right ? " " : ""}${right}`;
+    node.remove();
+  });
+  root.querySelectorAll("[data-docs-split-group], [data-docs-split-continuation]").forEach((node) => {
+    node.removeAttribute("data-docs-split-group");
+    node.removeAttribute("data-docs-split-continuation");
+  });
+}
+
 function serializeDocumentPreviewShell(shell) {
   if (shell?.dataset?.richDocument === "true") {
     const clone = shell.cloneNode(true);
     clone.querySelectorAll(".workspace-docs-page-control-bar").forEach((node) => node.remove());
     clone.querySelectorAll(".workspace-docs-page-header, .workspace-docs-page-footer").forEach((node) => node.remove());
+    clone.querySelectorAll(".workspace-docs-vertical-ruler").forEach((node) => node.remove());
     clone.querySelectorAll(".workspace-docs-image-resize-handle").forEach((node) => node.remove());
     clone.querySelectorAll(".workspace-docs-search-match").forEach((node) => unwrapNodeContents(node));
     clone.querySelectorAll(".workspace-docs-figure").forEach((node) => {
@@ -6417,11 +7681,15 @@ function serializeDocumentPreviewShell(shell) {
     clone.querySelectorAll(".workspace-document-page-sheet").forEach((page) => {
       page.replaceWith(...Array.from(page.childNodes));
     });
+    mergeDocsSplitContinuationBlocks(clone);
     clone.querySelectorAll("[contenteditable]").forEach((node) => node.removeAttribute("contenteditable"));
     clone.querySelectorAll("[spellcheck]").forEach((node) => node.removeAttribute("spellcheck"));
     clone.querySelectorAll("[data-placeholder]").forEach((node) => node.removeAttribute("data-placeholder"));
     clone.querySelectorAll(".workspace-inline-editable").forEach((node) => {
       node.classList.remove("workspace-inline-editable");
+    });
+    clone.querySelectorAll(".workspace-document-page-sheet.is-active-docs-page").forEach((node) => {
+      node.classList.remove("is-active-docs-page");
     });
     clone.querySelectorAll(".workspace-checklist-box").forEach((checkbox) => {
       const checked = checkbox.checked || checkbox.closest("li")?.dataset?.checked === "true";
@@ -23157,7 +24425,12 @@ function renderPresentationPreview(
   sections = [],
   currentSectionId = "",
   onSlideFocus = null,
-  onSlideEdit = null
+  onSlideEdit = null,
+  {
+    previewKey = "",
+    title = "",
+    meta = ""
+  } = {}
 ) {
   const usableSections = (sections || []).filter(
     (section) => section.id !== "whole-file" && section.level >= 2
@@ -23177,11 +24450,6 @@ function renderPresentationPreview(
   const activeIndex = Math.max(0, slides.findIndex((slide) => slide.id === activeSlide.id));
   const parsed = parsePresentationBlock(activeSlide.block || "");
   const stageTheme = inferPresentationSlideTheme(activeSlide.title, parsed);
-
-  const stats = document.createElement("div");
-  stats.className = "workspace-preview-summary";
-  stats.textContent = `${slides.length} slides | deck preview`;
-  container.appendChild(stats);
 
   const deckShell = document.createElement("section");
   deckShell.className = "workspace-deck-shell";
@@ -23445,7 +24713,17 @@ function renderPresentationPreview(
 
   deckWorkbench.append(strip, stage, notesPanel);
   deckShell.appendChild(deckWorkbench);
-  container.appendChild(deckShell);
+  renderWorkspaceApplicationPreviewShell(container, {
+    previewKey: previewKey || `presentation:${activeSlide.id}:${slides.length}`,
+    title: title || "New Slides",
+    meta: meta || `${slides.length} SLIDES | PRESENTATION`,
+    tabs: ["Slides", "Notes"],
+    searchPlaceholder: "Rechercher dans la presentation ou les commandes",
+    cardClassName: "workspace-presentation-preview-card",
+    viewportClassName: "workspace-presentation-preview-viewport",
+    contentClassName: "workspace-presentation-preview-content",
+    buildContent: () => deckShell
+  });
 }
 
 function parsePreviewNumber(value = "") {
@@ -24859,6 +26137,9 @@ function renderWorkflowExperiencePreview(
   {
     activeStageId = "",
     activeLinkId = "",
+    previewKey = "",
+    title = "",
+    meta = "",
     onStageFocus = null,
     onStageMove = null,
     onWorkflowLinkCreate = null,
@@ -24873,10 +26154,13 @@ function renderWorkflowExperiencePreview(
     return;
   }
 
+  const workflowContent = document.createElement("div");
+  workflowContent.className = "workspace-workflow-preview-content";
+
   const summary = document.createElement("div");
   summary.className = "workspace-preview-summary";
   summary.textContent = `${model.objective || "Workflow"} - Trigger: ${model.trigger || "manual"}`;
-  container.appendChild(summary);
+  workflowContent.appendChild(summary);
 
   const stageNodes = Array.isArray(model.stages) ? model.stages : [];
   const stageLinks = Array.isArray(model.links) ? model.links : [];
@@ -24896,7 +26180,7 @@ function renderWorkflowExperiencePreview(
     refreshPendingLinkState();
   });
   linkHelper.append(linkHelperText, linkHelperClear);
-  container.appendChild(linkHelper);
+  workflowContent.appendChild(linkHelper);
 
   function refreshPendingLinkState() {
     if (pendingLinkSourceId) {
@@ -25119,7 +26403,18 @@ function renderWorkflowExperiencePreview(
     workflowShell.appendChild(metaGrid);
   }
 
-  container.appendChild(workflowShell);
+  workflowContent.appendChild(workflowShell);
+  renderWorkspaceApplicationPreviewShell(container, {
+    previewKey: previewKey || `workflow:${model.title || model.objective || "preview"}`,
+    title: title || model.title || "New Automation",
+    meta: meta || `${stageNodes.length} STEPS | ${stageLinks.length} LINKS`,
+    tabs: ["Canvas", "Nodes", "Outputs"],
+    searchPlaceholder: "Rechercher dans le workflow ou les commandes",
+    cardClassName: "workspace-workflow-preview-card",
+    viewportClassName: "workspace-workflow-preview-viewport",
+    contentClassName: "workspace-workflow-preview-shell-content",
+    buildContent: () => workflowContent
+  });
   refreshPendingLinkState();
 }
 function renderDesignExperiencePreview(
@@ -25128,6 +26423,9 @@ function renderDesignExperiencePreview(
   {
     activeFrameId = "",
     activeBlockId = "",
+    previewKey = "",
+    title = "",
+    meta = "",
     onFrameFocus = null,
     onBlockFocus = null,
     onBlockMove = null,
@@ -25141,10 +26439,13 @@ function renderDesignExperiencePreview(
     return;
   }
 
+  const designContent = document.createElement("div");
+  designContent.className = "workspace-design-preview-content";
+
   const summary = document.createElement("div");
   summary.className = "workspace-preview-summary";
   summary.textContent = model.brief || "Design surface";
-  container.appendChild(summary);
+  designContent.appendChild(summary);
 
   if ((model.components || []).length) {
     const componentChips = document.createElement("div");
@@ -25155,7 +26456,7 @@ function renderDesignExperiencePreview(
       chip.textContent = component;
       componentChips.appendChild(chip);
     });
-    container.appendChild(componentChips);
+    designContent.appendChild(componentChips);
   }
 
   const designShell = document.createElement("div");
@@ -25391,8 +26692,19 @@ function renderDesignExperiencePreview(
   }
 
   if (designShell.children.length) {
-    container.appendChild(designShell);
+    designContent.appendChild(designShell);
   }
+  renderWorkspaceApplicationPreviewShell(container, {
+    previewKey: previewKey || `design:${model.title || model.brief || "preview"}`,
+    title: title || model.title || "New Whiteboard",
+    meta: meta || `${(model.frames || []).length} FRAMES | ${(model.components || []).length} COMPONENTS`,
+    tabs: ["Canvas", "Frames", "Assets"],
+    searchPlaceholder: "Rechercher dans le design ou les commandes",
+    cardClassName: "workspace-design-preview-card",
+    viewportClassName: "workspace-design-preview-viewport",
+    contentClassName: "workspace-design-preview-shell-content",
+    buildContent: () => designContent
+  });
   return;
 
   const shell = document.createElement("div");
@@ -25867,6 +27179,202 @@ function rewriteDraftRuntimeHtml(html = "", workObject = null, runtimeEntryPath 
   return `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width, initial-scale=1" /></head><body>${rewritten}</body></html>`;
 }
 
+function createWorkspaceApplicationPreviewKey(value = "") {
+  const normalized = String(value || "").trim();
+  return normalized || "workspace-application-preview";
+}
+
+function renderWorkspaceApplicationPreviewShell(
+  container,
+  {
+    previewKey = "",
+    title = "Hydria workspace",
+    meta = "",
+    tabs = ["Preview"],
+    activeTab = 0,
+    searchPlaceholder = "Rechercher dans cet espace ou les commandes",
+    cardClassName = "",
+    viewportClassName = "",
+    contentClassName = "",
+    expandedBodyClassName = "workspace-application-expanded",
+    onTabSelect = null,
+    buildContent = null
+  } = {}
+) {
+  const applicationKey = createWorkspaceApplicationPreviewKey(previewKey || title);
+  let isExpanded = applicationPreviewExpandedStore.get(applicationKey) === true;
+  let expandedOverlay = null;
+  let expandedDialog = null;
+  let expandedScaleFrame = null;
+  const getStoredExpandedHost = () => {
+    const host = applicationPreviewExpandedPopupHostStore.get(applicationKey);
+    if (host?.overlay?.isConnected && host?.dialog?.isConnected && host?.scaleFrame?.isConnected) {
+      return host;
+    }
+    applicationPreviewExpandedPopupHostStore.delete(applicationKey);
+    return null;
+  };
+  const destroyExpandedHost = ({ preserveHost = false } = {}) => {
+    if (!preserveHost) {
+      document.body.classList.remove(expandedBodyClassName);
+    }
+    if (expandedScaleFrame?.contains(previewShell)) {
+      expandedScaleFrame.removeChild(previewShell);
+    }
+    if (preserveHost) {
+      return;
+    }
+    const storedHost = getStoredExpandedHost();
+    if (!expandedOverlay && storedHost) {
+      expandedOverlay = storedHost.overlay;
+      expandedDialog = storedHost.dialog;
+      expandedScaleFrame = storedHost.scaleFrame;
+    }
+    if (expandedOverlay) {
+      expandedOverlay.remove();
+      expandedOverlay = null;
+      expandedDialog = null;
+      expandedScaleFrame = null;
+    }
+    applicationPreviewExpandedPopupHostStore.delete(applicationKey);
+  };
+  const setExpandedMode = (nextExpanded = false) => {
+    isExpanded = Boolean(nextExpanded);
+    applicationPreviewExpandedStore.set(applicationKey, isExpanded);
+    mountPreviewShell();
+  };
+  const ensureExpandedHost = () => {
+    if (expandedOverlay?.isConnected && expandedDialog && expandedScaleFrame) {
+      return expandedScaleFrame;
+    }
+    const storedHost = getStoredExpandedHost();
+    if (storedHost) {
+      expandedOverlay = storedHost.overlay;
+      expandedDialog = storedHost.dialog;
+      expandedScaleFrame = storedHost.scaleFrame;
+      return expandedScaleFrame;
+    }
+    expandedOverlay = document.createElement("div");
+    expandedOverlay.className = "workspace-sheet-modal-overlay workspace-application-modal-overlay";
+    const backdrop = document.createElement("div");
+    backdrop.className = "workspace-sheet-modal-backdrop";
+    backdrop.addEventListener("click", () => setExpandedMode(false));
+    expandedDialog = document.createElement("div");
+    expandedDialog.className = "workspace-sheet-modal-dialog workspace-application-modal-dialog";
+    expandedScaleFrame = document.createElement("div");
+    expandedScaleFrame.className = "workspace-sheet-modal-scale-frame workspace-application-modal-scale-frame";
+    expandedOverlay.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setExpandedMode(false);
+      }
+    });
+    expandedDialog.appendChild(expandedScaleFrame);
+    expandedOverlay.append(backdrop, expandedDialog);
+    document.body.appendChild(expandedOverlay);
+    expandedOverlay.tabIndex = -1;
+    applicationPreviewExpandedPopupHostStore.set(applicationKey, {
+      overlay: expandedOverlay,
+      dialog: expandedDialog,
+      scaleFrame: expandedScaleFrame
+    });
+    return expandedScaleFrame;
+  };
+
+  const previewShell = document.createElement("section");
+  previewShell.className = `workspace-application-preview-card${cardClassName ? ` ${cardClassName}` : ""}`;
+
+  const previewTopbar = document.createElement("div");
+  previewTopbar.className = "workspace-application-preview-topbar";
+  const titleGroup = document.createElement("div");
+  titleGroup.className = "workspace-sheet-title-group";
+  const titleNode = document.createElement("strong");
+  titleNode.textContent = title || "Hydria workspace";
+  const metaNode = document.createElement("span");
+  metaNode.className = "tiny";
+  metaNode.textContent = meta || "Application workspace";
+  titleGroup.append(titleNode, metaNode);
+
+  const search = document.createElement("label");
+  search.className = "workspace-sheet-command-search workspace-application-command-search";
+  const searchIcon = document.createElement("span");
+  searchIcon.className = "workspace-sheet-command-search-icon";
+  const searchInput = document.createElement("input");
+  searchInput.type = "search";
+  searchInput.placeholder = searchPlaceholder;
+  search.append(searchIcon, searchInput);
+
+  const tabStrip = document.createElement("div");
+  tabStrip.className = "workspace-sheet-tabs workspace-application-preview-tabs";
+  (tabs.length ? tabs : ["Preview"]).forEach((label, index) => {
+    const tab = document.createElement("button");
+    tab.type = "button";
+    tab.className = `workspace-sheet-tab${index === activeTab ? " active" : ""}`;
+    tab.textContent = label;
+    if (typeof onTabSelect === "function") {
+      tab.addEventListener("click", () => {
+        Array.from(tabStrip.querySelectorAll(".workspace-sheet-tab")).forEach((item) => {
+          item.classList.toggle("active", item === tab);
+        });
+        onTabSelect(label, index);
+      });
+    }
+    tabStrip.appendChild(tab);
+  });
+
+  const expandButton = document.createElement("button");
+  expandButton.type = "button";
+  expandButton.className = "workspace-sheet-tab workspace-application-expand-button";
+  expandButton.addEventListener("click", () => setExpandedMode(!isExpanded));
+  previewTopbar.append(titleGroup, search, tabStrip, expandButton);
+
+  const viewport = document.createElement("div");
+  viewport.className = `workspace-application-preview-viewport${viewportClassName ? ` ${viewportClassName}` : ""}`;
+  const content = document.createElement("div");
+  content.className = `workspace-application-preview-content${contentClassName ? ` ${contentClassName}` : ""}`;
+  const builtContent = buildContent?.({
+    content,
+    viewport,
+    previewShell,
+    searchInput,
+    setExpandedMode
+  });
+  if (Array.isArray(builtContent)) {
+    builtContent.filter(Boolean).forEach((node) => content.appendChild(node));
+  } else if (typeof Node !== "undefined" && builtContent instanceof Node) {
+    content.appendChild(builtContent);
+  }
+  viewport.appendChild(content);
+  previewShell.append(previewTopbar, viewport);
+
+  function mountPreviewShell() {
+    previewShell.classList.toggle("is-expanded", isExpanded);
+    expandButton.textContent = isExpanded ? "Exit full screen" : "Full screen";
+    expandButton.title = isExpanded ? "Exit full screen" : "Open full screen";
+    expandButton.setAttribute("aria-pressed", isExpanded ? "true" : "false");
+    if (isExpanded) {
+      const scaleFrame = ensureExpandedHost();
+      document.body.classList.add(expandedBodyClassName);
+      scaleFrame.replaceChildren(previewShell);
+      expandedOverlay?.focus({ preventScroll: true });
+      return;
+    }
+    if (previewShell.parentElement !== container) {
+      container.appendChild(previewShell);
+    }
+    destroyExpandedHost();
+  }
+
+  mountPreviewShell();
+  return {
+    shell: previewShell,
+    viewport,
+    content,
+    searchInput,
+    setExpandedMode
+  };
+}
+
 function renderAppPreview(container, assetUrl = "", options = {}) {
   const shell = document.createElement("div");
   shell.className = "workspace-app-shell";
@@ -25876,7 +27384,17 @@ function renderAppPreview(container, assetUrl = "", options = {}) {
     empty.className = "workspace-surface-empty";
     empty.textContent = "No app preview is available yet for this object.";
     shell.appendChild(empty);
-    container.appendChild(shell);
+    renderWorkspaceApplicationPreviewShell(container, {
+      previewKey: options.previewKey || options.title || "app-preview",
+      title: options.title || "Application",
+      meta: options.meta || "Live application workspace",
+      tabs: options.tabs || ["Preview", "Inspect"],
+      searchPlaceholder: "Rechercher dans l'application ou les commandes",
+      cardClassName: "workspace-app-preview-card",
+      viewportClassName: "workspace-app-preview-viewport",
+      contentClassName: "workspace-app-preview-content",
+      buildContent: () => shell
+    });
     return;
   }
 
@@ -25890,7 +27408,17 @@ function renderAppPreview(container, assetUrl = "", options = {}) {
   frame.title = "Hydria app preview";
   frame.setAttribute("sandbox", "allow-scripts allow-forms allow-modals");
   shell.appendChild(frame);
-  container.appendChild(shell);
+  renderWorkspaceApplicationPreviewShell(container, {
+    previewKey: options.previewKey || options.title || assetUrl || "app-preview",
+    title: options.title || "Application",
+    meta: options.meta || "Live application workspace",
+    tabs: options.tabs || ["Preview", "Inspect"],
+    searchPlaceholder: "Rechercher dans l'application ou les commandes",
+    cardClassName: "workspace-app-preview-card",
+    viewportClassName: "workspace-app-preview-viewport",
+    contentClassName: "workspace-app-preview-content",
+    buildContent: () => shell
+  });
 }
 
 function classifyRuntimePatch(runtimePatch = {}, runtimeSession = null, surfaceModel = null) {
@@ -26007,6 +27535,50 @@ function renderSurfaceOverview(container, { workObject = null, project = null, s
   });
 
   container.appendChild(meta);
+}
+
+function shouldRenderApplicationOverviewShell(workObject = null) {
+  const familyId = workObject?.workspaceFamilyId || "";
+  const objectKind = workObject?.objectKind || workObject?.kind || "";
+  return (
+    [
+      "crm_sales",
+      "app_builder",
+      "workflow_automation",
+      "design",
+      "development",
+      "analytics_dashboard",
+      "presentation"
+    ].includes(familyId) ||
+    ["project", "workflow", "design", "code", "dashboard", "presentation"].includes(objectKind)
+  );
+}
+
+function renderApplicationOverviewPreview(
+  container,
+  {
+    workObject = null,
+    project = null,
+    sections = [],
+    blocks = [],
+    previewKey = "",
+    metaText = ""
+  } = {}
+) {
+  const content = document.createElement("div");
+  content.className = "workspace-application-overview-content";
+  renderSurfaceOverview(content, { workObject, project, sections, blocks });
+  renderWorkspaceApplicationPreviewShell(container, {
+    previewKey: previewKey || workObject?.id || workObject?.title || "overview",
+    title: workObject?.title || "Hydria workspace",
+    meta: metaText || "Application overview",
+    tabs: ["Overview", "Structure"],
+    searchPlaceholder: "Rechercher dans cet espace ou les commandes",
+    cardClassName: "workspace-overview-preview-card",
+    viewportClassName: "workspace-overview-preview-viewport",
+    contentClassName: "workspace-overview-preview-content",
+    buildContent: () => content
+  });
 }
 
 export function renderWorkspacePreview(
@@ -26176,7 +27748,18 @@ export function renderWorkspacePreview(
   container.appendChild(header);
 
   if (resolvedSurfaceId === "overview") {
-    renderSurfaceOverview(container, { workObject, project, sections, blocks });
+    if (shouldRenderApplicationOverviewShell(workObject)) {
+      renderApplicationOverviewPreview(container, {
+        workObject,
+        project,
+        sections,
+        blocks,
+        previewKey: workObject?.id || normalizedPath || workObject?.title || "overview",
+        metaText
+      });
+    } else {
+      renderSurfaceOverview(container, { workObject, project, sections, blocks });
+    }
     return;
   }
 
@@ -26189,7 +27772,12 @@ export function renderWorkspacePreview(
   }
 
   if (resolvedSurfaceId === "app") {
-    renderAppPreview(container, assetUrl);
+    renderAppPreview(container, assetUrl, {
+      previewKey: workObject?.id || normalizedPath || assetUrl || "app",
+      title: workObject.title || "Application",
+      meta: metaText,
+      tabs: ["Preview", "Inspect"]
+    });
     return;
   }
 
@@ -26246,6 +27834,9 @@ export function renderWorkspacePreview(
     renderWorkflowExperiencePreview(container, contentToRender, {
       activeStageId: selectedStructuredItemId,
       activeLinkId: selectedStructuredSubItemId,
+      previewKey: workObject?.id || normalizedPath || workObject?.title || "workflow",
+      title: workObject.title || "New Automation",
+      meta: metaText,
       onStageFocus: onWorkflowStageFocus,
       onStageMove: onWorkflowStageMove,
       onStagePositionChange: onWorkflowStagePositionChange,
@@ -26260,6 +27851,9 @@ export function renderWorkspacePreview(
     renderDesignExperiencePreview(container, contentToRender, {
       activeFrameId: selectedStructuredItemId,
       activeBlockId: selectedStructuredSubItemId,
+      previewKey: workObject?.id || normalizedPath || workObject?.title || "design",
+      title: workObject.title || "New Whiteboard",
+      meta: metaText,
       onFrameFocus: onDesignFrameFocus,
       onBlockFocus: onDesignBlockFocus,
       onBlockMove: onDesignBlockMove,
@@ -26276,7 +27870,12 @@ export function renderWorkspacePreview(
       sections,
       selectedSectionId,
       onPresentationSlideFocus,
-      onPresentationSlideEdit
+      onPresentationSlideEdit,
+      {
+        previewKey: workObject?.id || normalizedPath || workObject?.title || "presentation",
+        title: workObject.title || "New Slides",
+        meta: metaText
+      }
     );
     return;
   }
@@ -26298,7 +27897,8 @@ export function renderWorkspacePreview(
         onDocumentInlineEdit,
         workObject,
         projectWorkObjects,
-        onProjectObjectSelect
+        onProjectObjectSelect,
+        normalizedPath
       );
       return;
     }
@@ -26314,7 +27914,19 @@ export function renderWorkspacePreview(
 
   if (isDocumentMarkupFile) {
     if (objectKind === "presentation") {
-      renderPresentationPreview(container, contentToRender, sections, selectedSectionId, onPresentationSlideFocus, onPresentationSlideEdit);
+      renderPresentationPreview(
+        container,
+        contentToRender,
+        sections,
+        selectedSectionId,
+        onPresentationSlideFocus,
+        onPresentationSlideEdit,
+        {
+          previewKey: workObject?.id || normalizedPath || workObject?.title || "presentation",
+          title: workObject.title || "New Slides",
+          meta: metaText
+        }
+      );
       return;
     }
     if (objectKind === "document" || objectKind === "project") {
@@ -26329,7 +27941,8 @@ export function renderWorkspacePreview(
       onDocumentInlineEdit,
       workObject,
       projectWorkObjects,
-      onProjectObjectSelect
+      onProjectObjectSelect,
+      normalizedPath
     );
     return;
   }
@@ -26354,6 +27967,9 @@ export function renderWorkspacePreview(
       renderWorkflowExperiencePreview(container, contentToRender, {
         activeStageId: selectedStructuredItemId,
         activeLinkId: selectedStructuredSubItemId,
+        previewKey: workObject?.id || normalizedPath || workObject?.title || "workflow",
+        title: workObject.title || "New Automation",
+        meta: metaText,
         onStageFocus: onWorkflowStageFocus,
         onStageMove: onWorkflowStageMove,
         onStagePositionChange: onWorkflowStagePositionChange,
@@ -26367,6 +27983,9 @@ export function renderWorkspacePreview(
       renderDesignExperiencePreview(container, contentToRender, {
         activeFrameId: selectedStructuredItemId,
         activeBlockId: selectedStructuredSubItemId,
+        previewKey: workObject?.id || normalizedPath || workObject?.title || "design",
+        title: workObject.title || "New Whiteboard",
+        meta: metaText,
         onFrameFocus: onDesignFrameFocus,
         onBlockFocus: onDesignBlockFocus,
         onBlockMove: onDesignBlockMove,
@@ -26404,7 +28023,12 @@ export function renderWorkspacePreview(
   }
 
   if (isHtmlPreviewPath(normalizedPath)) {
-    renderAppPreview(container, assetUrl);
+    renderAppPreview(container, assetUrl, {
+      previewKey: workObject?.id || normalizedPath || assetUrl || "app",
+      title: workObject.title || "Application",
+      meta: metaText,
+      tabs: ["Preview", "Inspect"]
+    });
     return;
   }
 
@@ -26485,79 +28109,6 @@ export function renderWorkspaceBreadcrumb(
   }
 }
 
-function formatWorkspaceFamilyLabel(value = "") {
-  const normalized = String(value || "").trim();
-  if (!normalized) {
-    return "";
-  }
-
-  const map = {
-    document_knowledge: "Document & Knowledge",
-    data_spreadsheet: "Data & Spreadsheet",
-    analytics_dashboard: "Analytics & Dashboard",
-    development: "Development",
-    app_builder: "App Builder",
-    design: "Design",
-    presentation: "Presentation",
-    project_management: "Project Management",
-    strategy_planning: "Strategy & Planning",
-    workflow_automation: "Workflow & Automation",
-    ai_agent: "AI & Agents",
-    crm_sales: "CRM & Sales",
-    operations: "Operations",
-    finance: "Finance",
-    hr: "HR",
-    file_storage: "Files & Storage",
-    testing_qa: "Testing & QA",
-    web_cms: "Web & CMS",
-    media: "Media",
-    audio: "Audio",
-    integration_api: "Integrations & API",
-    knowledge_graph: "Knowledge Graph"
-  };
-
-  if (map[normalized]) {
-    return map[normalized];
-  }
-
-  if (/[A-Z&]/.test(normalized) || normalized.includes(" / ")) {
-    return normalized;
-  }
-
-  return normalized
-    .split("_")
-    .filter(Boolean)
-    .map((chunk) => chunk.charAt(0).toUpperCase() + chunk.slice(1))
-    .join(" ");
-}
-
-function formatObjectKindLabel(value = "") {
-  const normalized = String(value || "").trim().toLowerCase();
-  const map = {
-    project: "Project",
-    document: "Document",
-    dataset: "Spreadsheet",
-    dashboard: "Dashboard",
-    workflow: "Workflow",
-    design: "Design",
-    presentation: "Presentation",
-    benchmark: "Benchmark",
-    campaign: "Campaign",
-    image: "Image",
-    audio: "Audio",
-    video: "Video",
-    code: "Code"
-  };
-
-  if (map[normalized]) {
-    return map[normalized];
-  }
-
-  return normalized
-    ? normalized.charAt(0).toUpperCase() + normalized.slice(1)
-    : "";
-}
-
 function createWorkspaceChip(text = "", tone = "default") {
   if (!text) {
     return null;
@@ -26601,7 +28152,7 @@ export function renderWorkspaceObjectList(
     const chipRow = document.createElement("div");
     chipRow.className = "workspace-chip-row";
     [
-      createWorkspaceChip(formatObjectKindLabel(workObject.objectKind || workObject.kind), "kind"),
+      createWorkspaceChip(formatWorkspaceObjectKindLabel(workObject.objectKind || workObject.kind), "kind"),
       createWorkspaceChip(
         formatWorkspaceFamilyLabel(workObject.workspaceFamilyLabel || workObject.workspaceFamilyId),
         "family"
@@ -26886,7 +28437,7 @@ export function renderWorkspaceProjectMap(
     meta.className = "workspace-project-node-meta";
     meta.textContent = [
       formatWorkspaceFamilyLabel(node.workspaceFamilyLabel || node.workspaceFamilyId),
-      formatObjectKindLabel(node.objectKind),
+      formatWorkspaceObjectKindLabel(node.objectKind),
       node.primaryFile ? friendlyPathLabel(node.primaryFile) : "",
       node.status || ""
     ]
