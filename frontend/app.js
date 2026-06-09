@@ -1,4 +1,4 @@
-﻿import { renderChatMessage } from "./components/chatMessage.js";
+import { renderChatMessage } from "./components/chatMessage.js";
 import { renderRunDetails } from "./components/detailsPanel.js";
 import {
   applyWorkspaceBlockEdit,
@@ -17,110 +17,23 @@ import {
   renderWorkspaceSurfaceNav,
   renderWorkspaceSectionList
 } from "./components/workspacePanel.js";
+import {
+  createDashboardWorkspaceCommandAdapter,
+  createWorkspaceLens,
+  createWorkspaceCommandExecutor,
+  createWorkspaceDashboardHomeMenuItems,
+  createWorkspaceStructureLabels,
+  createWorkspaceIconNode,
+  createWorkspaceMenuActionButton,
+  getWorkspaceCommandIcon,
+  parseWorkspacePagePath,
+  resolveWorkspacePageForWorkObject,
+  WORKSPACE_PAGES,
+  workspacePageFromSlug,
+  workspacePagePath
+} from "./components/workspaceSharedCommands.js";
 import { apiClient } from "./services/apiClient.js";
 import { sessionStore } from "./services/sessionStore.js";
-
-const WORKSPACE_PAGES = Object.freeze([
-  {
-    slug: "docs",
-    kind: "document",
-    family: "document_knowledge",
-    label: "Docs",
-    title: "Documents",
-    description: "Write, structure and refine documents in a focused page.",
-    hint: "Create a document"
-  },
-  {
-    slug: "sheets",
-    kind: "dataset",
-    family: "data_spreadsheet",
-    label: "Sheets",
-    title: "Spreadsheets",
-    description: "Work with tables, formulas and structured data in a dedicated page.",
-    hint: "Create a spreadsheet"
-  },
-  {
-    slug: "slides",
-    kind: "presentation",
-    family: "presentation",
-    label: "Slides",
-    title: "Presentations",
-    description: "Build and edit presentations without mixing them with other workspaces.",
-    hint: "Create a presentation"
-  },
-  {
-    slug: "dashboard",
-    kind: "dashboard",
-    family: "analytics_dashboard",
-    label: "Dashboard",
-    title: "Dashboards",
-    description: "Review metrics, charts and operational signals on their own page.",
-    hint: "Create a dashboard"
-  },
-  {
-    slug: "crm",
-    kind: "project",
-    family: "crm_sales",
-    label: "CRM",
-    title: "CRM",
-    description: "Manage contacts, companies, deals and sales follow-up in a dedicated workspace.",
-    hint: "Create a CRM workspace"
-  },
-  {
-    slug: "automation",
-    kind: "workflow",
-    family: "workflow_automation",
-    label: "Automation",
-    title: "Automations",
-    description: "Design workflows, stages and triggers in a dedicated environment.",
-    hint: "Create an automation"
-  },
-  {
-    slug: "app-builder",
-    kind: "project",
-    family: "app_builder",
-    label: "App Builder",
-    title: "App Builder",
-    description: "Build and preview applications in a workspace reserved for the product.",
-    hint: "Create an application"
-  },
-  {
-    slug: "whiteboard",
-    kind: "design",
-    family: "design",
-    label: "Whiteboard",
-    title: "Whiteboards",
-    description: "Explore layouts, frames and visual ideas on a dedicated canvas.",
-    hint: "Create a whiteboard"
-  },
-  {
-    slug: "code",
-    kind: "code",
-    family: "development",
-    label: "Code Studio",
-    title: "Code Studio",
-    description: "Inspect and edit project code in a focused development page.",
-    hint: "Open a code workspace"
-  }
-]);
-const WORKSPACE_ROUTE_PREFIX = "/workspace/";
-
-function workspacePageFromSlug(slug = "") {
-  return WORKSPACE_PAGES.find((page) => page.slug === String(slug || "").trim()) || null;
-}
-
-function parseWorkspacePagePath(pathname = window.location.pathname) {
-  const normalizedPath = String(pathname || "/").replace(/\/+$/, "") || "/";
-  if (normalizedPath === "/") {
-    return null;
-  }
-  if (!normalizedPath.startsWith(WORKSPACE_ROUTE_PREFIX)) {
-    return null;
-  }
-  return workspacePageFromSlug(
-    decodeURIComponent(normalizedPath.slice(WORKSPACE_ROUTE_PREFIX.length))
-  );
-}
 
 const initialWorkspacePage = parseWorkspacePagePath();
 
@@ -166,6 +79,7 @@ const state = {
   runtimeSyncRequestId: 0,
   documentProjectContextVisible: true,
   closedSheetDocumentIds: [],
+  workspacePreviewExpanded: false,
   workspacePageSlug: initialWorkspacePage?.slug || "",
   routeHydrating: true,
   routeTransitioning: false,
@@ -174,6 +88,55 @@ const state = {
 };
 
 const el = {};
+let workspacePreviewExpandedPlaceholder = null;
+let workspacePreviewExpandedOverlay = null;
+let workspacePreviewExpandedFrame = null;
+
+function createDashboardCommandButton(item = {}, executeCommand = null) {
+  return createWorkspaceMenuActionButton(item, {
+    actionClassName: "workspace-dashboard-command-button",
+    iconClassName: "workspace-dashboard-command-icon",
+    labelClassName: "workspace-dashboard-command-label",
+    metaClassName: "workspace-dashboard-command-meta",
+    createIconNode: createWorkspaceIconNode,
+    resolveIconName: getWorkspaceCommandIcon,
+    hasSubmenu: false,
+    onClick: (_event, menuItem) => {
+      if (!menuItem.commandId || typeof executeCommand !== "function") {
+        return;
+      }
+      executeCommand(menuItem.commandId, {
+        value: menuItem.value,
+        options: menuItem.options || {}
+      });
+    }
+  });
+}
+
+function appendDashboardCommandGroups(host = null, items = [], executeCommand = null) {
+  if (!host) {
+    return;
+  }
+  let group = null;
+  const ensureGroup = () => {
+    if (!group) {
+      group = document.createElement("div");
+      group.className = "workspace-dashboard-command-group";
+      host.appendChild(group);
+    }
+    return group;
+  };
+  items.forEach((item) => {
+    if (!item) {
+      return;
+    }
+    if (item.separator) {
+      group = null;
+      return;
+    }
+    ensureGroup().appendChild(createDashboardCommandButton(item, executeCommand));
+  });
+}
 
 function cache() {
   [
@@ -389,63 +352,14 @@ function workspaceSwitcherItems() {
 }
 
 function workspacePageForWorkObject(workObject = null) {
-  if (!workObject) {
-    return null;
-  }
-
-  const kind = String(workObject.objectKind || workObject.kind || "").toLowerCase();
-  const family = String(
-    workObject.workspaceFamilyId ||
-      workObject.metadata?.workspaceFamilyId ||
-      workObject.environmentPlan?.workspaceFamilyId ||
-      ""
-  ).toLowerCase();
-  const files = getEditableFiles(workObject).join(" ").toLowerCase();
-
-  if (kind === "dataset" || /\.(csv|tsv|xlsx|xlsm|xls)\b/i.test(files)) {
-    return workspacePageFromSlug("sheets");
-  }
-  if (kind === "presentation" || /(^|\/)slides\.md\b/i.test(files) || /\.pptx\b/i.test(files)) {
-    return workspacePageFromSlug("slides");
-  }
-  if (kind === "dashboard") {
-    return workspacePageFromSlug("dashboard");
-  }
-  if (family === "crm_sales") {
-    return workspacePageFromSlug("crm");
-  }
-  if (kind === "workflow") {
-    return workspacePageFromSlug("automation");
-  }
-  if (kind === "design") {
-    return workspacePageFromSlug("whiteboard");
-  }
-  if (kind === "code") {
-    return workspacePageFromSlug("code");
-  }
-  if (kind === "project" && family === "app_builder") {
-    return workspacePageFromSlug("app-builder");
-  }
-  if (
-    kind === "project" &&
-    (family === "development" || family === "integration_api" || isCodeLikePath(workObject.primaryFile))
-  ) {
-    return workspacePageFromSlug("code");
-  }
-  if (kind === "document") {
-    return workspacePageFromSlug("docs");
-  }
-
-  const familyPage = WORKSPACE_PAGES.find((page) => page.family === family);
-  return familyPage || workspacePageFromSlug("docs");
+  return resolveWorkspacePageForWorkObject(workObject, {
+    files: getEditableFiles(workObject),
+    isCodeLikePath
+  });
 }
 
 function currentWorkspacePage() {
   return workspacePageFromSlug(state.workspacePageSlug);
-}
-
-function workspacePagePath(page = null) {
-  return page ? `${WORKSPACE_ROUTE_PREFIX}${page.slug}` : "/";
 }
 
 function setWorkspacePage(page = null, { historyMode = "push" } = {}) {
@@ -777,21 +691,6 @@ function updatePresentationPreviewInline(slideId = "", payload = {}) {
   syncPreviewInlineDraft(nextBlock);
 }
 
-function updateSpreadsheetHeaderFromPreview(columnIndex = 0, value = "") {
-  const model = deriveSpreadsheetDraft(currentDraftContent());
-  model.columns[columnIndex] = String(value || "").trim() || `Column ${columnIndex + 1}`;
-  updateSpreadsheetDraftFromPreview(model);
-}
-
-function updateSpreadsheetCellFromPreview(rowIndex = 0, columnIndex = 0, value = "") {
-  const model = deriveSpreadsheetDraft(currentDraftContent());
-  if (!model.rows[rowIndex]) {
-    model.rows[rowIndex] = Array.from({ length: model.columns.length }, () => "");
-  }
-  model.rows[rowIndex][columnIndex] = String(value || "");
-  updateSpreadsheetDraftFromPreview(model);
-}
-
 function updateSpreadsheetDraftFromPreview(model = {}, options = {}) {
   syncEditorDraft(buildSpreadsheetContent(model), {
     forceEditMode: false,
@@ -891,342 +790,16 @@ function currentWorkspaceLens() {
     currentEnvironmentPlan()?.workspaceFamilyDescription ||
     "";
 
-  const kindMap = {
-    app: {
-      label: "App",
-      subtitle: "Use the app, edit it directly, then ask Hydria to extend or fix it.",
-      helper: "Ask Hydria to add screens, flows, content or fixes to this app.",
-      promptPlaceholder: "Ex: add a planner page, improve the recipe flow, fix the weekly view.",
-      nextStep: "Next: add a view, flow or fix",
-      priority: "delivery_first",
-      scope: project?.name ? `Project · ${project.name}` : "Interactive app"
-    },
-    project: {
-      label: "Project",
-      subtitle: "This project groups what you have created so far and keeps it evolving in one place.",
-      helper: "Ask Hydria to add a new surface, continue the project or transform what is open.",
-      promptPlaceholder: "Ex: add a dashboard, create a presentation, extend the current app.",
-      nextStep: "Next: extend the project",
-      priority: "iteration_first",
-      scope: project?.name ? `Project · ${project.name}` : "Project workspace"
-    },
-    dashboard: {
-      label: "Dashboard",
-      subtitle: "Operate the dashboard directly here, then ask Hydria to add metrics, views or filters.",
-      helper: "Ask Hydria to add KPIs, views, filters or a new analytics panel to this dashboard.",
-      promptPlaceholder: "Ex: add a churn KPI, add a weekly report view, keep the existing table.",
-      nextStep: "Next: add metrics, views or filters",
-      priority: "operations_first",
-      scope: project?.name ? `Project · ${project.name}` : "Standalone dashboard"
-    },
-    benchmark: {
-      label: "Benchmark",
-      subtitle: "Keep the competitive picture in the same project, then ask Hydria to refine the criteria, competitors or recommendations.",
-      helper: "Ask Hydria to sharpen the benchmark, add proof, or derive a presentation or campaign from it.",
-      promptPlaceholder: "Ex: add two stronger competitors, strengthen the recommendations, turn this into slides.",
-      nextStep: "Next: refine the benchmark or derive another asset",
-      priority: "review_first",
-      scope: project?.name ? `Project · ${project.name}` : "Benchmark"
-    },
-    campaign: {
-      label: "Campaign",
-      subtitle: "Shape the launch plan here, then ask Hydria to improve channels, assets or rollout.",
-      helper: "Ask Hydria to add launch assets, sharpen the promise, or derive a teaser video from this campaign.",
-      promptPlaceholder: "Ex: add a launch email, tighten the promise, create a teaser video from this campaign.",
-      nextStep: "Next: improve channels, assets or rollout",
-      priority: "review_first",
-      scope: project?.name ? `Project · ${project.name}` : "Campaign"
-    },
-    workflow: {
-      label: "Workflow",
-      subtitle: "Move through the flow visually, then ask Hydria to add steps, links or automations.",
-      helper: "Ask Hydria to add a step, automate a branch or simplify the current workflow.",
-      promptPlaceholder: "Ex: add an approval step, connect publish after review, simplify this flow.",
-      nextStep: "Next: add a step or automation",
-      priority: "operations_first",
-      scope: project?.name ? `Project · ${project.name}` : "Automation workflow"
-    },
-    design: {
-      label: "Design",
-      subtitle: "Work on the layout directly here, then ask Hydria to improve the wireframe or add screens.",
-      helper: "Ask Hydria to improve the layout, add a frame or restructure the current design.",
-      promptPlaceholder: "Ex: add a mobile frame, clean the hero layout, make this more premium.",
-      nextStep: "Next: improve layout or frames",
-      priority: "iteration_first",
-      scope: project?.name ? `Project · ${project.name}` : "Wireframe design"
-    },
-    presentation: {
-      label: "Presentation",
-      subtitle: "Review the slides here, then ask Hydria to sharpen the narrative or add missing slides.",
-      helper: "Ask Hydria to improve the pitch, rewrite a slide or add a stronger closing section.",
-      promptPlaceholder: "Ex: make slide 2 stronger, add investor traction, shorten the opening.",
-      nextStep: "Next: improve slides or story",
-      priority: "review_first",
-      scope: project?.name ? `Project · ${project.name}` : "Slide deck"
-    },
-    dataset: {
-      label: "Spreadsheet",
-      subtitle: "Edit the table directly here, then ask Hydria to add columns, summaries or transformations.",
-      helper: "Ask Hydria to add columns, clean the data, compute totals or restructure the table.",
-      promptPlaceholder: "Ex: add a total column, group values, clean this table and keep the rows.",
-      nextStep: "Next: edit cells or transform data",
-      priority: "iteration_first",
-      scope: project?.name ? `Project · ${project.name}` : "Data table"
-    },
-    image: {
-      label: "Image",
-      subtitle: "Review the visual inside the project, then ask Hydria to regenerate or refine the brief.",
-      helper: "Ask Hydria to change the direction, keep the same concept, or generate a cleaner visual.",
-      promptPlaceholder: "Ex: make this more premium, keep the same idea, generate a cleaner variant.",
-      nextStep: "Next: refine the visual",
-      priority: "review_first",
-      scope: project?.name ? `Project · ${project.name}` : "Visual asset"
-    },
-    audio: {
-      label: "Audio",
-      subtitle: "Keep the audio brief linked to the project, then ask Hydria to refine the script or cues.",
-      helper: "Ask Hydria to change the voice, tighten the hook, or prepare a shorter cut.",
-      promptPlaceholder: "Ex: make the hook shorter, keep the tone, add a stronger closing cue.",
-      nextStep: "Next: refine the script or delivery",
-      priority: "review_first",
-      scope: project?.name ? `Project · ${project.name}` : "Audio brief"
-    },
-    video: {
-      label: "Video",
-      subtitle: "Keep the storyboard in the project, then ask Hydria to refine scenes, timing or on-screen text.",
-      helper: "Ask Hydria to improve the hook, tighten the scenes, or turn the current app into a launch video.",
-      promptPlaceholder: "Ex: make scene 2 clearer, keep it under 60 seconds, add a stronger close.",
-      nextStep: "Next: refine scenes or storyboard",
-      priority: "review_first",
-      scope: project?.name ? `Project · ${project.name}` : "Video brief"
-    },
-    document: {
-      label: "Document",
-      subtitle: "Read and edit the document here, then ask Hydria to improve a section or transform it.",
-      helper: "Ask Hydria to rewrite, strengthen or transform the current document.",
-      promptPlaceholder: "Ex: improve the executive summary, make this clearer, turn this into slides.",
-      nextStep: "Next: improve or transform the document",
-      priority: "review_first",
-      scope: project?.name ? `Project · ${project.name}` : "Structured document"
-    },
-    creation: {
-      label: "Workspace",
-      subtitle: "Create something and it will open here immediately.",
-      helper: "Tell Hydria what to create. It will open the result here automatically.",
-      promptPlaceholder: "Ex: crée une application de cuisine, fais un excel, fais une présentation.",
-      nextStep: "Next: create something",
-      scope: "Nothing open yet"
-    }
-  };
-
-  const familyMap = {
-    document_knowledge: {
-      label: "Knowledge",
-      subtitle: "Write, structure and connect knowledge directly in the project.",
-      helper: "Ask Hydria to write, summarize, restructure or turn this knowledge into another project asset.",
-      promptPlaceholder: "Ex: write a clearer spec, turn this into a wiki page, add an SOP from this document.",
-      nextStep: "Next: write, structure or derive",
-      priority: "review_first"
-    },
-    data_spreadsheet: {
-      label: "Data",
-      subtitle: "Work directly on the table, calculations and reporting logic here.",
-      helper: "Ask Hydria to clean rows, add columns, compute summaries or derive a dashboard from this data.",
-      promptPlaceholder: "Ex: add a margin column, clean duplicates, build a dashboard from this table.",
-      nextStep: "Next: compute, clean or derive",
-      priority: "iteration_first"
-    },
-    analytics_dashboard: {
-      label: "Analytics",
-      subtitle: "Operate KPIs, filters and views directly in the current analytics surface.",
-      helper: "Ask Hydria to add charts, KPIs, comparisons or a decision view for this project.",
-      promptPlaceholder: "Ex: add weekly retention, compare by segment, add an executive summary view.",
-      nextStep: "Next: add signal or decision support",
-      priority: "operations_first"
-    },
-    development: {
-      label: "Development",
-      subtitle: "Build, inspect and evolve code directly in the current project workspace.",
-      helper: "Ask Hydria to add files, refactor, debug or extend the current codebase.",
-      promptPlaceholder: "Ex: add auth, fix the API route, generate tests for this module.",
-      nextStep: "Next: build, fix or extend",
-      priority: "delivery_first"
-    },
-    app_builder: {
-      label: "App Builder",
-      subtitle: "Shape the product directly in live preview and keep extending the current app.",
-      helper: "Ask Hydria to add views, flows, business logic or CRUD surfaces to the current app.",
-      promptPlaceholder: "Ex: add a settings screen, create an onboarding flow, add CRUD for users.",
-      nextStep: "Next: extend the app",
-      priority: "delivery_first"
-    },
-    design: {
-      label: "Design",
-      subtitle: "Structure screens, flows and layout decisions directly in the design workspace.",
-      helper: "Ask Hydria to improve hierarchy, add frames, tighten UX or derive screens from the app.",
-      promptPlaceholder: "Ex: make the onboarding cleaner, add a mobile frame, align the hierarchy.",
-      nextStep: "Next: refine layout or UX",
-      priority: "iteration_first"
-    },
-    presentation: {
-      label: "Presentation",
-      subtitle: "Turn the current project into a stronger deck with a clearer story and proof.",
-      helper: "Ask Hydria to sharpen the narrative, add slides, simplify the flow or derive slides from the app.",
-      promptPlaceholder: "Ex: add investor proof, rewrite slide 2, turn the app flow into 3 clearer slides.",
-      nextStep: "Next: sharpen story or proof",
-      priority: "review_first"
-    },
-    project_management: {
-      label: "Project Management",
-      subtitle: "Keep roadmap, tasks and project continuity visible in one place.",
-      helper: "Ask Hydria to add roadmap items, milestones, owners or a delivery plan.",
-      promptPlaceholder: "Ex: add a 6-month roadmap, create milestones, turn this into a kanban.",
-      nextStep: "Next: plan work or milestones",
-      priority: "iteration_first"
-    },
-    strategy_planning: {
-      label: "Strategy",
-      subtitle: "Clarify direction, positioning and the next major choices for the project.",
-      helper: "Ask Hydria to compare options, structure strategy, build a plan or challenge the current direction.",
-      promptPlaceholder: "Ex: compare two launch options, build a GTM plan, structure the strategic narrative.",
-      nextStep: "Next: decide or plan",
-      priority: "review_first"
-    },
-    workflow_automation: {
-      label: "Workflow",
-      subtitle: "Build automations and operating flows directly in the current project.",
-      helper: "Ask Hydria to add nodes, conditions, outputs or integrations to the current workflow.",
-      promptPlaceholder: "Ex: add approval before publish, connect email after validation, simplify this flow.",
-      nextStep: "Next: automate or simplify",
-      priority: "operations_first"
-    },
-    ai_agent: {
-      label: "AI / Agent",
-      subtitle: "Coordinate copilots, automation and delegated work inside the same project.",
-      helper: "Ask Hydria to create a specialist agent, add a review loop or automate a recurring cognitive task.",
-      promptPlaceholder: "Ex: create a QA copilot, add a research agent, automate project follow-up.",
-      nextStep: "Next: delegate or automate",
-      priority: "iteration_first"
-    },
-    crm_sales: {
-      label: "CRM & Sales",
-      subtitle: "Run leads, accounts, opportunities, quotes, forecasts and follow-up in one sales workspace.",
-      helper: "Ask Hydria to qualify or convert leads, update opportunities, prepare quotes, inspect forecasts or plan follow-up.",
-      promptPlaceholder: "Ex: convert this lead, add products to the opportunity, prepare a quote, show the weighted forecast.",
-      nextStep: "Next: qualify, sell or forecast",
-      priority: "operations_first"
-    },
-    operations: {
-      label: "Operations",
-      subtitle: "Run the current operating system with clear queues, ownership and next actions.",
-      helper: "Ask Hydria to add queues, operating dashboards, workflows or status views for this system.",
-      promptPlaceholder: "Ex: add an incident queue, build an ops dashboard, create an intake workflow.",
-      nextStep: "Next: operate or automate",
-      priority: "operations_first"
-    },
-    finance: {
-      label: "Finance",
-      subtitle: "Work on budgets, reporting and finance workflows directly in the current project.",
-      helper: "Ask Hydria to add forecasts, reporting views, controls or investor-facing finance assets.",
-      promptPlaceholder: "Ex: add a monthly cash view, build a forecast, derive investor finance slides.",
-      nextStep: "Next: report, plan or forecast",
-      priority: "iteration_first"
-    },
-    hr: {
-      label: "HR",
-      subtitle: "Structure recruiting, team tracking and people workflows in one project.",
-      helper: "Ask Hydria to add hiring stages, role scorecards, onboarding docs or staffing dashboards.",
-      promptPlaceholder: "Ex: add a hiring pipeline, create onboarding docs, build a staffing dashboard.",
-      nextStep: "Next: recruit or organize",
-      priority: "iteration_first"
-    },
-    file_storage: {
-      label: "Files",
-      subtitle: "Keep project files, assets and references connected to the current work.",
-      helper: "Ask Hydria to organize files, summarize assets, or connect the current project to references.",
-      promptPlaceholder: "Ex: organize these files, attach a reference repo, summarize the uploaded assets.",
-      nextStep: "Next: organize or connect",
-      priority: "focus"
-    },
-    testing_qa: {
-      label: "Testing",
-      subtitle: "Check quality, scenarios and reliability inside the current project.",
-      helper: "Ask Hydria to add test cases, QA scenarios, edge cases or validation flows.",
-      promptPlaceholder: "Ex: add QA scenarios, generate test cases, validate edge cases for this app.",
-      nextStep: "Next: validate or test",
-      priority: "operations_first"
-    },
-    web_cms: {
-      label: "Web & CMS",
-      subtitle: "Shape pages, publishing flow and site content directly in the workspace.",
-      helper: "Ask Hydria to add pages, CMS structure, publishing rules or landing content.",
-      promptPlaceholder: "Ex: create a landing page, add CMS collections, build a content workflow.",
-      nextStep: "Next: publish or structure content",
-      priority: "delivery_first"
-    },
-    media: {
-      label: "Media",
-      subtitle: "Keep visual storytelling and content production linked to the same project.",
-      helper: "Ask Hydria to derive visuals, campaign assets, storyboards or launch media from this project.",
-      promptPlaceholder: "Ex: create a hero visual, derive a campaign asset, build a launch storyboard.",
-      nextStep: "Next: produce or refine media",
-      priority: "review_first"
-    },
-    audio: {
-      label: "Audio",
-      subtitle: "Keep voice, soundtrack and audio direction connected to the project.",
-      helper: "Ask Hydria to refine script, pacing, cues or derive an audio asset from the current project.",
-      promptPlaceholder: "Ex: tighten the voiceover, add cues, derive a 30-second audio version.",
-      nextStep: "Next: script or score",
-      priority: "review_first"
-    },
-    integration_api: {
-      label: "Integrations",
-      subtitle: "Connect APIs, services and back-office systems inside the same project.",
-      helper: "Ask Hydria to add an API route, connector, payload map or integration workflow.",
-      promptPlaceholder: "Ex: connect Stripe, add a webhook flow, map this payload to the CRM.",
-      nextStep: "Next: connect or automate",
-      priority: "operations_first"
-    },
-    knowledge_graph: {
-      label: "Knowledge Graph",
-      subtitle: "Structure entities, relationships and project memory in one connected system.",
-      helper: "Ask Hydria to define entities, relations, schemas or derive structure from the current project.",
-      promptPlaceholder: "Ex: map the entities, add relationships, build a graph from this knowledge base.",
-      nextStep: "Next: connect or structure",
-      priority: "iteration_first"
-    }
-  };
-
-  const current = kindMap[kind] || kindMap.project;
-  const familyCurrent = familyMap[workspaceFamilyId] || null;
-  const effectiveLabel = workspaceFamilyLabel || familyCurrent?.label || current.label;
-  const effectiveSubtitle = workspaceFamilyDescription || familyCurrent?.subtitle || current.subtitle;
-  const effectiveScope =
-    workspaceFamilyLabel && project?.name
-      ? `${workspaceFamilyLabel} · ${project.name}`
-      : workspaceFamilyLabel
-        ? workspaceFamilyLabel
-        : current.scope;
-
-  return {
+  return createWorkspaceLens({
     kind,
-    kindLabel: effectiveLabel,
-    priorityLabel: effectiveLabel,
-    prioritySubtitle: effectiveSubtitle,
-    priority: familyCurrent?.priority || current.priority || "focus",
-    promptPlaceholder: familyCurrent?.promptPlaceholder || current.promptPlaceholder,
-    assistantTitle: "Hydria",
-    assistantHelper: familyCurrent?.helper || current.helper,
-    assistantStatus: workObject ? `Working on ${title}` : "Ready to create something new.",
-    scopeLabel: fileLabel ? `${effectiveScope} · ${fileLabel}` : effectiveScope,
-    nextStep: familyCurrent?.nextStep || current.nextStep,
-    riskPosture: fileLabel || familyCurrent?.nextStep || current.nextStep,
-    assistantRole: kind,
-    interactionMode: kind,
-    impactOutcome: null,
-    usageScenario: null
-  };
+    title,
+    fileLabel,
+    workspaceFamilyId,
+    workspaceFamilyLabel,
+    workspaceFamilyDescription,
+    projectName: project?.name || "",
+    hasWorkObject: Boolean(workObject)
+  });
 }
 
 function currentWorkspaceStructureLabels() {
@@ -1234,259 +807,25 @@ function currentWorkspaceStructureLabels() {
     state.currentWorkObject?.workspaceFamilyId ||
     currentEnvironmentPlan()?.workspaceFamilyId ||
     "";
+  const workspaceType = isDatasetWorkspace()
+    ? "dataset"
+    : isDocumentWorkspace()
+      ? "document"
+      : isDevelopmentWorkspace()
+        ? "development"
+        : isPresentationWorkspace()
+          ? "presentation"
+          : isDashboardWorkspace()
+            ? "dashboard"
+            : isWorkflowWorkspace()
+              ? "workflow"
+              : isDesignWorkspace()
+                ? "design"
+                : isAppConfigWorkspace()
+                  ? "appConfig"
+                  : "";
 
-  if (isDatasetWorkspace()) {
-    const datasetFamilyMap = {
-      hr: {
-        fileLabel: "People table",
-        outlineLabel: "Fields",
-        blockLabel: "People rows",
-        editorLabel: "Edit people"
-      },
-      finance: {
-        fileLabel: "Budget table",
-        outlineLabel: "Fields",
-        blockLabel: "Budget rows",
-        editorLabel: "Edit budget"
-      },
-      crm_sales: {
-        fileLabel: "Pipeline table",
-        outlineLabel: "Fields",
-        blockLabel: "Lead rows",
-        editorLabel: "Edit pipeline"
-      },
-      knowledge_graph: {
-        fileLabel: "Graph table",
-        outlineLabel: "Fields",
-        blockLabel: "Entity rows",
-        editorLabel: "Edit graph"
-      }
-    };
-    const datasetCurrent = datasetFamilyMap[familyId] || {};
-    return {
-      fileLabel: datasetCurrent.fileLabel || "Table",
-      outlineLabel: "Columns",
-      blockLabel: datasetCurrent.blockLabel || "Rows",
-      editorLabel: datasetCurrent.editorLabel || "Edit table",
-      sectionRootLabel: "Whole table",
-      sectionRootMeta: "Edit the full grid at once",
-      sectionItemMeta: datasetCurrent.outlineLabel || "Column view",
-      blockRootLabel: "Selected column set",
-      blockRootMeta: "Edit the visible table at once",
-      blockItemMeta: datasetCurrent.blockLabel ? datasetCurrent.blockLabel.replace(/\b\w/g, (char) => char.toUpperCase()) : "Row snapshot",
-      emptyBlockText: "Pick a data view above to focus a smaller slice."
-    };
-  }
-
-  if (isDocumentWorkspace()) {
-    return {
-      fileLabel: "Document",
-      outlineLabel: "Sections",
-      blockLabel: "Focus area",
-      editorLabel: "Edit document",
-      sectionRootLabel: "Whole document",
-      sectionRootMeta: "Edit the full source at once",
-      sectionItemMeta: "Section",
-      blockRootLabel: "Selected section",
-      blockRootMeta: "Edit the section as one unit",
-      blockItemMeta: "Detail",
-      emptyBlockText: "Pick a section above to focus a tighter passage."
-    };
-  }
-
-  if (isDevelopmentWorkspace()) {
-    return {
-      fileLabel: "Code file",
-      outlineLabel: "Modules",
-      blockLabel: "Code blocks",
-      editorLabel: "Edit code",
-      sectionRootLabel: "Whole file",
-      sectionRootMeta: "Edit the full source at once",
-      sectionItemMeta: "Module",
-      blockRootLabel: "Selected file",
-      blockRootMeta: "Edit a focused source block",
-      blockItemMeta: "Block",
-      emptyBlockText: "Pick a code block above to focus one part of the file."
-    };
-  }
-
-  if (isPresentationWorkspace()) {
-    return {
-      fileLabel: "Deck",
-      outlineLabel: "Slides",
-      blockLabel: "Focus area",
-      editorLabel: "Edit slide",
-      sectionRootLabel: "Whole deck",
-      sectionRootMeta: "Edit the full deck source",
-      sectionItemMeta: "Slide",
-      blockRootLabel: "Selected slide",
-      blockRootMeta: "Edit the full slide at once",
-      blockItemMeta: "Talking point",
-      emptyBlockText: "Pick a slide above to focus a tighter message."
-    };
-  }
-
-  if (isDashboardWorkspace()) {
-    return {
-      fileLabel: "Dashboard file",
-      outlineLabel: "Views",
-      blockLabel: "Widgets",
-      editorLabel: "Edit dashboard",
-      sectionRootLabel: "Whole dashboard",
-      sectionRootMeta: "Edit the dashboard model",
-      sectionItemMeta: "Dashboard view",
-      blockRootLabel: "Selected dashboard",
-      blockRootMeta: "Edit the full dashboard at once",
-      blockItemMeta: "Widget",
-      emptyBlockText: "Pick a dashboard view above to focus one widget."
-    };
-  }
-
-  if (isWorkflowWorkspace()) {
-    return {
-      fileLabel: "Workflow file",
-      outlineLabel: "Steps",
-      blockLabel: "Connections",
-      editorLabel: "Edit workflow",
-      sectionRootLabel: "Whole workflow",
-      sectionRootMeta: "Edit the full automation model",
-      sectionItemMeta: "Step",
-      blockRootLabel: "Selected flow",
-      blockRootMeta: "Edit the current workflow at once",
-      blockItemMeta: "Connection",
-      emptyBlockText: "Pick a step above to focus a branch or connection."
-    };
-  }
-
-  if (isDesignWorkspace()) {
-    return {
-      fileLabel: "Design file",
-      outlineLabel: "Frames",
-      blockLabel: "Blocks",
-      editorLabel: "Edit design",
-      sectionRootLabel: "Whole design",
-      sectionRootMeta: "Edit the full design model",
-      sectionItemMeta: "Frame",
-      blockRootLabel: "Selected frame",
-      blockRootMeta: "Edit the full frame at once",
-      blockItemMeta: "Block",
-      emptyBlockText: "Pick a frame above to focus a smaller layout block."
-    };
-  }
-
-  if (isAppConfigWorkspace()) {
-    return {
-      fileLabel: "Builder file",
-      outlineLabel: "Views",
-      blockLabel: "Panels",
-      editorLabel: "Build app",
-      sectionRootLabel: "Whole app",
-      sectionRootMeta: "Edit the full app blueprint",
-      sectionItemMeta: "View",
-      blockRootLabel: "Selected view",
-      blockRootMeta: "Edit the full view at once",
-      blockItemMeta: "Panel",
-      emptyBlockText: "Pick a view above to focus a smaller area."
-    };
-  }
-
-  const familyMap = {
-    document_knowledge: {
-      fileLabel: "Document",
-      outlineLabel: "Sections",
-      blockLabel: "Focus area",
-      editorLabel: "Edit document",
-      sectionItemMeta: "Section",
-      blockItemMeta: "Detail"
-    },
-    development: {
-      fileLabel: "Code file",
-      outlineLabel: "Modules",
-      blockLabel: "Focus area",
-      editorLabel: "Edit code",
-      sectionItemMeta: "Module",
-      blockItemMeta: "Code block"
-    },
-    project_management: {
-      fileLabel: "Project file",
-      outlineLabel: "Tracks",
-      blockLabel: "Focus area",
-      editorLabel: "Edit project",
-      sectionItemMeta: "Track",
-      blockItemMeta: "Work item"
-    },
-    file_storage: {
-      fileLabel: "Storage file",
-      outlineLabel: "Folders",
-      blockLabel: "Assets",
-      editorLabel: "Edit storage",
-      sectionItemMeta: "Folder group",
-      blockItemMeta: "Asset rule"
-    },
-    strategy_planning: {
-      fileLabel: "Plan",
-      outlineLabel: "Themes",
-      blockLabel: "Arguments",
-      editorLabel: "Edit plan",
-      sectionItemMeta: "Theme",
-      blockItemMeta: "Point"
-    },
-    finance: {
-      fileLabel: "Finance file",
-      outlineLabel: "Sections",
-      blockLabel: "Focus area",
-      editorLabel: "Edit finance",
-      sectionItemMeta: "Finance section",
-      blockItemMeta: "Line"
-    },
-    hr: {
-      fileLabel: "People file",
-      outlineLabel: "Sections",
-      blockLabel: "Policies",
-      editorLabel: "Edit HR",
-      sectionItemMeta: "People section",
-      blockItemMeta: "HR detail"
-    },
-    testing_qa: {
-      fileLabel: "QA file",
-      outlineLabel: "Scenarios",
-      blockLabel: "Checks",
-      editorLabel: "Edit QA",
-      sectionItemMeta: "Scenario",
-      blockItemMeta: "Check"
-    },
-    knowledge_graph: {
-      fileLabel: "Graph file",
-      outlineLabel: "Entities",
-      blockLabel: "Relations",
-      editorLabel: "Edit structure",
-      sectionItemMeta: "Entity group",
-      blockItemMeta: "Relation"
-    },
-    web_cms: {
-      fileLabel: "Site file",
-      outlineLabel: "Pages",
-      blockLabel: "Content blocks",
-      editorLabel: "Edit site",
-      sectionItemMeta: "Page",
-      blockItemMeta: "Content block"
-    }
-  };
-
-  const current = familyMap[familyId] || {};
-  return {
-    fileLabel: current.fileLabel || "Open",
-    outlineLabel: current.outlineLabel || "Outline",
-    blockLabel: current.blockLabel || "Focus area",
-    editorLabel: current.editorLabel || "Edit",
-    sectionRootLabel: "Everything",
-    sectionRootMeta: "Edit the whole page",
-    sectionItemMeta: current.sectionItemMeta || "Part",
-    blockRootLabel: "Selected part",
-    blockRootMeta: "Edit the whole part at once",
-    blockItemMeta: current.blockItemMeta || "Focus area",
-    emptyBlockText: "Pick a part above to focus a smaller piece."
-  };
+  return createWorkspaceStructureLabels({ familyId, workspaceType });
 }
 
 function friendlyWorkspaceSubtitle(project = null, workObject = null, workspaceLens = null) {
@@ -3519,6 +2858,133 @@ function renderWorkspaceModeNav() {
   }
 }
 
+function getWorkspacePreviewPane() {
+  return el["workspace-preview"]?.closest(".workspace-preview-pane") || null;
+}
+
+function getWorkspacePreviewExpandButton() {
+  return el["workspace-preview"]?.querySelector(".workspace-page-preview-expand-button") || null;
+}
+
+function updateWorkspacePreviewExpandButton() {
+  const button = getWorkspacePreviewExpandButton();
+  if (!button) {
+    return;
+  }
+  const isExpanded = Boolean(state.workspacePreviewExpanded);
+  button.textContent = isExpanded ? "Exit full screen" : "Full screen";
+  button.title = isExpanded ? "Exit full screen" : "Open full screen";
+  button.setAttribute("aria-label", button.title);
+  button.setAttribute("aria-pressed", isExpanded ? "true" : "false");
+}
+
+function ensureWorkspacePreviewExpandedHost() {
+  if (workspacePreviewExpandedOverlay?.isConnected && workspacePreviewExpandedFrame) {
+    return workspacePreviewExpandedFrame;
+  }
+
+  workspacePreviewExpandedOverlay = document.createElement("div");
+  workspacePreviewExpandedOverlay.className = "workspace-sheet-modal-overlay workspace-page-preview-modal-overlay";
+  workspacePreviewExpandedOverlay.tabIndex = -1;
+
+  const backdrop = document.createElement("div");
+  backdrop.className = "workspace-sheet-modal-backdrop workspace-page-preview-modal-backdrop";
+  backdrop.addEventListener("click", () => setWorkspacePreviewExpanded(false));
+
+  const dialog = document.createElement("div");
+  dialog.className = "workspace-sheet-modal-dialog workspace-page-preview-modal-dialog";
+
+  workspacePreviewExpandedFrame = document.createElement("div");
+  workspacePreviewExpandedFrame.className = "workspace-sheet-modal-scale-frame workspace-page-preview-modal-frame";
+
+  workspacePreviewExpandedOverlay.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      setWorkspacePreviewExpanded(false);
+    }
+  });
+
+  dialog.appendChild(workspacePreviewExpandedFrame);
+  workspacePreviewExpandedOverlay.append(backdrop, dialog);
+  document.body.appendChild(workspacePreviewExpandedOverlay);
+  return workspacePreviewExpandedFrame;
+}
+
+function mountWorkspacePreviewPane() {
+  const pane = getWorkspacePreviewPane();
+  if (!pane) {
+    return;
+  }
+
+  const isExpanded = Boolean(state.workspacePreviewExpanded);
+  pane.classList.toggle("is-page-expanded", isExpanded);
+  document.body.classList.toggle("workspace-page-preview-expanded", isExpanded);
+
+  if (isExpanded) {
+    const frame = ensureWorkspacePreviewExpandedHost();
+    if (!workspacePreviewExpandedPlaceholder && pane.parentNode) {
+      workspacePreviewExpandedPlaceholder = document.createComment("workspace-preview-pane-placeholder");
+      pane.parentNode.insertBefore(workspacePreviewExpandedPlaceholder, pane);
+    }
+    if (pane.parentElement !== frame || frame.firstElementChild !== pane) {
+      frame.replaceChildren(pane);
+    }
+    workspacePreviewExpandedOverlay?.focus({ preventScroll: true });
+  } else {
+    if (workspacePreviewExpandedPlaceholder?.parentNode && pane.parentElement !== workspacePreviewExpandedPlaceholder.parentNode) {
+      workspacePreviewExpandedPlaceholder.parentNode.insertBefore(pane, workspacePreviewExpandedPlaceholder);
+    }
+    workspacePreviewExpandedPlaceholder?.remove();
+    workspacePreviewExpandedPlaceholder = null;
+    workspacePreviewExpandedOverlay?.remove();
+    workspacePreviewExpandedOverlay = null;
+    workspacePreviewExpandedFrame = null;
+  }
+
+  updateWorkspacePreviewExpandButton();
+}
+
+function setWorkspacePreviewExpanded(nextExpanded = false) {
+  state.workspacePreviewExpanded = Boolean(nextExpanded);
+  mountWorkspacePreviewPane();
+}
+
+function enhanceWorkspacePreviewHeader() {
+  const preview = el["workspace-preview"];
+  const header = preview?.querySelector(":scope > .workspace-preview-header");
+  if (!preview || !header || !state.currentWorkObject) {
+    updateWorkspacePreviewExpandButton();
+    return;
+  }
+
+  header.classList.add("has-page-controls");
+  let actions = header.querySelector(".workspace-preview-header-actions");
+  if (!actions) {
+    actions = document.createElement("div");
+    actions.className = "workspace-preview-header-actions";
+    const kind = header.querySelector(":scope > .workspace-preview-kind");
+    if (kind) {
+      actions.appendChild(kind);
+    }
+    header.appendChild(actions);
+  }
+
+  let button = actions.querySelector(".workspace-page-preview-expand-button");
+  if (!button) {
+    button = document.createElement("button");
+    button.type = "button";
+    button.className = "workspace-page-preview-expand-button";
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      setWorkspacePreviewExpanded(!state.workspacePreviewExpanded);
+    });
+    actions.appendChild(button);
+  }
+
+  mountWorkspacePreviewPane();
+}
+
 function isEditingRuntimeSource() {
   return state.currentSurfaceId === "live" && isRuntimeTrackedFile();
 }
@@ -4125,11 +3591,65 @@ function isSheetWorkObject(workObject = null) {
   );
 }
 
-function sheetDocumentMeta(workObject = {}) {
+function isDocumentWorkObject(workObject = null) {
+  if (!workObject) {
+    return false;
+  }
+
+  const pageSlug = workspacePageForWorkObject(workObject)?.slug || "";
+  if (pageSlug) {
+    return pageSlug === "docs";
+  }
+
+  const kind = String(workObject.objectKind || workObject.kind || "").toLowerCase();
+  const family = String(workObject.workspaceFamilyId || workObject.workspaceFamilyLabel || "").toLowerCase();
+  const fileList = getEditableFiles(workObject).join(" ");
+
+  return (
+    kind === "document" ||
+    family.includes("document_knowledge") ||
+    /\.(md|markdown|txt|html?)\b/i.test(fileList)
+  );
+}
+
+function currentWorkspaceDocumentListConfig() {
+  const page = currentWorkspacePage();
+  if (page?.slug === "docs") {
+    return {
+      title: "Open Docs",
+      newTitle: "New Docs document",
+      newKind: "document",
+      newFamily: "document_knowledge",
+      newLabel: "Docs",
+      emptyText: "Create a Docs document to start working with multiple files.",
+      defaultMeta: "Document workspace",
+      renamePrompt: "Nom du document Docs",
+      keepOneStatus: "Garde au moins un document Docs ouvert.",
+      matches: isDocumentWorkObject
+    };
+  }
+  if (page?.slug === "sheets") {
+    return {
+      title: "Open Sheets",
+      newTitle: "New Sheets document",
+      newKind: "dataset",
+      newFamily: "data_spreadsheet",
+      newLabel: "Sheets",
+      emptyText: "Create a Sheets document to start working with multiple files.",
+      defaultMeta: "Spreadsheet workspace",
+      renamePrompt: "Nom du document Sheets",
+      keepOneStatus: "Garde au moins un document Sheets ouvert.",
+      matches: isSheetWorkObject
+    };
+  }
+  return null;
+}
+
+function workspaceDocumentMeta(workObject = {}, config = currentWorkspaceDocumentListConfig()) {
   const primaryPath = workObject.primaryFile || getEditableFiles(workObject)[0] || "";
   const fileLabel = friendlyFileLabel(primaryPath);
   const status = workObject.status || "";
-  return [fileLabel, status].filter(Boolean).join(" | ") || "Spreadsheet workspace";
+  return [fileLabel, status].filter(Boolean).join(" | ") || config?.defaultMeta || "Workspace document";
 }
 
 function isSheetDocumentClosed(workObjectId = "") {
@@ -4152,12 +3672,16 @@ function markSheetDocumentClosed(workObjectId = "") {
   state.closedSheetDocumentIds = [...state.closedSheetDocumentIds, id];
 }
 
-function workspaceSheetDocuments() {
+function workspaceDocumentsForConfig(config = currentWorkspaceDocumentListConfig()) {
+  if (!config?.matches) {
+    return [];
+  }
+
   const candidates = [
-    isSheetWorkObject(state.currentWorkObject) ? state.currentWorkObject : null,
-    ...workspaceWorkObjects().filter(isSheetWorkObject),
+    config.matches(state.currentWorkObject) ? state.currentWorkObject : null,
+    ...workspaceWorkObjects().filter(config.matches),
     ...state.workObjects.filter((workObject) => {
-      if (!isSheetWorkObject(workObject)) {
+      if (!config.matches(workObject)) {
         return false;
       }
       if (!state.currentProjectId) {
@@ -4176,6 +3700,13 @@ function workspaceSheetDocuments() {
     seen.add(id);
     return true;
   }).filter((workObject) => !isSheetDocumentClosed(workObject.id));
+}
+
+function workspaceSheetDocuments() {
+  return workspaceDocumentsForConfig({
+    matches: isSheetWorkObject,
+    defaultMeta: "Spreadsheet workspace"
+  });
 }
 
 function hideWorkspaceSheetDocumentMenu() {
@@ -4249,9 +3780,9 @@ async function openWorkspaceSheetDocument(workObject = {}) {
   await selectWorkObject(workObject.id, preferredOpenPath(workObject));
 }
 
-async function renameWorkspaceSheetDocument(workObject = {}) {
-  const currentTitle = workObject.title || "New Sheets";
-  const nextTitle = window.prompt("Nom du document Sheets", currentTitle);
+async function renameWorkspaceSheetDocument(workObject = {}, config = currentWorkspaceDocumentListConfig()) {
+  const currentTitle = workObject.title || config?.newTitle || "New document";
+  const nextTitle = window.prompt(config?.renamePrompt || "Nom du document", currentTitle);
   if (nextTitle === null) {
     return;
   }
@@ -4288,16 +3819,16 @@ async function saveWorkspaceSheetDocument(workObject = {}) {
   }
 }
 
-async function closeWorkspaceSheetDocument(workObject = {}) {
-  const openSheets = workspaceSheetDocuments();
-  if (String(state.currentWorkObjectId) === String(workObject.id) && openSheets.length <= 1) {
-    setStatus("Garde au moins un document Sheets ouvert.");
+async function closeWorkspaceSheetDocument(workObject = {}, config = currentWorkspaceDocumentListConfig()) {
+  const openDocuments = workspaceDocumentsForConfig(config);
+  if (String(state.currentWorkObjectId) === String(workObject.id) && openDocuments.length <= 1) {
+    setStatus(config?.keepOneStatus || "Garde au moins un document ouvert.");
     return;
   }
 
   markSheetDocumentClosed(workObject.id);
   if (String(state.currentWorkObjectId) === String(workObject.id)) {
-    const fallback = workspaceSheetDocuments().find((item) => String(item.id) !== String(workObject.id));
+    const fallback = workspaceDocumentsForConfig(config).find((item) => String(item.id) !== String(workObject.id));
     if (fallback) {
       await selectWorkObject(fallback.id, preferredOpenPath(fallback));
       setStatus(`${workObject.title || "Document"} ferme.`);
@@ -4312,6 +3843,7 @@ async function closeWorkspaceSheetDocument(workObject = {}) {
 function showWorkspaceSheetDocumentMenu(event, workObject = {}) {
   event.preventDefault();
   event.stopPropagation();
+  const config = currentWorkspaceDocumentListConfig();
   const menu = ensureWorkspaceSheetDocumentMenu();
   menu.innerHTML = "";
 
@@ -4322,7 +3854,7 @@ function showWorkspaceSheetDocumentMenu(event, workObject = {}) {
   appendSheetDocumentMenuAction(menu, {
     label: "Renommer",
     meta: "F2",
-    action: () => renameWorkspaceSheetDocument(workObject).catch(handleError)
+    action: () => renameWorkspaceSheetDocument(workObject, config).catch(handleError)
   });
   appendSheetDocumentMenuAction(menu, {
     label: "Sauvegarder",
@@ -4332,12 +3864,17 @@ function showWorkspaceSheetDocumentMenu(event, workObject = {}) {
   appendSheetDocumentMenuSeparator(menu);
   appendSheetDocumentMenuAction(menu, {
     label: "Nouveau document",
-    action: () => createBlankWorkspace("dataset", "data_spreadsheet", "Sheets").catch(handleError)
+    action: () =>
+      createBlankWorkspace(
+        config?.newKind || "dataset",
+        config?.newFamily || "data_spreadsheet",
+        config?.newLabel || "Sheets"
+      ).catch(handleError)
   });
   appendSheetDocumentMenuAction(menu, {
     label: "Fermer",
     danger: true,
-    action: () => closeWorkspaceSheetDocument(workObject).catch(handleError)
+    action: () => closeWorkspaceSheetDocument(workObject, config).catch(handleError)
   });
 
   positionWorkspaceSheetDocumentMenu(menu, event.clientX, event.clientY);
@@ -4349,11 +3886,9 @@ function renderWorkspaceSheetDocuments() {
     return;
   }
 
-  const sheetObjects = workspaceSheetDocuments();
-  const shouldShow =
-    currentWorkspaceFamilyId() === "data_spreadsheet" ||
-    isSheetWorkObject(state.currentWorkObject) ||
-    sheetObjects.length > 1;
+  const config = currentWorkspaceDocumentListConfig();
+  const sheetObjects = workspaceDocumentsForConfig(config);
+  const shouldShow = Boolean(config);
 
   container.classList.toggle("hidden", !shouldShow);
   container.innerHTML = "";
@@ -4366,7 +3901,7 @@ function renderWorkspaceSheetDocuments() {
 
   const titleWrap = document.createElement("div");
   const title = document.createElement("strong");
-  title.textContent = "Open Sheets";
+  title.textContent = config.title;
   const count = document.createElement("span");
   count.textContent = `${sheetObjects.length || 0} document${sheetObjects.length === 1 ? "" : "s"}`;
   titleWrap.append(title, count);
@@ -4375,9 +3910,9 @@ function renderWorkspaceSheetDocuments() {
   newButton.type = "button";
   newButton.className = "workspace-sheet-document-new";
   newButton.textContent = "+";
-  newButton.title = "New Sheets document";
+  newButton.title = config.newTitle;
   newButton.addEventListener("click", () => {
-    createBlankWorkspace("dataset", "data_spreadsheet", "Sheets").catch(handleError);
+    createBlankWorkspace(config.newKind, config.newFamily, config.newLabel).catch(handleError);
   });
 
   header.append(titleWrap, newButton);
@@ -4389,7 +3924,7 @@ function renderWorkspaceSheetDocuments() {
   if (!sheetObjects.length) {
     const empty = document.createElement("p");
     empty.className = "workspace-sheet-document-empty";
-    empty.textContent = "Create a Sheets document to start working with multiple files.";
+    empty.textContent = config.emptyText;
     list.appendChild(empty);
   }
 
@@ -4408,10 +3943,10 @@ function renderWorkspaceSheetDocuments() {
     item.addEventListener("keydown", (event) => {
       if (event.key === "F2") {
         event.preventDefault();
-        renameWorkspaceSheetDocument(workObject).catch(handleError);
+        renameWorkspaceSheetDocument(workObject, config).catch(handleError);
       } else if (event.key === "Delete" || event.key === "Backspace") {
         event.preventDefault();
-        closeWorkspaceSheetDocument(workObject).catch(handleError);
+        closeWorkspaceSheetDocument(workObject, config).catch(handleError);
       } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
         event.preventDefault();
         saveWorkspaceSheetDocument(workObject).catch(handleError);
@@ -4419,9 +3954,9 @@ function renderWorkspaceSheetDocuments() {
     });
 
     const label = document.createElement("strong");
-    label.textContent = workObject.title || "Untitled Sheets";
+    label.textContent = workObject.title || config.newTitle || "Untitled document";
     const meta = document.createElement("span");
-    meta.textContent = sheetDocumentMeta(workObject);
+    meta.textContent = workspaceDocumentMeta(workObject, config);
     item.append(label, meta);
     list.appendChild(item);
   });
@@ -4508,8 +4043,6 @@ function refreshPreviewPane() {
       selectWorkObject(workObject.id, preferredOpenPath(workObject)).catch(handleError),
     onPresentationSlideFocus: focusPresentationSlide,
     onPresentationSlideEdit: updatePresentationPreviewInline,
-    onDataHeaderEdit: updateSpreadsheetHeaderFromPreview,
-    onDataCellEdit: updateSpreadsheetCellFromPreview,
     onDataGridEdit: updateSpreadsheetDraftFromPreview,
     onDashboardFilterToggle: toggleDashboardPreviewFilter,
     onDashboardWidgetMove: moveDashboardWidget,
@@ -6574,6 +6107,436 @@ function renderDashboardStructuredEditor(container) {
     model.widgets[activeWidgetIndex] ||
     model.widgets[0] ||
     { id: "widget-1", title: "", type: "summary", size: "medium", summary: "" };
+  const writeDashboardDraft = (updater = null, { refreshWorkspace = true } = {}) => {
+    const next = deriveDashboardDraft(currentDraftContent(), state.currentWorkObject?.title || "Hydria Dashboard");
+    if (typeof updater === "function") {
+      updater(next);
+    }
+    syncEditorDraft(buildDashboardContent(next), { refreshWorkspace });
+  };
+  const executeDashboardCommand = createWorkspaceCommandExecutor(
+    "dashboard",
+    createDashboardWorkspaceCommandAdapter({
+      addMetric: () => {
+        writeDashboardDraft((next) => {
+          next.metrics.push({ label: `Metric ${next.metrics.length + 1}`, value: "", delta: "" });
+        });
+      },
+      addChart: (kind = "bar") => {
+        writeDashboardDraft((next) => {
+          const chartKind = String(kind || "bar");
+          next.charts.push({
+            title: `Chart ${next.charts.length + 1}`,
+            kind: chartKind,
+            points: [{ label: "P1", value: "" }, { label: "P2", value: "" }]
+          });
+          state.currentStructuredItemId = `chart-${next.charts.length}`;
+        });
+      },
+      addFilter: () => {
+        writeDashboardDraft((next) => {
+          next.filters.push(`Segment ${next.filters.length + 1}`);
+        });
+      },
+      addTableRow: () => {
+        writeDashboardDraft((next) => {
+          next.table.rows.push(Array.from({ length: next.table.columns.length }, () => ""));
+        });
+      },
+      addTableColumn: () => {
+        writeDashboardDraft((next) => {
+          next.table.columns.push(`Column ${next.table.columns.length + 1}`);
+          next.table.rows = next.table.rows.map((row) => [...row, ""]);
+        });
+      },
+      removeMetric: () => {
+        if (model.metrics.length <= 1) {
+          return;
+        }
+        writeDashboardDraft((next) => {
+          next.metrics = next.metrics.slice(0, -1);
+        });
+      },
+      removeChart: () => {
+        if (model.charts.length <= 1) {
+          return;
+        }
+        writeDashboardDraft((next) => {
+          next.charts = next.charts.filter((_, index) => index !== activeChartIndex);
+          state.currentStructuredItemId = next.charts.length
+            ? `chart-${Math.min(activeChartIndex + 1, next.charts.length)}`
+            : "";
+        });
+      },
+      moveWidget: (direction = 0) => {
+        moveDashboardWidget(activeWidget.id, direction);
+      },
+      refresh: () => {
+        writeDashboardDraft(null);
+      }
+    })
+  );
+
+  // The Power BI-style dashboard belongs in the main preview canvas. Keep this
+  // prototype dormant so the Modify drawer remains a compact editor.
+  const renderDashboardPowerBiDrawerPrototype = false;
+  if (renderDashboardPowerBiDrawerPrototype) {
+    const parseDashboardNumber = (value = "") => {
+      const normalized = String(value || "")
+        .replace(/\s+/g, "")
+        .replace(",", ".")
+        .replace(/[^0-9.-]/g, "");
+      const parsed = Number(normalized);
+      return Number.isFinite(parsed) ? parsed : null;
+    };
+    const formatDashboardNumber = (value = null) => {
+      if (!Number.isFinite(value)) {
+        return "-";
+      }
+      const absolute = Math.abs(value);
+      if (absolute >= 1000000) {
+        return `$${(value / 1000000).toFixed(2)}M`;
+      }
+      if (absolute >= 1000) {
+        return `$${Math.round(value / 1000)}K`;
+      }
+      return String(Math.round(value));
+    };
+    const tableColumns = model.table?.columns || [];
+    const tableRows = model.table?.rows || [];
+    const findColumnIndex = (patterns = []) =>
+      tableColumns.findIndex((column) => {
+        const text = String(column || "").toLowerCase();
+        return patterns.some((pattern) => text.includes(pattern));
+      });
+    const labelColumnIndex = Math.max(
+      0,
+      findColumnIndex(["region", "territory", "product", "month", "segment", "name"])
+    );
+    const valueColumnIndex = Math.max(
+      0,
+      findColumnIndex(["revenue", "sales", "amount", "value", "total", "units"])
+    );
+    const tablePoints = tableRows
+      .map((row, index) => ({
+        label: row[labelColumnIndex] || `Row ${index + 1}`,
+        value: row[valueColumnIndex] || "",
+        numeric: parseDashboardNumber(row[valueColumnIndex])
+      }))
+      .filter((point) => point.label && point.numeric !== null);
+    const activePoints = (activeChart.points || []).length ? activeChart.points : tablePoints;
+    const numericPoints = activePoints
+      .map((point) => ({
+        label: point.label || "Point",
+        value: point.value || "",
+        numeric: parseDashboardNumber(point.value)
+      }))
+      .filter((point) => point.numeric !== null);
+    const maxPointValue = Math.max(...numericPoints.map((point) => point.numeric), 1);
+    const totalValue = tablePoints.reduce((sum, point) => sum + (point.numeric || 0), 0);
+    const metricCards = [
+      ...(model.metrics || []).slice(0, 4).map((metric) => ({
+        label: metric.label || "KPI",
+        value: metric.value || "-",
+        meta: metric.delta || "Live"
+      })),
+      { label: "Revenue won", value: formatDashboardNumber(totalValue), meta: "From data model" },
+      { label: "Qualified pipeline", value: formatDashboardNumber(maxPointValue), meta: "Top signal" },
+      { label: "Forecast", value: numericPoints.length ? `${Math.round((totalValue / Math.max(maxPointValue, 1)) * 10)}%` : "100%", meta: "Scenario" },
+      { label: "Data rows", value: String(tableRows.length), meta: `${tableColumns.length} fields` }
+    ].slice(0, 4);
+
+    const createPowerIcon = (icon, className = "workspace-powerbi-icon") =>
+      createWorkspaceIconNode(icon, { className, label: icon });
+    const createRailButton = (label, icon, active = false) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = `workspace-powerbi-rail-button${active ? " is-active" : ""}`;
+      button.append(createPowerIcon(icon), document.createElement("span"));
+      button.lastChild.textContent = label;
+      return button;
+    };
+    const createTopButton = (label, icon, onClick = null) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "workspace-powerbi-top-command";
+      button.append(createPowerIcon(icon), document.createElement("span"));
+      button.lastChild.textContent = label;
+      if (typeof onClick === "function") {
+        button.addEventListener("click", onClick);
+      }
+      return button;
+    };
+    const createKpiCard = (metric) => {
+      const card = document.createElement("article");
+      card.className = "workspace-powerbi-kpi-card";
+      const label = document.createElement("span");
+      label.textContent = metric.label;
+      const value = document.createElement("strong");
+      value.textContent = metric.value;
+      const meta = document.createElement("small");
+      meta.textContent = metric.meta || "Updated";
+      card.append(label, value, meta);
+      return card;
+    };
+    const createHorizontalBarCard = (title, points = [], { stacked = false } = {}) => {
+      const card = document.createElement("article");
+      card.className = "workspace-powerbi-visual-card";
+      const heading = document.createElement("h3");
+      heading.textContent = title;
+      const list = document.createElement("div");
+      list.className = "workspace-powerbi-horizontal-bars";
+      points.slice(0, 5).forEach((point, index) => {
+        const numeric = Number.isFinite(point.numeric) ? point.numeric : parseDashboardNumber(point.value) || 0;
+        const width = Math.max(8, Math.round((numeric / maxPointValue) * 100));
+        const row = document.createElement("div");
+        row.className = "workspace-powerbi-bar-row";
+        const label = document.createElement("span");
+        label.textContent = point.label || `Item ${index + 1}`;
+        const track = document.createElement("div");
+        track.className = "workspace-powerbi-bar-track";
+        const fill = document.createElement("div");
+        fill.className = `workspace-powerbi-bar-fill color-${(index % 5) + 1}`;
+        fill.style.width = `${width}%`;
+        track.appendChild(fill);
+        if (stacked) {
+          const secondFill = document.createElement("div");
+          secondFill.className = "workspace-powerbi-bar-fill is-secondary";
+          secondFill.style.width = `${Math.max(8, 100 - width)}%`;
+          track.appendChild(secondFill);
+        }
+        const value = document.createElement("strong");
+        value.textContent = point.value || formatDashboardNumber(numeric);
+        row.append(label, track, value);
+        list.appendChild(row);
+      });
+      card.append(heading, list);
+      return card;
+    };
+    const createMatrixCard = (title, columns = [], rows = []) => {
+      const card = document.createElement("article");
+      card.className = "workspace-powerbi-visual-card workspace-powerbi-matrix-card";
+      const heading = document.createElement("h3");
+      heading.textContent = title;
+      const table = document.createElement("table");
+      const thead = document.createElement("thead");
+      const headerRow = document.createElement("tr");
+      columns.slice(0, 4).forEach((column) => {
+        const th = document.createElement("th");
+        th.textContent = column || "Field";
+        headerRow.appendChild(th);
+      });
+      thead.appendChild(headerRow);
+      table.appendChild(thead);
+      const tbody = document.createElement("tbody");
+      rows.slice(0, 7).forEach((row) => {
+        const tr = document.createElement("tr");
+        columns.slice(0, 4).forEach((_, index) => {
+          const td = document.createElement("td");
+          td.textContent = row[index] || "";
+          tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+      card.append(heading, table);
+      return card;
+    };
+    const createMapCard = () => {
+      const card = document.createElement("article");
+      card.className = "workspace-powerbi-visual-card workspace-powerbi-map-card";
+      const heading = document.createElement("h3");
+      heading.textContent = "Forecast by Location";
+      const map = document.createElement("div");
+      map.className = "workspace-powerbi-map";
+      ["WA", "CA", "TX", "CO", "IL", "NY", "FL", "NC", "GA", "AZ", "OR", "MI"].forEach((stateName, index) => {
+        const stateTile = document.createElement("span");
+        stateTile.className = `workspace-powerbi-state-tile tone-${(index % 4) + 1}`;
+        stateTile.textContent = stateName;
+        map.appendChild(stateTile);
+      });
+      card.append(heading, map);
+      return card;
+    };
+
+    const shell = document.createElement("div");
+    shell.className = "workspace-dashboard-powerbi";
+
+    const rail = document.createElement("aside");
+    rail.className = "workspace-powerbi-rail";
+    const launcher = document.createElement("div");
+    launcher.className = "workspace-powerbi-launcher";
+    launcher.textContent = "::";
+    rail.append(
+      launcher,
+      createRailButton("Accueil", "sheet", true),
+      createRailButton("Creer", "insert"),
+      createRailButton("Parcourir", "search"),
+      createRailButton("Hub de donnees", "database"),
+      createRailButton("Applications", "grid"),
+      createRailButton("Espaces de travail", "briefcase"),
+      createRailButton("Mon espace", "user"),
+      createRailButton("Rapports", "barChart")
+    );
+
+    const mainShell = document.createElement("div");
+    mainShell.className = "workspace-powerbi-main";
+    const serviceBar = document.createElement("div");
+    serviceBar.className = "workspace-powerbi-servicebar";
+    const titleWrap = document.createElement("div");
+    titleWrap.className = "workspace-powerbi-title";
+    const titleName = document.createElement("strong");
+    titleName.textContent = model.title || "Regional Sales Sample";
+    const titleMeta = document.createElement("span");
+    titleMeta.textContent = "Hydria BI";
+    titleWrap.append(titleName, titleMeta);
+    const search = document.createElement("input");
+    search.type = "search";
+    search.className = "workspace-powerbi-search";
+    search.placeholder = "Rechercher";
+    const serviceActions = document.createElement("div");
+    serviceActions.className = "workspace-powerbi-service-actions";
+    ["refresh", "settings", "download"].forEach((icon) => serviceActions.appendChild(createPowerIcon(icon)));
+    serviceBar.append(titleWrap, search, serviceActions);
+
+    const commandBar = document.createElement("div");
+    commandBar.className = "workspace-powerbi-commandbar";
+    commandBar.append(
+      createTopButton("Fichier", "page"),
+      createTopButton("Exporter", "download"),
+      createTopButton("Partager", "link"),
+      createTopButton("Obtenir des insights", "sparkline"),
+      createTopButton("S'abonner au rapport", "note"),
+      createTopButton("Definir une alerte", "checkbox"),
+      createTopButton("Modifier", "rename")
+    );
+    const dashboardActions = document.createElement("div");
+    dashboardActions.className = "workspace-powerbi-commandbar-actions";
+    appendDashboardCommandGroups(
+      dashboardActions,
+      createWorkspaceDashboardHomeMenuItems({
+        canRemoveMetric: model.metrics.length > 1,
+        canRemoveChart: model.charts.length > 1,
+        canMoveWidgetLeft: activeWidgetIndex > 0,
+        canMoveWidgetRight: activeWidgetIndex < model.widgets.length - 1
+      }),
+      executeDashboardCommand
+    );
+    commandBar.appendChild(dashboardActions);
+
+    const reportShell = document.createElement("section");
+    reportShell.className = "workspace-powerbi-report-shell";
+    const reportHeader = document.createElement("header");
+    reportHeader.className = "workspace-powerbi-report-header";
+    const brand = document.createElement("div");
+    brand.className = "workspace-powerbi-brand";
+    const brandMark = document.createElement("span");
+    brandMark.className = "workspace-powerbi-brand-mark";
+    const brandText = document.createElement("strong");
+    brandText.textContent = "Hydria";
+    brand.append(brandMark, brandText);
+    const reportTitle = document.createElement("div");
+    reportTitle.className = "workspace-powerbi-report-title";
+    const reportName = document.createElement("strong");
+    reportName.textContent = String(model.title || "Regional Sales").toUpperCase();
+    const reportSub = document.createElement("span");
+    reportSub.textContent = model.summary || "Sales Overview";
+    reportTitle.append(reportName, reportSub);
+    const reportTabs = document.createElement("nav");
+    reportTabs.className = "workspace-powerbi-report-tabs";
+    ["Overview", "Trends", "Insights"].forEach((label, index) => {
+      const tab = document.createElement("button");
+      tab.type = "button";
+      tab.className = index === 0 ? "is-active" : "";
+      tab.textContent = label;
+      reportTabs.appendChild(tab);
+    });
+    reportHeader.append(brand, reportTitle, reportTabs);
+
+    const canvas = document.createElement("div");
+    canvas.className = "workspace-powerbi-canvas";
+    const kpiRow = document.createElement("div");
+    kpiRow.className = "workspace-powerbi-kpi-row";
+    metricCards.forEach((metric) => kpiRow.appendChild(createKpiCard(metric)));
+    const grid = document.createElement("div");
+    grid.className = "workspace-powerbi-report-grid";
+    grid.append(
+      createHorizontalBarCard("Revenue Open par Sales Stage", numericPoints.slice(0, 4)),
+      createHorizontalBarCard("Revenue Won and Revenue in Pipeline", numericPoints.slice(0, 4), { stacked: true }),
+      createMatrixCard("Forecast by Territory", tableColumns, tableRows),
+      createMapCard(),
+      createMatrixCard("Product Category", tableColumns.slice(0, 4), tableRows.slice(0, 8))
+    );
+    canvas.append(kpiRow, grid);
+
+    const inspector = document.createElement("aside");
+    inspector.className = "workspace-powerbi-inspector";
+    const inspectorTitle = document.createElement("div");
+    inspectorTitle.className = "workspace-powerbi-inspector-title";
+    inspectorTitle.innerHTML = "<strong>Visualisations</strong><span>Donnees</span>";
+    const visualGrid = document.createElement("div");
+    visualGrid.className = "workspace-powerbi-visual-picker";
+    ["barChart", "lineChart", "areaChart", "pieChart", "table", "slicer", "map", "number"].forEach((icon) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.appendChild(createPowerIcon(icon));
+      visualGrid.appendChild(button);
+    });
+    const fields = document.createElement("div");
+    fields.className = "workspace-powerbi-fields";
+    tableColumns.slice(0, 8).forEach((column, index) => {
+      const field = document.createElement("label");
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.checked = index < 4;
+      const text = document.createElement("span");
+      text.textContent = column || `Field ${index + 1}`;
+      field.append(checkbox, text);
+      fields.appendChild(field);
+    });
+    const formatPanel = document.createElement("div");
+    formatPanel.className = "workspace-powerbi-format-panel";
+    const chartTitleLabel = document.createElement("label");
+    chartTitleLabel.textContent = "Titre du visuel";
+    const chartTitleInput = document.createElement("input");
+    chartTitleInput.type = "text";
+    chartTitleInput.value = activeChart.title || "";
+    chartTitleInput.addEventListener("input", (event) => {
+      const next = deriveDashboardDraft(currentDraftContent(), state.currentWorkObject?.title || "Hydria Dashboard");
+      next.charts = next.charts.map((chart, index) =>
+        index === activeChartIndex ? { ...chart, title: event.target.value } : chart
+      );
+      syncEditorDraft(buildDashboardContent(next));
+    });
+    chartTitleLabel.appendChild(chartTitleInput);
+    const chartKindLabel = document.createElement("label");
+    chartKindLabel.textContent = "Type";
+    const chartKindInput = document.createElement("select");
+    ["bar", "line", "area", "progress"].forEach((kind) => {
+      const option = document.createElement("option");
+      option.value = kind;
+      option.textContent = kind;
+      option.selected = (activeChart.kind || "bar") === kind;
+      chartKindInput.appendChild(option);
+    });
+    chartKindInput.addEventListener("change", (event) => {
+      const next = deriveDashboardDraft(currentDraftContent(), state.currentWorkObject?.title || "Hydria Dashboard");
+      next.charts = next.charts.map((chart, index) =>
+        index === activeChartIndex ? { ...chart, kind: event.target.value } : chart
+      );
+      syncEditorDraft(buildDashboardContent(next), { refreshWorkspace: true });
+    });
+    chartKindLabel.appendChild(chartKindInput);
+    formatPanel.append(chartTitleLabel, chartKindLabel);
+    inspector.append(inspectorTitle, visualGrid, fields, formatPanel);
+
+    reportShell.append(reportHeader, canvas);
+    mainShell.append(serviceBar, commandBar, reportShell);
+    shell.append(rail, mainShell, inspector);
+    container.appendChild(shell);
+    return;
+  }
+
   const shell = document.createElement("div");
   shell.className = "workspace-app-builder workspace-dashboard-editor workspace-dashboard-workbench";
 
@@ -6584,76 +6547,15 @@ function renderDashboardStructuredEditor(container) {
   stats.textContent = `${model.widgets.length} widgets | ${model.metrics.length} metrics | ${model.charts.length} charts`;
   const actions = document.createElement("div");
   actions.className = "workspace-structured-actions";
-
-  const addMetricButton = document.createElement("button");
-  addMetricButton.type = "button";
-  addMetricButton.className = "ghost-button";
-  addMetricButton.textContent = "Add metric";
-  addMetricButton.addEventListener("click", () => {
-    const next = deriveDashboardDraft(currentDraftContent(), state.currentWorkObject?.title || "Hydria Dashboard");
-    next.metrics.push({ label: `Metric ${next.metrics.length + 1}`, value: "", delta: "" });
-    syncEditorDraft(buildDashboardContent(next), { refreshWorkspace: true });
-  });
-
-  const addChartButton = document.createElement("button");
-  addChartButton.type = "button";
-  addChartButton.className = "ghost-button";
-  addChartButton.textContent = "Add chart";
-  addChartButton.addEventListener("click", () => {
-    const next = deriveDashboardDraft(currentDraftContent(), state.currentWorkObject?.title || "Hydria Dashboard");
-    next.charts.push({ title: `Chart ${next.charts.length + 1}`, kind: "line", points: [{ label: "P1", value: "" }, { label: "P2", value: "" }] });
-    state.currentStructuredItemId = `chart-${next.charts.length}`;
-    syncEditorDraft(buildDashboardContent(next), { refreshWorkspace: true });
-  });
-
-  const removeMetricButton = document.createElement("button");
-  removeMetricButton.type = "button";
-  removeMetricButton.className = "ghost-button";
-  removeMetricButton.textContent = "Remove metric";
-  removeMetricButton.disabled = model.metrics.length <= 1;
-  removeMetricButton.addEventListener("click", () => {
-    const next = deriveDashboardDraft(currentDraftContent(), state.currentWorkObject?.title || "Hydria Dashboard");
-    next.metrics = next.metrics.slice(0, -1);
-    syncEditorDraft(buildDashboardContent(next), { refreshWorkspace: true });
-  });
-
-  const removeChartButton = document.createElement("button");
-  removeChartButton.type = "button";
-  removeChartButton.className = "ghost-button";
-  removeChartButton.textContent = "Remove chart";
-  removeChartButton.disabled = model.charts.length <= 1;
-  removeChartButton.addEventListener("click", () => {
-    const next = deriveDashboardDraft(currentDraftContent(), state.currentWorkObject?.title || "Hydria Dashboard");
-    next.charts = next.charts.slice(0, -1);
-    state.currentStructuredItemId = next.charts.length ? `chart-${Math.max(1, next.charts.length)}` : "";
-    syncEditorDraft(buildDashboardContent(next), { refreshWorkspace: true });
-  });
-
-  const moveWidgetLeftButton = document.createElement("button");
-  moveWidgetLeftButton.type = "button";
-  moveWidgetLeftButton.className = "ghost-button";
-  moveWidgetLeftButton.textContent = "Widget left";
-  moveWidgetLeftButton.disabled = activeWidgetIndex <= 0;
-  moveWidgetLeftButton.addEventListener("click", () => {
-    moveDashboardWidget(activeWidget.id, -1);
-  });
-
-  const moveWidgetRightButton = document.createElement("button");
-  moveWidgetRightButton.type = "button";
-  moveWidgetRightButton.className = "ghost-button";
-  moveWidgetRightButton.textContent = "Widget right";
-  moveWidgetRightButton.disabled = activeWidgetIndex >= model.widgets.length - 1;
-  moveWidgetRightButton.addEventListener("click", () => {
-    moveDashboardWidget(activeWidget.id, 1);
-  });
-
-  actions.append(
-    addMetricButton,
-    addChartButton,
-    removeMetricButton,
-    removeChartButton,
-    moveWidgetLeftButton,
-    moveWidgetRightButton
+  appendDashboardCommandGroups(
+    actions,
+    createWorkspaceDashboardHomeMenuItems({
+      canRemoveMetric: model.metrics.length > 1,
+      canRemoveChart: model.charts.length > 1,
+      canMoveWidgetLeft: activeWidgetIndex > 0,
+      canMoveWidgetRight: activeWidgetIndex < model.widgets.length - 1
+    }),
+    executeDashboardCommand
   );
   toolbar.append(stats, actions);
   const dashboardInsightGrid = createStructuredInsightGrid([
@@ -7180,29 +7082,14 @@ function renderDashboardStructuredEditor(container) {
   tableStats.textContent = `${model.table.rows.length} rows · ${model.table.columns.length} columns`;
   const tableActions = document.createElement("div");
   tableActions.className = "workspace-structured-actions";
-
-  const addTableRowButton = document.createElement("button");
-  addTableRowButton.type = "button";
-  addTableRowButton.className = "ghost-button";
-  addTableRowButton.textContent = "Add row";
-  addTableRowButton.addEventListener("click", () => {
-    const next = deriveDashboardDraft(currentDraftContent(), state.currentWorkObject?.title || "Hydria Dashboard");
-    next.table.rows.push(Array.from({ length: next.table.columns.length }, () => ""));
-    syncEditorDraft(buildDashboardContent(next), { refreshWorkspace: true });
-  });
-
-  const addTableColumnButton = document.createElement("button");
-  addTableColumnButton.type = "button";
-  addTableColumnButton.className = "ghost-button";
-  addTableColumnButton.textContent = "Add column";
-  addTableColumnButton.addEventListener("click", () => {
-    const next = deriveDashboardDraft(currentDraftContent(), state.currentWorkObject?.title || "Hydria Dashboard");
-    next.table.columns.push(`Column ${next.table.columns.length + 1}`);
-    next.table.rows = next.table.rows.map((row) => [...row, ""]);
-    syncEditorDraft(buildDashboardContent(next), { refreshWorkspace: true });
-  });
-
-  tableActions.append(addTableRowButton, addTableColumnButton);
+  appendDashboardCommandGroups(
+    tableActions,
+    [
+      { label: "Add row", icon: "rowInsert", commandId: "dashboardAddTableRow" },
+      { label: "Add column", icon: "columnInsert", commandId: "dashboardAddTableColumn" }
+    ],
+    executeDashboardCommand
+  );
   tableToolbar.append(tableStats, tableActions);
 
   const tableWrap = document.createElement("div");
@@ -8458,6 +8345,7 @@ function renderWorkspace() {
     el["workspace-panel-root"].dataset.mode = state.workspaceMode;
     el["workspace-panel-root"].dataset.kind = workspaceLens.kind || "creation";
     el["workspace-panel-root"].dataset.family = currentWorkspaceFamilyId() || "generic";
+    el["workspace-panel-root"].dataset.hasWorkspace = hasVisibleWorkspace ? "true" : "false";
   }
   if (el["assistant-dock"]) {
     el["assistant-dock"].dataset.kind = workspaceLens.kind || "creation";
@@ -8580,7 +8468,7 @@ function renderWorkspace() {
   if (el["workspace-action-guide"]) {
     el["workspace-action-guide"].classList.toggle(
       "hidden",
-      !(workObject && filePath) || state.workspaceMode === "edit" || isDocumentCloneWorkspace
+      !(workObject && filePath) || state.workspaceMode === "edit"
     );
   }
   if (el["workspace-action-guide-title"]) {
@@ -8743,7 +8631,12 @@ function renderWorkspace() {
     el["workspace-block-list"].parentElement.classList.toggle("hidden", hideBlocks);
   }
 
+  if (!hasVisibleWorkspace && state.workspacePreviewExpanded) {
+    setWorkspacePreviewExpanded(false);
+  }
+
   refreshPreviewPane();
+  enhanceWorkspacePreviewHeader();
   renderStructuredEditor();
 
   el["work-object-editor"].disabled = !workObject || !filePath;
@@ -9117,7 +9010,7 @@ async function selectWorkObject(workObjectId, filePath = "", options = {}) {
   clearRuntimeSyncTimer();
   state.currentWorkObjectId = workObject.id;
   state.currentWorkObject = workObject;
-  if (isSheetWorkObject(workObject)) {
+  if (isSheetWorkObject(workObject) || isDocumentWorkObject(workObject)) {
     reopenSheetDocument(workObject.id);
   }
   if (!options.preserveDimension) {
@@ -9741,6 +9634,9 @@ function bindEvents() {
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
       hideWorkspaceSheetDocumentMenu();
+      if (state.workspacePreviewExpanded) {
+        setWorkspacePreviewExpanded(false);
+      }
     }
   });
 

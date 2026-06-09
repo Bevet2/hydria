@@ -1,3 +1,63 @@
+import {
+  WORKSPACE_DOCS_HIGHLIGHT_COLOR_OPTIONS,
+  WORKSPACE_DOCS_TEXT_COLOR_OPTIONS,
+  WORKSPACE_FONT_FAMILY_OPTIONS,
+  WORKSPACE_STANDARD_COLORS,
+  WORKSPACE_THEME_COLOR_ROWS,
+  WORKSPACE_HORIZONTAL_ALIGNMENT_OPTIONS,
+  WORKSPACE_VERTICAL_ALIGNMENT_OPTIONS,
+  bindWorkspaceMenuActions,
+  closeWorkspaceDropdown,
+  createDocsWorkspaceCommandAdapter,
+  createWorkspaceAlignmentMenuItems,
+  createWorkspaceBorderMenuItems,
+  createWorkspaceClipboardMenuItems,
+  createWorkspaceCommandExecutor,
+  createWorkspaceCommandMenuItems,
+  createWorkspaceConditionalFormatMenuItems,
+  createWorkspaceColorSwatchButton,
+  createWorkspaceActiveTableMenuItems,
+  createWorkspaceDataCleanupMenuItems,
+  createWorkspaceDataRefreshMenuItems,
+  createWorkspaceDeleteMenuItems,
+  createWorkspaceDocumentAlignmentMenuItems,
+  createWorkspaceDocumentBlockMenuItems,
+  createWorkspaceDocumentFontSizeMenuItems,
+  createWorkspaceDocumentFormatFieldItems,
+  createWorkspaceDocumentFormatMenuItems,
+  createWorkspaceDocumentInsertMenuItems,
+  createWorkspaceDocumentOutputMenuItems,
+  createWorkspaceDocumentPageFormatMenuItems,
+  createWorkspaceDocumentTableMenuItems,
+  createWorkspaceFontSizeOptions,
+  createWorkspaceFilterMenuItems,
+  createWorkspaceHomeCellsMenuItems,
+  createWorkspaceHomeEditingMenuItems,
+  createWorkspaceInsertMenuItems,
+  createWorkspaceIconNode,
+  createWorkspaceContextMenu,
+  createWorkspaceMenuActionButton,
+  createWorkspaceMenuOutsideController,
+  createWorkspaceNumberFormatMenuItems,
+  createWorkspacePaletteActionButton,
+  createWorkspaceSelectElement,
+  createWorkspaceSheetFontSizeOptions,
+  createSheetWorkspaceCommandAdapter,
+  createWorkspaceSortFilterMenuItems,
+  createWorkspaceSortMenuItems,
+  createWorkspaceTableContextMenuItems,
+  createWorkspaceValidationMenuItems,
+  formatWorkspaceFamilyLabel,
+  formatWorkspaceObjectKindLabel,
+  getWorkspaceCommandIcon,
+  getWorkspaceCommandLabel,
+  installWorkspaceMenuEventBlockers,
+  normalizeWorkspaceMenuItems,
+  placeWorkspaceFloatingPanel,
+  renderWorkspaceFlatMenuItems,
+  toggleWorkspaceDropdown
+} from "./workspaceSharedCommands.js";
+
 function createTextFragment(text = "") {
   const fragment = document.createDocumentFragment();
   const pattern = /(!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)|\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)|`([^`]+)`|\*\*([^*]+)\*\*)/g;
@@ -74,6 +134,10 @@ const spreadsheetRibbonDisplayStore = new Map();
 const spreadsheetExpandedStore = new Map();
 const spreadsheetExpandedPopupHostStore = new Map();
 const spreadsheetRecentFormulaStore = new Map();
+const dashboardExpandedStore = new Map();
+const dashboardExpandedPopupHostStore = new Map();
+const applicationPreviewExpandedStore = new Map();
+const applicationPreviewExpandedPopupHostStore = new Map();
 const SPREADSHEET_MIN_VISIBLE_COLUMNS = 26;
 const SPREADSHEET_MIN_VISIBLE_ROWS = 200;
 
@@ -274,46 +338,6 @@ const SPREADSHEET_FORMULA_NAME_ALIASES = {
   "ARRONDI.SUP": "ROUNDUP",
   PRODUIT: "PRODUCT",
   CONCATENER: "CONCAT"
-};
-const SPREADSHEET_CSV_FORMULA_NAME_ALIASES = {
-  IF: "SI",
-  IFERROR: "SIERREUR",
-  AND: "ET",
-  OR: "OU",
-  NOT: "NON",
-  TRUE: "VRAI",
-  FALSE: "FAUX",
-  AVG: "MOYENNE",
-  SUM: "SOMME",
-  SUMIF: "SOMME.SI",
-  SUMIFS: "SOMME.SI.ENS",
-  AVERAGE: "MOYENNE",
-  AVERAGEIF: "MOYENNE.SI",
-  AVERAGEIFS: "MOYENNE.SI.ENS",
-  COUNT: "NB",
-  COUNTA: "NBVAL",
-  COUNTBLANK: "NB.VIDE",
-  COUNTIF: "NB.SI",
-  COUNTIFS: "NB.SI.ENS",
-  TODAY: "AUJOURDHUI",
-  NOW: "MAINTENANT",
-  TEXT: "TEXTE",
-  LEFT: "GAUCHE",
-  RIGHT: "DROITE",
-  MID: "STXT",
-  TRIM: "SUPPRESPACE",
-  VALUE: "VALEUR",
-  FILTER: "FILTRE",
-  SORT: "TRIER",
-  MATCH: "EQUIV",
-  VLOOKUP: "RECHERCHEV",
-  XLOOKUP: "RECHERCHEX",
-  SUBTOTAL: "SOUS.TOTAL",
-  ROUND: "ARRONDI",
-  ROUNDDOWN: "ARRONDI.INF",
-  ROUNDUP: "ARRONDI.SUP",
-  PRODUCT: "PRODUIT",
-  CONCAT: "CONCATENER"
 };
 const SPREADSHEET_FORMULA_CATEGORIES = [
   { id: "all", label: "Tout", ribbonLabel: "Toutes", icon: "function" },
@@ -715,6 +739,10 @@ function normalizeSpreadsheetCellFormat(format = {}) {
   if (Number.isFinite(fontSize)) {
     normalized.fontSize = Math.max(8, Math.min(36, Math.round(fontSize)));
   }
+  const fontFamily = String(format.fontFamily || "").trim();
+  if (fontFamily) {
+    normalized.fontFamily = fontFamily.slice(0, 160);
+  }
   const textColor = normalizeSpreadsheetColor(format.textColor);
   if (textColor) {
     normalized.textColor = textColor;
@@ -836,84 +864,6 @@ function normalizeSpreadsheetFormulaName(name = "") {
 
 function isSpreadsheetBuiltinFormulaName(name = "") {
   return SPREADSHEET_BUILTIN_FORMULA_NAMES.has(normalizeSpreadsheetFormulaName(name));
-}
-
-function localizeSpreadsheetFormulaForCsv(value = "") {
-  const text = String(value || "");
-  if (!text.startsWith("=")) {
-    return text;
-  }
-
-  let output = "";
-  let index = 0;
-  let inString = false;
-  const isIdentifierStart = (char = "") => /[A-Za-z_]/.test(char);
-  const isIdentifierPart = (char = "") => /[A-Za-z0-9_.]/.test(char);
-  const nextNonSpaceAt = (startIndex = 0) => {
-    let cursor = startIndex;
-    while (cursor < text.length && /\s/.test(text[cursor])) {
-      cursor += 1;
-    }
-    return { char: text[cursor] || "", index: cursor };
-  };
-
-  while (index < text.length) {
-    const char = text[index];
-    if (char === "\"") {
-      output += char;
-      if (inString && text[index + 1] === "\"") {
-        output += text[index + 1];
-        index += 2;
-        continue;
-      }
-      inString = !inString;
-      index += 1;
-      continue;
-    }
-    if (inString) {
-      output += char;
-      index += 1;
-      continue;
-    }
-    if (char === ",") {
-      output += ";";
-      index += 1;
-      continue;
-    }
-    if (char === "@" && isIdentifierStart(text[index + 1] || "")) {
-      const start = index + 1;
-      let end = start + 1;
-      while (end < text.length && isIdentifierPart(text[end])) {
-        end += 1;
-      }
-      const canonicalName = normalizeSpreadsheetFormulaName(text.slice(start, end));
-      if (SPREADSHEET_CSV_FORMULA_NAME_ALIASES[canonicalName] && nextNonSpaceAt(end).char === "(") {
-        index += 1;
-        continue;
-      }
-    }
-    if (isIdentifierStart(char)) {
-      const start = index;
-      let end = index + 1;
-      while (end < text.length && isIdentifierPart(text[end])) {
-        end += 1;
-      }
-      const token = text.slice(start, end);
-      const canonicalName = normalizeSpreadsheetFormulaName(token);
-      const localizedName = SPREADSHEET_CSV_FORMULA_NAME_ALIASES[canonicalName];
-      const nextToken = nextNonSpaceAt(end).char;
-      const isFunctionCall = nextToken === "(";
-      const isBooleanLiteral =
-        (canonicalName === "TRUE" || canonicalName === "FALSE") &&
-        (!nextToken || /[;,+\-*/^<>=)&]/.test(nextToken));
-      output += localizedName && (isFunctionCall || isBooleanLiteral) ? localizedName : token;
-      index = end;
-      continue;
-    }
-    output += char;
-    index += 1;
-  }
-  return output;
 }
 
 function isSpreadsheetDefinedNameValid(name = "") {
@@ -1625,106 +1575,11 @@ function unwrapNodeContents(node) {
 let activeDocumentSearchShortcutCleanup = null;
 
 const PLAIN_URL_PATTERN = /((?:https?:\/\/|www\.)[^\s<]+)/gi;
-const DOCS_TEXT_COLOR_OPTIONS = [
-  { label: "Default", value: "", sample: "#ffffff", outline: "rgba(73, 84, 95, 0.22)" },
-  { label: "White", value: "#ffffff", sample: "#ffffff", outline: "rgba(73, 84, 95, 0.3)" },
-  { label: "Black", value: "#111827", sample: "#111827" },
-  { label: "Slate", value: "#334155", sample: "#334155" },
-  { label: "Gray", value: "#6b7280", sample: "#6b7280" },
-  { label: "Brown", value: "#7c4a21", sample: "#7c4a21" },
-  { label: "Red", value: "#b42318", sample: "#b42318" },
-  { label: "Crimson", value: "#c1121f", sample: "#c1121f" },
-  { label: "Orange", value: "#c2410c", sample: "#c2410c" },
-  { label: "Amber", value: "#b45309", sample: "#b45309" },
-  { label: "Gold", value: "#a16207", sample: "#a16207" },
-  { label: "Olive", value: "#4d7c0f", sample: "#4d7c0f" },
-  { label: "Green", value: "#15803d", sample: "#15803d" },
-  { label: "Emerald", value: "#047857", sample: "#047857" },
-  { label: "Teal", value: "#0f766e", sample: "#0f766e" },
-  { label: "Cyan", value: "#0e7490", sample: "#0e7490" },
-  { label: "Blue", value: "#1d4ed8", sample: "#1d4ed8" },
-  { label: "Indigo", value: "#4338ca", sample: "#4338ca" },
-  { label: "Purple", value: "#7e22ce", sample: "#7e22ce" },
-  { label: "Violet", value: "#6d28d9", sample: "#6d28d9" },
-  { label: "Pink", value: "#be185d", sample: "#be185d" }
-];
-const DOCS_HIGHLIGHT_COLOR_OPTIONS = [
-  { label: "Clear", value: "", sample: "transparent", outline: "rgba(73, 84, 95, 0.22)" },
-  { label: "White", value: "#ffffff", sample: "#ffffff", outline: "rgba(73, 84, 95, 0.3)" },
-  { label: "Yellow", value: "#fff2a8", sample: "#fff2a8" },
-  { label: "Lemon", value: "#fde68a", sample: "#fde68a" },
-  { label: "Peach", value: "#fed7aa", sample: "#fed7aa" },
-  { label: "Orange", value: "#fdba74", sample: "#fdba74" },
-  { label: "Coral", value: "#fca5a5", sample: "#fca5a5" },
-  { label: "Pink", value: "#f9a8d4", sample: "#f9a8d4" },
-  { label: "Rose", value: "#fecdd3", sample: "#fecdd3" },
-  { label: "Lavender", value: "#ddd6fe", sample: "#ddd6fe" },
-  { label: "Lilac", value: "#e9d5ff", sample: "#e9d5ff" },
-  { label: "Sky", value: "#bae6fd", sample: "#bae6fd" },
-  { label: "Blue", value: "#bfdbfe", sample: "#bfdbfe" },
-  { label: "Mint", value: "#bbf7d0", sample: "#bbf7d0" },
-  { label: "Green", value: "#d9f99d", sample: "#d9f99d" },
-  { label: "Sage", value: "#d1fae5", sample: "#d1fae5" },
-  { label: "Stone", value: "#e7e5e4", sample: "#e7e5e4" }
-];
-const DOCS_FONT_FAMILY_OPTIONS = [
-  { label: "Default font", value: "" },
-  { label: "Arial", value: "Arial, sans-serif" },
-  { label: "Calibri", value: "Calibri, Candara, Segoe, \"Segoe UI\", Optima, Arial, sans-serif" },
-  { label: "Cambria", value: "Cambria, Georgia, serif" },
-  { label: "Candara", value: "Candara, Calibri, Segoe, \"Segoe UI\", sans-serif" },
-  { label: "Century Gothic", value: "\"Century Gothic\", Futura, Arial, sans-serif" },
-  { label: "Consolas", value: "Consolas, \"Courier New\", monospace" },
-  { label: "Courier New", value: "\"Courier New\", Courier, monospace" },
-  { label: "Franklin Gothic", value: "\"Franklin Gothic Medium\", \"Arial Narrow\", Arial, sans-serif" },
-  { label: "Garamond", value: "Garamond, Baskerville, \"Times New Roman\", serif" },
-  { label: "Georgia", value: "Georgia, serif" },
-  { label: "Helvetica", value: "Helvetica, Arial, sans-serif" },
-  { label: "IBM Plex Sans", value: "\"IBM Plex Sans\", sans-serif" },
-  { label: "Impact", value: "Impact, Haettenschweiler, \"Arial Narrow Bold\", sans-serif" },
-  { label: "Lucida Sans", value: "\"Lucida Sans Unicode\", \"Lucida Grande\", sans-serif" },
-  { label: "Palatino", value: "\"Palatino Linotype\", Palatino, \"Book Antiqua\", serif" },
-  { label: "Segoe UI", value: "\"Segoe UI\", Tahoma, Geneva, Verdana, sans-serif" },
-  { label: "Tahoma", value: "Tahoma, Geneva, Verdana, sans-serif" },
-  { label: "Times New Roman", value: "\"Times New Roman\", Times, serif" },
-  { label: "Trebuchet MS", value: "\"Trebuchet MS\", Helvetica, sans-serif" },
-  { label: "Verdana", value: "Verdana, Geneva, sans-serif" }
-];
-const DOCS_FONT_SIZE_OPTIONS = [
-  { label: "Auto size", value: "" },
-  { label: "8", value: "8px" },
-  { label: "9", value: "9px" },
-  { label: "10", value: "10px" },
-  { label: "11", value: "11px" },
-  { label: "12", value: "12px" },
-  { label: "13", value: "13px" },
-  { label: "14", value: "14px" },
-  { label: "15", value: "15px" },
-  { label: "16", value: "16px" },
-  { label: "17", value: "17px" },
-  { label: "18", value: "18px" },
-  { label: "20", value: "20px" },
-  { label: "22", value: "22px" },
-  { label: "24", value: "24px" },
-  { label: "26", value: "26px" },
-  { label: "28", value: "28px" },
-  { label: "30", value: "30px" },
-  { label: "32", value: "32px" },
-  { label: "36", value: "36px" },
-  { label: "40", value: "40px" },
-  { label: "48", value: "48px" },
-  { label: "54", value: "54px" },
-  { label: "60", value: "60px" },
-  { label: "72", value: "72px" },
-  { label: "84", value: "84px" },
-  { label: "96", value: "96px" }
-];
-const DOCS_ALIGNMENT_OPTIONS = [
-  { label: "Left align", value: "left" },
-  { label: "Center align", value: "center" },
-  { label: "Right align", value: "right" },
-  { label: "Justify", value: "justify" }
-];
+const DOCS_TEXT_COLOR_OPTIONS = WORKSPACE_DOCS_TEXT_COLOR_OPTIONS;
+const DOCS_HIGHLIGHT_COLOR_OPTIONS = WORKSPACE_DOCS_HIGHLIGHT_COLOR_OPTIONS;
+const DOCS_FONT_FAMILY_OPTIONS = WORKSPACE_FONT_FAMILY_OPTIONS;
+const DOCS_FONT_SIZE_OPTIONS = createWorkspaceFontSizeOptions({ includeAuto: true, unit: "px" });
+const DOCS_ALIGNMENT_OPTIONS = createWorkspaceDocumentAlignmentMenuItems();
 
 function shouldLinkifyOnBreak(event) {
   return ["insertParagraph", "insertLineBreak"].includes(String(event?.inputType || ""));
@@ -2220,11 +2075,13 @@ function renderMarkdownPreview(
   onInlineEdit = null,
   workObject = null,
   projectWorkObjects = [],
-  onProjectObjectSelect = null
+  onProjectObjectSelect = null,
+  sourceFilePath = ""
 ) {
   const profile = getDocumentWorkspacePreviewProfile(workObject);
   const isDocsClone = workObject?.workspaceFamilyId === "document_knowledge";
   const usesRichDocument = isDocsClone && isRichDocumentHtml(content);
+  const documentSourcePath = normalizePath(sourceFilePath || workObject?.primaryFile || workObject?.sourcePath || "");
   let activeEditable = null;
   let docsMenuPanel = null;
   let docsMenuButtons = [];
@@ -2256,12 +2113,18 @@ function renderMarkdownPreview(
   let docsToolbar = null;
   let docsToolbarStatus = null;
   let shell = null;
+  let previewLayout = null;
   let outline = null;
   let docsCanvas = null;
+  let docsPageRuler = null;
+  let docsVerticalRuler = null;
   let docsTableControls = null;
   let docsTableContextMenu = null;
+  let docsTableContextMenuApi = null;
   let docsTableControlSignature = "";
   let docsCommitHandle = null;
+  let docsPageReflowHandle = null;
+  let docsPendingPageReflow = false;
   let normalizedLegacyHeading = false;
   let docsFullscreenButtons = [];
   let docsSavedSelectionRange = null;
@@ -2270,8 +2133,10 @@ function renderMarkdownPreview(
   let docsFullscreenFallbackActive = false;
   let docsFullscreenFallbackPlaceholder = null;
   let docsFullscreenRestoreFocusHandler = null;
+  let triggerImageImport = () => {};
   let docsSearchBar = null;
   let docsSearchInput = null;
+  let docsApplicationSearchInput = null;
   let docsSearchCount = null;
   let docsSearchUndoButton = null;
   let docsSearchRedoButton = null;
@@ -2283,6 +2148,9 @@ function renderMarkdownPreview(
   let docsSearchAllSelected = false;
   let docsSearchUndoStack = [];
   let docsSearchRedoStack = [];
+  let docsOutlineVisible = false;
+  let docsHeaderPageButton = null;
+  let docsHeaderOutlineButton = null;
   const docsSearchMatchClassName = "workspace-docs-search-match";
   const docsSearchActiveClassName = "is-active";
 
@@ -2303,11 +2171,13 @@ function renderMarkdownPreview(
   if (isDocsClone) {
     [
       {
+        key: "page",
         label: "Edit page",
         modifier: "is-active",
         onClick: () => focusDocsPage()
       },
       {
+        key: "outline",
         label: "Outline",
         onClick: () => focusDocsOutline()
       },
@@ -2326,6 +2196,11 @@ function renderMarkdownPreview(
       button.className = `workspace-code-tab workspace-docs-header-action${action.modifier ? ` ${action.modifier}` : ""}`;
       button.textContent = action.label;
       button.addEventListener("click", action.onClick);
+      if (action.key === "page") {
+        docsHeaderPageButton = button;
+      } else if (action.key === "outline") {
+        docsHeaderOutlineButton = button;
+      }
       previewTabs.appendChild(button);
     });
   } else {
@@ -2337,7 +2212,9 @@ function renderMarkdownPreview(
     });
   }
   previewToolbar.append(previewMeta, previewTabs);
-  previewShell.appendChild(previewToolbar);
+  if (!isDocsClone) {
+    previewShell.appendChild(previewToolbar);
+  }
 
   docsSearchBar = document.createElement("div");
   docsSearchBar.className = "workspace-docs-searchbar hidden";
@@ -2350,6 +2227,7 @@ function renderMarkdownPreview(
   docsSearchInput.placeholder = "Search a word or phrase";
   docsSearchInput.setAttribute("aria-label", "Find in document");
   docsSearchInput.addEventListener("input", (event) => {
+    syncDocumentSearchInputs(event.target.value, docsSearchInput);
     applyDocumentSearch(event.target.value, { scrollToActive: false });
   });
   docsSearchInput.addEventListener("keydown", (event) => {
@@ -2451,6 +2329,177 @@ function renderMarkdownPreview(
     target?.focus?.({ preventScroll: true });
   };
 
+  const buildDocumentDownloadBaseName = () =>
+    (String(workObject?.title || friendlyPathLabel(documentSourcePath) || "hydria-document")
+      .trim()
+      .replace(/\.[^.]+$/, "")
+      .replace(/[\\/:*?"<>|]+/g, "-")
+      .replace(/[^\w.-]+/g, "-") || "hydria-document");
+
+  const downloadDocsBlobFile = (blob, filename = "hydria-document.docx") => {
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+  };
+
+  const readDocsApiError = async (response) => {
+    try {
+      const payload = await response.clone().json();
+      return payload?.error || payload?.message || response.statusText || "Request failed";
+    } catch {
+      const text = await response.text().catch(() => "");
+      return text || response.statusText || "Request failed";
+    }
+  };
+
+  const buildDocumentOutputSnapshot = () => {
+    if (!shell) {
+      throw new Error("No document is open.");
+    }
+    if (isDocsClone) {
+      flushDocsPageReflow({ preserveSelection: false });
+    }
+    commitDocumentShell();
+    const title =
+      String(shell.querySelector("h1, h2, h3")?.textContent || workObject?.title || friendlyPathLabel(documentSourcePath) || "Hydria Document")
+        .trim() || "Hydria Document";
+    return {
+      title,
+      filenameBase: buildDocumentDownloadBaseName(),
+      sourcePath: documentSourcePath,
+      html: shell.dataset.richDocument === "true" ? serializeDocumentPreviewShell(shell) : shell.innerHTML,
+      text: String(shell.innerText || "").trim()
+    };
+  };
+
+  const cleanDocsPrintableClone = () => {
+    const clone = shell?.cloneNode(true);
+    if (!clone) {
+      return null;
+    }
+    clone.querySelectorAll(".workspace-docs-page-control-bar").forEach((node) => node.remove());
+    clone.querySelectorAll(".workspace-docs-vertical-ruler").forEach((node) => node.remove());
+    clone.querySelectorAll(".workspace-docs-image-resize-handle").forEach((node) => node.remove());
+    clone.querySelectorAll(".workspace-docs-search-match").forEach((node) => unwrapNodeContents(node));
+    clone.querySelectorAll(".workspace-docs-figure").forEach((node) => {
+      node.classList.remove("is-media-selected", "is-dragging");
+    });
+    clone.querySelectorAll(".workspace-document-page-sheet.is-active-docs-page").forEach((node) => {
+      node.classList.remove("is-active-docs-page");
+    });
+    clone.querySelectorAll("[contenteditable]").forEach((node) => node.removeAttribute("contenteditable"));
+    clone.querySelectorAll("[spellcheck]").forEach((node) => node.removeAttribute("spellcheck"));
+    clone.querySelectorAll("[data-placeholder]").forEach((node) => node.removeAttribute("data-placeholder"));
+    clone.querySelectorAll(".workspace-inline-editable").forEach((node) => {
+      node.classList.remove("workspace-inline-editable");
+    });
+    return clone;
+  };
+
+  const removeDocsPrintRoot = () => {
+    document.body.classList.remove("is-docs-printing");
+    document.querySelectorAll(".workspace-docs-print-root").forEach((node) => node.remove());
+  };
+
+  const scheduleDocsPrintCleanup = () => {
+    const cleanup = () => {
+      window.setTimeout(removeDocsPrintRoot, 700);
+    };
+    window.addEventListener("focus", cleanup, { once: true });
+    window.addEventListener("afterprint", cleanup, { once: true });
+  };
+
+  const buildDocsPrintRoot = () => {
+    const snapshot = buildDocumentOutputSnapshot();
+    const root = document.createElement("div");
+    root.className = "workspace-docs-print-root";
+    root.dataset.title = snapshot.title;
+
+    const printableClone = cleanDocsPrintableClone();
+    const pageNodes = Array.from(printableClone?.querySelectorAll?.(".workspace-document-page-sheet") || []);
+    if (pageNodes.length) {
+      pageNodes.forEach((page) => {
+        const printPage = page.cloneNode(true);
+        printPage.classList.add("workspace-docs-print-page");
+        root.appendChild(printPage);
+      });
+    } else {
+      const page = document.createElement("section");
+      page.className = "workspace-document-page-sheet workspace-docs-print-page";
+      page.innerHTML = snapshot.html;
+      root.appendChild(page);
+    }
+    return root;
+  };
+
+  const printCurrentDocument = () => {
+    try {
+      removeDocsPrintRoot();
+      const root = buildDocsPrintRoot();
+      document.body.appendChild(root);
+      document.body.classList.add("is-docs-printing");
+      scheduleDocsPrintCleanup();
+      window.print();
+      updateDocsToolbarStatus("Print dialog opened");
+      return true;
+    } catch (error) {
+      console.error(error);
+      updateDocsToolbarStatus(error?.message || "Print unavailable");
+      return false;
+    }
+  };
+
+  const exportCurrentDocumentFile = async (format = "docx") => {
+    const normalizedFormat = format === "pdf" ? "pdf" : "docx";
+    const snapshot = buildDocumentOutputSnapshot();
+    const filename = `${snapshot.filenameBase}.${normalizedFormat}`;
+    const response = await fetch(`/api/docs/export-${normalizedFormat}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        filename,
+        title: snapshot.title,
+        html: snapshot.html,
+        text: snapshot.text,
+        sourcePath: snapshot.sourcePath
+      })
+    });
+    if (!response.ok) {
+      throw new Error(await readDocsApiError(response));
+    }
+    const blob = await response.blob();
+    if (!blob.size) {
+      throw new Error(`${normalizedFormat.toUpperCase()} export is empty.`);
+    }
+    downloadDocsBlobFile(blob, filename);
+    updateDocsToolbarStatus(`${normalizedFormat.toUpperCase()} exported`);
+    return true;
+  };
+
+  const downloadCurrentDocumentDocx = async () => {
+    try {
+      return await exportCurrentDocumentFile("docx");
+    } catch (error) {
+      console.error(error);
+      window.alert(`DOCX export failed: ${error.message || error}`);
+      return false;
+    }
+  };
+
+  const exportCurrentDocumentPdf = async () => {
+    try {
+      return await exportCurrentDocumentFile("pdf");
+    } catch (error) {
+      console.error(error);
+      window.alert(`PDF export failed: ${error.message || error}`);
+      return false;
+    }
+  };
+
   const clearDocumentSearchHighlights = () => {
     if (!shell) {
       docsSearchMatches = [];
@@ -2493,6 +2542,16 @@ function renderMarkdownPreview(
     }
     if (docsSearchNextButton) {
       docsSearchNextButton.disabled = totalMatches < 2;
+    }
+  };
+
+  const syncDocumentSearchInputs = (value = "", sourceInput = null) => {
+    const nextValue = String(value || "");
+    if (docsSearchInput && docsSearchInput !== sourceInput) {
+      docsSearchInput.value = nextValue;
+    }
+    if (docsApplicationSearchInput && docsApplicationSearchInput !== sourceInput) {
+      docsApplicationSearchInput.value = nextValue;
     }
   };
 
@@ -2660,7 +2719,7 @@ function renderMarkdownPreview(
 
   const moveDocumentSearch = (direction = 1) => {
     if (!docsSearchMatches.length) {
-      applyDocumentSearch(docsSearchInput?.value || "");
+      applyDocumentSearch(docsApplicationSearchInput?.value || docsSearchInput?.value || "");
       return;
     }
     setActiveDocumentSearchMatch(docsSearchActiveIndex + direction);
@@ -2674,6 +2733,9 @@ function renderMarkdownPreview(
     if (docsSearchInput && clearQuery) {
       docsSearchInput.value = "";
     }
+    if (docsApplicationSearchInput && clearQuery) {
+      docsApplicationSearchInput.value = "";
+    }
     updateDocumentSearchStatus();
     focusDocumentEditingTarget();
     updateDocsToolbarStatus("Search closed");
@@ -2684,7 +2746,9 @@ function renderMarkdownPreview(
       return;
     }
 
-    if (seedFromSelection && !docsSearchInput.value.trim()) {
+    const activeSearchInput = docsApplicationSearchInput || docsSearchInput;
+
+    if (seedFromSelection && !activeSearchInput.value.trim()) {
       const selection = window.getSelection();
       if (
         selection &&
@@ -2692,18 +2756,21 @@ function renderMarkdownPreview(
         shell?.contains(selection.anchorNode) &&
         shell?.contains(selection.focusNode)
       ) {
-        docsSearchInput.value = String(selection.toString() || "").trim();
+        syncDocumentSearchInputs(String(selection.toString() || "").trim());
       }
     }
 
-    docsSearchBar.classList.remove("hidden");
-    if (docsSearchInput.value.trim()) {
-      applyDocumentSearch(docsSearchInput.value, { preserveIndex: true, scrollToActive: false });
+    if (!docsApplicationSearchInput) {
+      docsSearchBar.classList.remove("hidden");
+    }
+    syncDocumentSearchInputs(activeSearchInput.value, activeSearchInput);
+    if (activeSearchInput.value.trim()) {
+      applyDocumentSearch(activeSearchInput.value, { preserveIndex: true, scrollToActive: false });
     } else {
       updateDocumentSearchStatus();
     }
-    docsSearchInput.focus();
-    docsSearchInput.select();
+    activeSearchInput.focus();
+    activeSearchInput.select();
     updateDocsToolbarStatus("Search opened");
   };
 
@@ -2767,14 +2834,49 @@ function renderMarkdownPreview(
   };
   updateDocumentSearchStatus();
 
+  const syncDocsOutlineNavigationState = () => {
+    if (!isDocsClone) {
+      return;
+    }
+    docsHeaderPageButton?.classList.toggle("is-active", !docsOutlineVisible);
+    docsHeaderOutlineButton?.classList.toggle("is-active", docsOutlineVisible);
+    const applicationTabs = previewShell
+      .closest?.(".workspace-application-preview-card")
+      ?.querySelectorAll?.(".workspace-application-preview-tabs .workspace-sheet-tab");
+    applicationTabs?.forEach((button) => {
+      const label = String(button.textContent || "").trim().toLowerCase();
+      if (label === "document") {
+        button.classList.toggle("active", !docsOutlineVisible);
+      } else if (label === "outline") {
+        button.classList.toggle("active", docsOutlineVisible);
+      }
+    });
+  };
+
+  const setDocsOutlineVisible = (visible = false, { focusFirstItem = false } = {}) => {
+    if (!isDocsClone) {
+      return;
+    }
+    docsOutlineVisible = Boolean(visible);
+    previewLayout?.classList.toggle("is-outline-hidden", !docsOutlineVisible);
+    outline?.classList.toggle("hidden", !docsOutlineVisible);
+    outline?.setAttribute("aria-hidden", docsOutlineVisible ? "false" : "true");
+    syncDocsOutlineNavigationState();
+    if (docsOutlineVisible && focusFirstItem) {
+      outline?.scrollIntoView?.({ behavior: "smooth", block: "nearest", inline: "nearest" });
+      outline?.querySelector?.("button")?.focus?.({ preventScroll: true });
+    }
+  };
+
   const focusDocsPage = () => {
+    setDocsOutlineVisible(false);
     previewShell.scrollIntoView({ behavior: "smooth", block: "start" });
     focusDocumentEditingTarget();
     updateDocsToolbarStatus("Editing page");
   };
 
   const focusDocsOutline = () => {
-    outline?.querySelector?.("button")?.focus?.({ preventScroll: true });
+    setDocsOutlineVisible(true, { focusFirstItem: true });
     updateDocsToolbarStatus("Outline ready");
   };
 
@@ -3403,9 +3505,14 @@ function renderMarkdownPreview(
     if (!selection) {
       return false;
     }
-    selection.removeAllRanges();
-    selection.addRange(docsSavedSelectionRange);
-    return true;
+    try {
+      selection.removeAllRanges();
+      selection.addRange(docsSavedSelectionRange);
+      return true;
+    } catch {
+      docsSavedSelectionRange = null;
+      return false;
+    }
   };
 
   const getDocsPageSheetFromNode = (node) => {
@@ -3439,6 +3546,78 @@ function renderMarkdownPreview(
       shell?.querySelector(".workspace-document-page-sheet") ||
       shell
     );
+  };
+
+  const getDocsRulerMetrics = (orientation = "portrait") => {
+    if (orientation === "landscape") {
+      return { widthCm: 29.7, heightCm: 21 };
+    }
+    return { widthCm: 21, heightCm: 29.7 };
+  };
+
+  const renderDocsLinearRuler = (ruler, axis = "horizontal", orientation = "portrait") => {
+    if (!ruler) {
+      return;
+    }
+    const normalizedOrientation = orientation === "landscape" ? "landscape" : "portrait";
+    const metrics = getDocsRulerMetrics(normalizedOrientation);
+    const lengthCm = axis === "vertical" ? metrics.heightCm : metrics.widthCm;
+    const metricKey = `${axis}:${normalizedOrientation}:${lengthCm}`;
+    if (ruler.dataset.rulerMetric === metricKey && ruler.childElementCount > 0) {
+      return;
+    }
+    const tickCount = Math.floor(lengthCm * 2);
+    ruler.replaceChildren();
+    ruler.dataset.orientation = normalizedOrientation;
+    ruler.dataset.rulerAxis = axis;
+    ruler.dataset.rulerMetric = metricKey;
+    for (let index = 1; index <= tickCount; index += 1) {
+      const cm = index / 2;
+      if (cm > lengthCm) {
+        break;
+      }
+      const isMajor = Number.isInteger(cm);
+      const tick = document.createElement("span");
+      tick.className = `${axis === "vertical" ? "workspace-docs-vertical-ruler-tick" : "workspace-docs-ruler-tick"} ${
+        isMajor ? "is-major" : "is-minor"
+      }`;
+      tick.textContent = isMajor ? `${cm}` : "";
+      tick.style.setProperty(axis === "vertical" ? "top" : "left", `${(cm / lengthCm) * 100}%`);
+      ruler.appendChild(tick);
+    }
+  };
+
+  const ensureDocsVerticalRuler = () => {
+    if (docsVerticalRuler) {
+      return docsVerticalRuler;
+    }
+    docsVerticalRuler = document.createElement("div");
+    docsVerticalRuler.className = "workspace-docs-vertical-ruler";
+    docsVerticalRuler.contentEditable = "false";
+    docsVerticalRuler.setAttribute("aria-hidden", "true");
+    return docsVerticalRuler;
+  };
+
+  const updateDocsActivePageRuler = (anchor = null) => {
+    if (!isDocsClone || !shell) {
+      return;
+    }
+    const activePage = getActiveDocsPageSheet(anchor);
+    if (!activePage?.classList?.contains("workspace-document-page-sheet")) {
+      docsVerticalRuler?.remove();
+      shell.querySelectorAll(".workspace-document-page-sheet.is-active-docs-page").forEach((page) => {
+        page.classList.remove("is-active-docs-page");
+      });
+      return;
+    }
+    shell.querySelectorAll(".workspace-document-page-sheet.is-active-docs-page").forEach((page) => {
+      page.classList.toggle("is-active-docs-page", page === activePage);
+    });
+    const orientation = activePage.dataset.orientation === "landscape" ? "landscape" : "portrait";
+    renderDocsLinearRuler(docsPageRuler, "horizontal", orientation);
+    renderDocsLinearRuler(ensureDocsVerticalRuler(), "vertical", orientation);
+    activePage.classList.add("is-active-docs-page");
+    activePage.appendChild(ensureDocsVerticalRuler());
   };
 
   const isDocsCanvasFullscreen = () => Boolean(previewShell && document.fullscreenElement === previewShell);
@@ -3731,6 +3910,460 @@ function renderMarkdownPreview(
     syncDocsFullscreenButtonState();
   };
 
+  const normalizeDocsPasteText = (value = "") =>
+    String(value || "")
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n")
+      .replace(/\u00a0/g, " ")
+      .trim();
+
+  const createDocsPasteParagraph = (text = "") => {
+    const paragraph = document.createElement("p");
+    paragraph.textContent = text || "";
+    return paragraph;
+  };
+
+  const isSafeDocsPasteStyleValue = (value = "") => {
+    const trimmed = String(value || "").trim();
+    return Boolean(trimmed && !/url\s*\(|expression\s*\(|javascript:/i.test(trimmed));
+  };
+
+  const copyDocsPasteTextStyles = (source, target) => {
+    const style = source?.style;
+    if (!style || !target?.style) {
+      return;
+    }
+    if (style.fontWeight && style.fontWeight !== "normal") {
+      target.style.fontWeight = style.fontWeight;
+    }
+    if (style.fontStyle && style.fontStyle !== "normal") {
+      target.style.fontStyle = style.fontStyle;
+    }
+    const textDecoration = style.textDecorationLine || style.textDecoration;
+    if (isSafeDocsPasteStyleValue(textDecoration) && /underline|line-through/i.test(textDecoration)) {
+      target.style.textDecoration = textDecoration;
+    }
+    if (isSafeDocsPasteStyleValue(style.color)) {
+      target.style.color = style.color;
+    }
+    if (isSafeDocsPasteStyleValue(style.backgroundColor)) {
+      target.style.backgroundColor = style.backgroundColor;
+    }
+    if (isSafeDocsPasteStyleValue(style.fontSize) && /^-?\d+(?:\.\d+)?(?:px|pt|em|rem|%)$/i.test(style.fontSize)) {
+      target.style.fontSize = style.fontSize;
+    }
+    if (isSafeDocsPasteStyleValue(style.fontFamily)) {
+      target.style.fontFamily = style.fontFamily;
+    }
+  };
+
+  const copyDocsPasteBlockStyles = (source, target) => {
+    const textAlign = source?.style?.textAlign;
+    if (["left", "right", "center", "justify"].includes(String(textAlign || "").toLowerCase())) {
+      target.style.textAlign = textAlign;
+    }
+    copyDocsPasteTextStyles(source, target);
+  };
+
+  const appendDocsPasteInlineChildren = (target, source) => {
+    Array.from(source?.childNodes || []).forEach((child) => {
+      const sanitized = sanitizeDocsPasteInlineNode(child);
+      if (sanitized) {
+        target.appendChild(sanitized);
+      }
+    });
+  };
+
+  const sanitizeDocsPasteInlineNode = (node) => {
+    if (node?.nodeType === Node.TEXT_NODE) {
+      return document.createTextNode(node.nodeValue || "");
+    }
+    if (node?.nodeType !== Node.ELEMENT_NODE) {
+      return null;
+    }
+
+    const tag = node.tagName.toLowerCase();
+    if (tag === "br") {
+      return document.createElement("br");
+    }
+
+    const style = node.style || {};
+    const fontWeight = String(style.fontWeight || "");
+    const isBold = ["b", "strong"].includes(tag) || fontWeight === "bold" || Number.parseInt(fontWeight, 10) >= 600;
+    const isItalic = ["i", "em"].includes(tag) || String(style.fontStyle || "").toLowerCase() === "italic";
+    const textDecoration = String(style.textDecorationLine || style.textDecoration || "");
+    const isUnderline = tag === "u" || /underline/i.test(textDecoration);
+    const isStrike = ["s", "strike", "del"].includes(tag) || /line-through/i.test(textDecoration);
+    const semanticTag =
+      (isBold && "strong") ||
+      (isItalic && "em") ||
+      (isUnderline && "u") ||
+      (isStrike && "s") ||
+      (["code", "sub", "sup"].includes(tag) && tag) ||
+      "";
+
+    if (tag === "a") {
+      const href = normalizeHyperlinkHref(node.getAttribute("href") || node.textContent || "");
+      const link = href ? document.createElement("a") : document.createElement("span");
+      if (href) {
+        link.href = href;
+        link.target = "_blank";
+        link.rel = "noreferrer noopener";
+      }
+      appendDocsPasteInlineChildren(link, node);
+      copyDocsPasteTextStyles(node, link);
+      return link;
+    }
+
+    const shouldKeepStyledSpan =
+      tag === "span" &&
+      ["color", "backgroundColor", "fontWeight", "fontStyle", "textDecoration", "fontSize", "fontFamily"].some((property) =>
+        isSafeDocsPasteStyleValue(style[property])
+      );
+    const target = document.createElement(semanticTag || (shouldKeepStyledSpan ? "span" : "span"));
+    appendDocsPasteInlineChildren(target, node);
+    copyDocsPasteTextStyles(node, target);
+    if (!semanticTag && !shouldKeepStyledSpan && tag !== "span") {
+      const fragment = document.createDocumentFragment();
+      while (target.firstChild) {
+        fragment.appendChild(target.firstChild);
+      }
+      return fragment;
+    }
+    return target;
+  };
+
+  const sanitizeDocsPasteListItem = (item) => {
+    const nextItem = document.createElement("li");
+    Array.from(item.childNodes || []).forEach((child) => {
+      const element = child.nodeType === Node.ELEMENT_NODE ? child : null;
+      const tag = element?.tagName?.toLowerCase?.() || "";
+      if (["ul", "ol"].includes(tag)) {
+        const nestedList = sanitizeDocsPasteBlockNode(element);
+        if (nestedList) {
+          nextItem.appendChild(nestedList);
+        }
+        return;
+      }
+      if (["p", "div"].includes(tag)) {
+        appendDocsPasteInlineChildren(nextItem, element);
+        return;
+      }
+      const inline = sanitizeDocsPasteInlineNode(child);
+      if (inline) {
+        nextItem.appendChild(inline);
+      }
+    });
+    if (!String(nextItem.textContent || "").trim() && !nextItem.querySelector("ul, ol")) {
+      nextItem.appendChild(document.createElement("br"));
+    }
+    return nextItem;
+  };
+
+  const sanitizeDocsPasteTable = (table) => {
+    const nextTable = document.createElement("table");
+    nextTable.className = "workspace-docs-table";
+    const sourceRows = Array.from(table.querySelectorAll("tr"));
+    const body = document.createElement("tbody");
+    sourceRows.forEach((row, rowIndex) => {
+      const nextRow = document.createElement("tr");
+      Array.from(row.children || [])
+        .filter((cell) => ["td", "th"].includes(cell.tagName?.toLowerCase?.()))
+        .forEach((cell) => {
+          const nextCell = document.createElement(rowIndex === 0 || cell.tagName.toLowerCase() === "th" ? "th" : "td");
+          appendDocsPasteInlineChildren(nextCell, cell);
+          copyDocsPasteBlockStyles(cell, nextCell);
+          nextRow.appendChild(nextCell);
+        });
+      if (nextRow.children.length) {
+        body.appendChild(nextRow);
+      }
+    });
+    if (!body.children.length) {
+      return null;
+    }
+    nextTable.appendChild(body);
+    return nextTable;
+  };
+
+  const sanitizeDocsPasteBlockNode = (node) => {
+    if (node?.nodeType === Node.TEXT_NODE) {
+      const text = normalizeDocsPasteText(node.nodeValue || "");
+      return text ? createDocsPasteParagraph(text) : null;
+    }
+    if (node?.nodeType !== Node.ELEMENT_NODE) {
+      return null;
+    }
+
+    const tag = node.tagName.toLowerCase();
+    if (["script", "style", "meta", "link", "iframe", "object", "embed", "svg", "canvas"].includes(tag)) {
+      return null;
+    }
+    if (["h1", "h2", "h3", "h4", "p", "blockquote", "figcaption"].includes(tag)) {
+      const block = document.createElement(tag);
+      appendDocsPasteInlineChildren(block, node);
+      copyDocsPasteBlockStyles(node, block);
+      if (!String(block.textContent || "").trim() && !block.querySelector("br")) {
+        block.appendChild(document.createElement("br"));
+      }
+      return block;
+    }
+    if (["ul", "ol"].includes(tag)) {
+      const list = document.createElement(tag);
+      Array.from(node.children || [])
+        .filter((child) => child.tagName?.toLowerCase?.() === "li")
+        .forEach((item) => list.appendChild(sanitizeDocsPasteListItem(item)));
+      return list.children.length ? list : null;
+    }
+    if (tag === "table") {
+      return sanitizeDocsPasteTable(node);
+    }
+    return null;
+  };
+
+  const collectDocsPasteBlocks = (root, blocks = []) => {
+    let inlineBuffer = null;
+    const flushInlineBuffer = () => {
+      if (inlineBuffer && (String(inlineBuffer.textContent || "").trim() || inlineBuffer.querySelector("br"))) {
+        blocks.push(inlineBuffer);
+      }
+      inlineBuffer = null;
+    };
+
+    Array.from(root?.childNodes || []).forEach((child) => {
+      const element = child.nodeType === Node.ELEMENT_NODE ? child : null;
+      const tag = element?.tagName?.toLowerCase?.() || "";
+      const isWrapper = ["html", "body", "main", "section", "article", "div"].includes(tag);
+      const isBlock = ["h1", "h2", "h3", "h4", "p", "blockquote", "ul", "ol", "table", "figcaption"].includes(tag);
+      if (isWrapper && !element.closest?.("li")) {
+        flushInlineBuffer();
+        collectDocsPasteBlocks(element, blocks);
+        return;
+      }
+      if (isBlock) {
+        flushInlineBuffer();
+        const block = sanitizeDocsPasteBlockNode(element);
+        if (block) {
+          blocks.push(block);
+        }
+        return;
+      }
+      const inline = sanitizeDocsPasteInlineNode(child);
+      if (!inline) {
+        return;
+      }
+      if (!inlineBuffer) {
+        inlineBuffer = document.createElement("p");
+      }
+      inlineBuffer.appendChild(inline);
+    });
+    flushInlineBuffer();
+    return blocks;
+  };
+
+  const createDocsPasteNodesFromHtml = (html = "") => {
+    const normalizedHtml = String(html || "").trim();
+    if (!normalizedHtml) {
+      return [];
+    }
+    const template = document.createElement("template");
+    template.innerHTML = normalizedHtml;
+    return collectDocsPasteBlocks(template.content).filter((node) =>
+      Boolean(String(node.textContent || "").trim() || node.querySelector?.("br, img, table, ul, ol"))
+    );
+  };
+
+  const insertDocsInlineChildrenAtRange = (range, node) => {
+    if (!range || !node) {
+      return null;
+    }
+    const children = Array.from(node.childNodes || []);
+    if (!children.length) {
+      return null;
+    }
+    const fragment = document.createDocumentFragment();
+    children.forEach((child) => fragment.appendChild(child));
+    range.insertNode(fragment);
+    return children[children.length - 1] || null;
+  };
+
+  const insertDocsPasteNodesAtSelection = (nodes = [], fallbackText = "") => {
+    const pasteNodes = Array.from(nodes || []).filter(Boolean);
+    if (!pasteNodes.length || !shell) {
+      return false;
+    }
+
+    const normalizedText = normalizeDocsPasteText(
+      fallbackText || pasteNodes.map((node) => node.textContent || "").join("\n")
+    );
+    const range = getDocsSelectionRangeInShell();
+    const activeBlock = getDocsEditableTargetFromNode(range?.startContainer || null) || getActiveBlockTarget();
+    const topLevelAnchor = getDocsTopLevelContentNode(activeBlock || range?.startContainer || null) || getActiveDocsPageSheet();
+    const hasStructuralBlocks = pasteNodes.some((node) => node.matches?.("h1, h2, h3, h4, blockquote, ul, ol, table"));
+    const pasteLooksLikeDocument = pasteNodes.length > 1 || normalizedText.length > 160 || hasStructuralBlocks;
+    const isHeadingTarget = activeBlock?.matches?.("h1, h2, h3, h4");
+    const shouldPasteAfterHeading = isHeadingTarget && pasteLooksLikeDocument;
+    let lastInserted = null;
+
+    if (range && (!shouldPasteAfterHeading || range.collapsed)) {
+      range.deleteContents();
+    }
+
+    if (range && activeBlock && !pasteLooksLikeDocument && pasteNodes[0]?.matches?.("p, figcaption")) {
+      lastInserted = insertDocsInlineChildrenAtRange(range, pasteNodes[0]);
+      if (lastInserted) {
+        placeDocsCaretAfterNode(lastInserted);
+      }
+      return true;
+    }
+
+    if (range && activeBlock && !shouldPasteAfterHeading && pasteNodes[0]?.matches?.("p")) {
+      lastInserted = insertDocsInlineChildrenAtRange(range, pasteNodes.shift());
+    }
+
+    if (pasteNodes.length) {
+      const anchor =
+        topLevelAnchor?.classList?.contains?.("workspace-document-page-sheet") || topLevelAnchor === shell
+          ? null
+          : topLevelAnchor;
+      if (anchor?.parentNode) {
+        anchor.after(...pasteNodes);
+      } else {
+        const targetPage = getActiveDocsPageSheet(activeBlock || range?.startContainer || null);
+        if (targetPage && targetPage !== shell) {
+          targetPage.append(...pasteNodes);
+        } else {
+          shell.append(...pasteNodes);
+        }
+      }
+      lastInserted = pasteNodes[pasteNodes.length - 1];
+    }
+
+    if (lastInserted) {
+      placeDocsCaretAfterNode(lastInserted);
+    }
+    return true;
+  };
+
+  const insertDocsRichHtmlAtSelection = (html = "", fallbackText = "") => {
+    const nodes = createDocsPasteNodesFromHtml(html);
+    if (!nodes.length) {
+      return false;
+    }
+    return insertDocsPasteNodesAtSelection(nodes, fallbackText);
+  };
+
+  const getDocsSelectionRangeInShell = () => {
+    const selection = window.getSelection();
+    if (
+      selection &&
+      selection.rangeCount &&
+      shell?.contains(selection.anchorNode) &&
+      shell?.contains(selection.focusNode)
+    ) {
+      return selection.getRangeAt(0);
+    }
+    return null;
+  };
+
+  const getDocsTopLevelContentNode = (node) => {
+    let current = node?.nodeType === Node.TEXT_NODE ? node.parentElement : node;
+    if (!current?.closest) {
+      return null;
+    }
+    current = current.closest("h1, h2, h3, h4, p, blockquote, li, table, figure, figcaption, th, td") || current;
+    while (
+      current?.parentElement &&
+      current.parentElement !== shell &&
+      !current.parentElement.classList?.contains("workspace-document-page-sheet")
+    ) {
+      current = current.parentElement;
+    }
+    return current;
+  };
+
+  const placeDocsCaretAfterNode = (node) => {
+    if (!node || !shell?.contains(node)) {
+      return;
+    }
+    activeEditable = getDocsEditableTargetFromNode(node) || node;
+    const selection = window.getSelection();
+    if (!selection) {
+      return;
+    }
+    const range = document.createRange();
+    range.selectNodeContents(activeEditable);
+    range.collapse(false);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    saveDocsSelectionRange();
+  };
+
+  const insertDocsPlainTextAtSelection = (plainText = "") => {
+    const normalizedText = normalizeDocsPasteText(plainText);
+    if (!normalizedText || !shell) {
+      return false;
+    }
+    const blocks = normalizedText
+      .split(/\n+/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    if (!blocks.length) {
+      return false;
+    }
+
+    const range = getDocsSelectionRangeInShell();
+    const activeBlock = getDocsEditableTargetFromNode(range?.startContainer || null) || getActiveBlockTarget();
+    const topLevelAnchor = getDocsTopLevelContentNode(activeBlock || range?.startContainer || null) || getActiveDocsPageSheet();
+    const pasteLooksLikeDocument = blocks.length > 1 || normalizedText.length > 160;
+    const isHeadingTarget = activeBlock?.matches?.("h1, h2, h3, h4");
+    const shouldPasteAfterHeading = isHeadingTarget && pasteLooksLikeDocument;
+    let lastInserted = null;
+
+    if (range) {
+      range.deleteContents();
+    }
+
+    if (range && activeBlock && !pasteLooksLikeDocument) {
+      const textNode = document.createTextNode(blocks[0]);
+      range.insertNode(textNode);
+      lastInserted = textNode;
+      placeDocsCaretAfterNode(textNode);
+      return true;
+    }
+
+    const paragraphNodes = blocks.map((block) => createDocsPasteParagraph(block));
+    if (range && activeBlock && !shouldPasteAfterHeading && blocks.length) {
+      const textNode = document.createTextNode(blocks[0]);
+      range.insertNode(textNode);
+      lastInserted = textNode;
+      paragraphNodes.shift();
+    }
+
+    if (paragraphNodes.length) {
+      const anchor =
+        topLevelAnchor?.classList?.contains?.("workspace-document-page-sheet") || topLevelAnchor === shell
+          ? null
+          : topLevelAnchor;
+      if (anchor?.parentNode) {
+        anchor.after(...paragraphNodes);
+      } else {
+        const targetPage = getActiveDocsPageSheet(activeBlock || range?.startContainer || null);
+        if (targetPage && targetPage !== shell) {
+          targetPage.append(...paragraphNodes);
+        } else {
+          shell.append(...paragraphNodes);
+        }
+      }
+      lastInserted = paragraphNodes[paragraphNodes.length - 1];
+    }
+
+    if (lastInserted) {
+      placeDocsCaretAfterNode(lastInserted);
+    }
+    return true;
+  };
+
   const insertDocsNodes = (...nodes) => {
     if (!shell || !nodes.length) {
       return;
@@ -3824,11 +4457,7 @@ function renderMarkdownPreview(
     if (!docsTableContextMenu) {
       return;
     }
-    docsTableContextMenu.replaceChildren();
-    docsTableContextMenu.classList.add("hidden");
-    docsTableContextMenu.style.removeProperty("left");
-    docsTableContextMenu.style.removeProperty("top");
-    docsTableContextMenu.style.removeProperty("visibility");
+    docsTableContextMenuApi?.close?.();
   };
 
   const hideDocsTableControls = () => {
@@ -3839,6 +4468,73 @@ function renderMarkdownPreview(
     docsTableControlSignature = "";
     docsTableControls.replaceChildren();
     docsTableControls.classList.add("hidden");
+  };
+
+  const reflowDocsPages = ({ preserveSelection = false } = {}) => {
+    if (!isDocsClone || !shell) {
+      return false;
+    }
+    if (docsPageReflowHandle) {
+      window.clearTimeout(docsPageReflowHandle);
+      docsPageReflowHandle = null;
+    }
+    docsPendingPageReflow = false;
+    if (preserveSelection) {
+      saveDocsSelectionRange();
+    }
+    rebuildDocsPageShell();
+    if (preserveSelection) {
+      restoreDocsSelection();
+    }
+    return true;
+  };
+
+  const isDocsEditorActive = () => {
+    if (!shell) {
+      return false;
+    }
+    const selection = window.getSelection();
+    return Boolean(
+      shell === document.activeElement ||
+        shell.contains(document.activeElement) ||
+        shell.contains(selection?.anchorNode || null) ||
+        shell.contains(selection?.focusNode || null)
+    );
+  };
+
+  const scheduleDocsPageReflow = ({ delay = 800, preserveSelection = false, force = false } = {}) => {
+    if (!isDocsClone || !shell) {
+      return false;
+    }
+    docsPendingPageReflow = true;
+    if (!force && isDocsEditorActive()) {
+      return false;
+    }
+    if (docsPageReflowHandle) {
+      window.clearTimeout(docsPageReflowHandle);
+    }
+    docsPageReflowHandle = window.setTimeout(() => {
+      docsPageReflowHandle = null;
+      reflowDocsPages({ preserveSelection });
+      updateDocsTableControls(null, true);
+    }, delay);
+    return true;
+  };
+
+  const flushDocsPageReflow = ({ preserveSelection = false } = {}) => {
+    if (!isDocsClone || !shell) {
+      return false;
+    }
+    if (docsPageReflowHandle) {
+      window.clearTimeout(docsPageReflowHandle);
+      docsPageReflowHandle = null;
+    }
+    if (!docsPendingPageReflow && shell.querySelector?.(".workspace-document-page-sheet")) {
+      return false;
+    }
+    const didReflow = reflowDocsPages({ preserveSelection });
+    window.requestAnimationFrame(() => updateDocsTableControls(null, true));
+    return didReflow;
   };
 
   const getTableColumnCount = (table) =>
@@ -3865,45 +4561,42 @@ function renderMarkdownPreview(
       })
       .join("|");
 
+  const createDocsContextMenuItems = (actions = []) =>
+    normalizeWorkspaceMenuItems(
+      actions.map((action) => {
+        if (action.type === "label") {
+          return { heading: true, label: action.label };
+        }
+        if (action.separator || action.heading) {
+          return { ...action };
+        }
+        const nestedItems = Array.isArray(action.items) ? createDocsContextMenuItems(action.items) : [];
+        const actionHandler = action.onSelect || action.onClick;
+        return {
+          ...action,
+          icon: action.icon || getWorkspaceCommandIcon(action.commandId || action.label),
+          items: nestedItems.length ? nestedItems : undefined,
+          onSelect: typeof actionHandler === "function"
+            ? () => {
+                if (action.restoreSelection) {
+                  restoreDocsSelection();
+                }
+                actionHandler();
+              }
+            : undefined
+        };
+      })
+    );
+
   const showDocsTableContextMenu = ({ left, top, actions = [] }) => {
     if (!docsCanvas || !docsTableContextMenu || !actions.length) {
       return;
     }
-    docsTableContextMenu.replaceChildren();
-    actions.forEach((action) => {
-      if (action.type === "label") {
-        const label = document.createElement("span");
-        label.className = "workspace-docs-table-menu-label";
-        label.textContent = action.label;
-        docsTableContextMenu.appendChild(label);
-        return;
-      }
-      const item = document.createElement("button");
-      item.type = "button";
-      item.className = `workspace-docs-table-menu-item${action.danger ? " is-danger" : ""}`;
-      item.textContent = action.label;
-      item.addEventListener("click", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        hideDocsTableContextMenu();
-        if (action.restoreSelection) {
-          restoreDocsSelection();
-        }
-        action.onClick?.();
-      });
-      docsTableContextMenu.appendChild(item);
+    docsTableContextMenuApi?.open?.(createDocsContextMenuItems(actions), {
+      clientX: left,
+      clientY: top,
+      appendTo: document.body
     });
-    docsTableContextMenu.classList.remove("hidden");
-    docsTableContextMenu.style.visibility = "hidden";
-    docsTableContextMenu.style.left = "0px";
-    docsTableContextMenu.style.top = "0px";
-    const menuWidth = docsTableContextMenu.offsetWidth || 180;
-    const menuHeight = docsTableContextMenu.offsetHeight || actions.length * 36;
-    const clampedLeft = Math.min(Math.max(12, left), Math.max(12, docsCanvas.clientWidth - menuWidth - 12));
-    const clampedTop = Math.min(Math.max(12, top), Math.max(12, docsCanvas.clientHeight - menuHeight - 12));
-    docsTableContextMenu.style.left = `${clampedLeft}px`;
-    docsTableContextMenu.style.top = `${clampedTop}px`;
-    docsTableContextMenu.style.visibility = "";
   };
 
   const bindDocsTableControl = (button, { onClick, onContextMenu }) => {
@@ -3998,8 +4691,8 @@ function renderMarkdownPreview(
             onClick: () => addTableRow(table, rowIndex),
             onContextMenu: (event) =>
               showDocsTableContextMenu({
-                left: event.clientX - canvasRect.left + 10,
-                top: event.clientY - canvasRect.top + 10,
+                left: event.clientX + 8,
+                top: event.clientY + 8,
                 actions: [
                   {
                     label: "Supprimer la ligne",
@@ -4029,8 +4722,8 @@ function renderMarkdownPreview(
             onClick: () => addTableRow(table, bodyRows.length),
             onContextMenu: (event) =>
               showDocsTableContextMenu({
-                left: event.clientX - canvasRect.left + 10,
-                top: event.clientY - canvasRect.top + 10,
+                left: event.clientX + 8,
+                top: event.clientY + 8,
                 actions: [
                   {
                     label: "Supprimer la ligne",
@@ -4061,8 +4754,8 @@ function renderMarkdownPreview(
             onClick: () => addTableColumn(table, columnIndex + 1),
             onContextMenu: (event) =>
               showDocsTableContextMenu({
-                left: event.clientX - canvasRect.left + 10,
-                top: event.clientY - canvasRect.top + 10,
+                left: event.clientX + 8,
+                top: event.clientY + 8,
                 actions: [
                   {
                     label: "Supprimer la colonne",
@@ -4094,8 +4787,8 @@ function renderMarkdownPreview(
     { rebuildPageShell = false } = {}
   ) => {
     hideDocsTableContextMenu();
-    if (isDocsClone && rebuildPageShell) {
-      rebuildDocsPageShell();
+    if (isDocsClone && (rebuildPageShell || shell?.querySelector?.(".workspace-document-page-sheet"))) {
+      reflowDocsPages();
     }
     commitDocumentShell();
     window.requestAnimationFrame(() => updateDocsTableControls(tableOverride, true));
@@ -4293,6 +4986,9 @@ function renderMarkdownPreview(
   };
 
   const commitDocsVisualChange = (statusLabel = "Saved automatically") => {
+    if (isDocsClone) {
+      reflowDocsPages({ preserveSelection: true });
+    }
     commitDocumentShell();
     window.requestAnimationFrame(() => updateDocsTableControls(null, true));
     updateDocsToolbarStatus(statusLabel);
@@ -4452,6 +5148,93 @@ function renderMarkdownPreview(
     return "Delete block";
   };
 
+  const createDocsSharedActionMap = ({
+    fromContextMenu = false,
+    table = null,
+    rowIndex = null,
+    columnIndex = null
+  } = {}) => ({
+    bold: () => executeDocsWorkspaceCommand("bold", { fromContextMenu }),
+    italic: () => executeDocsWorkspaceCommand("italic", { fromContextMenu }),
+    underline: () => executeDocsWorkspaceCommand("underline", { fromContextMenu }),
+    strikethrough: () => executeDocsWorkspaceCommand("strikethrough", { fromContextMenu }),
+    undo: () => runInlineCommand("undo"),
+    redo: () => runInlineCommand("redo"),
+    clearFormatting: () => executeDocsWorkspaceCommand("clearFormatting"),
+    fontSize: (item) => executeDocsWorkspaceCommand("fontSize", { value: item?.value || "" }),
+    alignLeft: () => executeDocsWorkspaceCommand("alignLeft"),
+    alignCenter: () => executeDocsWorkspaceCommand("alignCenter"),
+    alignRight: () => executeDocsWorkspaceCommand("alignRight"),
+    alignJustify: () => executeDocsWorkspaceCommand("alignJustify"),
+    blockText: () => convertActiveBlockTag("p"),
+    blockTitle: () => convertActiveBlockTag("h1"),
+    blockHeading: () => convertActiveBlockTag("h2"),
+    blockSubhead: () => convertActiveBlockTag("h3"),
+    blockBullets: () => convertActiveBlockToList(false),
+    blockNumbered: () => convertActiveBlockToList(true),
+    insertChecklist,
+    insertQuote,
+    insertDivider,
+    insertTable,
+    insertImage: triggerImageImport,
+    insertImagePlaceholder,
+    insertImageUrl: insertImageFromUrl,
+    insertNewSection,
+    insertPageBreak,
+    tableInsertRowBelow: () => table && addTableRow(table, rowIndex === null ? getTableBodyRows(table).length : rowIndex + 1),
+    tableInsertColumnRight: () => table && addTableColumn(table, columnIndex === null ? getTableColumnCount(table) : columnIndex + 1),
+    tableDeleteRow: () => table && rowIndex !== null && removeTableRow(table, rowIndex),
+    tableDeleteColumn: () => table && columnIndex !== null && removeTableColumn(table, columnIndex),
+    tableDelete: () => table && removeTable(table),
+    downloadDocx: downloadCurrentDocumentDocx,
+    exportPdf: exportCurrentDocumentPdf,
+    printDocument: printCurrentDocument
+  });
+
+  const createDocsBoundContextMenuItems = (
+    menuItems,
+    actionMap,
+    { restoreSelectionCommandIds = new Set(["bold", "italic", "underline", "strikethrough"]) } = {}
+  ) => {
+    const convertBoundItem = (item) => {
+      if (item.separator || item.heading) {
+        return { ...item };
+      }
+      const nestedItems = Array.isArray(item.items)
+        ? normalizeWorkspaceMenuItems(item.items.map(convertBoundItem).filter(Boolean))
+        : [];
+      if (!nestedItems.length && !item.disabled && typeof item.onSelect !== "function") {
+        return null;
+      }
+      return {
+        label: item.label,
+        icon: item.icon,
+        commandId: item.commandId,
+        danger: item.danger,
+        disabled: item.disabled,
+        shortcut: item.shortcut,
+        items: nestedItems.length ? nestedItems : undefined,
+        restoreSelection: restoreSelectionCommandIds.has(item.commandId),
+        onClick: item.onSelect
+      };
+    };
+    return normalizeWorkspaceMenuItems(
+      bindWorkspaceMenuActions(menuItems, actionMap).map(convertBoundItem).filter(Boolean)
+    );
+  };
+
+  const appendDocsContextMenuItems = (actions, menuItems, actionMap, options = {}) => {
+    actions.push(...createDocsBoundContextMenuItems(menuItems, actionMap, options));
+  };
+
+  const appendDocsContextSubmenu = (actions, label, icon, items = []) => {
+    const nestedItems = normalizeWorkspaceMenuItems(items);
+    if (!nestedItems.length) {
+      return;
+    }
+    actions.push({ label, icon, items: nestedItems });
+  };
+
   const buildDocsContextMenuActions = (target = null) => {
     const resolvedTarget = target || getDocsActionTargetFromNode(activeEditable) || shell;
     const figureTarget = getDocsFigureTargetFromNode(resolvedTarget);
@@ -4467,39 +5250,43 @@ function renderMarkdownPreview(
       actions.push({
         label,
         onClick,
+        icon: options.icon,
+        shortcut: options.shortcut,
+        commandId: options.commandId,
         danger: options.danger,
         restoreSelection: options.restoreSelection
       });
 
     if (editableTarget || selectionActive) {
+      const textActionMap = createDocsSharedActionMap({ fromContextMenu: true });
       addLabel("Text");
-      addAction("Bold", () => runInlineCommandFromContextMenu("bold", () => toggleActiveBlockStyle("fontWeight", "700", "")), {
-        restoreSelection: true
-      });
-      addAction("Italic", () => runInlineCommandFromContextMenu("italic", () => toggleActiveBlockStyle("fontStyle", "italic", "")), {
-        restoreSelection: true
-      });
-      addAction("Underline", () => runInlineCommandFromContextMenu("underline", toggleActiveBlockUnderline), {
-        restoreSelection: true
-      });
-      addAction("Text", () => convertActiveBlockTag("p"));
-      addAction("Title", () => convertActiveBlockTag("h1"));
-      addAction("Heading", () => convertActiveBlockTag("h2"));
-      addAction("Subhead", () => convertActiveBlockTag("h3"));
-      addAction("Bullets", () => convertActiveBlockToList(false));
-      addAction("Numbered", () => convertActiveBlockToList(true));
-      addAction("Left align", () => applyBlockAlignment("left"));
-      addAction("Center align", () => applyBlockAlignment("center"));
-      addLabel("Size");
-      [
-        ["Auto size", ""],
-        ["12", "12px"],
-        ["14", "14px"],
-        ["16", "16px"],
-        ["18", "18px"],
-        ["24", "24px"],
-        ["32", "32px"]
-      ].forEach(([label, value]) => addAction(label, () => applyBlockFontSize(value)));
+      appendDocsContextMenuItems(
+        actions,
+        createWorkspaceDocumentFormatMenuItems({ includeHistory: false, includeClearFormatting: false }),
+        textActionMap
+      );
+      appendDocsContextSubmenu(
+        actions,
+        "Structure",
+        "text",
+        createDocsBoundContextMenuItems(createWorkspaceDocumentBlockMenuItems(), textActionMap)
+      );
+      appendDocsContextSubmenu(
+        actions,
+        "Alignement",
+        "alignLeft",
+        createDocsBoundContextMenuItems(createWorkspaceDocumentAlignmentMenuItems(), textActionMap, {
+          restoreSelectionCommandIds: new Set()
+        })
+      );
+      appendDocsContextSubmenu(
+        actions,
+        "Taille",
+        "text",
+        createDocsBoundContextMenuItems(createWorkspaceDocumentFontSizeMenuItems(), textActionMap, {
+          restoreSelectionCommandIds: new Set(["fontSize"])
+        })
+      );
     }
 
     if (table) {
@@ -4507,26 +5294,29 @@ function renderMarkdownPreview(
       const cell = resolvedTarget.closest?.("th, td") || null;
       const rowIndex = row?.parentElement?.tagName?.toLowerCase?.() === "tbody" ? getTableBodyRows(table).indexOf(row) : null;
       const columnIndex = row && cell ? Array.from(row.children).indexOf(cell) : null;
-      addLabel("Table");
-      addAction("Insert row below", () => addTableRow(table, rowIndex === null ? getTableBodyRows(table).length : rowIndex + 1));
-      addAction("Insert column right", () => addTableColumn(table, columnIndex === null ? getTableColumnCount(table) : columnIndex + 1));
-      if (rowIndex !== null && rowIndex >= 0) {
-        addAction("Delete row", () => removeTableRow(table, rowIndex), { danger: true });
-      }
-      if (columnIndex !== null && columnIndex >= 0) {
-        addAction("Delete column", () => removeTableColumn(table, columnIndex), { danger: true });
-      }
-      addAction("Delete table", () => removeTable(table), { danger: true });
+      const tableActionMap = createDocsSharedActionMap({ table, rowIndex, columnIndex });
+      appendDocsContextSubmenu(
+        actions,
+        "Table",
+        "table",
+        createDocsBoundContextMenuItems(
+          createWorkspaceDocumentTableMenuItems({
+            canDeleteRow: rowIndex !== null && rowIndex >= 0,
+            canDeleteColumn: columnIndex !== null && columnIndex >= 0
+          }),
+          tableActionMap,
+          { restoreSelectionCommandIds: new Set() }
+        )
+      );
     } else if (!mediaTarget) {
-      addLabel("Insert");
-      addAction("Checklist", insertChecklist);
-      addAction("Quote", insertQuote);
-      addAction("Divider", insertDivider);
-      addAction("Table", insertTable);
-      addAction("Import image", triggerImageImport);
-      addAction("From URL", insertImageFromUrl);
-      addAction("New section", insertNewSection);
-      addAction("New page", insertPageBreak);
+      appendDocsContextSubmenu(
+        actions,
+        "Inserer",
+        "insert",
+        createDocsBoundContextMenuItems(createWorkspaceDocumentInsertMenuItems(), createDocsSharedActionMap(), {
+          restoreSelectionCommandIds: new Set()
+        })
+      );
     }
 
     if (mediaTarget && figureTarget) {
@@ -4564,11 +5354,10 @@ function renderMarkdownPreview(
     }
     saveDocsSelectionRange();
     hideDocsTableContextMenu();
-    const canvasRect = docsCanvas.getBoundingClientRect();
     const actions = buildDocsContextMenuActions(resolvedTarget);
     showDocsTableContextMenu({
-      left: clientX - canvasRect.left + 10,
-      top: clientY - canvasRect.top + 10,
+      left: clientX + 8,
+      top: clientY + 8,
       actions
     });
   };
@@ -4640,7 +5429,8 @@ function renderMarkdownPreview(
                 (
                   node.classList?.contains("workspace-docs-page-control-bar") ||
                   node.classList?.contains("workspace-docs-page-header") ||
-                  node.classList?.contains("workspace-docs-page-footer")
+                  node.classList?.contains("workspace-docs-page-footer") ||
+                  node.classList?.contains("workspace-docs-vertical-ruler")
                 )
               )
           )
@@ -4657,6 +5447,7 @@ function renderMarkdownPreview(
       return;
     }
     unwrapDocsPageShell();
+    mergeDocsSplitContinuationBlocks(shell);
     const rawNodes = Array.from(shell.childNodes);
     const settingsNode =
       rawNodes.find((node) => node.nodeType === Node.ELEMENT_NODE && node.classList?.contains("workspace-docs-page-meta")) || null;
@@ -4667,27 +5458,146 @@ function renderMarkdownPreview(
       shell.appendChild(settingsNode);
     }
     let pageIndex = 0;
-    let currentPage = document.createElement("section");
-    currentPage.className = "workspace-document-page-sheet";
-    currentPage.dataset.page = String(pageIndex + 1);
+    let renderedPageCount = 0;
+    const isDocsPageChromeNode = (node) =>
+      node.nodeType === Node.ELEMENT_NODE &&
+      (
+        node.classList?.contains("workspace-docs-page-control-bar") ||
+        node.classList?.contains("workspace-docs-page-header") ||
+        node.classList?.contains("workspace-docs-page-footer") ||
+        node.classList?.contains("workspace-docs-vertical-ruler")
+      );
+    const getDocsPageContentNodes = (page) =>
+      Array.from(page.childNodes).filter((node) => !isDocsPageChromeNode(node));
+    const createPage = () => {
+      const page = document.createElement("section");
+      page.className = "workspace-document-page-sheet";
+      page.dataset.page = String(pageIndex + 1);
+      page.dataset.orientation = formatState.orientation === "landscape" ? "landscape" : "portrait";
+      shell.appendChild(page);
+      return page;
+    };
+    const finalizePage = (page) => {
+      if (!page || page.dataset.finalized === "true") {
+        return;
+      }
+      applyDocsPageChrome(page, pageIndex, formatState);
+      page.dataset.finalized = "true";
+      renderedPageCount += 1;
+    };
+    const pageOverflows = (page) => {
+      if (!page?.isConnected) {
+        return false;
+      }
+      const visibleHeight = page.clientHeight || page.getBoundingClientRect?.().height || 0;
+      if (visibleHeight <= 0) {
+        return false;
+      }
+      return page.scrollHeight > visibleHeight + 6;
+    };
+    const isDocsSplittableTextBlock = (node) =>
+      node?.nodeType === Node.ELEMENT_NODE &&
+      node.matches?.("p, blockquote, h1, h2, h3, h4, figcaption") &&
+      !node.querySelector?.("table, img, video, figure, ul, ol, input, button, .workspace-docs-page-break");
+    const splitPlainDocsBlockToFit = (page, block) => {
+      if (!isDocsSplittableTextBlock(block)) {
+        return null;
+      }
+      const originalText = block.textContent || "";
+      const parts = originalText.split(/(\s+)/);
+      if (parts.length < 4 || !originalText.trim()) {
+        return null;
+      }
+      let low = 1;
+      let high = parts.length - 1;
+      let best = 0;
+
+      // Use the browser layout as the source of truth, so pagination follows the real page size.
+      while (low <= high) {
+        const mid = Math.floor((low + high) / 2);
+        block.textContent = parts.slice(0, mid).join("").trimEnd();
+        if (block.textContent.trim() && !pageOverflows(page)) {
+          best = mid;
+          low = mid + 1;
+        } else {
+          high = mid - 1;
+        }
+      }
+
+      if (best <= 0 || best >= parts.length) {
+        block.textContent = originalText;
+        return null;
+      }
+
+      const fittedText = parts.slice(0, best).join("").trimEnd();
+      const remainderText = parts.slice(best).join("").trimStart();
+      if (!fittedText || !remainderText) {
+        block.textContent = originalText;
+        return null;
+      }
+
+      block.textContent = fittedText;
+      const continuation = /^H[1-4]$/.test(block.tagName || "") ? document.createElement("p") : block.cloneNode(false);
+      continuation.removeAttribute("id");
+      const splitGroup =
+        block.dataset.docsSplitGroup ||
+        `docs-split-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+      block.dataset.docsSplitGroup = splitGroup;
+      continuation.dataset.docsSplitGroup = splitGroup;
+      continuation.dataset.docsSplitContinuation = "true";
+      continuation.textContent = remainderText;
+      return continuation;
+    };
+    let currentPage = createPage();
+    const appendNodeToCurrentPage = (node) => {
+      currentPage.appendChild(node);
+      if (!pageOverflows(currentPage)) {
+        return;
+      }
+
+      if (getDocsPageContentNodes(currentPage).length > 1) {
+        currentPage.removeChild(node);
+        finalizePage(currentPage);
+        pageIndex += 1;
+        currentPage = createPage();
+        currentPage.appendChild(node);
+      }
+
+      let splitGuard = 0;
+      while (
+        pageOverflows(currentPage) &&
+        getDocsPageContentNodes(currentPage).length === 1 &&
+        splitGuard < 40
+      ) {
+        const [onlyNode] = getDocsPageContentNodes(currentPage);
+        const continuation = splitPlainDocsBlockToFit(currentPage, onlyNode);
+        if (!continuation) {
+          break;
+        }
+        finalizePage(currentPage);
+        pageIndex += 1;
+        currentPage = createPage();
+        currentPage.appendChild(continuation);
+        splitGuard += 1;
+      }
+    };
     for (const node of contentNodes) {
       if (node.nodeType === Node.ELEMENT_NODE && node.classList?.contains("workspace-docs-page-break")) {
-        applyDocsPageChrome(currentPage, pageIndex, formatState);
-        shell.appendChild(currentPage);
+        finalizePage(currentPage);
         shell.appendChild(node);
         pageIndex += 1;
-        currentPage = document.createElement("section");
-        currentPage.className = "workspace-document-page-sheet";
-        currentPage.dataset.page = String(pageIndex + 1);
+        currentPage = createPage();
         continue;
       }
-      currentPage.appendChild(node);
+      appendNodeToCurrentPage(node);
     }
-    if (currentPage.childNodes.length || !shell.querySelector(".workspace-document-page-sheet")) {
-      applyDocsPageChrome(currentPage, pageIndex, formatState);
-      shell.appendChild(currentPage);
+    if (getDocsPageContentNodes(currentPage).length || !renderedPageCount) {
+      finalizePage(currentPage);
+    } else {
+      currentPage.remove();
     }
     syncDocsPageFullscreenControls();
+    updateDocsActivePageRuler(activeEditable);
   };
 
   const projectLinkedObjects = (projectWorkObjects || []).filter((item) => item.id !== workObject?.id);
@@ -4788,6 +5698,7 @@ function renderMarkdownPreview(
       selection.removeAllRanges();
       selection.addRange(range);
       saveDocsSelectionRange();
+      updateDocsActivePageRuler(target);
     });
   };
 
@@ -5075,6 +5986,24 @@ function renderMarkdownPreview(
     updateDocsToolbarStatus("Saved automatically");
   };
 
+  const executeDocsWorkspaceCommand = createWorkspaceCommandExecutor(
+    "docs",
+    createDocsWorkspaceCommandAdapter({
+      runInlineCommand,
+      runInlineCommandFromContextMenu,
+      runInlineCommandWithSelection,
+      toggleActiveBlockStyle,
+      toggleActiveBlockUnderline,
+      toggleActiveBlockStrikethrough,
+      applyBlockFontSize,
+      applyBlockFontFamily,
+      applyBlockTextColor,
+      applyBlockHighlightColor,
+      applyBlockAlignment,
+      resetActiveBlockFormatting
+    })
+  );
+
   const insertChecklist = () => {
     if (!shell) {
       return;
@@ -5305,7 +6234,7 @@ function renderMarkdownPreview(
     });
     previewShell.appendChild(docsImageInput);
 
-    const triggerImageImport = () => {
+    triggerImageImport = () => {
       restoreDocsFullscreenAfterImageImport = isDocsFullscreenActive();
       if (restoreDocsFullscreenAfterImageImport) {
         setDocsFullscreenFallbackActive(true);
@@ -5324,51 +6253,124 @@ function renderMarkdownPreview(
       docsImageInput.click();
     };
 
+    const docsMenuOutsideController = createWorkspaceMenuOutsideController({
+      isOpen: () => Boolean(docsMenuPanel && !docsMenuPanel.classList.contains("hidden") && docsMenuPanel.isConnected),
+      shouldKeepOpen: (event) =>
+        Boolean(docsMenuPanel?.contains?.(event.target) || docsMenuBar.contains(event.target)),
+      onClose: () => {
+        renderDocsMenu("");
+      }
+    });
+
+    const installDocsMenuOutsidePointerHandler = () => {
+      window.setTimeout(() => {
+        if (!docsMenuPanel || docsMenuPanel.classList.contains("hidden")) {
+          return;
+        }
+        docsMenuOutsideController.install();
+      }, 0);
+    };
+
+    const removeDocsMenuOutsidePointerHandler = () => {
+      docsMenuOutsideController.remove();
+    };
+
     const renderDocsMenu = (menuId = "") => {
       if (!docsMenuPanel) {
         return;
       }
       docsMenuFieldSyncCleanup?.();
       docsMenuFieldSyncCleanup = null;
+      const requestedMenuId = menuId || "Accueil";
+      const activeMenuId =
+        {
+          Structure: "Accueil",
+          Format: "Accueil",
+          Insert: "Insertion",
+          "Project & AI": "Révision",
+          View: "Affichage"
+        }[requestedMenuId] || requestedMenuId;
       if (docsMenuPanel) {
-        docsMenuPanel.dataset.openMenu = menuId;
+        docsMenuPanel.dataset.openMenu = activeMenuId;
       }
       syncDocsSelectionPreviewState(Boolean(menuId));
       docsMenuPanel.innerHTML = "";
-      docsMenuButtons.forEach((button) => button.classList.toggle("is-active", button.dataset.menu === menuId));
-      if (!menuId) {
-        docsMenuPanel.classList.add("hidden");
-        return;
-      }
+      docsMenuButtons.forEach((button) => button.classList.toggle("is-active", button.dataset.menu === activeMenuId));
       docsMenuPanel.classList.remove("hidden");
+      removeDocsMenuOutsidePointerHandler();
       const menuFieldSyncHandlers = [];
       const menuDropdownRegistry = [];
+      let activeDocsMenuTarget = docsMenuPanel;
 
-      const addMenuAction = (label, onClick, accent = false, { closeOnClick = true } = {}) => {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = `workspace-docs-menu-action${accent ? " accent" : ""}`;
-        button.textContent = label;
+      const appendDocsMenuNode = (node) => {
+        activeDocsMenuTarget.appendChild(node);
+      };
+
+      const addMenuGroup = (label, renderGroup) => {
+        const group = document.createElement("div");
+        group.className = "workspace-docs-ribbon-group";
+        const body = document.createElement("div");
+        body.className = "workspace-docs-ribbon-group-body";
+        const caption = document.createElement("span");
+        caption.className = "workspace-docs-ribbon-group-label";
+        caption.textContent = label;
+        group.append(body, caption);
+        docsMenuPanel.appendChild(group);
+
+        const previousTarget = activeDocsMenuTarget;
+        activeDocsMenuTarget = body;
+        renderGroup?.();
+        activeDocsMenuTarget = previousTarget;
+      };
+
+      const addMenuAction = (itemOrLabel, onClick, accent = false, { closeOnClick = false } = {}) => {
+        const item =
+          itemOrLabel && typeof itemOrLabel === "object"
+            ? itemOrLabel
+            : { label: itemOrLabel };
+        const action = typeof onClick === "function" ? onClick : item.onSelect;
+        const button = createWorkspaceMenuActionButton(
+          item,
+          {
+            actionClassName: `workspace-docs-menu-action${accent ? " accent" : ""}`,
+            iconClassName: "workspace-docs-menu-action-icon",
+            labelClassName: "workspace-docs-menu-action-label",
+            metaClassName: "workspace-docs-menu-action-meta",
+            createIconNode: createWorkspaceIconNode,
+            resolveIconName: getWorkspaceCommandIcon,
+            onClick: async () => {
+              try {
+                await action?.(item);
+              } catch (error) {
+                console.error(error);
+                updateDocsToolbarStatus(error?.message || "Action unavailable");
+              }
+              if (closeOnClick) {
+                renderDocsMenu(activeMenuId);
+              }
+            }
+          }
+        );
         preserveDocsSelectionOnPointerDown(button);
-        button.addEventListener("click", async () => {
-          try {
-            await onClick?.();
-          } catch (error) {
-            console.error(error);
-            updateDocsToolbarStatus(error?.message || "Action unavailable");
-          }
-          if (closeOnClick) {
-            renderDocsMenu("");
-          }
-        });
-        docsMenuPanel.appendChild(button);
+        appendDocsMenuNode(button);
       };
 
       const addMenuLabel = (label) => {
         const span = document.createElement("span");
         span.className = "workspace-docs-menu-label";
         span.textContent = label;
-        docsMenuPanel.appendChild(span);
+        appendDocsMenuNode(span);
+      };
+
+      const addBoundMenuActions = (items, actionMap, { accentCommandIds = new Set() } = {}) => {
+        bindWorkspaceMenuActions(items, actionMap).forEach((item) => {
+          if (item.separator || item.heading || item.disabled || typeof item.onSelect !== "function") {
+            return;
+          }
+          addMenuAction(item, item.onSelect, accentCommandIds.has(item.commandId), {
+            closeOnClick: item.closeOnClick !== false
+          });
+        });
       };
 
       const addMenuDropdownField = (
@@ -5401,8 +6403,7 @@ function renderMarkdownPreview(
         dropdown.className = "workspace-docs-menu-dropdown hidden";
 
         const closeDropdown = () => {
-          dropdown.classList.add("hidden");
-          toggle.setAttribute("aria-expanded", "false");
+          closeWorkspaceDropdown(dropdown, toggle);
         };
 
         const syncToggleLabel = () => {
@@ -5413,16 +6414,7 @@ function renderMarkdownPreview(
           toggle.textContent = nextLabel;
         };
 
-        toggle.addEventListener("click", () => {
-          const willOpen = dropdown.classList.contains("hidden");
-          menuDropdownRegistry.forEach((entry) => {
-            if (entry.dropdown !== dropdown) {
-              entry.close();
-            }
-          });
-          dropdown.classList.toggle("hidden", !willOpen);
-          toggle.setAttribute("aria-expanded", willOpen ? "true" : "false");
-        });
+        toggle.addEventListener("click", () => toggleWorkspaceDropdown(dropdown, toggle, menuDropdownRegistry));
 
         options.forEach((item) => {
           const optionButton = document.createElement("button");
@@ -5530,7 +6522,7 @@ function renderMarkdownPreview(
           dropdown,
           close: closeDropdown
         });
-        docsMenuPanel.appendChild(field);
+        appendDocsMenuNode(field);
       };
 
       const addMenuColorPaletteField = (label, options, onSelect, buttonLabel = "Choose color") => {
@@ -5552,48 +6544,25 @@ function renderMarkdownPreview(
         palette.className = "workspace-docs-color-palette hidden";
 
         const closePalette = () => {
-          palette.classList.add("hidden");
-          toggle.setAttribute("aria-expanded", "false");
+          closeWorkspaceDropdown(palette, toggle);
         };
 
-        toggle.addEventListener("click", () => {
-          const willOpen = palette.classList.contains("hidden");
-          menuDropdownRegistry.forEach((entry) => {
-            if (entry.dropdown !== palette) {
-              entry.close();
-            }
-          });
-          palette.classList.toggle("hidden", !willOpen);
-          toggle.setAttribute("aria-expanded", willOpen ? "true" : "false");
-        });
+        toggle.addEventListener("click", () => toggleWorkspaceDropdown(palette, toggle, menuDropdownRegistry));
 
         options.forEach((item) => {
-          const button = document.createElement("button");
-          button.type = "button";
-          button.className = "workspace-docs-color-swatch";
-          button.title = item.label;
-          button.setAttribute("aria-label", item.label);
-          preserveDocsSelectionOnPointerDown(button);
-          if (item.value) {
-            button.style.background = item.sample || item.value || "transparent";
-          }
-          if (item.outline) {
-            button.style.borderColor = item.outline;
-          }
-          if (!item.value) {
-            button.classList.add("is-clear");
-          }
-
-          button.addEventListener("click", async () => {
-            try {
-              await onSelect?.(item);
-            } catch (error) {
-              console.error(error);
-              updateDocsToolbarStatus(error?.message || "Action unavailable");
+          const button = createWorkspaceColorSwatchButton(item, {
+            className: "workspace-docs-color-swatch",
+            onSelect: async (selectedItem) => {
+              try {
+                await onSelect?.(selectedItem);
+              } catch (error) {
+                console.error(error);
+                updateDocsToolbarStatus(error?.message || "Action unavailable");
+              }
+              closePalette();
             }
-            closePalette();
           });
-
+          preserveDocsSelectionOnPointerDown(button);
           palette.appendChild(button);
         });
 
@@ -5602,7 +6571,76 @@ function renderMarkdownPreview(
           dropdown: palette,
           close: closePalette
         });
-        docsMenuPanel.appendChild(field);
+        appendDocsMenuNode(field);
+      };
+
+      const addDocsFormatFields = (fieldIds = []) => {
+        const allowedFields = new Set(fieldIds);
+        createWorkspaceDocumentFormatFieldItems()
+          .filter((field) => !allowedFields.size || allowedFields.has(field.fieldId))
+          .forEach((field) => {
+            if (field.fieldId === "fontFamily") {
+              addMenuDropdownField(
+                field.label,
+                DOCS_FONT_FAMILY_OPTIONS,
+                (item) => executeDocsWorkspaceCommand("fontFamily", { value: item?.value || "" }),
+                {
+                  placeholder: "Police",
+                  initialValue: getDocsCurrentFormattingState().fontFamilyLabel,
+                  getCurrentValue: (state) => state.fontFamilyLabel || "Police",
+                  decorateOption: (button, item) => {
+                    if (item?.value) {
+                      button.style.fontFamily = item.value;
+                    }
+                  }
+                }
+              );
+              return;
+            }
+            if (field.fieldId === "fontSize") {
+              addMenuDropdownField(
+                field.label,
+                DOCS_FONT_SIZE_OPTIONS,
+                (item, rawValue) => executeDocsWorkspaceCommand("fontSize", { value: item?.value || rawValue || "" }),
+                {
+                  placeholder: "Taille",
+                  initialValue: getDocsCurrentFormattingState().fontSizeLabel,
+                  getCurrentValue: (state) => state.fontSizeLabel || "Taille",
+                  customEntry: {
+                    placeholder: "Taille",
+                    buttonLabel: "Apply",
+                    normalizeValue: (value) => normalizeDocsFontSizeValue(value)
+                  }
+                }
+              );
+              return;
+            }
+            if (field.fieldId === "alignment") {
+              addMenuDropdownField(field.label, DOCS_ALIGNMENT_OPTIONS, (item) => executeDocsWorkspaceCommand(item?.commandId || "alignLeft"), {
+                placeholder: "Aligner",
+                initialValue: "Aligner",
+                getCurrentValue: () => "Aligner"
+              });
+              return;
+            }
+            if (field.fieldId === "textColor") {
+              addMenuColorPaletteField(
+                field.label,
+                DOCS_TEXT_COLOR_OPTIONS,
+                (item) => executeDocsWorkspaceCommand("textColor", { value: item?.value || "" }),
+                "Couleur"
+              );
+              return;
+            }
+            if (field.fieldId === "highlightColor") {
+              addMenuColorPaletteField(
+                field.label,
+                DOCS_HIGHLIGHT_COLOR_OPTIONS,
+                (item) => executeDocsWorkspaceCommand("highlightColor", { value: item?.value || "" }),
+                "Surlignage"
+              );
+            }
+          });
       };
 
       const renderDocsPageNumberSettingsView = () => {
@@ -5746,7 +6784,7 @@ function renderMarkdownPreview(
         cancelButton.textContent = "Annuler";
         preserveDocsSelectionOnPointerDown(cancelButton);
         cancelButton.addEventListener("click", () => {
-          renderDocsMenu("Format");
+          renderDocsMenu("Mise en page");
         });
 
         const applyButton = document.createElement("button");
@@ -5765,7 +6803,7 @@ function renderMarkdownPreview(
             },
             "Page numbers updated"
           );
-          renderDocsMenu("Format");
+          renderDocsMenu("Mise en page");
         });
 
         actions.append(cancelButton, applyButton);
@@ -5773,137 +6811,201 @@ function renderMarkdownPreview(
         docsMenuPanel.appendChild(sheet);
       };
 
-      if (menuId === "Structure") {
-        addMenuAction("Text", () => convertActiveBlockTag("p"));
-        addMenuAction("Title", () => convertActiveBlockTag("h1"));
-        addMenuAction("Heading", () => convertActiveBlockTag("h2"));
-        addMenuAction("Subhead", () => convertActiveBlockTag("h3"));
-        addMenuAction("Bullets", () => convertActiveBlockToList(false));
-        addMenuAction("Numbered", () => convertActiveBlockToList(true));
-        addMenuAction("New section", insertNewSection);
-        addMenuAction("New page", insertPageBreak);
-        return;
-      }
+      const syncDocsRibbonFields = () => {
+        if (!menuFieldSyncHandlers.length) {
+          return;
+        }
+        const syncMenuFields = () => {
+          menuFieldSyncHandlers.forEach((handler) => handler());
+        };
+        syncMenuFields();
+        const selectionSyncHandler = () => {
+          window.requestAnimationFrame(syncMenuFields);
+        };
+        document.addEventListener("selectionchange", selectionSyncHandler);
+        docsMenuFieldSyncCleanup = () => {
+          document.removeEventListener("selectionchange", selectionSyncHandler);
+        };
+      };
 
-      if (menuId === "Format") {
-        addMenuAction("Bold", () => runInlineCommand("bold"));
-        addMenuAction("Italic", () => runInlineCommand("italic"));
-        addMenuAction("Underline", () => runInlineCommand("underline"));
-        addMenuAction("Strikethrough", () =>
-          runInlineCommandWithSelection("strikeThrough", null, toggleActiveBlockStrikethrough, "Strikethrough updated"));
-        addMenuAction("Undo", () => runInlineCommand("undo"));
-        addMenuAction("Redo", () => runInlineCommand("redo"));
-        addMenuAction("Clear formatting", () =>
-          runInlineCommandWithSelection("removeFormat", null, resetActiveBlockFormatting, "Formatting reset"));
-        addMenuAction("En-tetes et pieds de page", toggleDocsHeaderFooter);
-        addMenuAction(
-          "Numeros de page",
-          () => {
-            renderDocsPageNumberSettingsView();
-          },
-          false,
-          { closeOnClick: false }
-        );
-        addMenuAction("Orientation de la page", toggleDocsPageOrientation);
-        addMenuDropdownField(
-          "Font",
-          DOCS_FONT_FAMILY_OPTIONS,
-          (item) => applyBlockFontFamily(item?.value || ""),
-          {
-            placeholder: "Choose font",
-            initialValue: getDocsCurrentFormattingState().fontFamilyLabel,
-            note: "The current selection stays targeted while you pick a preset font.",
-            getCurrentValue: (state) => state.fontFamilyLabel || "Default font",
-            decorateOption: (button, item) => {
-              if (item?.value) {
-                button.style.fontFamily = item.value;
-              }
-            }
-          }
-        );
-        addMenuDropdownField(
-          "Size",
-          DOCS_FONT_SIZE_OPTIONS,
-          (item, rawValue) => applyBlockFontSize(item?.value || rawValue || ""),
-          {
-            placeholder: "Choose size",
-            initialValue: getDocsCurrentFormattingState().fontSizeLabel,
-            note: "Pick a preset size or type your own value.",
-            getCurrentValue: (state) => state.fontSizeLabel || "Auto size",
-            customEntry: {
-              placeholder: "Custom size",
-              buttonLabel: "Apply",
-              normalizeValue: (value) => normalizeDocsFontSizeValue(value)
-            }
-          }
-        );
-        addMenuDropdownField("Alignment", DOCS_ALIGNMENT_OPTIONS, (item) => applyBlockAlignment(item?.value || "left"), {
-          placeholder: "Choose alignment",
-          initialValue: "Alignment",
-          getCurrentValue: () => "Alignment"
+      const sharedDocsActions = createDocsSharedActionMap();
+
+      if (activeMenuId === "Fichier") {
+        addMenuGroup("Document", () => {
+          addMenuAction({ label: "Nouveau", icon: "insert" }, createNewProjectDoc, true);
+          addMenuAction({ label: "Rechercher", icon: "search", commandId: "findDocument" }, openDocumentSearch);
         });
-        addMenuColorPaletteField(
-          "Text color",
-          DOCS_TEXT_COLOR_OPTIONS,
-          (item) =>
-            item?.value
-              ? runInlineCommandWithSelection(
-                  "foreColor",
-                  item.value,
-                  () => applyBlockTextColor(item.value),
-                  "Text color updated"
-                )
-              : applyBlockTextColor(""),
-          "Text color"
-        );
-        addMenuColorPaletteField(
-          "Highlight",
-          DOCS_HIGHLIGHT_COLOR_OPTIONS,
-          (item) =>
-            item?.value
-              ? runInlineCommandWithSelection(
-                  "hiliteColor",
-                  item.value,
-                  () => applyBlockHighlightColor(item.value),
-                  "Highlight updated"
-                )
-              : applyBlockHighlightColor(""),
-          "Highlight color"
-        );
-        if (menuFieldSyncHandlers.length) {
-          const syncMenuFields = () => {
-            menuFieldSyncHandlers.forEach((handler) => handler());
-          };
-          syncMenuFields();
-          const selectionSyncHandler = () => {
-            window.requestAnimationFrame(syncMenuFields);
-          };
-          document.addEventListener("selectionchange", selectionSyncHandler);
-          docsMenuFieldSyncCleanup = () => {
-            document.removeEventListener("selectionchange", selectionSyncHandler);
-          };
-        }
+        addMenuGroup("Exporter", () => {
+          addBoundMenuActions(createWorkspaceDocumentOutputMenuItems({ locale: "fr" }), sharedDocsActions, {
+            accentCommandIds: new Set(["downloadDocx", "exportPdf", "printDocument"])
+          });
+        });
+        addMenuGroup("Hydria", () => {
+          addMenuAction({ label: "Ameliorer", icon: "sparkle" }, focusPromptForDocs, true);
+          addMenuAction({ label: "Pret a partager", icon: "share" }, prepareShareReadyPrompt, true);
+        });
         return;
       }
 
-      if (menuId === "Insert") {
-        addMenuAction("Checklist", insertChecklist);
-        addMenuAction("Quote", insertQuote);
-        addMenuAction("Divider", insertDivider);
-        addMenuAction("Table", insertTable);
-        addMenuAction("Import image", triggerImageImport);
-        addMenuAction("Image placeholder", insertImagePlaceholder);
-        addMenuAction("From URL", insertImageFromUrl);
-        addMenuAction("New section", insertNewSection);
-        addMenuAction("Page", insertPageBreak);
+      if (activeMenuId === "Accueil") {
+        addMenuGroup("Presse-papiers", () => {
+          addBoundMenuActions(createWorkspaceCommandMenuItems(["undo", "redo"], { locale: "fr" }), sharedDocsActions);
+        });
+        addMenuGroup("Police", () => {
+          addDocsFormatFields(["fontFamily", "fontSize"]);
+          addBoundMenuActions(
+            createWorkspaceDocumentFormatMenuItems({
+              locale: "fr",
+              includeHistory: false,
+              includeClearFormatting: false
+            }),
+            sharedDocsActions
+          );
+          addDocsFormatFields(["highlightColor", "textColor"]);
+          addBoundMenuActions(createWorkspaceCommandMenuItems(["clearFormatting"], { locale: "fr" }), sharedDocsActions);
+        });
+        addMenuGroup("Paragraphe", () => {
+          addDocsFormatFields(["alignment"]);
+          addBoundMenuActions(
+            [
+              { label: "Normal", icon: "text", commandId: "blockText", value: "p" },
+              { label: "Titre 1", icon: "text", commandId: "blockTitle", value: "h1" },
+              { label: "Titre 2", icon: "text", commandId: "blockHeading", value: "h2" },
+              { label: "Sous-titre", icon: "text", commandId: "blockSubhead", value: "h3" },
+              { label: "Puces", icon: "list", commandId: "blockBullets", value: "bullet" },
+              { label: "Numerotation", icon: "number", commandId: "blockNumbered", value: "numbered" }
+            ],
+            sharedDocsActions
+          );
+        });
+        syncDocsRibbonFields();
+        return;
+      }
+
+      if (activeMenuId === "Insertion") {
+        addMenuGroup("Pages", () => {
+          addBoundMenuActions(
+            [
+              { label: "Nouvelle section", icon: "insert", commandId: "insertNewSection" },
+              { label: "Saut de page", icon: "page", commandId: "insertPageBreak" }
+            ],
+            sharedDocsActions
+          );
+        });
+        addMenuGroup("Tableaux", () => {
+          addBoundMenuActions([{ label: "Tableau", icon: "table", commandId: "insertTable" }], sharedDocsActions);
+        });
+        addMenuGroup("Illustrations", () => {
+          addBoundMenuActions(
+            [
+              { label: "Images", icon: "image", commandId: "insertImage" },
+              { label: "Image depuis URL", icon: "link", commandId: "insertImageUrl" },
+              { label: "Espace image", icon: "image", commandId: "insertImagePlaceholder" }
+            ],
+            sharedDocsActions
+          );
+        });
+        addMenuGroup("Contenu", () => {
+          addBoundMenuActions(
+            [
+              { label: "Liste de controle", icon: "checkbox", commandId: "insertChecklist" },
+              { label: "Citation", icon: "quote", commandId: "insertQuote" },
+              { label: "Separateur", icon: "divider", commandId: "insertDivider" }
+            ],
+            sharedDocsActions
+          );
+        });
+        return;
+      }
+
+      if (activeMenuId === "Mise en page") {
+        addMenuGroup("Mise en page", () => {
+          addBoundMenuActions(
+            createWorkspaceDocumentPageFormatMenuItems(),
+            {
+              toggleHeaderFooter: toggleDocsHeaderFooter,
+              pageNumbers: () => renderDocsPageNumberSettingsView(),
+              pageOrientation: toggleDocsPageOrientation
+            }
+          );
+        });
+        addMenuGroup("Sauts", () => {
+          addBoundMenuActions(
+            [
+              { label: "Saut de page", icon: "page", commandId: "insertPageBreak" },
+              { label: "Nouvelle section", icon: "insert", commandId: "insertNewSection" }
+            ],
+            sharedDocsActions
+          );
+        });
+        return;
+      }
+
+      if (activeMenuId === "Références") {
+        addMenuGroup("Plan", () => {
+          addMenuAction({ label: "Afficher le plan", icon: "list" }, focusDocsOutline);
+          addMenuAction({ label: "Nouvelle section", icon: "insert", commandId: "insertNewSection" }, () => sharedDocsActions.insertNewSection?.());
+        });
+        if (projectDocs.length) {
+          addMenuGroup("Documents lies", () => {
+            projectDocs.slice(0, 6).forEach((item) => addMenuAction(item.title || "Document", () => onProjectObjectSelect?.(item)));
+          });
+        }
         if (projectAssets.length) {
-          addMenuLabel("Project assets");
-          projectAssets.slice(0, 6).forEach((item) => addMenuAction(`Insert ${item.title || item.objectKind || "asset"}`, () => insertProjectAsset(item)));
+          addMenuGroup("Ressources", () => {
+            projectAssets.slice(0, 6).forEach((item) => addMenuAction(item.title || item.objectKind || "Asset", () => insertProjectAsset(item)));
+          });
         }
         return;
       }
 
-      if (menuId === "Project & AI") {
+      if (activeMenuId === "Révision") {
+        addMenuGroup("Verification", () => {
+          addMenuAction({ label: "Rechercher", icon: "search", commandId: "findDocument" }, openDocumentSearch, true);
+          addMenuAction({ label: "Polish", icon: "sparkle" }, prepareShareReadyPrompt, true);
+        });
+        addMenuGroup("Hydria", () => {
+          addMenuAction({ label: "Demander a Hydria", icon: "sparkle" }, focusPromptForDocs, true);
+          addMenuAction({ label: "Nouveau document", icon: "insert" }, createNewProjectDoc);
+        });
+        return;
+      }
+
+      if (activeMenuId === "Affichage") {
+        addMenuGroup("Vues", () => {
+          addBoundMenuActions(
+            [
+              { label: "Page", icon: "page", commandId: "focusPage" },
+              ...(!isDocsCanvasFullscreen() ? [{ label: "Plan", icon: "list", commandId: "focusOutline" }] : []),
+              { label: "Rechercher", icon: "search", commandId: "findDocument" },
+              {
+                label: isDocsCanvasFullscreen() ? "Quitter le plein ecran" : "Plein ecran",
+                icon: "zoom",
+                commandId: "toggleFullscreen"
+              }
+            ],
+            {
+              focusPage: () => focusDocsPage(),
+              focusOutline: () => focusDocsOutline(),
+              findDocument: () => openDocumentSearch(),
+              toggleFullscreen: toggleDocsFullscreen
+            },
+            { accentCommandIds: new Set(["findDocument", "toggleFullscreen"]) }
+          );
+        });
+        return;
+      }
+
+      if (activeMenuId === "Aide") {
+        addMenuGroup("Aide", () => {
+          addMenuAction({ label: "Trouver dans le document", icon: "search" }, openDocumentSearch, true);
+          addMenuAction({ label: "Demander a Hydria", icon: "sparkle" }, focusPromptForDocs, true);
+        });
+        addMenuLabel("Les commandes utilisent le meme registre partage que Sheets.");
+        return;
+      }
+
+      if (activeMenuId === "Project & AI") {
         addMenuAction("Ask Hydria to improve this page", focusPromptForDocs, true);
         addMenuAction("Share-ready", prepareShareReadyPrompt, true);
         addMenuAction("New document in project", createNewProjectDoc, true);
@@ -5927,19 +7029,9 @@ function renderMarkdownPreview(
         }
         return;
       }
-
-      if (menuId === "View") {
-        addMenuAction("Scroll to page", () => focusDocsPage());
-        if (!isDocsCanvasFullscreen()) {
-          addMenuAction("Scroll to outline", () => focusDocsOutline());
-        }
-        addMenuAction("Find in document", () => openDocumentSearch(), true);
-        addMenuAction(isDocsCanvasFullscreen() ? "Exit fullscreen" : "Open fullscreen", toggleDocsFullscreen, true);
-        addMenuLabel("Press Esc to leave fullscreen quickly.");
-      }
     };
 
-    ["Structure", "Format", "Insert", "Project & AI", "View"].forEach((label) => {
+    ["Fichier", "Accueil", "Insertion", "Mise en page", "Références", "Révision", "Affichage", "Aide"].forEach((label) => {
       const button = document.createElement("button");
       button.type = "button";
       button.className = "workspace-docs-menu-item";
@@ -5947,7 +7039,7 @@ function renderMarkdownPreview(
       button.dataset.menu = label;
       preserveDocsSelectionOnPointerDown(button);
       button.addEventListener("click", () => {
-        renderDocsMenu(docsMenuPanel?.dataset.openMenu === label ? "" : label);
+        renderDocsMenu(label);
       });
       docsMenuButtons.push(button);
       docsMenuBar.appendChild(button);
@@ -5959,16 +7051,11 @@ function renderMarkdownPreview(
     docsToolbarStatus = docsMenuStatus;
     previewShell.appendChild(docsMenuBar);
     previewShell.appendChild(docsMenuPanel);
+    renderDocsMenu("Accueil");
 
-    const ruler = document.createElement("div");
-    ruler.className = "workspace-docs-ruler";
-    for (let index = 0; index < 12; index += 1) {
-      const tick = document.createElement("span");
-      tick.className = "workspace-docs-ruler-tick";
-      tick.textContent = `${(index + 1) * 10}`;
-      ruler.appendChild(tick);
-    }
-    previewShell.appendChild(ruler);
+    docsPageRuler = document.createElement("div");
+    docsPageRuler.className = "workspace-docs-ruler";
+    renderDocsLinearRuler(docsPageRuler, "horizontal", "portrait");
   }
 
   if (!isDocsClone) {
@@ -6014,7 +7101,7 @@ function renderMarkdownPreview(
     previewShell.appendChild(previewRibbon);
   }
 
-  const previewLayout = document.createElement("div");
+  previewLayout = document.createElement("div");
   previewLayout.className = `workspace-document-preview-layout${isDocsClone ? " workspace-document-preview-layout-docs" : ""}`;
   outline = document.createElement("aside");
   outline.className = `workspace-document-preview-outline${isDocsClone ? " workspace-document-preview-outline-docs" : ""}`;
@@ -6278,13 +7365,50 @@ function renderMarkdownPreview(
     rebuildDocsPageShell();
     docsCanvas = document.createElement("div");
     docsCanvas.className = "workspace-document-page-canvas";
+    if (docsPageRuler) {
+      docsCanvas.appendChild(docsPageRuler);
+    }
     docsCanvas.appendChild(shell);
     docsTableControls = document.createElement("div");
     docsTableControls.className = "workspace-docs-table-controls hidden";
     docsTableContextMenu = document.createElement("div");
-    docsTableContextMenu.className = "workspace-docs-table-menu hidden";
+    docsTableContextMenu.className = "workspace-docs-table-menu";
+    docsTableContextMenu.hidden = true;
+    docsTableContextMenu.setAttribute("role", "menu");
+    installWorkspaceMenuEventBlockers(docsTableContextMenu);
+    docsTableContextMenuApi = createWorkspaceContextMenu({
+      root: docsTableContextMenu,
+      controllerOptions: {
+        rootOpenLeftClassName: "opens-left",
+        submenuClassName: "workspace-docs-table-submenu",
+        itemOpenClassName: "is-open",
+        removeRootOnClose: true,
+        submenuZIndexBase: 1850,
+        leftLookaheadWidth: 480
+      },
+      renderOptions: {
+        itemClassName: "workspace-docs-table-menu-row",
+        itemDisabledClassName: "is-disabled",
+        itemOpenClassName: "is-open",
+        separatorClassName: "workspace-docs-table-menu-separator",
+        headingClassName: "workspace-docs-table-menu-label",
+        submenuClassName: "workspace-docs-table-submenu",
+        actionOptions: (item) => ({
+          actionClassName: `workspace-docs-table-menu-item${item.danger ? " is-danger" : ""}`,
+          iconClassName: "workspace-docs-table-menu-icon",
+          labelClassName: "workspace-docs-table-menu-text",
+          metaClassName: "workspace-docs-table-menu-meta",
+          chevronClassName: "workspace-docs-table-menu-chevron",
+          role: "menuitem",
+          createIconNode: createWorkspaceIconNode,
+          resolveIconName: getWorkspaceCommandIcon
+        }),
+        onActionSelect: (item) => {
+          item.onSelect?.();
+        }
+      }
+    });
     docsCanvas.appendChild(docsTableControls);
-    docsCanvas.appendChild(docsTableContextMenu);
     syncDocsFullscreenButtonState();
     previewShell.addEventListener("fullscreenchange", () => {
       if (isDocsCanvasFullscreen()) {
@@ -6302,19 +7426,74 @@ function renderMarkdownPreview(
     shell.classList.add("workspace-inline-editable");
     shell.dataset.placeholder = "Start typing here";
     shell.addEventListener("input", (event) => {
+      const isPasteInput = ["insertFromPaste", "insertFromPasteAsQuotation", "insertFromDrop"].includes(event.inputType);
       if (shouldLinkifyOnBreak(event)) {
         linkifyPlainUrlsInNode(shell);
       }
+      docsPendingPageReflow = true;
       if (docsCommitHandle) {
         window.clearTimeout(docsCommitHandle);
       }
       docsCommitHandle = window.setTimeout(() => {
+        if (isPasteInput) {
+          reflowDocsPages({ preserveSelection: true });
+          commitDocumentShell();
+          updateDocsTableControls(null, true);
+          updateDocsToolbarStatus("Pasted and paginated");
+          return;
+        }
         commitDocumentShell();
+        scheduleDocsPageReflow({
+          delay: 600,
+          preserveSelection: false
+        });
         updateDocsTableControls(null, true);
         updateDocsToolbarStatus("Saved automatically");
-      }, 120);
+      }, isPasteInput ? 40 : 120);
+    });
+    shell.addEventListener("paste", (event) => {
+      const pastedHtml = event.clipboardData?.getData("text/html") || "";
+      const pastedText = event.clipboardData?.getData("text/plain") || "";
+      if (!pastedHtml.trim() && !pastedText.trim()) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      if (docsCommitHandle) {
+        window.clearTimeout(docsCommitHandle);
+        docsCommitHandle = null;
+      }
+      const didInsert =
+        (pastedHtml.trim() && insertDocsRichHtmlAtSelection(pastedHtml, pastedText)) ||
+        insertDocsPlainTextAtSelection(pastedText);
+      if (!didInsert) {
+        return;
+      }
+      linkifyPlainUrlsInNode(shell);
+      docsPendingPageReflow = true;
+      reflowDocsPages({ preserveSelection: false });
+      commitDocumentShell();
+      updateDocsTableControls(null, true);
+      updateDocsToolbarStatus("Pasted and paginated");
+    });
+    shell.addEventListener("focusout", (event) => {
+      if (event.relatedTarget && previewShell.contains(event.relatedTarget)) {
+        return;
+      }
+      if (docsCommitHandle) {
+        window.clearTimeout(docsCommitHandle);
+        docsCommitHandle = null;
+        commitDocumentShell();
+      }
+      if (docsPendingPageReflow) {
+        flushDocsPageReflow({ preserveSelection: false });
+      }
     });
     shell.addEventListener("click", () => {
+      if (docsOutlineVisible) {
+        setDocsOutlineVisible(false);
+      }
+      updateDocsActivePageRuler(window.getSelection()?.anchorNode || null);
       updateDocsToolbarStatus("Editing page");
     });
     shell.addEventListener("keydown", (event) => {
@@ -6336,9 +7515,11 @@ function renderMarkdownPreview(
     });
     shell.addEventListener("mouseup", () => {
       saveDocsSelectionRange();
+      updateDocsActivePageRuler(window.getSelection()?.anchorNode || null);
     });
     shell.addEventListener("keyup", () => {
       saveDocsSelectionRange();
+      updateDocsActivePageRuler(window.getSelection()?.anchorNode || null);
     });
     shell.addEventListener("contextmenu", (event) => {
       if (
@@ -6351,6 +7532,7 @@ function renderMarkdownPreview(
       showDocsContextMenuForTarget(event.target, event.clientX, event.clientY);
     });
     docsCanvas.addEventListener("pointerdown", (event) => {
+      updateDocsActivePageRuler(event.target);
       if (
         docsSelectedMediaFigure &&
         !event.target.closest?.(".workspace-docs-image-resize-handle") &&
@@ -6362,12 +7544,59 @@ function renderMarkdownPreview(
         hideDocsTableContextMenu();
       }
     });
-    window.requestAnimationFrame(() => updateDocsTableControls(null, true));
+    window.requestAnimationFrame(() => {
+      reflowDocsPages();
+      updateDocsActivePageRuler(activeEditable);
+      updateDocsTableControls(null, true);
+    });
   } else {
     previewLayout.append(outline, shell);
   }
+  setDocsOutlineVisible(false);
   previewShell.appendChild(previewLayout);
-  container.appendChild(previewShell);
+  if (isDocsClone) {
+    renderWorkspaceApplicationPreviewShell(container, {
+      previewKey: workObject?.id || workObject?.title || "docs-preview",
+      title: workObject?.title || "New Docs",
+      meta: `${headings.length || 1} SECTIONS | ${previewWordCount(normalized)} WORDS`,
+      tabs: ["Document", "Outline"],
+      onTabSelect: (label) => {
+        if (String(label || "").toLowerCase() === "outline") {
+          focusDocsOutline();
+        } else {
+          focusDocsPage();
+        }
+      },
+      searchPlaceholder: "Rechercher dans le document ou les commandes",
+      cardClassName: "workspace-docs-preview-card",
+      viewportClassName: "workspace-docs-preview-viewport",
+      contentClassName: "workspace-docs-preview-content",
+      buildContent: ({ searchInput }) => {
+        docsApplicationSearchInput = searchInput || null;
+        if (docsApplicationSearchInput) {
+          docsApplicationSearchInput.setAttribute("aria-label", "Rechercher dans le document");
+          docsApplicationSearchInput.addEventListener("input", (event) => {
+            syncDocumentSearchInputs(event.target.value, docsApplicationSearchInput);
+            applyDocumentSearch(event.target.value, { scrollToActive: false });
+          });
+          docsApplicationSearchInput.addEventListener("keydown", (event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              moveDocumentSearch(event.shiftKey ? -1 : 1);
+              return;
+            }
+            if (event.key === "Escape") {
+              event.preventDefault();
+              closeDocumentSearch();
+            }
+          });
+        }
+        return previewShell;
+      }
+    });
+  } else {
+    container.appendChild(previewShell);
+  }
   if (normalizedLegacyHeading) {
     commitDocumentShell();
   }
@@ -6417,11 +7646,33 @@ function wireInlineEditable(element, { multiline = false, onCommit = null, onFoc
   });
 }
 
+function mergeDocsSplitContinuationBlocks(root) {
+  if (!root?.querySelectorAll) {
+    return;
+  }
+  Array.from(root.querySelectorAll("[data-docs-split-continuation='true']")).forEach((node) => {
+    const group = node.getAttribute("data-docs-split-group") || "";
+    const previous = node.previousElementSibling;
+    if (!group || !previous || previous.getAttribute("data-docs-split-group") !== group) {
+      return;
+    }
+    const left = String(previous.textContent || "").trimEnd();
+    const right = String(node.textContent || "").trimStart();
+    previous.textContent = `${left}${left && right ? " " : ""}${right}`;
+    node.remove();
+  });
+  root.querySelectorAll("[data-docs-split-group], [data-docs-split-continuation]").forEach((node) => {
+    node.removeAttribute("data-docs-split-group");
+    node.removeAttribute("data-docs-split-continuation");
+  });
+}
+
 function serializeDocumentPreviewShell(shell) {
   if (shell?.dataset?.richDocument === "true") {
     const clone = shell.cloneNode(true);
     clone.querySelectorAll(".workspace-docs-page-control-bar").forEach((node) => node.remove());
     clone.querySelectorAll(".workspace-docs-page-header, .workspace-docs-page-footer").forEach((node) => node.remove());
+    clone.querySelectorAll(".workspace-docs-vertical-ruler").forEach((node) => node.remove());
     clone.querySelectorAll(".workspace-docs-image-resize-handle").forEach((node) => node.remove());
     clone.querySelectorAll(".workspace-docs-search-match").forEach((node) => unwrapNodeContents(node));
     clone.querySelectorAll(".workspace-docs-figure").forEach((node) => {
@@ -6430,11 +7681,15 @@ function serializeDocumentPreviewShell(shell) {
     clone.querySelectorAll(".workspace-document-page-sheet").forEach((page) => {
       page.replaceWith(...Array.from(page.childNodes));
     });
+    mergeDocsSplitContinuationBlocks(clone);
     clone.querySelectorAll("[contenteditable]").forEach((node) => node.removeAttribute("contenteditable"));
     clone.querySelectorAll("[spellcheck]").forEach((node) => node.removeAttribute("spellcheck"));
     clone.querySelectorAll("[data-placeholder]").forEach((node) => node.removeAttribute("data-placeholder"));
     clone.querySelectorAll(".workspace-inline-editable").forEach((node) => {
       node.classList.remove("workspace-inline-editable");
+    });
+    clone.querySelectorAll(".workspace-document-page-sheet.is-active-docs-page").forEach((node) => {
+      node.classList.remove("is-active-docs-page");
     });
     clone.querySelectorAll(".workspace-checklist-box").forEach((checkbox) => {
       const checked = checkbox.checked || checkbox.closest("li")?.dataset?.checked === "true";
@@ -8782,6 +10037,7 @@ function renderSpreadsheetClonePreview(
   );
 
   let selectionRange = { ...initialSelectionState.selectionRange };
+  let contextMenuSelectionSnapshot = null;
   let selectionDragState = {
     active: false,
     anchorRowIndex: 0,
@@ -9407,6 +10663,27 @@ function renderSpreadsheetClonePreview(
     maxColumn: Math.max(selectionRange.startColumnIndex, selectionRange.endColumnIndex)
   });
 
+  const isCellInsideBounds = (rowIndex = 0, columnIndex = 0, bounds = getSelectionBounds()) =>
+    rowIndex >= bounds.minRow &&
+    rowIndex <= bounds.maxRow &&
+    columnIndex >= bounds.minColumn &&
+    columnIndex <= bounds.maxColumn;
+
+  const isMultiCellBounds = (bounds = getSelectionBounds()) =>
+    bounds.minRow !== bounds.maxRow || bounds.minColumn !== bounds.maxColumn;
+
+  const captureRangeContextMenuSelection = (rowIndex = 0, columnIndex = 0) => {
+    const bounds = getSelectionBounds();
+    if (!isMultiCellBounds(bounds) || !isCellInsideBounds(rowIndex, columnIndex, bounds)) {
+      return null;
+    }
+    return {
+      activeSelection: { ...activeSelection },
+      selectionRange: { ...selectionRange },
+      bounds
+    };
+  };
+
   const setSelectionRange = ({
     startRowIndex = activeSelection.rowIndex,
     startColumnIndex = activeSelection.columnIndex,
@@ -9981,6 +11258,24 @@ function renderSpreadsheetClonePreview(
     }));
   };
 
+  const executeSheetWorkspaceCommand = createWorkspaceCommandExecutor(
+    "sheets",
+    createSheetWorkspaceCommandAdapter({
+      toggleSelectedTextStyle,
+      adjustSelectedFontSize: (delta) => adjustSelectedFontSize(delta),
+      setSelectedFontSize: (fontSize) => setSelectedFontSize(fontSize),
+      setSelectedFontFamily: (fontFamily) => setSelectedFontFamily(fontFamily),
+      setSelectedTextColor: (color) => setSelectedTextColor(color),
+      setSelectedFillColor: (color) => setSelectedFillColor(color),
+      setSelectedHorizontalAlign: (alignment) => setSelectedHorizontalAlign(alignment),
+      setSelectedVerticalAlign: (alignment) => setSelectedVerticalAlign(alignment),
+      clearSelectedFormatting: () => clearSelectedFormatting()
+    })
+  );
+
+  const createSheetCommandAction = (commandId = "", options = {}) =>
+    () => executeSheetWorkspaceCommand(commandId, options);
+
   const setSelectedHorizontalAlign = (alignment = "") => {
     updateSelectedCellFormats((currentFormat) => {
       const nextFormat = { ...currentFormat };
@@ -10010,6 +11305,19 @@ function renderSpreadsheetClonePreview(
       ...currentFormat,
       fontSize
     }));
+  };
+
+  const setSelectedFontFamily = (fontFamily = "") => {
+    updateSelectedCellFormats((currentFormat) => {
+      const nextFormat = { ...currentFormat };
+      const normalizedFontFamily = String(fontFamily || "").trim();
+      if (normalizedFontFamily) {
+        nextFormat.fontFamily = normalizedFontFamily;
+      } else {
+        delete nextFormat.fontFamily;
+      }
+      return nextFormat;
+    });
   };
 
   const getActiveSelectionFontSizeValue = () => {
@@ -10711,6 +12019,7 @@ function renderSpreadsheetClonePreview(
     input.style.textDecoration = format.underline ? "underline" : "";
     input.style.textAlign = format.horizontalAlign || "";
     input.style.fontSize = format.fontSize ? `${format.fontSize}px` : "";
+    input.style.fontFamily = format.fontFamily || "";
     input.style.setProperty("--sheet-cell-color", conditionalFormat?.textColor || format.textColor || structuralColor);
     input.style.setProperty("--sheet-cell-fill", conditionalFormat?.fillColor || format.fillColor || structuralFill);
     input.style.backgroundImage = sparklineBackground ? sparklineBackground : "";
@@ -11482,32 +12791,65 @@ function renderSpreadsheetClonePreview(
     return nextBounds;
   };
 
-  const readDataRangeRow = (rowIndex = 0, minColumn = 0, maxColumn = 0) => ({
-    values: Array.from({ length: maxColumn - minColumn + 1 }, (_, offset) =>
-      getRawCellValue(rowIndex, minColumn + offset)
-    ),
-    formats: Array.from({ length: maxColumn - minColumn + 1 }, (_, offset) =>
-      getCellFormat(rowIndex, minColumn + offset)
-    )
-  });
+  // Data operations move full cell payloads, not only displayed values, so
+  // formats, notes, validations and sparklines stay attached to sorted rows.
+  const readDataRangeRow = (rowIndex = 0, minColumn = 0, maxColumn = 0) => {
+    const cells = Array.from({ length: maxColumn - minColumn + 1 }, (_, offset) =>
+      getRangeCellPayload(rowIndex, minColumn + offset)
+    );
+    return {
+      values: cells.map((cell) => cell.value),
+      cells
+    };
+  };
 
   const writeDataRangeRow = (rowIndex = 0, minColumn = 0, row = {}) => {
+    if (Array.isArray(row.cells)) {
+      row.cells.forEach((cell, offset) => {
+        applyRangeCellPayload(rowIndex, minColumn + offset, cell);
+      });
+      return;
+    }
     (row.values || []).forEach((value, offset) => {
-      setRawCellValue(rowIndex, minColumn + offset, value);
-      setCellFormat(rowIndex, minColumn + offset, row.formats?.[offset] || {});
+      applyRangeCellPayload(rowIndex, minColumn + offset, {
+        value,
+        format: row.formats?.[offset] || {}
+      });
     });
   };
 
   const clearDataRange = (minRow = 0, maxRow = 0, minColumn = 0, maxColumn = 0) => {
     for (let rowIndex = minRow; rowIndex <= maxRow; rowIndex += 1) {
       for (let columnIndex = minColumn; columnIndex <= maxColumn; columnIndex += 1) {
-        setRawCellValue(rowIndex, columnIndex, "");
-        setCellFormat(rowIndex, columnIndex, {});
+        clearRangeCellPayload(rowIndex, columnIndex);
       }
     }
   };
 
+  // Excel-style table sorting: sorting one selected table column must reorder
+  // every data cell in that table row, while headers/totals remain in place.
+  const getTableForActiveSortColumn = () => {
+    const selectionBounds = getSelectionBounds();
+    return (
+      getActiveSheetTables().find((table) => {
+        const tableBounds = getStructureBounds(table);
+        if (activeSelection.columnIndex < tableBounds.minColumn || activeSelection.columnIndex > tableBounds.maxColumn) {
+          return false;
+        }
+        return (
+          boundsContainsCell(tableBounds, activeSelection.rowIndex, activeSelection.columnIndex) ||
+          boundsIntersect(tableBounds, selectionBounds)
+        );
+      }) || null
+    );
+  };
+
   const sortActiveColumn = (direction = "asc") => {
+    const activeTable = getTableForActiveSortColumn();
+    if (activeTable) {
+      // Delegate table-aware sorting before falling back to plain range sort.
+      return sortTableColumn(activeTable, activeSelection.columnIndex, direction);
+    }
     const { minRow, maxRow, minColumn, maxColumn } = getDataSelectionBounds({
       preferTable: true,
       skipHeader: true
@@ -16601,6 +17943,7 @@ function renderSpreadsheetClonePreview(
     cell.style.fontStyle = format.italic ? "italic" : "";
     cell.style.textDecoration = format.underline ? "underline" : "";
     cell.style.textAlign = format.horizontalAlign || "";
+    cell.style.fontFamily = format.fontFamily || "";
     cell.style.verticalAlign =
       format.verticalAlign === "middle" ? "middle" : format.verticalAlign === "bottom" ? "bottom" : "top";
     if (format.fontSize) {
@@ -17757,27 +19100,38 @@ function renderSpreadsheetClonePreview(
     });
   };
 
-  let sheetMenuOutsidePointerHandler = null;
   const sheetMenuAnchors = new Set();
+  let sheetMenuOutsideKeepOpen = () => false;
+
+  const sheetMenuOutsideController = createWorkspaceMenuOutsideController({
+    isOpen: () => !sheetMenuPanel.hidden,
+    closeOnContextMenu: false,
+    shouldKeepOpen: (event) => sheetMenuOutsideKeepOpen(event),
+    onClose: () => {
+      closeSheetMenu();
+    }
+  });
 
   const removeSheetMenuOutsidePointerHandler = () => {
-    if (!sheetMenuOutsidePointerHandler) {
-      return;
-    }
-    document.removeEventListener("pointerdown", sheetMenuOutsidePointerHandler, true);
-    document.removeEventListener("mousedown", sheetMenuOutsidePointerHandler, true);
-    document.removeEventListener("mousedown", sheetMenuOutsidePointerHandler);
-    sheetMenuOutsidePointerHandler = null;
+    sheetMenuOutsideController.remove();
   };
 
   const installSheetMenuOutsidePointerHandler = () => {
     window.setTimeout(() => {
-      if (!sheetMenuOutsidePointerHandler) {
+      if (sheetMenuPanel.hidden) {
         return;
       }
-      document.addEventListener("pointerdown", sheetMenuOutsidePointerHandler, true);
-      document.addEventListener("mousedown", sheetMenuOutsidePointerHandler, true);
+      sheetMenuOutsideController.install();
     }, 0);
+  };
+
+  const bindSheetMenuOutsideClose = (anchorElement = null, extraKeepOpen = null) => {
+    removeSheetMenuOutsidePointerHandler();
+    sheetMenuOutsideKeepOpen = (event) =>
+      sheetMenuPanel.contains(event.target) ||
+      Boolean(anchorElement?.contains?.(event.target)) ||
+      Boolean(extraKeepOpen?.(event));
+    installSheetMenuOutsidePointerHandler();
   };
 
   const closeSheetMenu = () => {
@@ -17792,6 +19146,7 @@ function renderSpreadsheetClonePreview(
     sheetMenuPanel.style.maxHeight = "";
     sheetMenuAnchors.forEach((button) => button.classList.remove("is-open"));
     sheetMenuAnchors.clear();
+    sheetMenuOutsideKeepOpen = () => false;
     removeSheetMenuOutsidePointerHandler();
   };
 
@@ -17877,12 +19232,16 @@ function renderSpreadsheetClonePreview(
         ];
       case "Edit":
         return [
-          { label: "Undo", onSelect: undoSpreadsheetAction },
-          { label: "Redo", onSelect: redoSpreadsheetAction },
+          ...bindWorkspaceMenuActions(createWorkspaceCommandMenuItems(["undo", "redo"]), {
+            undo: undoSpreadsheetAction,
+            redo: redoSpreadsheetAction
+          }),
           { separator: true },
-          { label: "Cut", onSelect: () => cutSelectedCells() },
-          { label: "Copy", onSelect: () => copySelectedCells() },
-          { label: "Paste", onSelect: () => pasteFromClipboard() },
+          ...bindWorkspaceMenuActions(createWorkspaceClipboardMenuItems(), {
+            cut: () => cutSelectedCells(),
+            copy: () => copySelectedCells(),
+            paste: () => pasteFromClipboard()
+          }),
           { separator: true },
           { label: "Find", onSelect: () => openFindReplaceBar() },
           { label: "Replace", onSelect: () => openFindReplaceBar({ showReplace: true }) },
@@ -17967,31 +19326,35 @@ function renderSpreadsheetClonePreview(
         ];
       case "Format":
         return [
-          { label: "Bold", onSelect: () => toggleSelectedTextStyle("bold") },
-          { label: "Italic", onSelect: () => toggleSelectedTextStyle("italic") },
-          { label: "Underline", onSelect: () => toggleSelectedTextStyle("underline") },
+          { label: getWorkspaceCommandLabel("bold"), icon: "bold", onSelect: () => executeSheetWorkspaceCommand("bold") },
+          { label: getWorkspaceCommandLabel("italic"), icon: "italic", onSelect: () => executeSheetWorkspaceCommand("italic") },
+          { label: getWorkspaceCommandLabel("underline"), icon: "underline", onSelect: () => executeSheetWorkspaceCommand("underline") },
           { separator: true },
-          { label: "Number", onSelect: () => setSelectedRangeFormat("number") },
-          { label: "Currency", onSelect: () => setSelectedRangeFormat("currency") },
-          { label: "Percent", onSelect: () => setSelectedRangeFormat("percent") },
-          { label: "Date", onSelect: () => setSelectedRangeFormat("date") },
+          { label: getWorkspaceCommandLabel("number"), icon: "number", onSelect: () => setSelectedRangeFormat("number") },
+          { label: getWorkspaceCommandLabel("currency"), icon: "currency", onSelect: () => setSelectedRangeFormat("currency") },
+          { label: getWorkspaceCommandLabel("percent"), icon: "percent", onSelect: () => setSelectedRangeFormat("percent") },
+          { label: getWorkspaceCommandLabel("date"), icon: "calendar", onSelect: () => setSelectedRangeFormat("date") },
           { label: "Clear number format", onSelect: () => setSelectedRangeFormat("") },
           { separator: true },
-          { label: "Align left", onSelect: () => setSelectedHorizontalAlign("left") },
-          { label: "Align center", onSelect: () => setSelectedHorizontalAlign("center") },
-          { label: "Align right", onSelect: () => setSelectedHorizontalAlign("right") },
-          { label: "Align top", onSelect: () => setSelectedVerticalAlign("top") },
-          { label: "Align middle", onSelect: () => setSelectedVerticalAlign("middle") },
-          { label: "Align bottom", onSelect: () => setSelectedVerticalAlign("bottom") },
+          ...WORKSPACE_HORIZONTAL_ALIGNMENT_OPTIONS.map((option) => ({
+            label: `Align ${String(option.label || "").toLowerCase()}`,
+            icon: option.icon,
+            onSelect: () => executeSheetWorkspaceCommand(option.commandId)
+          })),
+          ...WORKSPACE_VERTICAL_ALIGNMENT_OPTIONS.map((option) => ({
+            label: `Align ${String(option.label || "").toLowerCase()}`,
+            icon: option.icon,
+            onSelect: () => executeSheetWorkspaceCommand(option.commandId)
+          })),
           { separator: true },
-          { label: "Font size +", onSelect: () => adjustSelectedFontSize(1) },
-          { label: "Font size -", onSelect: () => adjustSelectedFontSize(-1) },
-          { label: "Text black", onSelect: () => setSelectedTextColor("#202124") },
-          { label: "Text red", onSelect: () => setSelectedTextColor("#c5221f") },
-          { label: "Text blue", onSelect: () => setSelectedTextColor("#1a73e8") },
-          { label: "Fill yellow", onSelect: () => setSelectedFillColor("#fff2cc") },
-          { label: "Fill green", onSelect: () => setSelectedFillColor("#d9ead3") },
-          { label: "Fill blue", onSelect: () => setSelectedFillColor("#d9eaf7") },
+          { label: `${getWorkspaceCommandLabel("fontSize")} +`, icon: "text", onSelect: () => executeSheetWorkspaceCommand("fontSize", { delta: 1 }) },
+          { label: `${getWorkspaceCommandLabel("fontSize")} -`, icon: "text", onSelect: () => executeSheetWorkspaceCommand("fontSize", { delta: -1 }) },
+          { label: "Text black", icon: "textColor", onSelect: () => executeSheetWorkspaceCommand("textColor", { value: "#202124" }) },
+          { label: "Text red", icon: "textColor", onSelect: () => executeSheetWorkspaceCommand("textColor", { value: "#c5221f" }) },
+          { label: "Text blue", icon: "textColor", onSelect: () => executeSheetWorkspaceCommand("textColor", { value: "#1a73e8" }) },
+          { label: "Fill yellow", icon: "fill", onSelect: () => executeSheetWorkspaceCommand("fillColor", { value: "#fff2cc" }) },
+          { label: "Fill green", icon: "fill", onSelect: () => executeSheetWorkspaceCommand("fillColor", { value: "#d9ead3" }) },
+          { label: "Fill blue", icon: "fill", onSelect: () => executeSheetWorkspaceCommand("fillColor", { value: "#d9eaf7" }) },
           { separator: true },
           ...buildConditionalFormatMenuItems(),
           { separator: true },
@@ -18003,7 +19366,7 @@ function renderSpreadsheetClonePreview(
           { label: "Merge cells", onSelect: mergeSelectionRange },
           { label: "Unmerge cells", onSelect: unmergeSelectionRange },
           { separator: true },
-          { label: "Clear all formatting", onSelect: clearSelectedFormatting }
+          { label: getWorkspaceCommandLabel("clearFormatting"), icon: "eraser", onSelect: () => executeSheetWorkspaceCommand("clearFormatting") }
         ];
       case "Data":
         return [
@@ -18066,7 +19429,8 @@ function renderSpreadsheetClonePreview(
   };
 
   const openSheetFloatingMenu = (items = [], anchorElement = null, options = {}) => {
-    if (!items.length) {
+    const menuItems = normalizeWorkspaceMenuItems(items);
+    if (!menuItems.length) {
       closeSheetMenu();
       return false;
     }
@@ -18081,67 +19445,36 @@ function renderSpreadsheetClonePreview(
       anchorElement.classList.add("is-open");
       sheetMenuAnchors.add(anchorElement);
     }
-    items.forEach((item) => {
-      if (item.heading) {
-        const heading = document.createElement("div");
-        heading.className = "workspace-sheet-menu-heading";
-        heading.textContent = item.label;
-        sheetMenuPanel.appendChild(heading);
-        return;
-      }
-      if (item.separator) {
-        const separator = document.createElement("div");
-        separator.className = "workspace-sheet-menu-separator";
-        sheetMenuPanel.appendChild(separator);
-        return;
-      }
-      const action = document.createElement("button");
-      action.type = "button";
-      action.className = "workspace-sheet-menu-action";
-      const iconName = item.checked ? "check" : (item.icon === null ? "" : item.icon || getSheetCommandIcon(item.label));
-      const actionIcon = iconName
-        ? createSheetIconNode(iconName, {
-            className: "workspace-sheet-menu-action-icon",
-            label: item.label
-          })
-        : document.createElement("span");
-      if (!iconName) {
-        actionIcon.className = "workspace-sheet-menu-action-icon is-empty";
-        actionIcon.setAttribute("aria-hidden", "true");
-      }
-      const actionLabel = document.createElement("span");
-      actionLabel.className = "workspace-sheet-menu-action-label";
-      actionLabel.textContent = item.label;
-      action.append(actionIcon, actionLabel);
-      action.disabled = Boolean(item.disabled);
-      action.addEventListener("click", () => {
-        if (item.disabled) {
-          return;
+    renderWorkspaceFlatMenuItems(menuItems, sheetMenuPanel, {
+      headingClassName: "workspace-sheet-menu-heading",
+      separatorClassName: "workspace-sheet-menu-separator",
+      actionOptions: {
+        actionClassName: "workspace-sheet-menu-action",
+        iconClassName: "workspace-sheet-menu-action-icon",
+        labelClassName: "workspace-sheet-menu-action-label",
+        createIconNode: createSheetIconNode,
+        resolveIconName: getSheetCommandIcon,
+        onClick: (_event, menuItem, button) => {
+          if (button.disabled) {
+            return;
+          }
+          closeSheetMenu();
+          menuItem.onSelect?.();
         }
-        closeSheetMenu();
-        item.onSelect?.();
-      });
-      sheetMenuPanel.appendChild(action);
+      }
     });
     sheetMenuPanel.hidden = false;
-    const panelWidth = Math.max(190, sheetMenuPanel.offsetWidth || 220);
-    const panelHeight = Math.max(120, sheetMenuPanel.offsetHeight || 240);
-    const hasCursorPosition = Number.isFinite(options.clientX) && Number.isFinite(options.clientY);
-    const buttonRect = anchorElement?.getBoundingClientRect?.() || null;
-    const preferredLeft = hasCursorPosition ? options.clientX : buttonRect?.left || 8;
-    const preferredTop = hasCursorPosition ? options.clientY : (buttonRect?.bottom || 8) + 4;
-    const left = Math.max(8, Math.min(preferredLeft, window.innerWidth - panelWidth - 8));
-    const top = Math.max(8, Math.min(preferredTop, window.innerHeight - panelHeight - 8));
-    sheetMenuPanel.style.left = `${left}px`;
-    sheetMenuPanel.style.top = `${top}px`;
-    sheetMenuPanel.style.maxHeight = `${Math.max(120, window.innerHeight - top - 8)}px`;
-    removeSheetMenuOutsidePointerHandler();
-    sheetMenuOutsidePointerHandler = (event) => {
-      if (!sheetMenuPanel.contains(event.target) && !(anchorElement && anchorElement.contains(event.target))) {
-        closeSheetMenu();
-      }
-    };
-    installSheetMenuOutsidePointerHandler();
+    placeWorkspaceFloatingPanel(sheetMenuPanel, {
+      anchorElement,
+      clientX: options.clientX,
+      clientY: options.clientY,
+      minWidth: 190,
+      fallbackWidth: 220,
+      minHeight: 120,
+      fallbackHeight: 240,
+      minMaxHeight: 120
+    });
+    bindSheetMenuOutsideClose(anchorElement);
     return true;
   };
 
@@ -18309,21 +19642,15 @@ function renderSpreadsheetClonePreview(
 
     sheetMenuPanel.appendChild(panel);
     sheetMenuPanel.hidden = false;
-    const panelWidth = Math.max(280, sheetMenuPanel.offsetWidth || 300);
-    const panelHeight = Math.max(360, sheetMenuPanel.offsetHeight || 420);
-    const buttonRect = anchorElement.getBoundingClientRect();
-    const left = Math.max(8, Math.min(buttonRect.left, window.innerWidth - panelWidth - 8));
-    const top = Math.max(8, Math.min(buttonRect.bottom + 4, window.innerHeight - panelHeight - 8));
-    sheetMenuPanel.style.left = `${left}px`;
-    sheetMenuPanel.style.top = `${top}px`;
-    sheetMenuPanel.style.maxHeight = `${Math.max(260, window.innerHeight - top - 8)}px`;
-    removeSheetMenuOutsidePointerHandler();
-    sheetMenuOutsidePointerHandler = (event) => {
-      if (!sheetMenuPanel.contains(event.target) && !anchorElement.contains(event.target)) {
-        closeSheetMenu();
-      }
-    };
-    installSheetMenuOutsidePointerHandler();
+    placeWorkspaceFloatingPanel(sheetMenuPanel, {
+      anchorElement,
+      minWidth: 280,
+      fallbackWidth: 300,
+      minHeight: 360,
+      fallbackHeight: 420,
+      minMaxHeight: 260
+    });
+    bindSheetMenuOutsideClose(anchorElement);
     search.focus({ preventScroll: true });
     return true;
   };
@@ -18380,24 +19707,18 @@ function renderSpreadsheetClonePreview(
     });
     sheetMenuPanel.appendChild(gallery);
 
-    const buttonRect = anchorElement.getBoundingClientRect();
     sheetMenuPanel.hidden = false;
-    const panelWidth = Math.max(520, sheetMenuPanel.offsetWidth || 640);
-    const panelHeight = Math.max(320, sheetMenuPanel.offsetHeight || 420);
-    const left = Math.max(8, Math.min(buttonRect.left, window.innerWidth - panelWidth - 8));
-    const top = Math.max(8, Math.min(buttonRect.bottom + 6, window.innerHeight - panelHeight - 8));
-    const maxPanelHeight = Math.max(220, window.innerHeight - top - 8);
-    sheetMenuPanel.style.left = `${left}px`;
-    sheetMenuPanel.style.top = `${top}px`;
-    sheetMenuPanel.style.maxHeight = `${maxPanelHeight}px`;
+    const { maxHeight: maxPanelHeight } = placeWorkspaceFloatingPanel(sheetMenuPanel, {
+      anchorElement,
+      minWidth: 520,
+      fallbackWidth: 640,
+      minHeight: 320,
+      fallbackHeight: 420,
+      offsetY: 6,
+      minMaxHeight: 220
+    });
     gallery.style.maxHeight = `${Math.max(180, maxPanelHeight - 20)}px`;
-    removeSheetMenuOutsidePointerHandler();
-    sheetMenuOutsidePointerHandler = (event) => {
-      if (!sheetMenuPanel.contains(event.target) && !anchorElement.contains(event.target)) {
-        closeSheetMenu();
-      }
-    };
-    installSheetMenuOutsidePointerHandler();
+    bindSheetMenuOutsideClose(anchorElement);
     return true;
   };
 
@@ -18419,166 +19740,11 @@ function renderSpreadsheetClonePreview(
   const toolbar = document.createElement("div");
   toolbar.className = "workspace-sheet-toolbar";
   const resolveToolbarDisabled = (disabled = false) => (typeof disabled === "function" ? Boolean(disabled()) : Boolean(disabled));
-  const sheetIconSvg = {
-    alignBottom: '<path d="M5 19h14"/><path d="M8 5h8v10H8z"/>',
-    alignCenter: '<path d="M4 7h16"/><path d="M7 12h10"/><path d="M4 17h16"/>',
-    alignLeft: '<path d="M4 6h16"/><path d="M4 11h10"/><path d="M4 16h16"/><path d="M4 21h10"/>',
-    alignMiddle: '<path d="M4 12h16"/><path d="M8 5h8v14H8z"/>',
-    alignRight: '<path d="M4 6h16"/><path d="M10 11h10"/><path d="M4 16h16"/><path d="M10 21h10"/>',
-    alignTop: '<path d="M5 5h14"/><path d="M8 9h8v10H8z"/>',
-    areaChart: '<path d="M4 18l5-7 4 3 4-8 3 12H4z"/><path d="M4 20h16"/>',
-    axes: '<path d="M5 4v15h15"/><path d="M5 14h15"/><path d="M10 19v-3"/><path d="M15 19v-6"/><path d="M20 19v-10"/>',
-    barChart: '<path d="M4 19h16"/><path d="M6 16h3"/><path d="M6 11h8"/><path d="M6 6h12"/>',
-    bold: '<path d="M7 5h6a3 3 0 0 1 0 6H7z"/><path d="M7 11h7a4 4 0 0 1 0 8H7z"/>',
-    border: '<rect x="5" y="5" width="14" height="14"/><path d="M5 12h14"/><path d="M12 5v14"/>',
-    calendar: '<path d="M7 3v4"/><path d="M17 3v4"/><rect x="4" y="5" width="16" height="16" rx="2"/><path d="M4 10h16"/>',
-    chart: '<path d="M4 19h16"/><rect x="6" y="10" width="3" height="7"/><rect x="11" y="5" width="3" height="12"/><rect x="16" y="8" width="3" height="9"/>',
-    check: '<path d="M5 12l4 4 10-10"/>',
-    checkbox: '<rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 12l3 3 6-7"/>',
-    chevronDown: '<path d="M7 10l5 5 5-5"/>',
-    chevronLeft: '<path d="M15 18l-6-6 6-6"/>',
-    chevronRight: '<path d="M9 18l6-6-6-6"/>',
-    chevronUp: '<path d="M7 14l5-5 5 5"/>',
-    clean: '<path d="M4 20h16"/><path d="M8 17l8-8"/><path d="M10 5l9 9"/><path d="M5 16l3 3"/>',
-    close: '<path d="M6 6l12 12"/><path d="M18 6L6 18"/>',
-    copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><rect x="4" y="4" width="12" height="12" rx="2"/>',
-    csv: '<path d="M6 3h9l4 4v14H6z"/><path d="M15 3v5h5"/><path d="M8 15h8"/><path d="M8 18h5"/>',
-    currency: '<path d="M17 5.5A6.5 6.5 0 1 0 17 18.5"/><path d="M5 10h9"/><path d="M5 14h9"/>',
-    cut: '<circle cx="6" cy="6" r="2"/><circle cx="6" cy="18" r="2"/><path d="M8 8l12 12"/><path d="M8 16L20 4"/>',
-    delete: '<path d="M5 7h14"/><path d="M9 7V5h6v2"/><path d="M8 7l1 13h6l1-13"/>',
-    duplicate: '<rect x="8" y="8" width="11" height="11" rx="2"/><path d="M5 15V5h10"/>',
-    eraser: '<path d="M4 16l8-8 6 6-5 5H7z"/><path d="M12 19h8"/>',
-    eyeOff: '<path d="M3 3l18 18"/><path d="M10.6 10.6a2 2 0 0 0 2.8 2.8"/><path d="M9.5 5.3A9.8 9.8 0 0 1 12 5c5 0 8 4 9 7a12 12 0 0 1-2.4 3.7"/><path d="M6.1 6.8A12 12 0 0 0 3 12c1 3 4 7 9 7a9.8 9.8 0 0 0 3.5-.6"/>',
-    fileSpreadsheet: '<path d="M6 3h9l4 4v14H6z"/><path d="M15 3v5h5"/><path d="M8 12h9"/><path d="M8 16h9"/><path d="M11 9v10"/>',
-    fill: '<path d="M4 14l7-7 7 7-5 5H9z"/><path d="M14 19h6"/><path d="M16 14l3 3 2-2"/>',
-    filter: '<path d="M4 5h16l-6 7v6l-4 2v-8z"/>',
-    filterClear: '<path d="M4 5h13l-5 6v5l-3 2v-7z"/><path d="M16 14l5 5"/><path d="M21 14l-5 5"/>',
-    freeze: '<path d="M5 5h14v14H5z"/><path d="M5 10h14"/><path d="M10 5v14"/>',
-    function: '<path d="M8 19c2-6 3-10 4-14"/><path d="M5 9h8"/><path d="M14 13l5 5"/><path d="M19 13l-5 5"/>',
-    grid: '<rect x="4" y="4" width="16" height="16"/><path d="M4 10h16"/><path d="M4 16h16"/><path d="M10 4v16"/><path d="M16 4v16"/>',
-    image: '<rect x="4" y="5" width="16" height="14" rx="2"/><circle cx="9" cy="10" r="1.5"/><path d="M5 18l5-5 3 3 2-2 4 4"/>',
-    insert: '<path d="M12 5v14"/><path d="M5 12h14"/>',
-    italic: '<path d="M10 5h8"/><path d="M6 19h8"/><path d="M14 5l-4 14"/>',
-    lineChart: '<path d="M4 18l5-6 4 3 6-8"/><path d="M4 20h16"/>',
-    lock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
-    merge: '<rect x="4" y="7" width="16" height="10" rx="1"/><path d="M9 7v10"/><path d="M15 7v10"/><path d="M8 12h8"/><path d="M13 9l3 3-3 3"/><path d="M11 9l-3 3 3 3"/>',
-    move: '<path d="M12 3v18"/><path d="M3 12h18"/><path d="M8 7l4-4 4 4"/><path d="M8 17l4 4 4-4"/><path d="M7 8l-4 4 4 4"/><path d="M17 8l4 4-4 4"/>',
-    note: '<path d="M5 4h14v12l-5 5H5z"/><path d="M14 16v5"/><path d="M14 16h5"/>',
-    number: '<path d="M8 4L6 20"/><path d="M16 4l-2 16"/><path d="M4 9h16"/><path d="M3 15h16"/>',
-    palette: '<path d="M12 4a8 8 0 0 0 0 16h1.5a1.8 1.8 0 0 0 .5-3.5 1.7 1.7 0 0 1 .5-3.3H16a4 4 0 0 0 0-8.1A9.8 9.8 0 0 0 12 4z"/><circle cx="8.5" cy="10" r=".8"/><circle cx="11" cy="7.8" r=".8"/><circle cx="14" cy="8.5" r=".8"/>',
-    paste: '<path d="M8 4h8v4H8z"/><path d="M6 6H5a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-1"/>',
-    pdf: '<path d="M6 3h9l4 4v14H6z"/><path d="M15 3v5h5"/><path d="M8 16h3"/><path d="M8 13h8"/>',
-    percent: '<path d="M19 5L5 19"/><circle cx="7" cy="7" r="2"/><circle cx="17" cy="17" r="2"/>',
-    pieChart: '<path d="M11 3v9h9a9 9 0 1 1-9-9z"/><path d="M13 3.2A9 9 0 0 1 20.8 10H13z"/>',
-    pivot: '<rect x="4" y="5" width="16" height="14" rx="1"/><path d="M4 10h16"/><path d="M10 5v14"/><path d="M14 14h4"/><path d="M16 12v4"/><path d="M6 7.5h2"/><path d="M12 7.5h6"/>',
-    print: '<path d="M7 8V4h10v4"/><rect x="6" y="14" width="12" height="7"/><path d="M6 18H4a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2"/>',
-    redo: '<path d="M15 7h5v5"/><path d="M20 7c-2.8-2.8-7.2-3-10.2-.4-3.1 2.7-3.2 7.4-.3 10.2 2.1 2.1 5.2 2.7 7.8 1.5"/>',
-    refresh: '<path d="M20 12a8 8 0 1 1-2.3-5.7"/><path d="M20 4v6h-6"/>',
-    rename: '<path d="M4 20h16"/><path d="M13 5l6 6-8 8H5v-6z"/><path d="M16 8l-8 8"/>',
-    search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="M16 16l4 4"/>',
-    shape: '<rect x="4" y="9" width="8" height="8" rx="1"/><circle cx="16" cy="9" r="4"/><path d="M15 14l5 6h-10z"/>',
-    sheet: '<path d="M6 3h9l4 4v14H6z"/><path d="M15 3v5h5"/><path d="M8 12h8"/><path d="M8 16h8"/>',
-    slicer: '<path d="M4 5h16"/><path d="M7 10h10"/><path d="M9 15h6"/><path d="M11 20h2"/>',
-    sort: '<path d="M8 5v14"/><path d="M5 8l3-3 3 3"/><path d="M16 19V5"/><path d="M13 16l3 3 3-3"/>',
-    sortAsc: '<path d="M8 5v14"/><path d="M5 8l3-3 3 3"/><path d="M14 7h6"/><path d="M14 12h4"/><path d="M14 17h2"/>',
-    sortDesc: '<path d="M8 19V5"/><path d="M5 16l3 3 3-3"/><path d="M14 7h2"/><path d="M14 12h4"/><path d="M14 17h6"/>',
-    sparkline: '<path d="M4 17l4-5 3 3 5-8 4 6"/><path d="M4 20h16"/>',
-    split: '<path d="M4 6h16"/><path d="M4 12h7"/><path d="M4 18h16"/><path d="M15 9l3 3-3 3"/>',
-    table: '<rect x="4" y="5" width="16" height="14" rx="1"/><path d="M4 10h16"/><path d="M9 5v14"/><path d="M15 5v14"/>',
-    text: '<path d="M4 6h16"/><path d="M12 6v14"/><path d="M8 20h8"/>',
-    textColor: '<path d="M6 19h12"/><path d="M9 15l3-10 3 10"/><path d="M10 12h4"/>',
-    transpose: '<path d="M5 5h7v7H5z"/><path d="M12 12h7v7h-7z"/><path d="M15 5h4v4"/><path d="M19 5l-6 6"/><path d="M9 19H5v-4"/><path d="M5 19l6-6"/>',
-    underline: '<path d="M7 5v6a5 5 0 0 0 10 0V5"/><path d="M5 21h14"/>',
-    undo: '<path d="M9 7H4v5"/><path d="M4 7c2.8-2.8 7.2-3 10.2-.4 3.1 2.7 3.2 7.4.3 10.2-2.1 2.1-5.2 2.7-7.8 1.5"/>',
-    zoom: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="M16 16l4 4"/><path d="M10.5 7v7"/><path d="M7 10.5h7"/>'
-  };
 
-  const getSheetCommandIcon = (label = "") => {
-    const text = String(label || "").trim().toLowerCase();
-    if (!text) {
-      return "";
-    }
-    if (text.includes("more")) return "chevronDown";
-    if (text.includes("axes") || text.includes("axis") || text.includes("axe")) return "axes";
-    if (text.includes("validation") || text.includes("invalid")) return "checkbox";
-    if (text.includes("conditional") || text.includes("conditionnel")) return "palette";
-    if (text.includes("style") || text.includes("couleur") || text.includes("color")) return "palette";
-    if (text === "undo") return "undo";
-    if (text === "redo") return "redo";
-    if (text.includes("refresh") || text.includes("actualiser")) return "refresh";
-    if (text.includes("paste")) return "paste";
-    if (text.includes("cut")) return "cut";
-    if (text.includes("copy")) return "copy";
-    if (text.includes("fill")) return "fill";
-    if (text === "b" || text.includes("bold")) return "bold";
-    if (text === "i" || text.includes("italic")) return "italic";
-    if (text === "u" || text.includes("underline")) return "underline";
-    if (text.includes("border")) return "border";
-    if (text.includes("left")) return text.includes("move") ? "chevronLeft" : "alignLeft";
-    if (text.includes("right")) return text.includes("move") ? "chevronRight" : "alignRight";
-    if (text.includes("center")) return "alignCenter";
-    if (text.includes("middle")) return "alignMiddle";
-    if (text.includes("top")) return "alignTop";
-    if (text.includes("bottom")) return "alignBottom";
-    if (text.includes("merge")) return "merge";
-    if (text.includes("croise") || text.includes("pivot")) return "pivot";
-    if (text.includes("table") || text.includes("tableau")) return "table";
-    if (text.includes("image")) return "image";
-    if (text.includes("shape") || text.includes("forms") || text.includes("forme")) return "shape";
-    if (text.includes("checkbox") || text.includes("case")) return "checkbox";
-    if (text.includes("number") || text === "123") return "number";
-    if (text.includes("text")) return "textColor";
-    if (text.includes("currency") || text === "eur") return "currency";
-    if (text.includes("percent") || text === "%") return "percent";
-    if (text.includes("date") || text.includes("calendar")) return "calendar";
-    if (text.includes("insert") || text.includes("new") || text === "+") return "insert";
-    if (text.includes("clear filter")) return "filterClear";
-    if (text.includes("duplicate") || text.includes("dedupe")) return "duplicate";
-    if (text.includes("delete") || text.includes("remove") || text.includes("clear") || text.includes("effacer")) return "eraser";
-    if (text.includes("area")) return "areaChart";
-    if (text.includes("pie") || text.includes("donut") || text.includes("secteur")) return "pieChart";
-    if (text.includes("line") || text.includes("courbe")) return "lineChart";
-    if (text.includes("bar")) return "barChart";
-    if (text.includes("chart") || text.includes("graph")) return "chart";
-    if (text.includes("slicer")) return "slicer";
-    if (text.includes("filter") || text.includes("filtre")) return "filter";
-    if (text.includes("z-a") || text.includes("desc") || text.includes("grand au plus petit")) return "sortDesc";
-    if (text.includes("a-z") || text.includes("asc") || text.includes("petit au plus grand")) return "sortAsc";
-    if (text.includes("sort") || text.includes("tri") || text.includes("trier")) return "sort";
-    if (text.includes("sum") || text.includes("avg") || text.includes("min") || text.includes("max") || text.includes("count") || text.includes("function") || text.includes("subtotal")) return "function";
-    if (text.includes("lookup") || text.includes("go to") || text.includes("find") || text.includes("search") || text.includes("recherche")) return "search";
-    if (text.includes("protect")) return "lock";
-    if (text.includes("print")) return "print";
-    if (text.includes("pdf")) return "pdf";
-    if (text.includes("xlsx") || text.includes("csv") || text.includes("import") || text.includes("export") || text.includes("download")) return text.includes("csv") ? "csv" : "fileSpreadsheet";
-    if (text.includes("zoom")) return "zoom";
-    if (text.includes("grid")) return "grid";
-    if (text.includes("freeze")) return "freeze";
-    if (text.includes("note")) return "note";
-    if (text.includes("sparkline")) return "sparkline";
-    if (text.includes("sheet")) return "sheet";
-    if (text.includes("name") || text.includes("nom")) return "text";
-    if (text.includes("trim") || text.includes("clean")) return "clean";
-    if (text.includes("split")) return "split";
-    if (text.includes("transpose")) return "transpose";
-    if (text.includes("rename") || text.includes("renommer")) return "rename";
-    if (text.includes("hide") || text.includes("unhide")) return "eyeOff";
-    if (text.includes("move")) return "move";
-    return "sheet";
-  };
+  const getSheetCommandIcon = getWorkspaceCommandIcon;
 
   const createSheetIconNode = (iconName = "", { className = "workspace-sheet-command-icon", label = "" } = {}) => {
-    const key = sheetIconSvg[iconName] ? iconName : getSheetCommandIcon(iconName || label);
-    const icon = document.createElement("span");
-    icon.className = className;
-    icon.setAttribute("aria-hidden", "true");
-    if (!sheetIconSvg[key]) {
-      icon.textContent = String(label || iconName || "").slice(0, 2).toUpperCase();
-      icon.classList.add("is-text-icon");
-      return icon;
-    }
-    icon.innerHTML = `<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">${sheetIconSvg[key]}</svg>`;
-    return icon;
+    return createWorkspaceIconNode(iconName || getSheetCommandIcon(label), { className, label });
   };
   ribbonOptionsButton.replaceChildren(
     createSheetIconNode("chevronDown", {
@@ -18650,47 +19816,27 @@ function renderSpreadsheetClonePreview(
     return button;
   };
   const makeToolbarSelect = (label = "", options = [], onChange = null, { value = "", control = "" } = {}) => {
-    const select = document.createElement("select");
-    select.className = "workspace-sheet-toolbar-select";
-    select.title = label;
-    if (control) {
-      select.dataset.toolbarControl = control;
-    }
-    options.forEach((option) => {
-      const entry = document.createElement("option");
-      entry.value = option.value;
-      entry.textContent = option.label;
-      select.appendChild(entry);
+    return createWorkspaceSelectElement({
+      className: "workspace-sheet-toolbar-select",
+      title: label,
+      options,
+      value,
+      dataset: { toolbarControl: control },
+      onChange: (nextValue) => {
+        onChange?.(nextValue);
+      }
     });
-    if (value && !Array.from(select.options).some((option) => option.value === value)) {
-      const entry = document.createElement("option");
-      entry.value = value;
-      entry.textContent = value;
-      select.appendChild(entry);
-    }
-    select.value = value;
-    select.addEventListener("change", () => {
-      onChange?.(select.value);
-    });
-    return select;
   };
-  const themeColorRows = [
-    ["#ffffff", "#000000", "#e7e6e6", "#44546a", "#4472c4", "#ed7d31", "#a5a5a5", "#ffc000", "#5b9bd5", "#70ad47"],
-    ["#f2f2f2", "#7f7f7f", "#d9d9d9", "#d6dce4", "#d9e2f3", "#fce4d6", "#ededed", "#fff2cc", "#ddebf7", "#e2f0d9"],
-    ["#d9d9d9", "#595959", "#bfbfbf", "#adb9ca", "#b4c6e7", "#f8cbad", "#dbdbdb", "#ffe699", "#bdd7ee", "#c6e0b4"],
-    ["#bfbfbf", "#404040", "#a6a6a6", "#8497b0", "#8eaadb", "#f4b183", "#c9c9c9", "#ffd966", "#9dc3e6", "#a9d18e"],
-    ["#a6a6a6", "#262626", "#808080", "#323e4f", "#2f5597", "#c55a11", "#7f7f7f", "#bf9000", "#2e75b6", "#548235"],
-    ["#808080", "#0d0d0d", "#595959", "#222a35", "#1f3864", "#833c0c", "#595959", "#7f6000", "#1f4e79", "#375623"]
-  ];
-  const standardColors = ["#c00000", "#ff0000", "#ffc000", "#ffff00", "#92d050", "#00b050", "#00b0f0", "#0070c0", "#002060", "#7030a0"];
+  const themeColorRows = WORKSPACE_THEME_COLOR_ROWS;
+  const standardColors = WORKSPACE_STANDARD_COLORS;
   const getActiveTextColorValue = () => getCellFormat(activeSelection.rowIndex, activeSelection.columnIndex).textColor || "#202124";
   const getActiveFillColorValue = () => getCellFormat(activeSelection.rowIndex, activeSelection.columnIndex).fillColor || "";
   const applyToolbarColor = (kind = "text", color = "") => {
     if (kind === "fill") {
-      setSelectedFillColor(color);
+      executeSheetWorkspaceCommand("fillColor", { value: color });
       return;
     }
-    setSelectedTextColor(color);
+    executeSheetWorkspaceCommand("textColor", { value: color });
   };
   const getToolbarColorValue = (kind = "text") =>
     kind === "fill" ? getActiveFillColorValue() : getActiveTextColorValue();
@@ -18765,29 +19911,22 @@ function renderSpreadsheetClonePreview(
     openNativeColorPicker(kind, initialColor);
   };
   const makeColorSwatchButton = (color = "", kind = "text") => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "workspace-sheet-color-swatch";
-    button.title = color;
-    button.style.background = color;
-    button.addEventListener("click", () => {
-      applyToolbarColor(kind, color);
-      closeSheetMenu();
+    return createWorkspaceColorSwatchButton(color, {
+      className: "workspace-sheet-color-swatch",
+      onSelect: (item) => {
+        applyToolbarColor(kind, item.value || "");
+        closeSheetMenu();
+      }
     });
-    return button;
   };
   const makeColorPaletteAction = (label = "", icon = "", onSelect = null) => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "workspace-sheet-color-action";
-    const iconNode = document.createElement("span");
-    iconNode.className = "workspace-sheet-color-action-icon";
-    iconNode.textContent = icon;
-    const labelNode = document.createElement("span");
-    labelNode.textContent = label;
-    button.append(iconNode, labelNode);
-    button.addEventListener("click", () => onSelect?.());
-    return button;
+    return createWorkspacePaletteActionButton({
+      label,
+      icon,
+      className: "workspace-sheet-color-action",
+      iconClassName: "workspace-sheet-color-action-icon",
+      onSelect: () => onSelect?.()
+    });
   };
   const openColorPaletteMenu = (kind = "text", anchorElement = null) => {
     if (!anchorElement) {
@@ -18830,23 +19969,15 @@ function renderSpreadsheetClonePreview(
     sheetMenuPanel.append(title, themeGrid, standardTitle, standardGrid, clearAction, customAction, eyedropperAction);
 
     sheetMenuPanel.hidden = false;
-    const panelWidth = Math.max(300, sheetMenuPanel.offsetWidth || 300);
-    const panelHeight = Math.max(280, sheetMenuPanel.offsetHeight || 360);
-    const buttonRect = anchorElement.getBoundingClientRect();
-    const preferredLeft = buttonRect.left;
-    const preferredTop = buttonRect.bottom + 4;
-    const left = Math.max(8, Math.min(preferredLeft, window.innerWidth - panelWidth - 8));
-    const top = Math.max(8, Math.min(preferredTop, window.innerHeight - panelHeight - 8));
-    sheetMenuPanel.style.left = `${left}px`;
-    sheetMenuPanel.style.top = `${top}px`;
-    sheetMenuPanel.style.maxHeight = `${Math.max(160, window.innerHeight - top - 8)}px`;
-    removeSheetMenuOutsidePointerHandler();
-    sheetMenuOutsidePointerHandler = (event) => {
-      if (!sheetMenuPanel.contains(event.target) && !anchorElement.contains(event.target)) {
-        closeSheetMenu();
-      }
-    };
-    installSheetMenuOutsidePointerHandler();
+    placeWorkspaceFloatingPanel(sheetMenuPanel, {
+      anchorElement,
+      minWidth: 300,
+      fallbackWidth: 300,
+      minHeight: 280,
+      fallbackHeight: 360,
+      minMaxHeight: 160
+    });
+    bindSheetMenuOutsideClose(anchorElement);
     return true;
   };
   const makeToolbarColorButton = (label = "", kind = "text") => {
@@ -18875,13 +20006,7 @@ function renderSpreadsheetClonePreview(
   };
   const buildFontSizeOptions = () => {
     const activeFontSize = getActiveSelectionFontSizeValue();
-    const fontSizes = ["8", "9", "10", "11", "12", "14", "16", "18", "24", "36"];
-    if (!fontSizes.includes(activeFontSize)) {
-      fontSizes.push(activeFontSize);
-    }
-    return fontSizes
-      .sort((left, right) => Number(left) - Number(right))
-      .map((fontSize) => ({ value: fontSize, label: fontSize }));
+    return createWorkspaceSheetFontSizeOptions(activeFontSize);
   };
   const syncToolbarFormatControls = () => {
     const fontSizeSelect = toolbar.querySelector('[data-toolbar-control="font-size"]');
@@ -19020,71 +20145,60 @@ function renderSpreadsheetClonePreview(
       button.setAttribute("aria-pressed", isActive ? "true" : "false");
     });
   };
-  const buildBorderStyleMenuItems = () =>
-    Object.entries(SPREADSHEET_BORDER_STYLE_LABELS).map(([style, label]) => ({
-      label,
-      icon: "border",
-      onSelect: () => setSelectedBorderStyle(style)
-    }));
-  const buildBorderColorMenuItems = () => [
-    { label: "Noir", icon: "border", onSelect: () => setSelectedBorderColor("#202124") },
-    { label: "Gris", icon: "border", onSelect: () => setSelectedBorderColor("#7f7f7f") },
-    { label: "Bleu", icon: "border", onSelect: () => setSelectedBorderColor("#1a73e8") },
-    { label: "Vert", icon: "border", onSelect: () => setSelectedBorderColor("#188038") },
-    { label: "Rouge", icon: "border", onSelect: () => setSelectedBorderColor("#c5221f") },
-    { label: "Orange", icon: "border", onSelect: () => setSelectedBorderColor("#ed7d31") }
-  ];
-  const buildBorderMenuItems = () => [
-    { label: "Aucune bordure", icon: "eraser", onSelect: () => setSelectedBorder("clear") },
-    { label: "Toutes les bordures", icon: "border", onSelect: () => setSelectedBorder("all") },
-    { label: "Bordures exterieures", icon: "border", onSelect: () => setSelectedBorder("outer") },
-    { label: "Bordures interieures", icon: "border", onSelect: () => setSelectedBorder("inside") },
-    { separator: true },
-    { label: "Bordure superieure", icon: "border", onSelect: () => setSelectedBorder("top") },
-    { label: "Bordure inferieure", icon: "border", onSelect: () => setSelectedBorder("bottom") },
-    { label: "Bordure gauche", icon: "border", onSelect: () => setSelectedBorder("left") },
-    { label: "Bordure droite", icon: "border", onSelect: () => setSelectedBorder("right") },
-    { label: "Bordures horizontales interieures", icon: "border", onSelect: () => setSelectedBorder("insideHorizontal") },
-    { label: "Bordures verticales interieures", icon: "border", onSelect: () => setSelectedBorder("insideVertical") },
-    { separator: true },
-    { label: "Bordure exterieure epaisse", icon: "border", onSelect: () => setSelectedBorder("outer", { style: "thick" }) },
-    { label: "Bordure inferieure double", icon: "border", onSelect: () => setSelectedBorder("bottom", { style: "double" }) },
-    { separator: true },
-    ...buildBorderColorMenuItems(),
-    { separator: true },
-    ...buildBorderStyleMenuItems()
-  ];
-  const buildConditionalFormatMenuItems = () => [
-    { label: "Nouvelle regle...", icon: "palette", onSelect: () => openConditionalFormatRuleDialog() },
-    { separator: true },
-    { label: "Superieur a...", icon: "sortAsc", onSelect: () => addConditionalFormatRuleToSelection("greaterThan", { preset: "red" }) },
-    { label: "Inferieur a...", icon: "sortDesc", onSelect: () => addConditionalFormatRuleToSelection("lessThan", { preset: "red" }) },
-    { label: "Entre...", icon: "number", onSelect: () => addConditionalFormatRuleToSelection("between", { preset: "yellow" }) },
-    { label: "Egal a...", icon: "checkbox", onSelect: () => addConditionalFormatRuleToSelection("equal", { preset: "green" }) },
-    { label: "Texte qui contient...", icon: "text", onSelect: () => addConditionalFormatRuleToSelection("textContains", { preset: "yellow" }) },
-    { label: "Valeurs en double", icon: "duplicate", onSelect: () => addConditionalFormatRuleToSelection("duplicate", { preset: "red" }) },
-    { separator: true },
-    { label: "Effacer les regles de la selection", icon: "eraser", onSelect: clearSelectedConditionalFormats },
-    { label: "Gerer les regles", icon: "palette", onSelect: showConditionalFormatSummary }
-  ];
-  const buildNumberFormatMenuItems = () => [
-    { label: "Number", onSelect: () => setSelectedRangeFormat("number") },
-    { label: "Currency", onSelect: () => setSelectedRangeFormat("currency") },
-    { label: "Percent", onSelect: () => setSelectedRangeFormat("percent") },
-    { label: "Date", onSelect: () => setSelectedRangeFormat("date") },
-    { separator: true },
-    { label: "Clear number format", onSelect: () => setSelectedRangeFormat("") }
-  ];
-  const buildInsertMenuItems = () => [
-    { label: "Row above", onSelect: () => insertRowAtSelection(0) },
-    { label: "Row below", onSelect: () => insertRowAtSelection(1) },
-    { label: "Column left", onSelect: () => insertColumnAtSelection(0) },
-    { label: "Column right", onSelect: () => insertColumnAtSelection(1) }
-  ];
-  const buildDeleteMenuItems = () => [
-    { label: "Delete row", onSelect: deleteActiveRow },
-    { label: "Delete column", onSelect: deleteActiveColumn }
-  ];
+  const sheetBorderActions = {
+    border: (item) => setSelectedBorder(item.value, item.options || {}),
+    borderColor: (item) => setSelectedBorderColor(item.value),
+    borderStyle: (item) => setSelectedBorderStyle(item.value)
+  };
+  const buildBorderMenuItems = () =>
+    bindWorkspaceMenuActions(
+      createWorkspaceBorderMenuItems({
+        includeColorItems: true,
+        includeStyleItems: true,
+        styleLabels: SPREADSHEET_BORDER_STYLE_LABELS
+      }),
+      sheetBorderActions
+    );
+  const sheetConditionalFormatActions = {
+    conditionalNew: () => openConditionalFormatRuleDialog(),
+    conditionalPreset: (item) => addConditionalFormatRuleToSelection(item.value, item.options || {}),
+    conditionalClearSelection: clearSelectedConditionalFormats,
+    conditionalManage: showConditionalFormatSummary
+  };
+  const buildConditionalFormatMenuItems = () =>
+    bindWorkspaceMenuActions(createWorkspaceConditionalFormatMenuItems(), sheetConditionalFormatActions);
+  const sheetTextStyleActions = {
+    bold: createSheetCommandAction("bold"),
+    italic: createSheetCommandAction("italic"),
+    underline: createSheetCommandAction("underline")
+  };
+  const sheetNumberFormatActions = {
+    number: () => setSelectedRangeFormat("number"),
+    currency: () => setSelectedRangeFormat("currency"),
+    percent: () => setSelectedRangeFormat("percent"),
+    date: () => setSelectedRangeFormat("date"),
+    clearNumberFormat: () => setSelectedRangeFormat("")
+  };
+  const buildNumberFormatMenuItems = () =>
+    bindWorkspaceMenuActions(createWorkspaceNumberFormatMenuItems(), sheetNumberFormatActions);
+  const sheetInsertActions = {
+    insertRowAbove: () => insertRowAtSelection(0),
+    insertRowBelow: () => insertRowAtSelection(1),
+    insertColumnLeft: () => insertColumnAtSelection(0),
+    insertColumnRight: () => insertColumnAtSelection(1)
+  };
+  const buildInsertMenuItems = (options = {}) =>
+    bindWorkspaceMenuActions(createWorkspaceInsertMenuItems(options), sheetInsertActions);
+  const buildInsertRowMenuItems = () =>
+    buildInsertMenuItems().filter((item) => ["insertRowAbove", "insertRowBelow"].includes(item.commandId));
+  const buildInsertColumnMenuItems = () =>
+    buildInsertMenuItems().filter((item) => ["insertColumnLeft", "insertColumnRight"].includes(item.commandId));
+  const sheetDeleteActions = {
+    deleteRow: deleteActiveRow,
+    deleteColumn: deleteActiveColumn
+  };
+  const buildDeleteMenuItems = (options = {}) =>
+    bindWorkspaceMenuActions(createWorkspaceDeleteMenuItems(options), sheetDeleteActions);
   const buildMergeMenuItems = () => [
     { label: "Merge cells", onSelect: mergeSelectionRange },
     { label: "Unmerge cells", onSelect: unmergeSelectionRange }
@@ -19108,29 +20222,36 @@ function renderSpreadsheetClonePreview(
     { separator: true },
     { label: "Clear contents", icon: "eraser", onSelect: clearSelectedCells }
   ];
-  const buildHorizontalAlignmentMenuItems = () => [
-    { label: "Left", icon: "alignLeft", onSelect: () => setSelectedHorizontalAlign("left") },
-    { label: "Center", icon: "alignCenter", onSelect: () => setSelectedHorizontalAlign("center") },
-    { label: "Right", icon: "alignRight", onSelect: () => setSelectedHorizontalAlign("right") }
-  ];
-  const buildVerticalAlignmentMenuItems = () => [
-    { label: "Top", icon: "alignTop", onSelect: () => setSelectedVerticalAlign("top") },
-    { label: "Middle", icon: "alignMiddle", onSelect: () => setSelectedVerticalAlign("middle") },
-    { label: "Bottom", icon: "alignBottom", onSelect: () => setSelectedVerticalAlign("bottom") }
-  ];
-  const buildHomeCellsMenuItems = () => [
-    ...buildInsertMenuItems(),
-    { separator: true },
-    ...buildDeleteMenuItems(),
-    { separator: true },
-    { label: "Clear contents", icon: "eraser", onSelect: clearSelectedCells },
-    { label: "Clear format", icon: "eraser", onSelect: clearSelectedFormatting }
-  ];
-  const buildHomeEditingMenuItems = () => [
-    ...buildFindMenuItems(),
-    { separator: true },
-    { label: "Note", icon: "note", onSelect: addOrEditActiveCellNote }
-  ];
+  const buildHorizontalAlignmentMenuItems = () =>
+    bindWorkspaceMenuActions(createWorkspaceAlignmentMenuItems(WORKSPACE_HORIZONTAL_ALIGNMENT_OPTIONS), {
+      alignLeft: createSheetCommandAction("alignLeft"),
+      alignCenter: createSheetCommandAction("alignCenter"),
+      alignRight: createSheetCommandAction("alignRight")
+    });
+  const buildVerticalAlignmentMenuItems = () =>
+    bindWorkspaceMenuActions(createWorkspaceAlignmentMenuItems(WORKSPACE_VERTICAL_ALIGNMENT_OPTIONS), {
+      alignTop: createSheetCommandAction("alignTop"),
+      alignMiddle: createSheetCommandAction("alignMiddle"),
+      alignBottom: createSheetCommandAction("alignBottom")
+    });
+  const buildHomeCellsMenuItems = () =>
+    bindWorkspaceMenuActions(createWorkspaceHomeCellsMenuItems(), {
+      ...sheetInsertActions,
+      ...sheetDeleteActions,
+      clearContents: clearSelectedCells,
+      clearFormatting: createSheetCommandAction("clearFormatting")
+    });
+  const buildHomeEditingMenuItems = () =>
+    bindWorkspaceMenuActions(createWorkspaceHomeEditingMenuItems(), {
+      find: () => openFindReplaceBar(),
+      replace: () => openFindReplaceBar({ showReplace: true }),
+      goToA1: () => focusKeyboardSelection(0, 0),
+      goToLastCell: () => {
+        const lastUsedCell = getLastUsedCell();
+        focusKeyboardSelection(lastUsedCell.rowIndex, lastUsedCell.columnIndex);
+      },
+      note: addOrEditActiveCellNote
+    });
   const getFormulaCategory = (categoryId = "all") =>
     SPREADSHEET_FORMULA_CATEGORIES.find((category) => category.id === categoryId) ||
     SPREADSHEET_FORMULA_CATEGORIES[0];
@@ -19369,61 +20490,72 @@ function renderSpreadsheetClonePreview(
     renderFormulaChoices();
     window.setTimeout(() => searchInput.focus(), 0);
   };
-  const buildSortFilterMenuItems = () => [
-    { label: "Trier A-Z", icon: "sortAsc", onSelect: () => sortActiveColumn("asc") },
-    { label: "Trier Z-A", icon: "sortDesc", onSelect: () => sortActiveColumn("desc") },
-    { separator: true },
-    { label: "Creer un filtre", icon: "filter", onSelect: filterActiveColumn },
-    { label: "Filtrer par valeur selectionnee", icon: "filter", onSelect: filterBySelectedValue },
-    { label: "Effacer le filtre", icon: "filterClear", onSelect: clearActiveFilter }
-  ];
-  const buildFilterMenuItems = () => [
-    { label: "Creer un filtre", icon: "filter", onSelect: filterActiveColumn },
-    { label: "Filtrer par valeur selectionnee", icon: "filter", onSelect: filterBySelectedValue },
-    { label: "Effacer le filtre", icon: "filterClear", onSelect: clearActiveFilter }
-  ];
-  const buildValidationMenuItems = () => [
-    { label: "Validation des donnees", icon: "checkbox", onSelect: addOrEditSelectedDataValidation },
-    { label: "Effacer la validation", icon: "eraser", onSelect: clearSelectedDataValidation },
-    { label: "Entourer les donnees invalides", icon: "checkbox", onSelect: showInvalidDataSummary }
-  ];
-  const buildCleanupMenuItems = () => [
-    { label: "Supprimer les doublons", icon: "duplicate", onSelect: removeDuplicateRows },
-    { label: "Supprimer les espaces", icon: "clean", onSelect: trimSelectedWhitespace },
-    { label: "Nettoyer le texte", icon: "clean", onSelect: cleanSelectedText },
-    { label: "Fractionner le texte en colonnes", icon: "split", onSelect: splitTextToColumns },
-    { label: "Transposer la plage", icon: "transpose", onSelect: transposeSelectionRange }
-  ];
-  const buildDataToolsMenuItems = () => [
-    { label: "Fractionner le texte en colonnes", icon: "split", onSelect: splitTextToColumns },
-    { label: "Supprimer les doublons", icon: "duplicate", onSelect: removeDuplicateRows },
-    { separator: true },
-    { label: "Supprimer les espaces", icon: "clean", onSelect: trimSelectedWhitespace },
-    { label: "Nettoyer le texte", icon: "clean", onSelect: cleanSelectedText },
-    { label: "Transposer la plage", icon: "transpose", onSelect: transposeSelectionRange }
-  ];
-  const buildDataRefreshMenuItems = () => [
-    { label: "Actualiser les tableaux croises", icon: "pivot", onSelect: refreshActivePivotTables, disabled: !getActiveSheetPivotTables().length },
-    { label: "Recalculer les formules", icon: "function", onSelect: recalculateSheet }
-  ];
-  const buildActiveTableDataMenuItems = () => [
-    { label: "Selectionner le tableau", icon: "table", onSelect: () => selectActiveTableRange(), disabled: !getActiveTableForSelection() },
-    { label: "Selectionner les donnees", icon: "table", onSelect: () => selectActiveTableRange({ dataOnly: true }), disabled: !getActiveTableForSelection() },
-    { separator: true },
-    { label: "Renommer le tableau", icon: "rename", onSelect: renameActiveTable, disabled: !getActiveTableForSelection() },
-    { label: "Redimensionner le tableau", icon: "move", onSelect: resizeActiveTable, disabled: !getActiveTableForSelection() },
-    { label: "Convertir en plage", icon: "table", onSelect: removeActiveTable, disabled: !getActiveTableForSelection() },
-    { separator: true },
-    { label: "Ligne des totaux", icon: "function", onSelect: toggleActiveTableTotalRow, disabled: !getActiveTableForSelection() },
-    { label: "Total: somme", icon: "function", onSelect: () => setActiveTableTotalFunction("sum"), disabled: !getActiveTableForSelection() },
-    { label: "Total: moyenne", icon: "function", onSelect: () => setActiveTableTotalFunction("average"), disabled: !getActiveTableForSelection() },
-    { label: "Total: nombre", icon: "function", onSelect: () => setActiveTableTotalFunction("count"), disabled: !getActiveTableForSelection() },
-    { separator: true },
-    { label: "Ligne d'en-tete", icon: "table", onSelect: toggleActiveTableHeaderRow, disabled: !getActiveTableForSelection() },
-    { label: "Boutons de filtre", icon: "filter", onSelect: toggleActiveTableFilterButtons, disabled: !getActiveTableForSelection() },
-    { label: "Lignes a bandes", icon: "table", onSelect: toggleActiveTableBandedRows, disabled: !getActiveTableForSelection() },
-    { label: "Colonnes a bandes", icon: "table", onSelect: toggleActiveTableBandedColumns, disabled: !getActiveTableForSelection() }
-  ];
+  const sheetSortActions = {
+    sortAscending: () => sortActiveColumn("asc"),
+    sortDescending: () => sortActiveColumn("desc")
+  };
+  const sheetFilterActions = {
+    filterCreate: filterActiveColumn,
+    filterBySelection: filterBySelectedValue,
+    filterClear: clearActiveFilter
+  };
+  const buildSortFilterMenuItems = () =>
+    bindWorkspaceMenuActions(createWorkspaceSortFilterMenuItems(), {
+      ...sheetSortActions,
+      ...sheetFilterActions
+    });
+  const buildFilterMenuItems = () =>
+    bindWorkspaceMenuActions(createWorkspaceFilterMenuItems(), sheetFilterActions);
+  const sheetValidationActions = {
+    dataValidation: addOrEditSelectedDataValidation,
+    dataValidationClear: clearSelectedDataValidation,
+    dataValidationInvalidSummary: showInvalidDataSummary
+  };
+  const buildValidationMenuItems = () =>
+    bindWorkspaceMenuActions(createWorkspaceValidationMenuItems(), sheetValidationActions);
+  const sheetDataCleanupActions = {
+    splitTextToColumns,
+    removeDuplicates: removeDuplicateRows,
+    trimWhitespace: trimSelectedWhitespace,
+    cleanText: cleanSelectedText,
+    transposeRange: transposeSelectionRange
+  };
+  const buildDataToolsMenuItems = () =>
+    bindWorkspaceMenuActions(createWorkspaceDataCleanupMenuItems({ toolbar: true }), sheetDataCleanupActions);
+  const sheetDataRefreshActions = {
+    refreshPivotTables: refreshActivePivotTables,
+    recalculate: recalculateSheet
+  };
+  const buildDataRefreshMenuItems = () =>
+    bindWorkspaceMenuActions(
+      createWorkspaceDataRefreshMenuItems({ hasPivotTables: Boolean(getActiveSheetPivotTables().length) }),
+      sheetDataRefreshActions
+    );
+  const sheetTableActions = {
+    selectTable: () => selectActiveTableRange(),
+    selectTableData: () => selectActiveTableRange({ dataOnly: true }),
+    renameTable: renameActiveTable,
+    resizeTable: resizeActiveTable,
+    convertTableToRange: removeActiveTable,
+    toggleTableRange: () => (getActiveTableForSelection() ? removeActiveTable() : createTableFromSelection()),
+    toggleTableTotalRow: toggleActiveTableTotalRow,
+    tableTotalSum: () => setActiveTableTotalFunction("sum"),
+    tableTotalAverage: () => setActiveTableTotalFunction("average"),
+    tableTotalCount: () => setActiveTableTotalFunction("count"),
+    tableTotalNone: () => setActiveTableTotalFunction("none"),
+    toggleTableHeaderRow: toggleActiveTableHeaderRow,
+    toggleTableFilterButtons: toggleActiveTableFilterButtons,
+    toggleTableBandedRows: toggleActiveTableBandedRows,
+    toggleTableBandedColumns: toggleActiveTableBandedColumns,
+    toggleTableFirstColumn: toggleActiveTableFirstColumn,
+    toggleTableLastColumn: toggleActiveTableLastColumn,
+    createPivotTable: createPivotTableFromSelection
+  };
+  const buildActiveTableDataMenuItems = () =>
+    bindWorkspaceMenuActions(
+      createWorkspaceActiveTableMenuItems({ hasTable: Boolean(getActiveTableForSelection()) }),
+      sheetTableActions
+    );
   const buildProtectionMenuItems = () => {
     const activeSheetState = getActiveSheetState();
     const selectionHasProtectedRanges = Boolean(getProtectionConflict(getSelectionBounds())?.ranges?.length);
@@ -19663,14 +20795,8 @@ function renderSpreadsheetClonePreview(
         toolbar.append(
           makeToolbarGroup(
             "Cells",
-            makeToolbarMenuButton("Insert row", () => [
-              { label: "Row above", onSelect: () => insertRowAtSelection(0) },
-              { label: "Row below", onSelect: () => insertRowAtSelection(1) }
-            ], { large: true }),
-            makeToolbarMenuButton("Insert column", () => [
-              { label: "Column left", onSelect: () => insertColumnAtSelection(0) },
-              { label: "Column right", onSelect: () => insertColumnAtSelection(1) }
-            ], { large: true }),
+            makeToolbarMenuButton("Insert row", buildInsertRowMenuItems, { large: true }),
+            makeToolbarMenuButton("Insert column", buildInsertColumnMenuItems, { large: true }),
             makeToolbarButton("Tableau", createTableFromSelection),
             makeToolbarButton("New sheet", () => createSheetFromActive())
           ),
@@ -19830,7 +20956,7 @@ function renderSpreadsheetClonePreview(
           makeToolbarGroup(
             "Protection",
             makeToolbarMenuButton("Protect", buildProtectionMenuItems, { large: true }),
-            makeToolbarButton("Clear format", clearSelectedFormatting)
+            makeToolbarButton(getWorkspaceCommandLabel("clearFormatting"), () => executeSheetWorkspaceCommand("clearFormatting"))
           ),
           makeToolbarGroup(
             "Sheet review",
@@ -19976,15 +21102,15 @@ function renderSpreadsheetClonePreview(
         toolbar.append(
           makeToolbarGroup(
             "Clipboard",
-            makeToolbarButton("Paste", () => pasteFromClipboard(), true, { large: true }),
+            makeToolbarButton(getWorkspaceCommandLabel("paste"), () => pasteFromClipboard(), true, { large: true }),
             makeToolbarStack(
               makeToolbarRow(
-                makeToolbarButton("Undo", undoSpreadsheetAction),
-                makeToolbarButton("Redo", redoSpreadsheetAction)
+                makeToolbarButton(getWorkspaceCommandLabel("undo"), undoSpreadsheetAction),
+                makeToolbarButton(getWorkspaceCommandLabel("redo"), redoSpreadsheetAction)
               ),
               makeToolbarRow(
-                makeToolbarButton("Cut", () => cutSelectedCells()),
-                makeToolbarButton("Copy", () => copySelectedCells())
+                makeToolbarButton(getWorkspaceCommandLabel("cut"), () => cutSelectedCells()),
+                makeToolbarButton(getWorkspaceCommandLabel("copy"), () => copySelectedCells())
               )
             ),
             makeToolbarMenuButton("Fill", buildFillMenuItems)
@@ -19993,23 +21119,29 @@ function renderSpreadsheetClonePreview(
             "Font",
             makeToolbarStack(
               makeToolbarRow(
-                makeToolbarButton("B", () => toggleSelectedTextStyle("bold")),
-                makeToolbarButton("I", () => toggleSelectedTextStyle("italic")),
-                makeToolbarButton("U", () => toggleSelectedTextStyle("underline"))
+                makeToolbarButton(getWorkspaceCommandLabel("bold", "en", "B").slice(0, 1), () => executeSheetWorkspaceCommand("bold"), false, {
+                  title: getWorkspaceCommandLabel("bold")
+                }),
+                makeToolbarButton(getWorkspaceCommandLabel("italic", "en", "I").slice(0, 1), () => executeSheetWorkspaceCommand("italic"), false, {
+                  title: getWorkspaceCommandLabel("italic")
+                }),
+                makeToolbarButton(getWorkspaceCommandLabel("underline", "en", "U").slice(0, 1), () => executeSheetWorkspaceCommand("underline"), false, {
+                  title: getWorkspaceCommandLabel("underline")
+                })
               ),
               makeToolbarRow(
                 makeToolbarSelect(
-                  "Font size",
+                  getWorkspaceCommandLabel("fontSize"),
                   buildFontSizeOptions(),
-                  (value) => value && setSelectedFontSize(Number(value)),
+                  (value) => executeSheetWorkspaceCommand("fontSize", { value }),
                   { value: getActiveSelectionFontSizeValue(), control: "font-size" }
                 ),
-                makeToolbarColorButton("Text color", "text"),
-                makeToolbarColorButton("Fill color", "fill")
+                makeToolbarColorButton(getWorkspaceCommandLabel("textColor"), "text"),
+                makeToolbarColorButton(getWorkspaceCommandLabel("fillColor"), "fill")
               )
             ),
             makeToolbarStack(
-              makeToolbarMenuButton("Borders", buildBorderMenuItems),
+              makeToolbarMenuButton(getWorkspaceCommandLabel("borders"), buildBorderMenuItems),
               makeToolbarMenuButton("Conditionnel", buildConditionalFormatMenuItems)
             )
           ),
@@ -20023,9 +21155,9 @@ function renderSpreadsheetClonePreview(
             "Number",
             makeToolbarStack(
               makeToolbarRow(
-                makeToolbarMenuButton("Formats", buildNumberFormatMenuItems, { icon: "number" }),
-                makeToolbarButton("EUR", () => setSelectedRangeFormat("currency")),
-                makeToolbarButton("%", () => setSelectedRangeFormat("percent"))
+                makeToolbarMenuButton(getWorkspaceCommandLabel("numberFormat"), buildNumberFormatMenuItems, { icon: "number" }),
+                makeToolbarButton("EUR", () => setSelectedRangeFormat("currency"), false, { title: getWorkspaceCommandLabel("currency") }),
+                makeToolbarButton("%", () => setSelectedRangeFormat("percent"), false, { title: getWorkspaceCommandLabel("percent") })
               ),
               makeToolbarRow(
                 makeToolbarButton("Date", () => setSelectedRangeFormat("date"))
@@ -20313,193 +21445,44 @@ function renderSpreadsheetClonePreview(
   const contextMenu = document.createElement("div");
   contextMenu.className = "workspace-sheet-context-menu";
   contextMenu.hidden = true;
-  ["mousedown", "pointerdown", "click", "contextmenu"].forEach((eventName) => {
-    contextMenu.addEventListener(eventName, (event) => {
-      event.stopPropagation();
-      if (eventName === "contextmenu") {
-        event.preventDefault();
-      }
-    });
-  });
+  contextMenu.setAttribute("role", "menu");
+  installWorkspaceMenuEventBlockers(contextMenu);
   gridContent.append(table, chartLayer);
   gridShell.append(gridContent, clipboardOutline, selectionMoveFrame, fillHandle);
 
-  let contextOutsidePointerHandler = null;
-  let contextKeydownHandler = null;
-  let contextViewportHandler = null;
-
-  const getContextSubmenuItems = (item = {}) =>
-    Array.isArray(item.items) ? item.items : Array.isArray(item.submenu) ? item.submenu : [];
-
-  const normalizeContextMenuItems = (items = []) => {
-    const normalized = [];
-    items.forEach((item) => {
-      if (!item) {
-        return;
-      }
-      if (item.separator) {
-        if (normalized.length && !normalized[normalized.length - 1].separator) {
-          normalized.push({ separator: true });
-        }
-        return;
-      }
-      const submenuItems = normalizeContextMenuItems(getContextSubmenuItems(item));
-      normalized.push(submenuItems.length ? { ...item, items: submenuItems } : { ...item });
-    });
-    while (normalized.length && normalized[normalized.length - 1].separator) {
-      normalized.pop();
-    }
-    return normalized;
-  };
-
-  const teardownContextMenuListeners = () => {
-    if (contextOutsidePointerHandler) {
-      document.removeEventListener("pointerdown", contextOutsidePointerHandler, true);
-      document.removeEventListener("mousedown", contextOutsidePointerHandler, true);
-      document.removeEventListener("contextmenu", contextOutsidePointerHandler, true);
-      contextOutsidePointerHandler = null;
-    }
-    if (contextKeydownHandler) {
-      document.removeEventListener("keydown", contextKeydownHandler);
-      contextKeydownHandler = null;
-    }
-    if (contextViewportHandler) {
-      window.removeEventListener("scroll", contextViewportHandler, true);
-      window.removeEventListener("resize", contextViewportHandler);
-      contextViewportHandler = null;
-    }
-  };
+  let contextMenuApi = null;
 
   const closeContextMenu = () => {
-    teardownContextMenuListeners();
-    contextMenu.hidden = true;
-    contextMenu.innerHTML = "";
-    contextMenu.classList.remove("opens-left");
-    if (contextMenu.isConnected) {
-      contextMenu.remove();
-    }
-  };
-
-  const placeContextMenu = (clientX = 0, clientY = 0) => {
-    const margin = 8;
-    let left = Math.max(margin, clientX);
-    let top = Math.max(margin, clientY);
-    contextMenu.style.left = `${left}px`;
-    contextMenu.style.top = `${top}px`;
-    contextMenu.classList.remove("opens-left");
-
-    let rect = contextMenu.getBoundingClientRect();
-    if (rect.right > window.innerWidth - margin) {
-      left -= rect.right - (window.innerWidth - margin);
-    }
-    if (rect.bottom > window.innerHeight - margin) {
-      top -= rect.bottom - (window.innerHeight - margin);
-    }
-    left = Math.max(margin, left);
-    top = Math.max(margin, top);
-    contextMenu.style.left = `${left}px`;
-    contextMenu.style.top = `${top}px`;
-
-    rect = contextMenu.getBoundingClientRect();
-    contextMenu.classList.toggle("opens-left", rect.right + 540 > window.innerWidth - margin && rect.left > 540);
-  };
-
-  const placeContextSubmenu = (row = null) => {
-    if (!row?.classList?.contains("is-open")) {
-      return;
-    }
-    const submenu = row.querySelector(":scope > .workspace-sheet-context-submenu");
-    if (!submenu) {
-      return;
-    }
-
-    const margin = 8;
-    const menuGap = 6;
-    submenu.style.left = "";
-    submenu.style.right = "auto";
-    submenu.style.top = "";
-    submenu.style.maxHeight = `${Math.max(120, window.innerHeight - (margin * 2))}px`;
-
-    const rowRect = row.getBoundingClientRect();
-    const hostRect = (row.parentElement || contextMenu).getBoundingClientRect();
-    const submenuRect = submenu.getBoundingClientRect();
-    const availableHeight = Math.max(120, window.innerHeight - margin * 2);
-    const submenuHeight = Math.min(submenu.scrollHeight || submenuRect.height || availableHeight, availableHeight);
-    const submenuWidth = Math.min(
-      Math.max(submenu.scrollWidth || 0, submenu.offsetWidth || 0, submenuRect.width || 0, 268),
-      window.innerWidth - margin * 2
-    );
-
-    const rootPrefersLeft = contextMenu.classList.contains("opens-left");
-    const canOpenRight = hostRect.right + submenuWidth + menuGap <= window.innerWidth - margin;
-    const canOpenLeft = hostRect.left - submenuWidth - menuGap >= margin;
-    const opensLeft = rootPrefersLeft ? canOpenLeft || !canOpenRight : !canOpenRight && canOpenLeft;
-    const preferredLeft = opensLeft
-      ? hostRect.left - submenuWidth - menuGap
-      : hostRect.right + menuGap;
-    const viewportLeft = Math.max(margin, Math.min(preferredLeft, window.innerWidth - submenuWidth - margin));
-    const preferredTop = rowRect.top - 7;
-    const viewportTop = Math.max(margin, Math.min(preferredTop, window.innerHeight - submenuHeight - margin));
-    let depth = 1;
-    for (let parent = row.parentElement; parent && parent !== contextMenu; parent = parent.parentElement) {
-      if (parent.classList?.contains("workspace-sheet-context-submenu")) {
-        depth += 1;
-      }
-    }
-
-    submenu.style.left = `${Math.round(viewportLeft)}px`;
-    submenu.style.top = `${Math.round(viewportTop)}px`;
-    submenu.style.maxHeight = `${Math.max(120, Math.floor(window.innerHeight - viewportTop - margin))}px`;
-    submenu.style.zIndex = String(1900 + depth);
-  };
-
-  const closeSiblingContextSubmenus = (host = contextMenu, activeRow = null) => {
-    Array.from(host.children).forEach((child) => {
-      if (child !== activeRow) {
-        child.classList?.remove("is-open");
-      }
-    });
-  };
-
-  const openContextSubmenu = (row = null, host = contextMenu) => {
-    closeSiblingContextSubmenus(host, row);
-    row?.classList.add("is-open");
-    window.requestAnimationFrame(() => placeContextSubmenu(row));
+    contextMenuApi?.close?.();
   };
 
   const makeContextColorSwatchButton = (color = "", kind = "fill") => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "workspace-sheet-context-color-swatch";
-    button.title = color;
-    button.style.background = color;
-    button.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      if (kind === "border") {
-        setSelectedBorderColor(color);
-      } else {
-        setSelectedFillColor(color);
+    return createWorkspaceColorSwatchButton(color, {
+      className: "workspace-sheet-context-color-swatch",
+      onSelect: (item, _button, event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (kind === "border") {
+          setSelectedBorderColor(item.value || "");
+        } else {
+          executeSheetWorkspaceCommand("fillColor", { value: item.value || "" });
+        }
+        closeContextMenu();
       }
-      closeContextMenu();
     });
-    return button;
   };
 
   const appendContextPaletteAction = (host, label = "", icon = "", onSelect = null) => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "workspace-sheet-context-palette-action";
-    const iconNode = document.createElement("span");
-    iconNode.className = "workspace-sheet-context-palette-action-icon";
-    iconNode.textContent = icon;
-    const labelNode = document.createElement("span");
-    labelNode.textContent = label;
-    button.append(iconNode, labelNode);
-    button.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      onSelect?.();
+    const button = createWorkspacePaletteActionButton({
+      label,
+      icon,
+      className: "workspace-sheet-context-palette-action",
+      iconClassName: "workspace-sheet-context-palette-action-icon",
+      onSelect: (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onSelect?.();
+      }
     });
     host.appendChild(button);
     return button;
@@ -20526,7 +21509,7 @@ function renderSpreadsheetClonePreview(
     palette.append(themeTitle, themeGrid, standardTitle, standardGrid);
     if (kind === "fill") {
       appendContextPaletteAction(palette, "Aucun remplissage", "/", () => {
-        setSelectedFillColor("");
+        executeSheetWorkspaceCommand("fillColor", { value: "" });
         closeContextMenu();
       });
       appendContextPaletteAction(palette, "Autres couleurs...", "+", () => {
@@ -20546,209 +21529,96 @@ function renderSpreadsheetClonePreview(
     host.appendChild(palette);
   };
 
-  const renderContextMenuItems = (items = [], host = contextMenu) => {
-    normalizeContextMenuItems(items).forEach((item) => {
-      if (item.separator) {
-        const separator = document.createElement("div");
-        separator.className = "workspace-sheet-context-separator";
-        separator.setAttribute("role", "separator");
-        host.appendChild(separator);
-        return;
-      }
-      if (item.palette) {
-        appendContextColorPalette(host, item.palette);
-        return;
-      }
-
-      const submenuItems = getContextSubmenuItems(item);
-      const hasSubmenu = submenuItems.length > 0;
-      const row = document.createElement("div");
-      row.className = "workspace-sheet-context-item";
-      row.classList.toggle("is-disabled", Boolean(item.disabled));
-      row.addEventListener("mouseenter", () => {
-        if (hasSubmenu && !item.disabled) {
-          openContextSubmenu(row, host);
-        } else {
-          closeSiblingContextSubmenus(host, row);
+  contextMenuApi = createWorkspaceContextMenu({
+    root: contextMenu,
+    controllerOptions: {
+      rootOpenLeftClassName: "opens-left",
+      submenuClassName: "workspace-sheet-context-submenu",
+      itemOpenClassName: "is-open",
+      removeRootOnClose: true,
+      submenuZIndexBase: 1900,
+      leftLookaheadWidth: 540
+    },
+    renderOptions: {
+      itemClassName: "workspace-sheet-context-item",
+      itemDisabledClassName: "is-disabled",
+      itemOpenClassName: "is-open",
+      separatorClassName: "workspace-sheet-context-separator",
+      submenuClassName: "workspace-sheet-context-submenu",
+      actionOptions: {
+        actionClassName: "workspace-sheet-context-action",
+        iconClassName: "workspace-sheet-context-icon",
+        labelClassName: "workspace-sheet-context-label",
+        metaClassName: "workspace-sheet-context-meta",
+        chevronClassName: "workspace-sheet-context-chevron",
+        role: "menuitem",
+        createIconNode: createSheetIconNode,
+        resolveIconName: getSheetCommandIcon
+      },
+      renderCustomItem: (item, targetHost) => {
+        if (!item.palette) {
+          return false;
         }
-      });
-
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "workspace-sheet-context-action";
-      button.disabled = Boolean(item.disabled);
-      button.setAttribute("role", "menuitem");
-      if (hasSubmenu) {
-        button.setAttribute("aria-haspopup", "menu");
+        appendContextColorPalette(targetHost, item.palette);
+        return true;
+      },
+      onActionSelect: (menuItem) => {
+        menuItem.onSelect?.();
       }
-
-      button.appendChild(
-        createSheetIconNode(item.icon || getSheetCommandIcon(item.label), {
-          className: "workspace-sheet-context-icon",
-          label: item.label
-        })
-      );
-
-      const label = document.createElement("span");
-      label.className = "workspace-sheet-context-label";
-      label.textContent = item.label || "";
-      button.appendChild(label);
-
-      const meta = document.createElement("span");
-      meta.className = "workspace-sheet-context-meta";
-      if (hasSubmenu) {
-        meta.appendChild(
-          createSheetIconNode("chevronRight", {
-            className: "workspace-sheet-context-chevron",
-            label: "Open submenu"
-          })
-        );
-      } else if (item.shortcut) {
-        meta.textContent = item.shortcut;
-      }
-      button.appendChild(meta);
-
-      button.addEventListener("click", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        if (button.disabled) {
-          return;
-        }
-        if (hasSubmenu) {
-          if (row.classList.contains("is-open")) {
-            row.classList.remove("is-open");
-          } else {
-            openContextSubmenu(row, host);
-          }
-          return;
-        }
-        closeContextMenu();
-        item.onSelect?.();
-      });
-
-      row.appendChild(button);
-      if (hasSubmenu) {
-        const submenu = document.createElement("div");
-        submenu.className = "workspace-sheet-context-submenu";
-        submenu.setAttribute("role", "menu");
-        renderContextMenuItems(submenuItems, submenu);
-        row.appendChild(submenu);
-      }
-      host.appendChild(row);
-    });
-  };
-
-  const installContextMenuListeners = () => {
-    if (contextMenu.hidden || !contextMenu.isConnected) {
-      return;
     }
-    teardownContextMenuListeners();
-    contextOutsidePointerHandler = (event) => {
-      const target = event.target;
-      const clickedInsideMenu = target?.closest?.(".workspace-sheet-context-menu, .workspace-sheet-context-submenu");
-      if (!clickedInsideMenu) {
-        closeContextMenu();
-      }
-    };
-    contextKeydownHandler = (event) => {
-      if (event.key === "Escape") {
-        closeContextMenu();
-      }
-    };
-    contextViewportHandler = (event) => {
-      if (!contextMenu.contains(event.target)) {
-        closeContextMenu();
-      }
-    };
-    document.addEventListener("pointerdown", contextOutsidePointerHandler, true);
-    document.addEventListener("mousedown", contextOutsidePointerHandler, true);
-    document.addEventListener("contextmenu", contextOutsidePointerHandler, true);
-    document.addEventListener("keydown", contextKeydownHandler);
-    window.addEventListener("scroll", contextViewportHandler, true);
-    window.addEventListener("resize", contextViewportHandler);
-  };
+  });
 
   const openContextMenu = (clientX = 0, clientY = 0, items = []) => {
-    contextMenu.innerHTML = "";
-    renderContextMenuItems(items);
-    if (!contextMenu.isConnected) {
-      document.body.appendChild(contextMenu);
-    }
-    contextMenu.hidden = false;
-    placeContextMenu(clientX, clientY);
-    window.setTimeout(installContextMenuListeners, 0);
+    contextMenuApi?.open?.(items, { clientX, clientY });
   };
 
-  const buildContextClipboardItems = () => [
-    { label: "Couper", icon: "cut", shortcut: "Ctrl+X", onSelect: () => cutSelectedCells() },
-    { label: "Copier", icon: "copy", shortcut: "Ctrl+C", onSelect: () => copySelectedCells() },
-    { label: "Coller", icon: "paste", shortcut: "Ctrl+V", onSelect: () => pasteFromClipboard() }
-  ];
+  const sheetClipboardActions = {
+    cut: () => cutSelectedCells(),
+    copy: () => copySelectedCells(),
+    paste: () => pasteFromClipboard()
+  };
+  const buildContextClipboardItems = () =>
+    bindWorkspaceMenuActions(createWorkspaceClipboardMenuItems({ locale: "fr" }), sheetClipboardActions);
 
-  const buildContextInsertItems = () => [
-    { label: "1 ligne au-dessus", icon: "insert", onSelect: () => insertRowAtSelection(0) },
-    { label: "1 ligne en dessous", icon: "insert", onSelect: () => insertRowAtSelection(1) },
-    { separator: true },
-    { label: "1 colonne a gauche", icon: "insert", onSelect: () => insertColumnAtSelection(0) },
-    { label: "1 colonne a droite", icon: "insert", onSelect: () => insertColumnAtSelection(1) }
-  ];
+  const buildContextInsertItems = () => buildInsertMenuItems({ context: true });
 
-  const buildContextDeleteItems = () => [
-    { label: "Ligne entiere", icon: "delete", onSelect: deleteActiveRow },
-    { label: "Colonne entiere", icon: "delete", onSelect: deleteActiveColumn }
-  ];
+  const buildContextDeleteItems = () => buildDeleteMenuItems({ context: true });
 
-  const buildContextSortItems = () => [
-    { label: "Trier de A a Z", icon: "sortAsc", onSelect: () => sortActiveColumn("asc") },
-    { label: "Trier de Z a A", icon: "sortDesc", onSelect: () => sortActiveColumn("desc") }
-  ];
+  const buildContextSortItems = () =>
+    bindWorkspaceMenuActions(createWorkspaceSortMenuItems({ context: true }), sheetSortActions);
 
-  const buildContextFilterItems = () => [
-    { label: "Creer un filtre", icon: "filter", onSelect: filterActiveColumn },
-    { label: "Filtrer par valeur selectionnee", icon: "filter", onSelect: filterBySelectedValue },
-    { label: "Effacer le filtre", icon: "filterClear", onSelect: clearActiveFilter }
-  ];
+  const buildContextFilterItems = () => buildFilterMenuItems();
 
   const buildContextFillItems = () => [{ palette: "fill" }];
 
-  const buildContextBorderItems = () => [
-    { label: "Aucune bordure", icon: "eraser", onSelect: () => setSelectedBorder("clear") },
-    { label: "Toutes les bordures", icon: "border", onSelect: () => setSelectedBorder("all") },
-    { label: "Bordures exterieures", icon: "border", onSelect: () => setSelectedBorder("outer") },
-    { label: "Bordures interieures", icon: "border", onSelect: () => setSelectedBorder("inside") },
-    { separator: true },
-    { label: "Bordure superieure", icon: "border", onSelect: () => setSelectedBorder("top") },
-    { label: "Bordure inferieure", icon: "border", onSelect: () => setSelectedBorder("bottom") },
-    { label: "Bordure gauche", icon: "border", onSelect: () => setSelectedBorder("left") },
-    { label: "Bordure droite", icon: "border", onSelect: () => setSelectedBorder("right") },
-    { label: "Bordures horizontales interieures", icon: "border", onSelect: () => setSelectedBorder("insideHorizontal") },
-    { label: "Bordures verticales interieures", icon: "border", onSelect: () => setSelectedBorder("insideVertical") },
-    { separator: true },
-    { label: "Bordure exterieure epaisse", icon: "border", onSelect: () => setSelectedBorder("outer", { style: "thick" }) },
-    { label: "Bordure inferieure double", icon: "border", onSelect: () => setSelectedBorder("bottom", { style: "double" }) },
-    { separator: true },
-    { label: "Couleur de bordure", icon: "palette", items: [{ palette: "border" }] },
-    { label: "Style de bordure", icon: "border", items: buildBorderStyleMenuItems() }
-  ];
+  const buildContextBorderItems = () =>
+    bindWorkspaceMenuActions(
+      createWorkspaceBorderMenuItems({
+        includeColorSubmenu: true,
+        includeStyleSubmenu: true,
+        styleLabels: SPREADSHEET_BORDER_STYLE_LABELS
+      }),
+      sheetBorderActions
+    );
 
   const buildContextFormatItems = () => [
-    { label: "Gras", icon: "bold", shortcut: "Ctrl+B", onSelect: () => toggleSelectedTextStyle("bold") },
-    { label: "Italique", icon: "italic", shortcut: "Ctrl+I", onSelect: () => toggleSelectedTextStyle("italic") },
-    { label: "Souligne", icon: "underline", shortcut: "Ctrl+U", onSelect: () => toggleSelectedTextStyle("underline") },
+    ...bindWorkspaceMenuActions(
+      createWorkspaceCommandMenuItems(["bold", "italic", "underline"], { locale: "fr" }),
+      sheetTextStyleActions
+    ),
     { separator: true },
-    { label: "Nombre", icon: "number", onSelect: () => setSelectedRangeFormat("number") },
-    { label: "Devise", icon: "currency", onSelect: () => setSelectedRangeFormat("currency") },
-    { label: "Pourcentage", icon: "percent", onSelect: () => setSelectedRangeFormat("percent") },
-    { label: "Date", icon: "calendar", onSelect: () => setSelectedRangeFormat("date") },
-    { label: "Effacer le format de nombre", icon: "eraser", onSelect: () => setSelectedRangeFormat("") },
+    ...bindWorkspaceMenuActions(
+      createWorkspaceNumberFormatMenuItems({ locale: "fr", clearLabel: "Effacer le format de nombre" }),
+      sheetNumberFormatActions
+    ),
     { separator: true },
-    { label: "Remplissage", icon: "fill", items: buildContextFillItems() },
-    { label: "Bordures", icon: "border", items: buildContextBorderItems() },
+    { label: getWorkspaceCommandLabel("fillColor", "fr"), icon: "fill", items: buildContextFillItems() },
+    { label: getWorkspaceCommandLabel("borders", "fr"), icon: "border", items: buildContextBorderItems() },
     { separator: true },
     { label: "Fusionner les cellules", icon: "merge", onSelect: mergeSelectionRange },
     { label: "Annuler la fusion", icon: "merge", onSelect: unmergeSelectionRange },
     { separator: true },
-    { label: "Effacer toute la mise en forme", icon: "eraser", onSelect: clearSelectedFormatting }
+    { label: getWorkspaceCommandLabel("clearFormatting", "fr"), icon: "eraser", onSelect: () => executeSheetWorkspaceCommand("clearFormatting") }
   ];
 
   const buildContextDataItems = (rowIndex = 0, columnIndex = 0) => [
@@ -20763,47 +21633,11 @@ function renderSpreadsheetClonePreview(
     { label: "Mise en forme conditionnelle", icon: "palette", items: buildConditionalFormatMenuItems() }
   ];
 
-  const buildContextTableItems = () => {
-    const activeTable = getActiveTableForSelection();
-    const hasTable = Boolean(activeTable);
-    return [
-      {
-        label: hasTable ? "Convertir en plage" : "Mettre sous forme de tableau",
-        icon: "table",
-        onSelect: () => (hasTable ? removeActiveTable() : createTableFromSelection())
-      },
-      { label: "Renommer le tableau", icon: "rename", onSelect: renameActiveTable, disabled: !hasTable },
-      { label: "Redimensionner le tableau", icon: "move", onSelect: resizeActiveTable, disabled: !hasTable },
-      { separator: true },
-      { label: "Ligne des totaux", icon: "function", onSelect: toggleActiveTableTotalRow, disabled: !hasTable },
-      {
-        label: "Fonction de total",
-        icon: "function",
-        disabled: !hasTable,
-        items: [
-          { label: "Somme", icon: "function", onSelect: () => setActiveTableTotalFunction("sum") },
-          { label: "Moyenne", icon: "function", onSelect: () => setActiveTableTotalFunction("average") },
-          { label: "Nombre", icon: "function", onSelect: () => setActiveTableTotalFunction("count") },
-          { label: "Aucun", icon: "eraser", onSelect: () => setActiveTableTotalFunction("none") }
-        ]
-      },
-      {
-        label: "Options du tableau",
-        icon: "table",
-        disabled: !hasTable,
-        items: [
-          { label: "Ligne d'en-tete", icon: "table", onSelect: toggleActiveTableHeaderRow },
-          { label: "Boutons de filtre", icon: "filter", onSelect: toggleActiveTableFilterButtons },
-          { label: "Lignes a bandes", icon: "table", onSelect: toggleActiveTableBandedRows },
-          { label: "Colonnes a bandes", icon: "table", onSelect: toggleActiveTableBandedColumns },
-          { label: "Premiere colonne", icon: "table", onSelect: toggleActiveTableFirstColumn },
-          { label: "Derniere colonne", icon: "table", onSelect: toggleActiveTableLastColumn }
-        ]
-      },
-      { separator: true },
-      { label: "Tableau croise dynamique", icon: "pivot", onSelect: createPivotTableFromSelection }
-    ];
-  };
+  const buildContextTableItems = () =>
+    bindWorkspaceMenuActions(
+      createWorkspaceTableContextMenuItems({ hasTable: Boolean(getActiveTableForSelection()) }),
+      sheetTableActions
+    );
 
   const populateSpreadsheetChartLegend = (legendNode, chart = {}) => {
     if (!legendNode) {
@@ -22127,6 +22961,15 @@ function renderSpreadsheetClonePreview(
           return;
         }
         if (event.button !== 0) {
+          if (event.button === 2) {
+            contextMenuSelectionSnapshot = captureRangeContextMenuSelection(rowIndex, columnIndex);
+            if (contextMenuSelectionSnapshot) {
+              preserveRangeOnNextFocus = true;
+              suppressFormulaActivation = true;
+              event.preventDefault();
+              event.stopPropagation();
+            }
+          }
           return;
         }
         if (
@@ -22201,13 +23044,16 @@ function renderSpreadsheetClonePreview(
       });
       input.addEventListener("contextmenu", (event) => {
         event.preventDefault();
-        const { minRow, maxRow, minColumn, maxColumn } = getSelectionBounds();
-        if (
-          rowIndex < minRow ||
-          rowIndex > maxRow ||
-          columnIndex < minColumn ||
-          columnIndex > maxColumn
-        ) {
+        const snapshot = contextMenuSelectionSnapshot;
+        contextMenuSelectionSnapshot = null;
+        if (snapshot && isCellInsideBounds(rowIndex, columnIndex, snapshot.bounds)) {
+          activeSelection = { ...snapshot.activeSelection };
+          selectionRange = { ...snapshot.selectionRange };
+          preserveRangeOnNextFocus = false;
+          suppressFormulaActivation = false;
+          saveCurrentSelectionState();
+          syncSelectionUi();
+        } else if (!isCellInsideBounds(rowIndex, columnIndex)) {
           setSelectionRange({
             startRowIndex: rowIndex,
             startColumnIndex: columnIndex,
@@ -23127,17 +23973,17 @@ function renderSpreadsheetClonePreview(
       }
       if (key === "b") {
         stopSpreadsheetKeyboardEvent(event);
-        toggleSelectedTextStyle("bold");
+        executeSheetWorkspaceCommand("bold");
         return true;
       }
       if (key === "i") {
         stopSpreadsheetKeyboardEvent(event);
-        toggleSelectedTextStyle("italic");
+        executeSheetWorkspaceCommand("italic");
         return true;
       }
       if (key === "u") {
         stopSpreadsheetKeyboardEvent(event);
-        toggleSelectedTextStyle("underline");
+        executeSheetWorkspaceCommand("underline");
         return true;
       }
     }
@@ -23359,8 +24205,6 @@ function renderDataPreview(
   content = "",
   {
     workObject = null,
-    onHeaderEdit = null,
-    onCellEdit = null,
     onGridEdit = null
   } = {}
 ) {
@@ -23499,350 +24343,6 @@ function renderDataPreview(
       onGridEdit
     });
     return;
-    const columnLetter = (index) => {
-      let value = index + 1;
-      let label = "";
-      while (value > 0) {
-        const remainder = (value - 1) % 26;
-        label = String.fromCharCode(65 + remainder) + label;
-        value = Math.floor((value - 1) / 26);
-      }
-      return label;
-    };
-    const previewShell = document.createElement("section");
-    previewShell.className = "workspace-sheet-app";
-
-    const commitModel = (refreshWorkspace = false) => {
-      onGridEdit?.(
-        {
-          columns: [...model.columns],
-          rows: model.rows.map((row) => [...row])
-        },
-        { refreshWorkspace }
-      );
-    };
-
-    let commitHandle = null;
-    const scheduleCommit = () => {
-      if (commitHandle) {
-        window.clearTimeout(commitHandle);
-      }
-      commitHandle = window.setTimeout(() => {
-        commitModel(false);
-        commitHandle = null;
-      }, 140);
-    };
-
-    const menuBar = document.createElement("div");
-    menuBar.className = "workspace-sheet-menubar";
-    ["File", "Edit", "View", "Insert", "Format", "Data", "Tools", "Extensions", "Help"].forEach((label) => {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "workspace-sheet-menu-button";
-      button.textContent = label;
-      menuBar.appendChild(button);
-    });
-    previewShell.appendChild(menuBar);
-
-    const topBar = document.createElement("div");
-    topBar.className = "workspace-sheet-topbar";
-    const titleGroup = document.createElement("div");
-    titleGroup.className = "workspace-sheet-title-group";
-    const title = document.createElement("strong");
-    title.textContent = workObject?.title || friendlyPathLabel(filePath) || profile.sheetName;
-    const subtitle = document.createElement("span");
-    subtitle.className = "tiny";
-    subtitle.textContent = `${model.rows.length} rows | ${model.columns.length} columns`;
-    titleGroup.append(title, subtitle);
-    const topTabs = document.createElement("div");
-    topTabs.className = "workspace-sheet-tabs";
-    [profile.primaryTab, profile.secondaryTab].forEach((label, index) => {
-      const tab = document.createElement("span");
-      tab.className = `workspace-sheet-tab${index === 0 ? " active" : ""}`;
-      tab.textContent = label;
-      topTabs.appendChild(tab);
-    });
-    topBar.append(titleGroup, topTabs);
-    previewShell.appendChild(topBar);
-
-    const toolbar = document.createElement("div");
-    toolbar.className = "workspace-sheet-toolbar";
-    const makeToolbarButton = (label, onClick, accent = false) => {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = `workspace-sheet-toolbar-button${accent ? " accent" : ""}`;
-      button.textContent = label;
-      button.addEventListener("click", onClick);
-      return button;
-    };
-    const toolbarGroupEdit = document.createElement("div");
-    toolbarGroupEdit.className = "workspace-sheet-toolbar-group";
-    toolbarGroupEdit.append(
-      makeToolbarButton("Undo", () => document.execCommand("undo")),
-      makeToolbarButton("Redo", () => document.execCommand("redo")),
-      makeToolbarButton("Bold", () => document.execCommand("bold")),
-      makeToolbarButton("Italic", () => document.execCommand("italic"))
-    );
-    const toolbarGroupStructure = document.createElement("div");
-    toolbarGroupStructure.className = "workspace-sheet-toolbar-group";
-    toolbarGroupStructure.append(
-      makeToolbarButton("Insert row", () => {
-        model.rows.push(Array.from({ length: model.columns.length }, () => ""));
-        commitModel(true);
-      }),
-      makeToolbarButton("Insert column", () => {
-        model.columns.push(`Column ${model.columns.length + 1}`);
-        model.rows = model.rows.map((row) => [...row, ""]);
-        commitModel(true);
-      }),
-      makeToolbarButton("Delete row", () => {
-        if (model.rows.length <= 1) {
-          return;
-        }
-        model.rows = model.rows.slice(0, -1);
-        commitModel(true);
-      }),
-      makeToolbarButton("Delete column", () => {
-        if (model.columns.length <= 1) {
-          return;
-        }
-        model.columns = model.columns.slice(0, -1);
-        model.rows = model.rows.map((row) => row.slice(0, -1));
-        commitModel(true);
-      }),
-      makeToolbarButton("Sum row", () => {
-        const totals = model.columns.map((_, index) => {
-          if (index === 0) {
-            return "Total";
-          }
-          const values = model.rows
-            .map((row) => Number(String(row[index] || "").replace(",", ".")))
-            .filter((value) => Number.isFinite(value));
-          if (!values.length) {
-            return "";
-          }
-          const total = values.reduce((sum, value) => sum + value, 0);
-          return Number.isInteger(total) ? String(total) : total.toFixed(2);
-        });
-        model.rows.push(totals);
-        commitModel(true);
-      }, true)
-    );
-    toolbar.append(toolbarGroupEdit, toolbarGroupStructure);
-    previewShell.appendChild(toolbar);
-
-    const formulaBar = document.createElement("div");
-    formulaBar.className = "workspace-formula-bar workspace-formula-bar-live";
-    const nameBox = document.createElement("input");
-    nameBox.type = "text";
-    nameBox.className = "workspace-sheet-name-box";
-    nameBox.readOnly = true;
-    const formulaLabel = document.createElement("span");
-    formulaLabel.className = "tiny";
-    formulaLabel.textContent = "fx";
-    const formulaValue = document.createElement("input");
-    formulaValue.type = "text";
-    formulaValue.className = "workspace-sheet-formula-input";
-    formulaBar.append(nameBox, formulaLabel, formulaValue);
-    previewShell.appendChild(formulaBar);
-
-    const gridShell = document.createElement("div");
-    gridShell.className = "workspace-sheet-grid-shell";
-    const table = document.createElement("table");
-    table.className = "workspace-sheet-grid-table";
-    const thead = document.createElement("thead");
-    const headRow = document.createElement("tr");
-    const corner = document.createElement("th");
-    corner.className = "workspace-sheet-corner";
-    corner.textContent = "";
-    headRow.appendChild(corner);
-
-    let activeSelection = { kind: "header", columnIndex: 0, rowIndex: 0 };
-    const cellSelector = (selection) =>
-      selection.kind === "header"
-        ? `[data-sheet-header-cell="${selection.columnIndex}"]`
-        : `[data-sheet-body-cell="${selection.rowIndex}:${selection.columnIndex}"]`;
-    const addressForSelection = (selection) =>
-      selection.kind === "header"
-        ? `${columnLetter(selection.columnIndex)}1`
-        : `${columnLetter(selection.columnIndex)}${selection.rowIndex + 2}`;
-    const getSelectionValue = (selection) =>
-      selection.kind === "header"
-        ? model.columns[selection.columnIndex] || ""
-        : model.rows[selection.rowIndex]?.[selection.columnIndex] || "";
-    const setSelectionValue = (selection, value) => {
-      if (selection.kind === "header") {
-        model.columns[selection.columnIndex] = value;
-      } else if (model.rows[selection.rowIndex]) {
-        model.rows[selection.rowIndex][selection.columnIndex] = value;
-      }
-    };
-    const syncSelectionUi = () => {
-      nameBox.value = addressForSelection(activeSelection);
-      formulaValue.value = getSelectionValue(activeSelection);
-      formulaValue.placeholder = activeSelection.kind === "header" ? "Column title" : "Cell value";
-      table.querySelectorAll(".is-selected").forEach((node) => node.classList.remove("is-selected"));
-      const target = table.querySelector(cellSelector(activeSelection));
-      target?.classList.add("is-selected");
-    };
-    const focusSelection = (selection) => {
-      activeSelection = selection;
-      syncSelectionUi();
-      table.querySelector(cellSelector(selection))?.focus();
-    };
-    const moveSelection = (selection, rowDelta = 0, columnDelta = 0) => {
-      const nextColumnIndex = Math.max(0, Math.min(model.columns.length - 1, selection.columnIndex + columnDelta));
-      if (selection.kind === "header") {
-        if (rowDelta > 0) {
-          focusSelection({ kind: "cell", rowIndex: 0, columnIndex: nextColumnIndex });
-          return;
-        }
-        focusSelection({ kind: "header", columnIndex: nextColumnIndex, rowIndex: 0 });
-        return;
-      }
-      const nextRowIndex = Math.max(0, Math.min(model.rows.length - 1, selection.rowIndex + rowDelta));
-      focusSelection({ kind: "cell", rowIndex: nextRowIndex, columnIndex: nextColumnIndex });
-    };
-    const bindCellNavigation = (input, selection) => {
-      input.addEventListener("focus", () => {
-        activeSelection = selection;
-        syncSelectionUi();
-      });
-      input.addEventListener("keydown", (event) => {
-        if (event.key === "Enter") {
-          event.preventDefault();
-          moveSelection(selection, 1, 0);
-          return;
-        }
-        if (event.key === "Tab") {
-          event.preventDefault();
-          moveSelection(selection, 0, event.shiftKey ? -1 : 1);
-        }
-      });
-    };
-
-    model.columns.forEach((_, columnIndex) => {
-      const th = document.createElement("th");
-      th.className = "workspace-sheet-column-letter";
-      th.textContent = columnLetter(columnIndex);
-      headRow.appendChild(th);
-    });
-    thead.appendChild(headRow);
-    table.appendChild(thead);
-
-    const tbody = document.createElement("tbody");
-    const headerRow = document.createElement("tr");
-    const headerRowLabel = document.createElement("th");
-    headerRowLabel.className = "workspace-sheet-row-label";
-    headerRowLabel.textContent = "1";
-    headerRow.appendChild(headerRowLabel);
-    model.columns.forEach((value, columnIndex) => {
-      const td = document.createElement("td");
-      const input = document.createElement("input");
-      input.type = "text";
-      input.value = value;
-      input.className = "workspace-sheet-header-cell-input";
-      input.dataset.sheetHeaderCell = String(columnIndex);
-      bindCellNavigation(input, { kind: "header", columnIndex, rowIndex: 0 });
-      input.addEventListener("input", (event) => {
-        model.columns[columnIndex] = event.target.value;
-        if (activeSelection.kind === "header" && activeSelection.columnIndex === columnIndex) {
-          syncSelectionUi();
-        }
-        scheduleCommit();
-      });
-      input.addEventListener("blur", () => {
-        model.columns[columnIndex] = input.value.trim() || `Column ${columnIndex + 1}`;
-        input.value = model.columns[columnIndex];
-        commitModel(false);
-        syncSelectionUi();
-      });
-      td.appendChild(input);
-      headerRow.appendChild(td);
-    });
-    tbody.appendChild(headerRow);
-
-    model.rows.forEach((row, rowIndex) => {
-      const tr = document.createElement("tr");
-      const rowLabel = document.createElement("th");
-      rowLabel.className = "workspace-sheet-row-label";
-      rowLabel.textContent = String(rowIndex + 2);
-      tr.appendChild(rowLabel);
-      model.columns.forEach((_, columnIndex) => {
-        const td = document.createElement("td");
-        const input = document.createElement("input");
-        input.type = "text";
-        input.value = row[columnIndex] || "";
-        input.className = "workspace-sheet-cell-input";
-        input.dataset.sheetBodyCell = `${rowIndex}:${columnIndex}`;
-        bindCellNavigation(input, { kind: "cell", rowIndex, columnIndex });
-        input.addEventListener("input", (event) => {
-          model.rows[rowIndex][columnIndex] = event.target.value;
-          if (
-            activeSelection.kind === "cell" &&
-            activeSelection.rowIndex === rowIndex &&
-            activeSelection.columnIndex === columnIndex
-          ) {
-            syncSelectionUi();
-          }
-          scheduleCommit();
-        });
-        input.addEventListener("blur", () => {
-          model.rows[rowIndex][columnIndex] = input.value;
-          commitModel(false);
-        });
-        td.appendChild(input);
-        tr.appendChild(td);
-      });
-      tbody.appendChild(tr);
-    });
-
-    table.appendChild(tbody);
-    gridShell.appendChild(table);
-    previewShell.appendChild(gridShell);
-
-    formulaValue.addEventListener("input", (event) => {
-      setSelectionValue(activeSelection, event.target.value);
-      const target = table.querySelector(cellSelector(activeSelection));
-      if (target) {
-        target.value = event.target.value;
-      }
-      scheduleCommit();
-    });
-    formulaValue.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") {
-        event.preventDefault();
-        commitModel(false);
-        focusSelection(activeSelection);
-      }
-    });
-    formulaValue.addEventListener("blur", () => {
-      commitModel(false);
-    });
-
-    const bottomBar = document.createElement("div");
-    bottomBar.className = "workspace-sheet-bottom-bar";
-    const sheetTabs = document.createElement("div");
-    sheetTabs.className = "workspace-sheet-tabbar";
-    const addSheetButton = document.createElement("button");
-    addSheetButton.type = "button";
-    addSheetButton.className = "workspace-sheet-add-button";
-    addSheetButton.textContent = "+";
-    addSheetButton.title = "Add sheet";
-    const activeSheetTab = document.createElement("button");
-    activeSheetTab.type = "button";
-    activeSheetTab.className = "workspace-sheet-tab-pill active";
-    activeSheetTab.textContent = profile.sheetName;
-    sheetTabs.append(addSheetButton, activeSheetTab);
-    const status = document.createElement("div");
-    status.className = "workspace-sheet-status";
-    status.textContent = `${profile.contextLabelA}: ${profile.contextValueA}`;
-    bottomBar.append(sheetTabs, status);
-    previewShell.appendChild(bottomBar);
-
-    container.appendChild(previewShell);
-    syncSelectionUi();
-    return;
   }
 
   renderCodePreview(container, content, filePath);
@@ -23925,7 +24425,12 @@ function renderPresentationPreview(
   sections = [],
   currentSectionId = "",
   onSlideFocus = null,
-  onSlideEdit = null
+  onSlideEdit = null,
+  {
+    previewKey = "",
+    title = "",
+    meta = ""
+  } = {}
 ) {
   const usableSections = (sections || []).filter(
     (section) => section.id !== "whole-file" && section.level >= 2
@@ -23945,12 +24450,6 @@ function renderPresentationPreview(
   const activeIndex = Math.max(0, slides.findIndex((slide) => slide.id === activeSlide.id));
   const parsed = parsePresentationBlock(activeSlide.block || "");
   const stageTheme = inferPresentationSlideTheme(activeSlide.title, parsed);
-
-  const stats = document.createElement("div");
-  stats.className = "workspace-preview-summary";
-  stats.textContent = `${slides.length} slides · deck preview`;
-  stats.textContent = `${slides.length} slides | deck preview`;
-  container.appendChild(stats);
 
   const deckShell = document.createElement("section");
   deckShell.className = "workspace-deck-shell";
@@ -24019,7 +24518,6 @@ function renderPresentationPreview(
 
   const stageMeta = document.createElement("span");
   stageMeta.className = "workspace-slide-kicker";
-  stageMeta.textContent = `Current slide · ${slides.findIndex((slide) => slide.id === activeSlide.id) + 1}`;
 
   const stageTitle = document.createElement("h3");
   stageTitle.textContent = activeSlide.title || "Slide";
@@ -24215,7 +24713,17 @@ function renderPresentationPreview(
 
   deckWorkbench.append(strip, stage, notesPanel);
   deckShell.appendChild(deckWorkbench);
-  container.appendChild(deckShell);
+  renderWorkspaceApplicationPreviewShell(container, {
+    previewKey: previewKey || `presentation:${activeSlide.id}:${slides.length}`,
+    title: title || "New Slides",
+    meta: meta || `${slides.length} SLIDES | PRESENTATION`,
+    tabs: ["Slides", "Notes"],
+    searchPlaceholder: "Rechercher dans la presentation ou les commandes",
+    cardClassName: "workspace-presentation-preview-card",
+    viewportClassName: "workspace-presentation-preview-viewport",
+    contentClassName: "workspace-presentation-preview-content",
+    buildContent: () => deckShell
+  });
 }
 
 function parsePreviewNumber(value = "") {
@@ -24865,6 +25373,7 @@ function renderDashboardExperiencePreview(
     activeFilter = "",
     activeWidgetId = "",
     activeChartId = "",
+    previewKey = "",
     onFilterToggle = null,
     onWidgetMove = null,
     onWidgetDrop = null,
@@ -24894,6 +25403,440 @@ function renderDashboardExperiencePreview(
   const visibleCharts = normalizedFilter
     ? (model.charts || []).filter((chart) => matchesFilter(chart.title))
     : model.charts || [];
+
+  {
+    const dashboardKey = String(previewKey || model.title || "dashboard-preview");
+    let isDashboardExpanded = dashboardExpandedStore.get(dashboardKey) === true;
+    let expandedOverlay = null;
+    let expandedDialog = null;
+    let expandedScaleFrame = null;
+    const getStoredExpandedHost = () => {
+      const host = dashboardExpandedPopupHostStore.get(dashboardKey);
+      if (host?.overlay?.isConnected && host?.dialog?.isConnected && host?.scaleFrame?.isConnected) {
+        return host;
+      }
+      dashboardExpandedPopupHostStore.delete(dashboardKey);
+      return null;
+    };
+    const destroyExpandedHost = ({ preserveHost = false } = {}) => {
+      if (!preserveHost) {
+        document.body.classList.remove("workspace-dashboard-expanded");
+      }
+      if (expandedScaleFrame?.contains(previewShell)) {
+        expandedScaleFrame.removeChild(previewShell);
+      }
+      if (preserveHost) {
+        return;
+      }
+      const storedHost = getStoredExpandedHost();
+      if (!expandedOverlay && storedHost) {
+        expandedOverlay = storedHost.overlay;
+        expandedDialog = storedHost.dialog;
+        expandedScaleFrame = storedHost.scaleFrame;
+      }
+      if (expandedOverlay) {
+        expandedOverlay.remove();
+        expandedOverlay = null;
+        expandedDialog = null;
+        expandedScaleFrame = null;
+      }
+      dashboardExpandedPopupHostStore.delete(dashboardKey);
+    };
+    const setExpandedMode = (nextExpanded = false) => {
+      isDashboardExpanded = Boolean(nextExpanded);
+      dashboardExpandedStore.set(dashboardKey, isDashboardExpanded);
+      mountPreviewShell();
+    };
+    const ensureExpandedHost = () => {
+      if (expandedOverlay?.isConnected && expandedDialog && expandedScaleFrame) {
+        return expandedScaleFrame;
+      }
+      const storedHost = getStoredExpandedHost();
+      if (storedHost) {
+        expandedOverlay = storedHost.overlay;
+        expandedDialog = storedHost.dialog;
+        expandedScaleFrame = storedHost.scaleFrame;
+        return expandedScaleFrame;
+      }
+      expandedOverlay = document.createElement("div");
+      expandedOverlay.className = "workspace-sheet-modal-overlay workspace-dashboard-modal-overlay";
+      const backdrop = document.createElement("div");
+      backdrop.className = "workspace-sheet-modal-backdrop";
+      backdrop.addEventListener("click", () => setExpandedMode(false));
+      expandedDialog = document.createElement("div");
+      expandedDialog.className = "workspace-sheet-modal-dialog workspace-dashboard-modal-dialog";
+      expandedScaleFrame = document.createElement("div");
+      expandedScaleFrame.className = "workspace-sheet-modal-scale-frame workspace-dashboard-modal-scale-frame";
+      expandedOverlay.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          setExpandedMode(false);
+        }
+      });
+      expandedDialog.appendChild(expandedScaleFrame);
+      expandedOverlay.append(backdrop, expandedDialog);
+      document.body.appendChild(expandedOverlay);
+      expandedOverlay.tabIndex = -1;
+      expandedOverlay.focus({ preventScroll: true });
+      dashboardExpandedPopupHostStore.set(dashboardKey, {
+        overlay: expandedOverlay,
+        dialog: expandedDialog,
+        scaleFrame: expandedScaleFrame
+      });
+      return expandedScaleFrame;
+    };
+    const tableColumns = Array.isArray(model.table?.columns) ? model.table.columns : [];
+    const tableRows = Array.isArray(model.table?.rows) ? model.table.rows : [];
+    const findColumnIndex = (patterns = []) =>
+      tableColumns.findIndex((column) => {
+        const text = String(column || "").toLowerCase();
+        return patterns.some((pattern) => text.includes(pattern));
+      });
+    const labelColumnIndex = Math.max(
+      0,
+      findColumnIndex(["region", "territory", "product", "month", "segment", "name"])
+    );
+    const valueColumnIndex = Math.max(
+      0,
+      findColumnIndex(["revenue", "sales", "amount", "value", "total", "units"])
+    );
+    const tablePoints = tableRows
+      .map((row, index) => {
+        const numeric = parsePreviewNumber(row[valueColumnIndex]);
+        return {
+          label: row[labelColumnIndex] || `Row ${index + 1}`,
+          value: row[valueColumnIndex] || "",
+          numeric
+        };
+      })
+      .filter((point) => point.numeric !== null);
+    const activeChart =
+      (model.charts || []).find((_, index) => `chart-${index + 1}` === String(activeChartId || "")) ||
+      visibleCharts[0] ||
+      (model.charts || [])[0] ||
+      null;
+    const chartPoints = ((activeChart?.points || []).length ? activeChart.points : tablePoints)
+      .map((point, index) => ({
+        label: point.label || `Point ${index + 1}`,
+        value: point.value || "",
+        numeric: parsePreviewNumber(point.value)
+      }))
+      .filter((point) => point.numeric !== null);
+    const maxPointValue = Math.max(...chartPoints.map((point) => point.numeric), 1);
+    const totalValue = tablePoints.reduce((sum, point) => sum + (point.numeric || 0), 0);
+    const formatPowerValue = (value) => {
+      const numeric = typeof value === "number" ? value : parsePreviewNumber(value);
+      if (numeric === null || !Number.isFinite(numeric)) {
+        return String(value || "-");
+      }
+      const absolute = Math.abs(numeric);
+      if (absolute >= 1000000) {
+        return `$${(numeric / 1000000).toFixed(2)}M`;
+      }
+      if (absolute >= 1000) {
+        return `$${(numeric / 1000).toFixed(1)}K`;
+      }
+      return String(Math.round(numeric));
+    };
+    const metricCards = [
+      ...(visibleMetrics || []).slice(0, 4).map((metric) => ({
+        label: metric.label || "KPI",
+        value: metric.value || "-",
+        meta: metric.delta || "Live"
+      })),
+      { label: "Revenue won", value: formatPowerValue(totalValue), meta: "From report table" },
+      { label: "Qualified pipeline", value: formatPowerValue(maxPointValue), meta: "Top point" },
+      {
+        label: "Forecast",
+        value: chartPoints.length ? `${Math.round((totalValue / Math.max(maxPointValue, 1)) * 10)}%` : "100%",
+        meta: "Scenario"
+      },
+      { label: "Rows", value: String(tableRows.length), meta: `${tableColumns.length} fields` }
+    ].slice(0, 4);
+    const createPowerIcon = (icon, className = "workspace-powerbi-icon") =>
+      createWorkspaceIconNode(icon, { className, label: icon });
+    const createRailButton = (label, icon, active = false) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = `workspace-powerbi-rail-button${active ? " is-active" : ""}`;
+      button.append(createPowerIcon(icon), document.createElement("span"));
+      button.lastChild.textContent = label;
+      return button;
+    };
+    const createTopButton = (label, icon) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "workspace-powerbi-top-command";
+      button.append(createPowerIcon(icon), document.createElement("span"));
+      button.lastChild.textContent = label;
+      return button;
+    };
+    const createKpiCard = (metric) => {
+      const card = document.createElement("article");
+      card.className = "workspace-powerbi-kpi-card";
+      const label = document.createElement("span");
+      label.textContent = metric.label;
+      const value = document.createElement("strong");
+      value.textContent = metric.value;
+      const meta = document.createElement("small");
+      meta.textContent = metric.meta || "Updated";
+      card.append(label, value, meta);
+      return card;
+    };
+    const createVisualCard = (title, extraClass = "") => {
+      const card = document.createElement("article");
+      card.className = `workspace-powerbi-visual-card${extraClass ? ` ${extraClass}` : ""}`;
+      const heading = document.createElement("h3");
+      heading.textContent = title;
+      card.appendChild(heading);
+      return card;
+    };
+    const appendHorizontalBars = (card, points = [], { stacked = false } = {}) => {
+      const list = document.createElement("div");
+      list.className = "workspace-powerbi-horizontal-bars";
+      points.slice(0, 5).forEach((point, index) => {
+        const width = Math.max(8, Math.round(((point.numeric || 0) / maxPointValue) * 100));
+        const row = document.createElement("div");
+        row.className = "workspace-powerbi-bar-row";
+        const label = document.createElement("span");
+        label.textContent = point.label || `Item ${index + 1}`;
+        const track = document.createElement("div");
+        track.className = "workspace-powerbi-bar-track";
+        const fill = document.createElement("div");
+        fill.className = `workspace-powerbi-bar-fill color-${(index % 5) + 1}`;
+        fill.style.width = `${width}%`;
+        track.appendChild(fill);
+        if (stacked) {
+          const secondFill = document.createElement("div");
+          secondFill.className = "workspace-powerbi-bar-fill is-secondary";
+          secondFill.style.width = `${Math.max(8, 100 - width)}%`;
+          track.appendChild(secondFill);
+        }
+        const value = document.createElement("strong");
+        value.textContent = point.value || formatPowerValue(point.numeric);
+        row.append(label, track, value);
+        list.appendChild(row);
+      });
+      card.appendChild(list);
+    };
+    const appendMatrix = (card, columns = [], rows = []) => {
+      const table = document.createElement("table");
+      const thead = document.createElement("thead");
+      const headerRow = document.createElement("tr");
+      columns.slice(0, 4).forEach((column) => {
+        const th = document.createElement("th");
+        th.textContent = column || "Field";
+        headerRow.appendChild(th);
+      });
+      thead.appendChild(headerRow);
+      table.appendChild(thead);
+      const tbody = document.createElement("tbody");
+      rows.slice(0, 7).forEach((row) => {
+        const tr = document.createElement("tr");
+        columns.slice(0, 4).forEach((_, index) => {
+          const td = document.createElement("td");
+          td.textContent = row[index] || "";
+          tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+      card.appendChild(table);
+    };
+    const previewShell = document.createElement("section");
+    previewShell.className = "workspace-dashboard-preview-card";
+    const previewTopbar = document.createElement("div");
+    previewTopbar.className = "workspace-dashboard-preview-topbar";
+    const previewTitleGroup = document.createElement("div");
+    previewTitleGroup.className = "workspace-sheet-title-group";
+    const previewTitle = document.createElement("strong");
+    previewTitle.textContent = model.title || "New Dashboard";
+    const previewMeta = document.createElement("span");
+    previewMeta.className = "tiny";
+    previewMeta.textContent = `${tableRows.length} ROWS | ${tableColumns.length} COLUMNS | ${visibleCharts.length} VISUALS`;
+    previewTitleGroup.append(previewTitle, previewMeta);
+    const previewSearch = document.createElement("label");
+    previewSearch.className = "workspace-sheet-command-search workspace-dashboard-command-search";
+    const previewSearchIcon = document.createElement("span");
+    previewSearchIcon.className = "workspace-sheet-command-search-icon";
+    const previewSearchInput = document.createElement("input");
+    previewSearchInput.type = "search";
+    previewSearchInput.placeholder = "Rechercher dans le rapport ou les commandes";
+    previewSearch.append(previewSearchIcon, previewSearchInput);
+    const previewTabs = document.createElement("div");
+    previewTabs.className = "workspace-sheet-tabs workspace-dashboard-preview-tabs";
+    ["Overview", "Data"].forEach((label, index) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = `workspace-sheet-tab${index === 0 ? " active" : ""}`;
+      button.textContent = label;
+      previewTabs.appendChild(button);
+    });
+    const expandButton = document.createElement("button");
+    expandButton.type = "button";
+    expandButton.className = "workspace-sheet-tab workspace-dashboard-expand-button";
+    expandButton.addEventListener("click", () => setExpandedMode(!isDashboardExpanded));
+    previewTopbar.append(previewTitleGroup, previewSearch, previewTabs, expandButton);
+    const dashboardViewport = document.createElement("div");
+    dashboardViewport.className = "workspace-dashboard-preview-viewport";
+
+    const shell = document.createElement("div");
+    shell.className = "workspace-dashboard-powerbi workspace-dashboard-powerbi--preview";
+    const rail = document.createElement("aside");
+    rail.className = "workspace-powerbi-rail";
+    const launcher = document.createElement("div");
+    launcher.className = "workspace-powerbi-launcher";
+    launcher.textContent = "::";
+    rail.append(
+      launcher,
+      createRailButton("Accueil", "sheet", true),
+      createRailButton("Creer", "insert"),
+      createRailButton("Parcourir", "search"),
+      createRailButton("Donnees", "database"),
+      createRailButton("Rapports", "barChart")
+    );
+    const mainShell = document.createElement("div");
+    mainShell.className = "workspace-powerbi-main";
+    const serviceBar = document.createElement("div");
+    serviceBar.className = "workspace-powerbi-servicebar";
+    const titleWrap = document.createElement("div");
+    titleWrap.className = "workspace-powerbi-title";
+    const titleName = document.createElement("strong");
+    titleName.textContent = model.title || "Regional Sales Sample";
+    const titleMeta = document.createElement("span");
+    titleMeta.textContent = "Hydria BI";
+    titleWrap.append(titleName, titleMeta);
+    const search = document.createElement("input");
+    search.type = "search";
+    search.className = "workspace-powerbi-search";
+    search.placeholder = "Rechercher";
+    const serviceActions = document.createElement("div");
+    serviceActions.className = "workspace-powerbi-service-actions";
+    ["refresh", "settings", "download"].forEach((icon) => serviceActions.appendChild(createPowerIcon(icon)));
+    serviceBar.append(titleWrap, search, serviceActions);
+    const commandBar = document.createElement("div");
+    commandBar.className = "workspace-powerbi-commandbar";
+    commandBar.append(
+      createTopButton("Fichier", "page"),
+      createTopButton("Exporter", "download"),
+      createTopButton("Partager", "link"),
+      createTopButton("Explorer les donnees", "database"),
+      createTopButton("Obtenir des insights", "sparkline"),
+      createTopButton("Modifier", "rename")
+    );
+    const reportShell = document.createElement("section");
+    reportShell.className = "workspace-powerbi-report-shell";
+    const reportHeader = document.createElement("header");
+    reportHeader.className = "workspace-powerbi-report-header";
+    const brand = document.createElement("div");
+    brand.className = "workspace-powerbi-brand";
+    const brandMark = document.createElement("span");
+    brandMark.className = "workspace-powerbi-brand-mark";
+    const brandText = document.createElement("strong");
+    brandText.textContent = "Hydria";
+    brand.append(brandMark, brandText);
+    const reportTitle = document.createElement("div");
+    reportTitle.className = "workspace-powerbi-report-title";
+    const reportName = document.createElement("strong");
+    reportName.textContent = String(model.title || "Regional Sales").toUpperCase();
+    const reportSub = document.createElement("span");
+    reportSub.textContent = normalizedFilter
+      ? `${model.summary || "Sales Overview"} - Focus: ${activeFilter}`
+      : model.summary || "Sales Overview";
+    reportTitle.append(reportName, reportSub);
+    const reportTabs = document.createElement("nav");
+    reportTabs.className = "workspace-powerbi-report-tabs";
+    ["Overview", "Trends", "Insights"].forEach((label, index) => {
+      const tab = document.createElement("button");
+      tab.type = "button";
+      tab.className = index === 0 ? "is-active" : "";
+      tab.textContent = label;
+      reportTabs.appendChild(tab);
+    });
+    reportHeader.append(brand, reportTitle, reportTabs);
+    if ((model.filters || []).length) {
+      reportShell.classList.add("has-filters");
+      const filters = document.createElement("div");
+      filters.className = "workspace-powerbi-filter-row";
+      (model.filters || []).forEach((filter) => {
+        const chip = document.createElement("button");
+        chip.type = "button";
+        chip.className = String(filter || "") === String(activeFilter || "") ? "is-active" : "";
+        chip.textContent = filter;
+        chip.addEventListener("click", () => onFilterToggle?.(filter));
+        filters.appendChild(chip);
+      });
+      reportShell.append(reportHeader, filters);
+    } else {
+      reportShell.appendChild(reportHeader);
+    }
+    const canvas = document.createElement("div");
+    canvas.className = "workspace-powerbi-canvas";
+    const kpiRow = document.createElement("div");
+    kpiRow.className = "workspace-powerbi-kpi-row";
+    metricCards.forEach((metric) => kpiRow.appendChild(createKpiCard(metric)));
+    const grid = document.createElement("div");
+    grid.className = "workspace-powerbi-report-grid";
+    const stageCard = createVisualCard("Revenue Open par Sales Stage");
+    appendHorizontalBars(stageCard, chartPoints.slice(0, 4));
+    stageCard.addEventListener("click", () => onChartFocus?.(activeChart ? `chart-${(model.charts || []).indexOf(activeChart) + 1}` : "chart-1"));
+    const pipelineCard = createVisualCard("Revenue Won and Revenue in Pipeline");
+    appendHorizontalBars(pipelineCard, chartPoints.slice(0, 4), { stacked: true });
+    const whatIfCard = createVisualCard("WHAT IF the forecast was adjusted");
+    const whatIf = document.createElement("div");
+    whatIf.className = "workspace-powerbi-whatif";
+    const input = document.createElement("input");
+    input.type = "range";
+    input.min = "-80";
+    input.max = "80";
+    input.value = "0";
+    const tabs = document.createElement("div");
+    tabs.innerHTML = "<button>By Team + User</button><button class=\"is-active\">By Product</button>";
+    whatIf.append(input, tabs);
+    whatIfCard.appendChild(whatIf);
+    const territoryCard = createVisualCard("Forecast by Territory", "workspace-powerbi-matrix-card");
+    appendMatrix(territoryCard, tableColumns, tableRows);
+    const mapCard = createVisualCard("Forecast by Location", "workspace-powerbi-map-card");
+    const map = document.createElement("div");
+    map.className = "workspace-powerbi-map";
+    ["WA", "CA", "TX", "CO", "IL", "NY", "FL", "NC", "GA", "AZ", "OR", "MI"].forEach((stateName, index) => {
+      const stateTile = document.createElement("span");
+      stateTile.className = `workspace-powerbi-state-tile tone-${(index % 4) + 1}`;
+      stateTile.textContent = stateName;
+      map.appendChild(stateTile);
+    });
+    mapCard.appendChild(map);
+    const detailCard = createVisualCard("Product Category", "workspace-powerbi-matrix-card");
+    appendMatrix(detailCard, tableColumns.slice(0, 4), tableRows.slice(0, 8));
+    grid.append(stageCard, pipelineCard, whatIfCard, territoryCard, mapCard, detailCard);
+    canvas.append(kpiRow, grid);
+    reportShell.appendChild(canvas);
+    mainShell.append(serviceBar, commandBar, reportShell);
+    shell.append(rail, mainShell);
+    dashboardViewport.appendChild(shell);
+    previewShell.append(previewTopbar, dashboardViewport);
+
+    function mountPreviewShell() {
+      previewShell.classList.toggle("is-expanded", isDashboardExpanded);
+      expandButton.textContent = isDashboardExpanded ? "Exit full screen" : "Full screen";
+      expandButton.title = isDashboardExpanded ? "Exit full screen" : "Open full screen";
+      expandButton.setAttribute("aria-pressed", isDashboardExpanded ? "true" : "false");
+      if (isDashboardExpanded) {
+        const scaleFrame = ensureExpandedHost();
+        document.body.classList.add("workspace-dashboard-expanded");
+        scaleFrame.replaceChildren(previewShell);
+        expandedOverlay?.focus({ preventScroll: true });
+        return;
+      }
+      if (previewShell.parentElement !== container) {
+        container.appendChild(previewShell);
+      }
+      destroyExpandedHost();
+    }
+
+    mountPreviewShell();
+    return;
+  }
 
   const summary = document.createElement("div");
   summary.className = "workspace-preview-summary";
@@ -25194,6 +26137,9 @@ function renderWorkflowExperiencePreview(
   {
     activeStageId = "",
     activeLinkId = "",
+    previewKey = "",
+    title = "",
+    meta = "",
     onStageFocus = null,
     onStageMove = null,
     onWorkflowLinkCreate = null,
@@ -25208,10 +26154,13 @@ function renderWorkflowExperiencePreview(
     return;
   }
 
+  const workflowContent = document.createElement("div");
+  workflowContent.className = "workspace-workflow-preview-content";
+
   const summary = document.createElement("div");
   summary.className = "workspace-preview-summary";
   summary.textContent = `${model.objective || "Workflow"} - Trigger: ${model.trigger || "manual"}`;
-  container.appendChild(summary);
+  workflowContent.appendChild(summary);
 
   const stageNodes = Array.isArray(model.stages) ? model.stages : [];
   const stageLinks = Array.isArray(model.links) ? model.links : [];
@@ -25231,7 +26180,7 @@ function renderWorkflowExperiencePreview(
     refreshPendingLinkState();
   });
   linkHelper.append(linkHelperText, linkHelperClear);
-  container.appendChild(linkHelper);
+  workflowContent.appendChild(linkHelper);
 
   function refreshPendingLinkState() {
     if (pendingLinkSourceId) {
@@ -25454,7 +26403,18 @@ function renderWorkflowExperiencePreview(
     workflowShell.appendChild(metaGrid);
   }
 
-  container.appendChild(workflowShell);
+  workflowContent.appendChild(workflowShell);
+  renderWorkspaceApplicationPreviewShell(container, {
+    previewKey: previewKey || `workflow:${model.title || model.objective || "preview"}`,
+    title: title || model.title || "New Automation",
+    meta: meta || `${stageNodes.length} STEPS | ${stageLinks.length} LINKS`,
+    tabs: ["Canvas", "Nodes", "Outputs"],
+    searchPlaceholder: "Rechercher dans le workflow ou les commandes",
+    cardClassName: "workspace-workflow-preview-card",
+    viewportClassName: "workspace-workflow-preview-viewport",
+    contentClassName: "workspace-workflow-preview-shell-content",
+    buildContent: () => workflowContent
+  });
   refreshPendingLinkState();
 }
 function renderDesignExperiencePreview(
@@ -25463,6 +26423,9 @@ function renderDesignExperiencePreview(
   {
     activeFrameId = "",
     activeBlockId = "",
+    previewKey = "",
+    title = "",
+    meta = "",
     onFrameFocus = null,
     onBlockFocus = null,
     onBlockMove = null,
@@ -25476,10 +26439,13 @@ function renderDesignExperiencePreview(
     return;
   }
 
+  const designContent = document.createElement("div");
+  designContent.className = "workspace-design-preview-content";
+
   const summary = document.createElement("div");
   summary.className = "workspace-preview-summary";
   summary.textContent = model.brief || "Design surface";
-  container.appendChild(summary);
+  designContent.appendChild(summary);
 
   if ((model.components || []).length) {
     const componentChips = document.createElement("div");
@@ -25490,7 +26456,7 @@ function renderDesignExperiencePreview(
       chip.textContent = component;
       componentChips.appendChild(chip);
     });
-    container.appendChild(componentChips);
+    designContent.appendChild(componentChips);
   }
 
   const designShell = document.createElement("div");
@@ -25726,8 +26692,19 @@ function renderDesignExperiencePreview(
   }
 
   if (designShell.children.length) {
-    container.appendChild(designShell);
+    designContent.appendChild(designShell);
   }
+  renderWorkspaceApplicationPreviewShell(container, {
+    previewKey: previewKey || `design:${model.title || model.brief || "preview"}`,
+    title: title || model.title || "New Whiteboard",
+    meta: meta || `${(model.frames || []).length} FRAMES | ${(model.components || []).length} COMPONENTS`,
+    tabs: ["Canvas", "Frames", "Assets"],
+    searchPlaceholder: "Rechercher dans le design ou les commandes",
+    cardClassName: "workspace-design-preview-card",
+    viewportClassName: "workspace-design-preview-viewport",
+    contentClassName: "workspace-design-preview-shell-content",
+    buildContent: () => designContent
+  });
   return;
 
   const shell = document.createElement("div");
@@ -26202,6 +27179,202 @@ function rewriteDraftRuntimeHtml(html = "", workObject = null, runtimeEntryPath 
   return `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width, initial-scale=1" /></head><body>${rewritten}</body></html>`;
 }
 
+function createWorkspaceApplicationPreviewKey(value = "") {
+  const normalized = String(value || "").trim();
+  return normalized || "workspace-application-preview";
+}
+
+function renderWorkspaceApplicationPreviewShell(
+  container,
+  {
+    previewKey = "",
+    title = "Hydria workspace",
+    meta = "",
+    tabs = ["Preview"],
+    activeTab = 0,
+    searchPlaceholder = "Rechercher dans cet espace ou les commandes",
+    cardClassName = "",
+    viewportClassName = "",
+    contentClassName = "",
+    expandedBodyClassName = "workspace-application-expanded",
+    onTabSelect = null,
+    buildContent = null
+  } = {}
+) {
+  const applicationKey = createWorkspaceApplicationPreviewKey(previewKey || title);
+  let isExpanded = applicationPreviewExpandedStore.get(applicationKey) === true;
+  let expandedOverlay = null;
+  let expandedDialog = null;
+  let expandedScaleFrame = null;
+  const getStoredExpandedHost = () => {
+    const host = applicationPreviewExpandedPopupHostStore.get(applicationKey);
+    if (host?.overlay?.isConnected && host?.dialog?.isConnected && host?.scaleFrame?.isConnected) {
+      return host;
+    }
+    applicationPreviewExpandedPopupHostStore.delete(applicationKey);
+    return null;
+  };
+  const destroyExpandedHost = ({ preserveHost = false } = {}) => {
+    if (!preserveHost) {
+      document.body.classList.remove(expandedBodyClassName);
+    }
+    if (expandedScaleFrame?.contains(previewShell)) {
+      expandedScaleFrame.removeChild(previewShell);
+    }
+    if (preserveHost) {
+      return;
+    }
+    const storedHost = getStoredExpandedHost();
+    if (!expandedOverlay && storedHost) {
+      expandedOverlay = storedHost.overlay;
+      expandedDialog = storedHost.dialog;
+      expandedScaleFrame = storedHost.scaleFrame;
+    }
+    if (expandedOverlay) {
+      expandedOverlay.remove();
+      expandedOverlay = null;
+      expandedDialog = null;
+      expandedScaleFrame = null;
+    }
+    applicationPreviewExpandedPopupHostStore.delete(applicationKey);
+  };
+  const setExpandedMode = (nextExpanded = false) => {
+    isExpanded = Boolean(nextExpanded);
+    applicationPreviewExpandedStore.set(applicationKey, isExpanded);
+    mountPreviewShell();
+  };
+  const ensureExpandedHost = () => {
+    if (expandedOverlay?.isConnected && expandedDialog && expandedScaleFrame) {
+      return expandedScaleFrame;
+    }
+    const storedHost = getStoredExpandedHost();
+    if (storedHost) {
+      expandedOverlay = storedHost.overlay;
+      expandedDialog = storedHost.dialog;
+      expandedScaleFrame = storedHost.scaleFrame;
+      return expandedScaleFrame;
+    }
+    expandedOverlay = document.createElement("div");
+    expandedOverlay.className = "workspace-sheet-modal-overlay workspace-application-modal-overlay";
+    const backdrop = document.createElement("div");
+    backdrop.className = "workspace-sheet-modal-backdrop";
+    backdrop.addEventListener("click", () => setExpandedMode(false));
+    expandedDialog = document.createElement("div");
+    expandedDialog.className = "workspace-sheet-modal-dialog workspace-application-modal-dialog";
+    expandedScaleFrame = document.createElement("div");
+    expandedScaleFrame.className = "workspace-sheet-modal-scale-frame workspace-application-modal-scale-frame";
+    expandedOverlay.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setExpandedMode(false);
+      }
+    });
+    expandedDialog.appendChild(expandedScaleFrame);
+    expandedOverlay.append(backdrop, expandedDialog);
+    document.body.appendChild(expandedOverlay);
+    expandedOverlay.tabIndex = -1;
+    applicationPreviewExpandedPopupHostStore.set(applicationKey, {
+      overlay: expandedOverlay,
+      dialog: expandedDialog,
+      scaleFrame: expandedScaleFrame
+    });
+    return expandedScaleFrame;
+  };
+
+  const previewShell = document.createElement("section");
+  previewShell.className = `workspace-application-preview-card${cardClassName ? ` ${cardClassName}` : ""}`;
+
+  const previewTopbar = document.createElement("div");
+  previewTopbar.className = "workspace-application-preview-topbar";
+  const titleGroup = document.createElement("div");
+  titleGroup.className = "workspace-sheet-title-group";
+  const titleNode = document.createElement("strong");
+  titleNode.textContent = title || "Hydria workspace";
+  const metaNode = document.createElement("span");
+  metaNode.className = "tiny";
+  metaNode.textContent = meta || "Application workspace";
+  titleGroup.append(titleNode, metaNode);
+
+  const search = document.createElement("label");
+  search.className = "workspace-sheet-command-search workspace-application-command-search";
+  const searchIcon = document.createElement("span");
+  searchIcon.className = "workspace-sheet-command-search-icon";
+  const searchInput = document.createElement("input");
+  searchInput.type = "search";
+  searchInput.placeholder = searchPlaceholder;
+  search.append(searchIcon, searchInput);
+
+  const tabStrip = document.createElement("div");
+  tabStrip.className = "workspace-sheet-tabs workspace-application-preview-tabs";
+  (tabs.length ? tabs : ["Preview"]).forEach((label, index) => {
+    const tab = document.createElement("button");
+    tab.type = "button";
+    tab.className = `workspace-sheet-tab${index === activeTab ? " active" : ""}`;
+    tab.textContent = label;
+    if (typeof onTabSelect === "function") {
+      tab.addEventListener("click", () => {
+        Array.from(tabStrip.querySelectorAll(".workspace-sheet-tab")).forEach((item) => {
+          item.classList.toggle("active", item === tab);
+        });
+        onTabSelect(label, index);
+      });
+    }
+    tabStrip.appendChild(tab);
+  });
+
+  const expandButton = document.createElement("button");
+  expandButton.type = "button";
+  expandButton.className = "workspace-sheet-tab workspace-application-expand-button";
+  expandButton.addEventListener("click", () => setExpandedMode(!isExpanded));
+  previewTopbar.append(titleGroup, search, tabStrip, expandButton);
+
+  const viewport = document.createElement("div");
+  viewport.className = `workspace-application-preview-viewport${viewportClassName ? ` ${viewportClassName}` : ""}`;
+  const content = document.createElement("div");
+  content.className = `workspace-application-preview-content${contentClassName ? ` ${contentClassName}` : ""}`;
+  const builtContent = buildContent?.({
+    content,
+    viewport,
+    previewShell,
+    searchInput,
+    setExpandedMode
+  });
+  if (Array.isArray(builtContent)) {
+    builtContent.filter(Boolean).forEach((node) => content.appendChild(node));
+  } else if (typeof Node !== "undefined" && builtContent instanceof Node) {
+    content.appendChild(builtContent);
+  }
+  viewport.appendChild(content);
+  previewShell.append(previewTopbar, viewport);
+
+  function mountPreviewShell() {
+    previewShell.classList.toggle("is-expanded", isExpanded);
+    expandButton.textContent = isExpanded ? "Exit full screen" : "Full screen";
+    expandButton.title = isExpanded ? "Exit full screen" : "Open full screen";
+    expandButton.setAttribute("aria-pressed", isExpanded ? "true" : "false");
+    if (isExpanded) {
+      const scaleFrame = ensureExpandedHost();
+      document.body.classList.add(expandedBodyClassName);
+      scaleFrame.replaceChildren(previewShell);
+      expandedOverlay?.focus({ preventScroll: true });
+      return;
+    }
+    if (previewShell.parentElement !== container) {
+      container.appendChild(previewShell);
+    }
+    destroyExpandedHost();
+  }
+
+  mountPreviewShell();
+  return {
+    shell: previewShell,
+    viewport,
+    content,
+    searchInput,
+    setExpandedMode
+  };
+}
+
 function renderAppPreview(container, assetUrl = "", options = {}) {
   const shell = document.createElement("div");
   shell.className = "workspace-app-shell";
@@ -26211,7 +27384,17 @@ function renderAppPreview(container, assetUrl = "", options = {}) {
     empty.className = "workspace-surface-empty";
     empty.textContent = "No app preview is available yet for this object.";
     shell.appendChild(empty);
-    container.appendChild(shell);
+    renderWorkspaceApplicationPreviewShell(container, {
+      previewKey: options.previewKey || options.title || "app-preview",
+      title: options.title || "Application",
+      meta: options.meta || "Live application workspace",
+      tabs: options.tabs || ["Preview", "Inspect"],
+      searchPlaceholder: "Rechercher dans l'application ou les commandes",
+      cardClassName: "workspace-app-preview-card",
+      viewportClassName: "workspace-app-preview-viewport",
+      contentClassName: "workspace-app-preview-content",
+      buildContent: () => shell
+    });
     return;
   }
 
@@ -26225,7 +27408,17 @@ function renderAppPreview(container, assetUrl = "", options = {}) {
   frame.title = "Hydria app preview";
   frame.setAttribute("sandbox", "allow-scripts allow-forms allow-modals");
   shell.appendChild(frame);
-  container.appendChild(shell);
+  renderWorkspaceApplicationPreviewShell(container, {
+    previewKey: options.previewKey || options.title || assetUrl || "app-preview",
+    title: options.title || "Application",
+    meta: options.meta || "Live application workspace",
+    tabs: options.tabs || ["Preview", "Inspect"],
+    searchPlaceholder: "Rechercher dans l'application ou les commandes",
+    cardClassName: "workspace-app-preview-card",
+    viewportClassName: "workspace-app-preview-viewport",
+    contentClassName: "workspace-app-preview-content",
+    buildContent: () => shell
+  });
 }
 
 function crmApplicationUrl() {
@@ -26400,6 +27593,50 @@ function renderSurfaceOverview(container, { workObject = null, project = null, s
   container.appendChild(meta);
 }
 
+function shouldRenderApplicationOverviewShell(workObject = null) {
+  const familyId = workObject?.workspaceFamilyId || "";
+  const objectKind = workObject?.objectKind || workObject?.kind || "";
+  return (
+    [
+      "crm_sales",
+      "app_builder",
+      "workflow_automation",
+      "design",
+      "development",
+      "analytics_dashboard",
+      "presentation"
+    ].includes(familyId) ||
+    ["project", "workflow", "design", "code", "dashboard", "presentation"].includes(objectKind)
+  );
+}
+
+function renderApplicationOverviewPreview(
+  container,
+  {
+    workObject = null,
+    project = null,
+    sections = [],
+    blocks = [],
+    previewKey = "",
+    metaText = ""
+  } = {}
+) {
+  const content = document.createElement("div");
+  content.className = "workspace-application-overview-content";
+  renderSurfaceOverview(content, { workObject, project, sections, blocks });
+  renderWorkspaceApplicationPreviewShell(container, {
+    previewKey: previewKey || workObject?.id || workObject?.title || "overview",
+    title: workObject?.title || "Hydria workspace",
+    meta: metaText || "Application overview",
+    tabs: ["Overview", "Structure"],
+    searchPlaceholder: "Rechercher dans cet espace ou les commandes",
+    cardClassName: "workspace-overview-preview-card",
+    viewportClassName: "workspace-overview-preview-viewport",
+    contentClassName: "workspace-overview-preview-content",
+    buildContent: () => content
+  });
+}
+
 export function renderWorkspacePreview(
   container,
   {
@@ -26426,8 +27663,6 @@ export function renderWorkspacePreview(
     onProjectObjectSelect = null,
     onPresentationSlideFocus = null,
     onPresentationSlideEdit = null,
-    onDataHeaderEdit = null,
-    onDataCellEdit = null,
     onDataGridEdit = null,
     onDashboardFilterToggle = null,
     onDashboardWidgetMove = null,
@@ -26571,7 +27806,7 @@ export function renderWorkspacePreview(
   title.textContent = workObject.title || "Hydria Object";
   const meta = document.createElement("span");
   meta.className = "tiny";
-  meta.textContent = metaText.replace(/Â·/g, "-");
+  meta.textContent = metaText;
   titleGroup.append(title, meta);
 
   const kind = document.createElement("span");
@@ -26581,7 +27816,18 @@ export function renderWorkspacePreview(
   container.appendChild(header);
 
   if (resolvedSurfaceId === "overview") {
-    renderSurfaceOverview(container, { workObject, project, sections, blocks });
+    if (shouldRenderApplicationOverviewShell(workObject)) {
+      renderApplicationOverviewPreview(container, {
+        workObject,
+        project,
+        sections,
+        blocks,
+        previewKey: workObject?.id || normalizedPath || workObject?.title || "overview",
+        metaText
+      });
+    } else {
+      renderSurfaceOverview(container, { workObject, project, sections, blocks });
+    }
     return;
   }
 
@@ -26594,7 +27840,12 @@ export function renderWorkspacePreview(
   }
 
   if (resolvedSurfaceId === "app") {
-    renderAppPreview(container, assetUrl);
+    renderAppPreview(container, assetUrl, {
+      previewKey: workObject?.id || normalizedPath || assetUrl || "app",
+      title: workObject.title || "Application",
+      meta: metaText,
+      tabs: ["Preview", "Inspect"]
+    });
     return;
   }
 
@@ -26626,8 +27877,6 @@ export function renderWorkspacePreview(
   if (resolvedSurfaceId === "data") {
     renderDataPreview(container, normalizedPath, contentToRender, {
       workObject,
-      onHeaderEdit: onDataHeaderEdit,
-      onCellEdit: onDataCellEdit,
       onGridEdit: onDataGridEdit
     });
     return;
@@ -26638,6 +27887,7 @@ export function renderWorkspacePreview(
       activeFilter: activePreviewFilter,
       activeWidgetId: selectedStructuredSubItemId,
       activeChartId: selectedStructuredItemId,
+      previewKey: workObject?.id || normalizedPath || workObject?.title || "dashboard",
       onFilterToggle: onDashboardFilterToggle,
       onWidgetMove: onDashboardWidgetMove,
       onWidgetDrop: onDashboardWidgetDrop,
@@ -26652,6 +27902,9 @@ export function renderWorkspacePreview(
     renderWorkflowExperiencePreview(container, contentToRender, {
       activeStageId: selectedStructuredItemId,
       activeLinkId: selectedStructuredSubItemId,
+      previewKey: workObject?.id || normalizedPath || workObject?.title || "workflow",
+      title: workObject.title || "New Automation",
+      meta: metaText,
       onStageFocus: onWorkflowStageFocus,
       onStageMove: onWorkflowStageMove,
       onStagePositionChange: onWorkflowStagePositionChange,
@@ -26666,6 +27919,9 @@ export function renderWorkspacePreview(
     renderDesignExperiencePreview(container, contentToRender, {
       activeFrameId: selectedStructuredItemId,
       activeBlockId: selectedStructuredSubItemId,
+      previewKey: workObject?.id || normalizedPath || workObject?.title || "design",
+      title: workObject.title || "New Whiteboard",
+      meta: metaText,
       onFrameFocus: onDesignFrameFocus,
       onBlockFocus: onDesignBlockFocus,
       onBlockMove: onDesignBlockMove,
@@ -26682,7 +27938,12 @@ export function renderWorkspacePreview(
       sections,
       selectedSectionId,
       onPresentationSlideFocus,
-      onPresentationSlideEdit
+      onPresentationSlideEdit,
+      {
+        previewKey: workObject?.id || normalizedPath || workObject?.title || "presentation",
+        title: workObject.title || "New Slides",
+        meta: metaText
+      }
     );
     return;
   }
@@ -26704,7 +27965,8 @@ export function renderWorkspacePreview(
         onDocumentInlineEdit,
         workObject,
         projectWorkObjects,
-        onProjectObjectSelect
+        onProjectObjectSelect,
+        normalizedPath
       );
       return;
     }
@@ -26720,7 +27982,19 @@ export function renderWorkspacePreview(
 
   if (isDocumentMarkupFile) {
     if (objectKind === "presentation") {
-      renderPresentationPreview(container, contentToRender, sections, selectedSectionId, onPresentationSlideFocus, onPresentationSlideEdit);
+      renderPresentationPreview(
+        container,
+        contentToRender,
+        sections,
+        selectedSectionId,
+        onPresentationSlideFocus,
+        onPresentationSlideEdit,
+        {
+          previewKey: workObject?.id || normalizedPath || workObject?.title || "presentation",
+          title: workObject.title || "New Slides",
+          meta: metaText
+        }
+      );
       return;
     }
     if (objectKind === "document" || objectKind === "project") {
@@ -26735,7 +28009,8 @@ export function renderWorkspacePreview(
       onDocumentInlineEdit,
       workObject,
       projectWorkObjects,
-      onProjectObjectSelect
+      onProjectObjectSelect,
+      normalizedPath
     );
     return;
   }
@@ -26746,6 +28021,7 @@ export function renderWorkspacePreview(
         activeFilter: activePreviewFilter,
         activeWidgetId: selectedStructuredSubItemId,
         activeChartId: selectedStructuredItemId,
+        previewKey: workObject?.id || normalizedPath || workObject?.title || "dashboard",
         onFilterToggle: onDashboardFilterToggle,
         onWidgetMove: onDashboardWidgetMove,
         onWidgetDrop: onDashboardWidgetDrop,
@@ -26759,6 +28035,9 @@ export function renderWorkspacePreview(
       renderWorkflowExperiencePreview(container, contentToRender, {
         activeStageId: selectedStructuredItemId,
         activeLinkId: selectedStructuredSubItemId,
+        previewKey: workObject?.id || normalizedPath || workObject?.title || "workflow",
+        title: workObject.title || "New Automation",
+        meta: metaText,
         onStageFocus: onWorkflowStageFocus,
         onStageMove: onWorkflowStageMove,
         onStagePositionChange: onWorkflowStagePositionChange,
@@ -26772,6 +28051,9 @@ export function renderWorkspacePreview(
       renderDesignExperiencePreview(container, contentToRender, {
         activeFrameId: selectedStructuredItemId,
         activeBlockId: selectedStructuredSubItemId,
+        previewKey: workObject?.id || normalizedPath || workObject?.title || "design",
+        title: workObject.title || "New Whiteboard",
+        meta: metaText,
         onFrameFocus: onDesignFrameFocus,
         onBlockFocus: onDesignBlockFocus,
         onBlockMove: onDesignBlockMove,
@@ -26798,8 +28080,6 @@ export function renderWorkspacePreview(
     }
     renderDataPreview(container, normalizedPath, contentToRender, {
       workObject,
-      onHeaderEdit: onDataHeaderEdit,
-      onCellEdit: onDataCellEdit,
       onGridEdit: onDataGridEdit
     });
     return;
@@ -26811,7 +28091,12 @@ export function renderWorkspacePreview(
   }
 
   if (isHtmlPreviewPath(normalizedPath)) {
-    renderAppPreview(container, assetUrl);
+    renderAppPreview(container, assetUrl, {
+      previewKey: workObject?.id || normalizedPath || assetUrl || "app",
+      title: workObject.title || "Application",
+      meta: metaText,
+      tabs: ["Preview", "Inspect"]
+    });
     return;
   }
 
@@ -26892,79 +28177,6 @@ export function renderWorkspaceBreadcrumb(
   }
 }
 
-function formatWorkspaceFamilyLabel(value = "") {
-  const normalized = String(value || "").trim();
-  if (!normalized) {
-    return "";
-  }
-
-  const map = {
-    document_knowledge: "Document & Knowledge",
-    data_spreadsheet: "Data & Spreadsheet",
-    analytics_dashboard: "Analytics & Dashboard",
-    development: "Development",
-    app_builder: "App Builder",
-    design: "Design",
-    presentation: "Presentation",
-    project_management: "Project Management",
-    strategy_planning: "Strategy & Planning",
-    workflow_automation: "Workflow & Automation",
-    ai_agent: "AI & Agents",
-    crm_sales: "CRM & Sales",
-    operations: "Operations",
-    finance: "Finance",
-    hr: "HR",
-    file_storage: "Files & Storage",
-    testing_qa: "Testing & QA",
-    web_cms: "Web & CMS",
-    media: "Media",
-    audio: "Audio",
-    integration_api: "Integrations & API",
-    knowledge_graph: "Knowledge Graph"
-  };
-
-  if (map[normalized]) {
-    return map[normalized];
-  }
-
-  if (/[A-Z&]/.test(normalized) || normalized.includes(" / ")) {
-    return normalized;
-  }
-
-  return normalized
-    .split("_")
-    .filter(Boolean)
-    .map((chunk) => chunk.charAt(0).toUpperCase() + chunk.slice(1))
-    .join(" ");
-}
-
-function formatObjectKindLabel(value = "") {
-  const normalized = String(value || "").trim().toLowerCase();
-  const map = {
-    project: "Project",
-    document: "Document",
-    dataset: "Spreadsheet",
-    dashboard: "Dashboard",
-    workflow: "Workflow",
-    design: "Design",
-    presentation: "Presentation",
-    benchmark: "Benchmark",
-    campaign: "Campaign",
-    image: "Image",
-    audio: "Audio",
-    video: "Video",
-    code: "Code"
-  };
-
-  if (map[normalized]) {
-    return map[normalized];
-  }
-
-  return normalized
-    ? normalized.charAt(0).toUpperCase() + normalized.slice(1)
-    : "";
-}
-
 function createWorkspaceChip(text = "", tone = "default") {
   if (!text) {
     return null;
@@ -27008,7 +28220,7 @@ export function renderWorkspaceObjectList(
     const chipRow = document.createElement("div");
     chipRow.className = "workspace-chip-row";
     [
-      createWorkspaceChip(formatObjectKindLabel(workObject.objectKind || workObject.kind), "kind"),
+      createWorkspaceChip(formatWorkspaceObjectKindLabel(workObject.objectKind || workObject.kind), "kind"),
       createWorkspaceChip(
         formatWorkspaceFamilyLabel(workObject.workspaceFamilyLabel || workObject.workspaceFamilyId),
         "family"
@@ -27035,7 +28247,6 @@ export function renderWorkspaceObjectList(
       .filter(Boolean)
       .join(" · ");
 
-    meta.textContent = meta.textContent.replaceAll("Â·", "|");
     button.append(header, summary, meta);
     container.appendChild(button);
   }
@@ -27294,14 +28505,13 @@ export function renderWorkspaceProjectMap(
     meta.className = "workspace-project-node-meta";
     meta.textContent = [
       formatWorkspaceFamilyLabel(node.workspaceFamilyLabel || node.workspaceFamilyId),
-      formatObjectKindLabel(node.objectKind),
+      formatWorkspaceObjectKindLabel(node.objectKind),
       node.primaryFile ? friendlyPathLabel(node.primaryFile) : "",
       node.status || ""
     ]
       .filter(Boolean)
       .join(" · ");
 
-    meta.textContent = meta.textContent.replaceAll("Â·", "|");
     button.append(nodeTitle, meta);
     nodeList.append(button);
   });

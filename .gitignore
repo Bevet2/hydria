@@ -15,6 +15,11 @@ crm/apps/api/storage/
 crm/.env
 crm/staging.env
 
+.tools/
+backend/backend/
+backend/chart-*.png
+backend/popup-debug.png
+
 data/
 logs/
 hydria_models/
