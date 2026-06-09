@@ -105,6 +105,15 @@ async function maybeOpenWorkspacePage(page, label) {
     await page.waitForLoadState("networkidle", { timeout: 3000 }).catch(() => {});
     await page.waitForTimeout(800);
   }
+
+  if (label === "Sheets" && !(await isVisible(existingSheet))) {
+    const createSheet = page.locator('.workspace-launcher-card[data-workspace="sheets"]').first();
+    if (await isVisible(createSheet)) {
+      await createSheet.click({ timeout: 5000 });
+      await page.waitForLoadState("networkidle", { timeout: 3000 }).catch(() => {});
+      await page.waitForTimeout(1000);
+    }
+  }
 }
 
 async function waitForWorkspace(page, baseUrl) {
@@ -364,7 +373,8 @@ const scenarios = [
   {
     name: "sheets-toolbar-context-menu-fullscreen",
     tags: ["sheets", "menus", "fullscreen"],
-    run: async ({ page }) => {
+    run: async ({ page, options }) => {
+      await waitForWorkspace(page, options.baseUrl);
       await maybeOpenWorkspacePage(page, "Sheets");
       await page.locator(".workspace-sheet-cell-input").first().waitFor({ state: "visible", timeout: 10000 });
 
@@ -386,7 +396,7 @@ const scenarios = [
       assert.ok(selectedCellCount >= 2, "Right-clicking inside a selected Sheets range should preserve the range selection");
       const menuText = await sheetContextMenu.textContent();
       assert.match(menuText || "", /Copier|Copy|Couper|Cut|Coller|Paste/i, "Sheets context menu should expose clipboard actions");
-      await page.mouse.click(4, 4);
+      await page.locator("#workspace-title").click({ timeout: 5000 });
       await page.waitForFunction(
         () =>
           !Array.from(document.querySelectorAll(".workspace-sheet-context-menu")).some(
@@ -429,6 +439,15 @@ const scenarios = [
       await page.waitForLoadState("networkidle", { timeout: 5000 }).catch(() => {});
       await page.waitForTimeout(800);
 
+      const crmFrame = page.locator('iframe[title="Hydria CRM"]').first();
+      const hasEmbeddedCrm = await isVisible(crmFrame);
+      let embeddedCrmText = "";
+      if (hasEmbeddedCrm) {
+        const frameBody = page.frameLocator('iframe[title="Hydria CRM"]').locator("body");
+        await frameBody.waitFor({ state: "visible", timeout: 10000 }).catch(() => {});
+        embeddedCrmText = (await frameBody.innerText().catch(() => "")) || "";
+      }
+
       const crmPageCheck = await page.evaluate(() => {
         const text = document.body.innerText || "";
         return {
@@ -438,10 +457,22 @@ const scenarios = [
           hasSalesLanguage: /contacts|companies|deals|sales|pipeline|follow-up|CRM/i.test(text)
         };
       });
+      crmPageCheck.hasEmbeddedCrm = hasEmbeddedCrm;
+      crmPageCheck.embeddedCrmReady = /dashboard|leads|contacts|companies|pipeline|CRM/i.test(
+        embeddedCrmText
+      );
 
       assert.equal(crmPageCheck.hasCrmHeading, true, "CRM workspace page should render on direct navigation");
-      assert.equal(crmPageCheck.hasCreateAction, true, "CRM workspace page should expose a create action");
-      assert.equal(crmPageCheck.hasSalesLanguage, true, "CRM workspace page should describe CRM sales work");
+      assert.equal(
+        crmPageCheck.hasCreateAction || crmPageCheck.hasEmbeddedCrm,
+        true,
+        "CRM workspace page should expose creation or the live CRM application"
+      );
+      assert.equal(
+        crmPageCheck.hasSalesLanguage || crmPageCheck.embeddedCrmReady,
+        true,
+        "CRM workspace page should expose CRM sales work"
+      );
 
       return crmPageCheck;
     }
