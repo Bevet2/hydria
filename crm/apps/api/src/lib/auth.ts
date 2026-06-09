@@ -7,6 +7,7 @@ export type TokenPayload = {
   organizationId: string;
   role: UserRole;
   email: string;
+  sessionId?: string;
 };
 
 export function signAccessToken(payload: TokenPayload) {
@@ -17,4 +18,14 @@ export function signAccessToken(payload: TokenPayload) {
 
 export function verifyAccessToken(token: string) {
   return jwt.verify(token, env.JWT_SECRET) as TokenPayload;
+}
+
+export function signMfaChallengeToken(userId: string) {
+  return jwt.sign({ sub: userId, purpose: "mfa" }, env.JWT_SECRET, { expiresIn: "5m" });
+}
+
+export function verifyMfaChallengeToken(token: string) {
+  const payload = jwt.verify(token, env.JWT_SECRET) as { sub: string; purpose: string };
+  if (payload.purpose !== "mfa") throw new Error("Invalid MFA challenge");
+  return payload;
 }

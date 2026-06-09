@@ -7,6 +7,8 @@ export type User = {
   lastName: string;
   role: Role;
   organizationId: string;
+  emailVerifiedAt?: string | null;
+  mfaEnabled?: boolean;
   organization?: { name: string; slug: string };
 };
 
@@ -109,7 +111,20 @@ export type Quote = {
   total: number | string;
   deal?: Pick<Deal, "id" | "name">;
   company?: Pick<Company, "id" | "name"> | null;
+  contact?: Pick<Contact, "id" | "firstName" | "lastName" | "email"> | null;
+  lineItems?: QuoteLineItem[];
   _count?: { lineItems: number };
+};
+
+export type QuoteLineItem = {
+  id?: string;
+  productId?: string | null;
+  description: string;
+  quantity: number | string;
+  unitPrice: number | string;
+  discountPercent: number | string;
+  lineTotal?: number | string;
+  product?: Product | null;
 };
 
 export type Task = {
@@ -119,8 +134,54 @@ export type Task = {
   status: "TODO" | "IN_PROGRESS" | "DONE" | "CANCELED";
   priority: "LOW" | "MEDIUM" | "HIGH" | "URGENT";
   dueAt?: string | null;
+  reminderAt?: string | null;
+  recurrence: "NONE" | "DAILY" | "WEEKLY" | "MONTHLY";
+  recurrenceInterval: number;
+  recurrenceEndsAt?: string | null;
+  recurrenceSeriesId?: string | null;
   assignedTo?: Pick<User, "id" | "firstName" | "lastName"> | null;
   company?: Pick<Company, "id" | "name"> | null;
   contact?: Pick<Contact, "id" | "firstName" | "lastName"> | null;
   deal?: Pick<Deal, "id" | "name"> | null;
+  lead?: Pick<Lead, "id" | "firstName" | "lastName"> | null;
+};
+
+export type SavedView = {
+  id: string;
+  resource: "CONTACTS" | "COMPANIES" | "LEADS" | "DEALS" | "TASKS" | "PRODUCTS" | "QUOTES" | "INVOICES";
+  name: string;
+  filters: Record<string, unknown>;
+  isDefault: boolean;
+};
+
+export type Attachment = {
+  id: string;
+  originalName: string;
+  mimeType: string;
+  size: number;
+  createdAt: string;
+  uploadedBy: Pick<User, "id" | "firstName" | "lastName">;
+};
+
+export type AuditLog = {
+  id: string;
+  action: string;
+  resource: string;
+  resourceId?: string | null;
+  method: string;
+  path: string;
+  statusCode: number;
+  createdAt: string;
+  actor?: Pick<User, "id" | "firstName" | "lastName" | "email"> | null;
+};
+
+export type Notification = {
+  id: string;
+  taskId?: string | null;
+  type: "TASK_ASSIGNED" | "TASK_REMINDER" | "TASK_OVERDUE" | "TASK_COMPLETED";
+  title: string;
+  body?: string | null;
+  readAt?: string | null;
+  createdAt: string;
+  task?: Pick<Task, "id" | "title" | "status" | "dueAt"> | null;
 };

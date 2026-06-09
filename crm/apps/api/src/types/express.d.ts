@@ -6,11 +6,16 @@ declare global {
       user?: {
         id: string;
         organizationId: string;
-        role: UserRole;
-        email: string;
-      };
-    }
+      role: UserRole;
+      email: string;
+      sessionId?: string;
+      apiKeyId?: string;
+      apiKeyScopes?: string[];
+    };
+    requestId?: string;
+    rawBody?: Buffer;
   }
+}
 }
 
 export {};

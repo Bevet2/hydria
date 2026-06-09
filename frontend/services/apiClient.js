@@ -50,6 +50,12 @@ export const apiClient = {
   getHydriaControlSchema() {
     return request("/api/hydria/control/schema");
   },
+  createCrmSession(userId) {
+    return request("/api/hydria/crm/session", {
+      method: "POST",
+      body: JSON.stringify({ userId })
+    });
+  },
   askHydria(input, options = {}, context = {}) {
     return request("/api/hydria/ask", {
       method: "POST",

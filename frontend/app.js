@@ -7,6 +7,7 @@ import {
   deriveWorkspaceSections,
   matchesWorkspaceDimension,
   renderProjectCards,
+  renderCrmWorkspaceEmbed,
   renderWorkspaceBreadcrumb,
   renderWorkspaceBlockList,
   renderWorkspaceDimensionNav,
@@ -1616,6 +1617,7 @@ function currentWorkspaceFamilyId() {
   return (
     state.currentWorkObject?.workspaceFamilyId ||
     currentEnvironmentPlan()?.workspaceFamilyId ||
+    currentWorkspacePage()?.family ||
     ""
   );
 }
@@ -4495,6 +4497,7 @@ function refreshPreviewPane() {
     selectedStructuredItemId: state.currentStructuredItemId,
     selectedStructuredSubItemId: state.currentStructuredSubItemId,
     activePreviewFilter: state.currentPreviewFilter,
+    crmUserId: state.currentUserId,
     onDocumentSectionFocus: (sectionId) => {
       state.currentSectionId = sectionId;
       state.currentBlockId = "";
@@ -8371,6 +8374,12 @@ function renderWorkspaceLauncher(hasVisibleWorkspace = false) {
 
   container.innerHTML = "";
   const activePage = currentWorkspacePage();
+  if (activePage?.slug === "crm") {
+    container.classList.add("workspace-launcher-crm");
+    renderCrmWorkspaceEmbed(container, { userId: state.currentUserId });
+    return;
+  }
+  container.classList.remove("workspace-launcher-crm");
   const header = document.createElement("div");
   header.className = "workspace-launcher-header";
   const title = document.createElement("div");
@@ -8422,6 +8431,7 @@ function renderWorkspace() {
       : state.currentWorkObject;
   const project = state.currentWorkspace?.project || null;
   const hasVisibleWorkspace = Boolean(workObject);
+  const hasEmbeddedCrm = activePage?.slug === "crm";
   const workspaceLens = currentWorkspaceLens();
   const workspaceFamilyId = currentWorkspaceFamilyId();
   const isDocumentCloneWorkspace = workspaceFamilyId === "document_knowledge";
@@ -8435,7 +8445,7 @@ function renderWorkspace() {
   const surfaceModel = currentSurfaceModel();
   const dimensions = project?.dimensions || workObject?.projectDimensions || [];
 
-  el["work-object-empty"].classList.toggle("hidden", Boolean(workObject));
+  el["work-object-empty"].classList.toggle("hidden", Boolean(workObject) || hasEmbeddedCrm);
   el["work-object-empty"].textContent = activePage
     ? `No ${activePage.label} object is open on this page yet.`
     : "Choose a workspace page to begin.";
@@ -9444,6 +9454,11 @@ async function applyHydriaControlPayload(payload = {}) {
       payload.control?.reply ||
       "Hydria Core a pilote Hydria OS."
   );
+  if (workspaceToolResults.some((result) => result?.status === "completed" && result?.engine === "crm")) {
+    document
+      .querySelector(".workspace-crm-live-frame")
+      ?.contentWindow?.postMessage({ type: "hydria-crm-refresh" }, "*");
+  }
 
   await loadMessages();
   await loadProjects();
@@ -9495,6 +9510,7 @@ async function runHydriaPrompt({
           prompt,
           workObjectId,
           entryPath: workObjectPath,
+          workspaceFamilyId: currentWorkspaceFamilyId(),
           execute: true
         });
 
@@ -9847,6 +9863,9 @@ async function init() {
   ]);
 
   state.config = configPayload || null;
+  if (configPayload?.config?.crm?.webUrl) {
+    window.HYDRIA_CRM_URL = configPayload.config.crm.webUrl;
+  }
   state.users = usersPayload.users || [];
   renderUsers();
 

@@ -812,6 +812,72 @@ body[data-workspace-page="crm"] {
   --workspace-page-accent-soft: rgba(22, 125, 104, 0.1);
 }
 
+body[data-workspace-page="crm"] #workspace-panel-root {
+  padding: 16px;
+}
+
+body[data-workspace-page="crm"] #workspace-panel-root > .workspace-shell-header {
+  margin-bottom: 12px;
+}
+
+body[data-workspace-page="crm"] #workspace-panel-root > .workspace-shell-header .workspace-shell-actions,
+body[data-workspace-page="crm"] #workspace-project-badge,
+body[data-workspace-page="crm"] #workspace-action-guide,
+#workspace-panel-root[data-family="crm_sales"] .workspace-operating-strip,
+#workspace-panel-root[data-family="crm_sales"] #workspace-project-badge,
+#workspace-panel-root[data-family="crm_sales"] #workspace-action-guide,
+#workspace-panel-root[data-family="crm_sales"] .workspace-sidebar,
+#workspace-panel-root[data-family="crm_sales"] .workspace-toolbar,
+#workspace-panel-root[data-family="crm_sales"] .workspace-editor-drawer {
+  display: none !important;
+}
+
+body[data-workspace-page="crm"] .workspace-launcher-crm {
+  min-height: 0;
+  padding: 0;
+}
+
+#workspace-panel-root[data-family="crm_sales"] .workspace-layout {
+  grid-template-columns: 1fr;
+}
+
+#workspace-panel-root[data-family="crm_sales"] .workspace-stage,
+#workspace-panel-root[data-family="crm_sales"] .workspace-preview-pane {
+  min-height: 760px;
+}
+
+#workspace-panel-root[data-family="crm_sales"] .workspace-preview {
+  min-height: 760px;
+  max-height: none;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid rgba(22, 125, 104, 0.18);
+  border-radius: 8px;
+  background: #f5f6f2;
+  box-shadow: none;
+}
+
+#workspace-panel-root[data-family="crm_sales"] .workspace-preview-header {
+  display: none;
+}
+
+.workspace-crm-live-shell {
+  width: 100%;
+  min-height: 760px;
+  overflow: hidden;
+  border: 1px solid rgba(22, 125, 104, 0.18);
+  border-radius: 8px;
+  background: #f5f6f2;
+}
+
+.workspace-crm-live-frame {
+  display: block;
+  width: 100%;
+  min-height: 760px;
+  border: 0;
+  background: #f5f6f2;
+}
+
 body[data-workspace-page="automation"] {
   --workspace-page-accent: #47704d;
   --workspace-page-accent-soft: rgba(71, 112, 77, 0.1);
@@ -967,6 +1033,10 @@ body[data-workspace-page]:not([data-workspace-page="overview"]) #workspace-conte
 }
 
 @media (max-width: 640px) {
+  body[data-workspace-page="crm"] .workspace-switcher {
+    position: static;
+  }
+
   .workspace-switcher {
     margin-inline: -4px;
     padding: 6px;

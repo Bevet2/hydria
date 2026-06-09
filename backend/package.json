@@ -15,6 +15,7 @@
     "eval:domains": "node scripts/domainBenchmarkEval.mjs",
     "eval:realworld": "node scripts/realworldBenchmarkEval.mjs",
     "gate:workspace": "node scripts/workspaceToolIntegrationGate.mjs",
+    "gate:crm-core": "node scripts/crmCoreIntegrationGate.mjs",
     "gate:hydria-interactions": "node scripts/hydriaInteractionsClientGate.mjs"
   },
   "dependencies": {

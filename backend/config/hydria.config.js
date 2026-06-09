@@ -224,6 +224,15 @@ const config = {
     controlToken: env.HYDRIA_CONTROL_TOKEN || "",
     enabled: Boolean(env.HYDRIA_API_KEY)
   },
+  crm: {
+    apiUrl: firstDefined(env.CRM_API_URL, "http://127.0.0.1:4010/api").replace(/\/+$/, ""),
+    webUrl: firstDefined(env.CRM_WEB_URL, "http://127.0.0.1:5174").replace(/\/+$/, ""),
+    integrationSecret: firstDefined(
+      env.CRM_INTEGRATION_SECRET,
+      "hydria-crm-local-integration-secret-change-me"
+    ),
+    timeoutMs: Math.max(3000, parseInteger(env.CRM_API_TIMEOUT_MS, 15000))
+  },
   localLlm: {
     enabled: parseBoolean(env.LOCAL_LLM_ENABLED, false),
     providerType: firstDefined(env.LOCAL_LLM_PROVIDER, "ollama").toLowerCase(),

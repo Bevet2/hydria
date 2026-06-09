@@ -1,12 +1,17 @@
 import { Router } from "express";
+import { rm } from "node:fs/promises";
+import path from "node:path";
 import { z } from "zod";
+import { env } from "../config/env.js";
 import { prisma } from "../lib/prisma.js";
 import { asyncRoute, HttpError, parseBody, parsePagination } from "../lib/http.js";
 import { assertUserInOrganization } from "../lib/tenantRelations.js";
 import { assertCanWrite, requireAuth } from "../middleware/auth.js";
 import { recordActivity } from "../services/activity.js";
+import { triggerAutomations } from "../services/automations.js";
 
 const router = Router();
+const attachmentRoot = path.resolve(env.ATTACHMENT_DIR);
 
 const leadSchema = z.object({
   firstName: z.string().min(1).max(80),
@@ -120,6 +125,18 @@ router.post(
       type: "RECORD_CREATED",
       subject: `Created lead ${lead.firstName} ${lead.lastName}`
     });
+    await triggerAutomations(req.user!.organizationId, "LEAD_CREATED", {
+      entityType: "lead",
+      entityId: lead.id,
+      fields: {
+        firstName: lead.firstName,
+        lastName: lead.lastName,
+        email: lead.email,
+        status: lead.status,
+        rating: lead.rating,
+        source: lead.source
+      }
+    });
     res.status(201).json({ lead });
   })
 );
@@ -150,6 +167,19 @@ router.patch(
       type: "RECORD_UPDATED",
       subject: `Updated lead ${lead.firstName} ${lead.lastName}`
     });
+    if (input.status && input.status !== current.status) {
+      await triggerAutomations(req.user!.organizationId, "LEAD_STATUS_CHANGED", {
+        entityType: "lead",
+        entityId: lead.id,
+        fields: {
+          previousStatus: current.status,
+          status: lead.status,
+          rating: lead.rating,
+          email: lead.email,
+          source: lead.source
+        }
+      });
+    }
     res.json({ lead });
   })
 );
@@ -276,7 +306,24 @@ router.delete(
       where: { id: String(req.params.id), organizationId: req.user!.organizationId }
     });
     if (!lead) throw new HttpError("Lead not found", 404);
-    await prisma.lead.delete({ where: { id: lead.id } });
+    const attachments = await prisma.attachment.findMany({
+      where: { organizationId: req.user!.organizationId, entityType: "LEAD", entityId: lead.id },
+      select: { storageKey: true }
+    });
+    await prisma.$transaction([
+      prisma.attachment.deleteMany({
+        where: { organizationId: req.user!.organizationId, entityType: "LEAD", entityId: lead.id }
+      }),
+      prisma.customFieldValue.deleteMany({
+        where: {
+          organizationId: req.user!.organizationId,
+          entityId: lead.id,
+          definition: { entityType: "LEAD" }
+        }
+      }),
+      prisma.lead.delete({ where: { id: lead.id } })
+    ]);
+    await Promise.all(attachments.map((item) => rm(path.join(attachmentRoot, item.storageKey), { force: true })));
     res.status(204).end();
   })
 );

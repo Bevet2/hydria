@@ -2,59 +2,174 @@
 
 Base URL: `http://localhost:4010/api`
 
-Send the JWT in:
+Authenticated requests accept either a session JWT or an API key:
 
 ```http
-Authorization: Bearer <token>
+Authorization: Bearer <token-or-ncrm-api-key>
 ```
 
-## Authentication
+## Authentication and account security
 
-- `POST /auth/register`
-- `POST /auth/login`
-- `GET /auth/me`
+- `POST /auth/register`, `/auth/login`, `/auth/login/mfa`, `/auth/refresh`
+- `POST /auth/forgot-password`, `/auth/reset-password`
+- `POST /auth/verify-email`, `/auth/verification/request`
+- `POST /auth/accept-invitation`
+- `GET /auth/me`, `/auth/sessions`
+- `DELETE /auth/sessions/:id`
+- `POST /auth/logout`, `/auth/logout-all`
+- `POST /auth/mfa/setup`, `/auth/mfa/enable`, `/auth/mfa/disable`
+- `GET|POST /users/invitations`, `DELETE /users/invitations/:id`
+
+Invitation, verification and reset links are delivered to
+`TRANSACTIONAL_EMAIL_URL`. The relay receives JSON containing `from`, `to`,
+`subject`, `text` and `html`. Development responses also expose a debug URL.
 
 ## CRM resources
 
-- `GET|POST /contacts`
-- `GET|PATCH|DELETE /contacts/:id`
-- `POST /contacts/import`
-- `GET /contacts/export.csv`
-- `GET|POST /companies`
-- `GET|PATCH|DELETE /companies/:id`
-- `GET /pipeline`
-- `POST /pipeline/deals`
-- `PATCH|DELETE /pipeline/deals/:id`
-- `POST /pipeline/stages`
-- `PATCH /pipeline/stages/:id`
-- `GET|POST /tasks`
-- `PATCH|DELETE /tasks/:id`
-- `GET|POST /timeline/activities`
-- `POST /timeline/notes`
-- `DELETE /timeline/notes/:id`
-- `GET|POST /custom-fields`
-- `PUT /custom-fields/:definitionId/values/:entityId`
-- `DELETE /custom-fields/:id`
-- `GET /dashboard`
-- `GET|POST /leads`
-- `GET|PATCH|DELETE /leads/:id`
-- `POST /leads/:id/convert`
-- `GET|POST /products`
-- `PATCH /products/:id`
-- `GET|POST /products/deals/:dealId/items`
-- `DELETE /products/deals/:dealId/items/:itemId`
-- `GET /products/quotes`
-- `POST /products/deals/:dealId/quotes`
-- `PATCH /products/quotes/:id/status`
-- `GET /reports`
-- `GET /search?q=...`
-- `GET|POST /users`
-- `PATCH /users/:id/role`
+- Contacts, companies, leads, opportunities, stages, products and tasks expose
+  list/create/read/update/delete routes.
+- Leads support transactional conversion with `POST /leads/:id/convert`.
+- Opportunities support line items and quotes under `/products/deals/:dealId`.
+- Notes, activities, attachments and custom fields support record timelines.
+- `/dashboard`, `/dashboard/preferences`, `/reports` and `/search?q=...`
+  provide operational reporting and per-user dashboard configuration.
+- `/notifications` provides reminders, assignments and overdue alerts.
 
-## Login example
+## Data operations
+
+- `GET /contacts/duplicates`, `POST /contacts/merge`, `POST /contacts/bulk`
+- `GET /data/duplicates/:resource` for `companies` and `leads`
+- `POST /data/bulk/:resource` for `companies`, `leads`, `deals`, `products`
+  and `tasks`
+- `POST /data/duplicates/companies/merge`
+- `POST /data/duplicates/leads/merge`
+- `POST /data/import/:resource`
+- `GET /data/export/:resource.csv`
+- `GET|POST /saved-views`, `PATCH|DELETE /saved-views/:id`
+- `GET /audit-logs`
+
+Bulk deletion requires the literal confirmation `DELETE`.
+
+## Automations
+
+- `GET|POST /automations`
+- `PATCH|DELETE /automations/:id`
+- `GET /automations/runs/history`
+
+Triggers cover record creation, lead qualification, deal-stage changes, quote
+acceptance and overdue tasks. Actions cover owner assignment, task creation,
+queued email, field updates and deal-stage moves.
+
+## Communications and integrations
+
+- `GET /integrations`
+- `POST /integrations/oauth/:provider/start|exchange`
+- `POST /integrations/custom`
+- `POST /integrations/:id/sync`, `DELETE /integrations/:id`
+- `GET /integrations/readiness`
+- `GET|POST /communications/templates`
+- `GET|POST /communications/messages`
+- `GET /communications/conversations`
+- `POST /communications/messages/:id/reply-received`
+- `GET|POST /communications/calendar`, `DELETE /communications/calendar/:id`
+
+Google Workspace and Microsoft 365 require their client ID and secret in
+`.env`. Email and calendar synchronizations run as persistent background jobs.
+Outbound email supports attachments and automatic retries. Custom HTTPS
+connectors support accounting, support and marketing systems.
+
+Register this exact web callback in both provider consoles:
+
+```text
+http://localhost:5174/oauth/callback
+```
+
+Google requires the Gmail and Google Calendar APIs, an OAuth web client and the
+configured test users while the consent screen is in testing. Microsoft Entra
+requires a Web redirect URI, a client secret and delegated permissions
+`User.Read`, `Mail.ReadWrite`, `Mail.Send` and `Calendars.ReadWrite`.
+
+The CRM uses a popup-safe authorization-code flow with server-side one-time
+state storage and PKCE. This also works when the CRM iframe uses `127.0.0.1`
+while the registered callback uses `localhost`.
+
+## Quotes, signatures, invoices and payments
+
+- `GET|PATCH /commercial/quotes/:id`
+- `GET /commercial/quotes/:id/history`
+- `POST /commercial/quotes/:id/versions|approvals|signatures|invoices`
+- `GET /commercial/approvals/inbox`
+- `POST /commercial/approvals/:id/decision`
+- Public electronic signature: `GET|POST /commercial/signatures/:token`
+- `GET /commercial/invoices`, `GET|PATCH /commercial/invoices/:id`
+- `POST /commercial/invoices/:id/checkout`
+- `POST /commercial/invoices/:id/payments`
+- `POST /commercial/payments/:id/refunds`
+- `POST /commercial/invoices/:id/credit-notes`
+- `POST /commercial/invoices/:id/reminders`
+- `POST /commercial/invoices/:id/push/:connectionId`
+- `GET|POST /commercial/goals`, `DELETE /commercial/goals/:id`
+
+Stripe checkout and webhook processing require `STRIPE_SECRET_KEY` and
+`STRIPE_WEBHOOK_SECRET`.
+
+## Platform APIs
+
+- API keys: `GET|POST /api-keys`, `DELETE /api-keys/:id`
+- Webhooks: `GET|POST /webhooks`, delivery history and retry routes
+- Consent/privacy: `/compliance/consents`, `/compliance/privacy-requests`
+- Retention: `GET|PUT /compliance/retention`, `POST /compliance/retention/run`
+- Monitoring: `GET /monitoring/summary`, `GET /monitoring/errors`
+- Background jobs: `GET /monitoring/jobs`, `POST /monitoring/jobs/:id/retry`
+- Backups: `GET /backups/export`, `POST /backups/restore`
+- Scheduled backups: `GET|PUT /backups/schedule`, `POST /backups/schedule/run`
+
+Backup schema v2 contains business, communication, automation, quote,
+invoicing and GDPR records plus attachments. API keys, OAuth tokens, webhook
+secrets and backup credentials are intentionally excluded. Restore replaces
+the active organization's data and requires multipart confirmation `RESTORE`.
+
+API key scopes are enforced on every API-key request: `crm:read`,
+`crm:write`, `crm:commercial`, `crm:communications` and `crm:admin`.
+Persistent jobs cover email delivery, webhook delivery, provider
+synchronization and invoice reminders. Failed jobs use exponential backoff and
+move to the dead-letter queue after their maximum attempts.
+
+## Hydria OS and Core
+
+Hydria OS uses signed server-to-server requests. `HYDRIA_INTEGRATION_SECRET`
+and `CRM_INTEGRATION_SECRET` must match.
+
+- `POST /integrations/hydria/session`
+- `POST /integrations/hydria/context`
+- `POST /integrations/hydria/query`
+- `POST /integrations/hydria/actions`
+
+Canonical operations include create/update for CRM records, lead conversion,
+deal-stage updates, product addition, quote creation, customer summaries and
+confirmed sensitive deletion. Hydria OS exposes `/api/hydria/control` with
+`workspaceFamilyId: "crm_sales"`.
+
+## Validation gates
+
+With the CRM running:
 
 ```bash
-curl http://localhost:4010/api/auth/login \
-  -H "content-type: application/json" \
-  -d '{"email":"admin@northstar.local","password":"Northstar123!"}'
+cd crm
+npm run gate:operations
+npm run gate:productivity
+npm run gate:platform
+npm run gate:resilience
+npm run gate:oauth
+npm run gate:communications
+npm run gate:commercial
+npm run gate:load
+npm run test:e2e -w @northstar/web
+```
+
+With Hydria OS and Core running:
+
+```bash
+cd backend
+npm run gate:crm-core
 ```

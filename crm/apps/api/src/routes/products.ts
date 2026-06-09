@@ -1,9 +1,12 @@
+import { Prisma } from "@prisma/client";
 import { Router } from "express";
+import PDFDocument from "pdfkit";
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { asyncRoute, HttpError, parseBody } from "../lib/http.js";
 import { assertCanWrite, requireAuth, requireRole } from "../middleware/auth.js";
 import { recordActivity } from "../services/activity.js";
+import { triggerAutomations } from "../services/automations.js";
 
 const router = Router();
 
@@ -183,6 +186,99 @@ router.get(
   })
 );
 
+router.get(
+  "/quotes/:id/pdf",
+  asyncRoute(async (req, res) => {
+    const quote = await prisma.quote.findFirst({
+      where: { id: String(req.params.id), organizationId: req.user!.organizationId },
+      include: {
+        organization: true,
+        deal: true,
+        company: true,
+        contact: true,
+        owner: true,
+        lineItems: { orderBy: { createdAt: "asc" } }
+      }
+    });
+    if (!quote) throw new HttpError("Quote not found", 404);
+
+    const currency = quote.deal.currency || "EUR";
+    const money = new Intl.NumberFormat("fr-FR", {
+      style: "currency",
+      currency,
+      maximumFractionDigits: 2
+    });
+    const document = new PDFDocument({ size: "A4", margin: 48 });
+    const filename = `${quote.number.replace(/[^a-z0-9-]/gi, "_")}.pdf`;
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    document.pipe(res);
+
+    document.fontSize(10).fillColor("#167d68").text(quote.organization.name.toUpperCase());
+    document.moveDown(0.5);
+    document.fontSize(24).fillColor("#202823").text(`Quote ${quote.number}`);
+    document.fontSize(13).fillColor("#4e5953").text(quote.name);
+    document.moveDown(1.2);
+
+    document.fontSize(10).fillColor("#6f7973");
+    document.text(`Status: ${quote.status}`);
+    document.text(`Created: ${new Intl.DateTimeFormat("en", { dateStyle: "long" }).format(quote.createdAt)}`);
+    if (quote.validUntil) {
+      document.text(`Valid until: ${new Intl.DateTimeFormat("en", { dateStyle: "long" }).format(quote.validUntil)}`);
+    }
+    document.moveDown();
+    document.fillColor("#202823").fontSize(11).text("Customer", { underline: true });
+    document.fontSize(10).fillColor("#4e5953").text(quote.company?.name || "No company");
+    if (quote.contact) {
+      document.text(`${quote.contact.firstName} ${quote.contact.lastName}`);
+      if (quote.contact.email) document.text(quote.contact.email);
+    }
+    document.moveDown(1.2);
+
+    const left = 48;
+    const descriptionWidth = 240;
+    document.fontSize(9).fillColor("#6f7973");
+    document.text("DESCRIPTION", left, document.y, { width: descriptionWidth });
+    document.text("QTY", 310, document.y, { width: 50, align: "right" });
+    document.text("UNIT", 370, document.y, { width: 75, align: "right" });
+    document.text("TOTAL", 455, document.y, { width: 90, align: "right" });
+    document.moveDown(0.7);
+    document.strokeColor("#d8ddd9").moveTo(left, document.y).lineTo(547, document.y).stroke();
+    document.moveDown(0.6);
+
+    for (const item of quote.lineItems) {
+      const rowY = document.y;
+      document.fillColor("#202823").fontSize(10).text(item.description, left, rowY, { width: descriptionWidth });
+      document.text(String(item.quantity), 310, rowY, { width: 50, align: "right" });
+      document.text(money.format(Number(item.unitPrice)), 370, rowY, { width: 75, align: "right" });
+      document.text(money.format(Number(item.lineTotal)), 455, rowY, { width: 90, align: "right" });
+      document.y = Math.max(document.y, rowY + 22);
+    }
+
+    document.moveDown();
+    const totalsX = 350;
+    document.fillColor("#4e5953").fontSize(10);
+    document.text("Subtotal", totalsX, document.y, { width: 100 });
+    document.text(money.format(Number(quote.subtotal)), 455, document.y - 12, { width: 90, align: "right" });
+    if (Number(quote.discountPercent) > 0) {
+      document.text(`Discount (${quote.discountPercent}%)`, totalsX, document.y, { width: 100 });
+    }
+    if (Number(quote.taxPercent) > 0) {
+      document.text(`Tax (${quote.taxPercent}%)`, totalsX, document.y, { width: 100 });
+    }
+    document.moveDown(0.5);
+    document.fontSize(13).fillColor("#202823").text("Total", totalsX, document.y, { width: 100 });
+    document.text(money.format(Number(quote.total)), 455, document.y - 15, { width: 90, align: "right" });
+
+    if (quote.notes) {
+      document.moveDown(2);
+      document.fontSize(10).fillColor("#202823").text("Notes", { underline: true });
+      document.fillColor("#4e5953").text(quote.notes);
+    }
+    document.end();
+  })
+);
+
 router.post(
   "/deals/:dealId/quotes",
   asyncRoute(async (req, res) => {
@@ -248,6 +344,15 @@ router.post(
       type: "RECORD_CREATED",
       subject: `Created quote ${quote.number}`
     });
+    await prisma.quoteVersion.create({
+      data: {
+        organizationId,
+        quoteId: quote.id,
+        version: 1,
+        snapshot: JSON.parse(JSON.stringify(quote)) as Prisma.InputJsonValue,
+        createdById: req.user!.id
+      }
+    });
     res.status(201).json({ quote });
   })
 );
@@ -264,7 +369,26 @@ router.patch(
       where: { id: String(req.params.id), organizationId: req.user!.organizationId }
     });
     if (!current) throw new HttpError("Quote not found", 404);
+    if (["SENT", "ACCEPTED"].includes(input.status)) {
+      const blockingApprovals = await prisma.quoteApproval.count({
+        where: { quoteId: current.id, status: { not: "APPROVED" } }
+      });
+      if (blockingApprovals) throw new HttpError("All quote approvals must be completed first", 409);
+    }
     const quote = await prisma.quote.update({ where: { id: current.id }, data: input });
+    const quoteWithLines = await prisma.quote.findUniqueOrThrow({
+      where: { id: quote.id },
+      include: { lineItems: true }
+    });
+    await prisma.quoteVersion.create({
+      data: {
+        organizationId: req.user!.organizationId,
+        quoteId: quote.id,
+        version: (await prisma.quoteVersion.count({ where: { quoteId: quote.id } })) + 1,
+        snapshot: JSON.parse(JSON.stringify(quoteWithLines)) as Prisma.InputJsonValue,
+        createdById: req.user!.id
+      }
+    });
     await recordActivity({
       organizationId: req.user!.organizationId,
       actorId: req.user!.id,
@@ -274,7 +398,36 @@ router.patch(
       type: "QUOTE_STATUS_CHANGED",
       subject: `Quote ${quote.number} marked ${quote.status.toLowerCase()}`
     });
+    if (quote.status === "ACCEPTED" && current.status !== "ACCEPTED") {
+      await triggerAutomations(req.user!.organizationId, "QUOTE_ACCEPTED", {
+        entityType: "quote",
+        entityId: quote.id,
+        fields: {
+          number: quote.number,
+          total: Number(quote.total),
+          dealId: quote.dealId,
+          companyId: quote.companyId,
+          contactId: quote.contactId
+        }
+      });
+    }
     res.json({ quote });
+  })
+);
+
+router.delete(
+  "/quotes/:id",
+  asyncRoute(async (req, res) => {
+    assertCanWrite(req);
+    const quote = await prisma.quote.findFirst({
+      where: { id: String(req.params.id), organizationId: req.user!.organizationId }
+    });
+    if (!quote) throw new HttpError("Quote not found", 404);
+    if (quote.status !== "DRAFT") {
+      throw new HttpError("Only draft quotes can be deleted", 409);
+    }
+    await prisma.quote.delete({ where: { id: quote.id } });
+    res.status(204).end();
   })
 );
 

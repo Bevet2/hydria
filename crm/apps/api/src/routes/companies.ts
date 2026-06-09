@@ -1,5 +1,8 @@
 import { Router } from "express";
+import { rm } from "node:fs/promises";
+import path from "node:path";
 import { z } from "zod";
+import { env } from "../config/env.js";
 import { prisma } from "../lib/prisma.js";
 import { asyncRoute, HttpError, parseBody, parsePagination } from "../lib/http.js";
 import { assertUserInOrganization } from "../lib/tenantRelations.js";
@@ -7,6 +10,7 @@ import { assertCanWrite, requireAuth } from "../middleware/auth.js";
 import { recordActivity } from "../services/activity.js";
 
 const router = Router();
+const attachmentRoot = path.resolve(env.ATTACHMENT_DIR);
 
 const companySchema = z.object({
   name: z.string().min(1).max(160),
@@ -133,7 +137,24 @@ router.delete(
     if (!current) {
       throw new HttpError("Company not found", 404);
     }
-    await prisma.company.delete({ where: { id: current.id } });
+    const attachments = await prisma.attachment.findMany({
+      where: { organizationId: req.user!.organizationId, entityType: "COMPANY", entityId: current.id },
+      select: { storageKey: true }
+    });
+    await prisma.$transaction([
+      prisma.attachment.deleteMany({
+        where: { organizationId: req.user!.organizationId, entityType: "COMPANY", entityId: current.id }
+      }),
+      prisma.customFieldValue.deleteMany({
+        where: {
+          organizationId: req.user!.organizationId,
+          entityId: current.id,
+          definition: { entityType: "COMPANY" }
+        }
+      }),
+      prisma.company.delete({ where: { id: current.id } })
+    ]);
+    await Promise.all(attachments.map((item) => rm(path.join(attachmentRoot, item.storageKey), { force: true })));
     res.status(204).end();
   })
 );

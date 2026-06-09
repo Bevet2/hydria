@@ -25,8 +25,13 @@ services:
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-8h}
       API_PORT: 4010
       WEB_ORIGIN: http://localhost:4174
+      PUBLIC_WEB_URL: http://localhost:4174
+      RUN_DB_SEED: "true"
+      ATTACHMENT_DIR: /app/storage/attachments
     ports:
       - "4010:4010"
+    volumes:
+      - northstar_attachments:/app/storage/attachments
     depends_on:
       postgres:
         condition: service_healthy
@@ -44,3 +49,4 @@ services:
 
 volumes:
   northstar_postgres:
+  northstar_attachments:

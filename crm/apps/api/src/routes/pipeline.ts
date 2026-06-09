@@ -1,18 +1,35 @@
 import { Router } from "express";
+import { rm } from "node:fs/promises";
+import path from "node:path";
 import { z } from "zod";
+import { env } from "../config/env.js";
 import { prisma } from "../lib/prisma.js";
 import { asyncRoute, HttpError, parseBody } from "../lib/http.js";
 import { assertCrmRelations } from "../lib/tenantRelations.js";
 import { assertCanWrite, requireAuth, requireRole } from "../middleware/auth.js";
 import { recordActivity } from "../services/activity.js";
+import { triggerAutomations } from "../services/automations.js";
 
 const router = Router();
+const attachmentRoot = path.resolve(env.ATTACHMENT_DIR);
 
 const nullableDate = z
   .string()
   .optional()
   .nullable()
   .transform((value) => (value ? new Date(value) : null));
+
+const stageFields = z.object({
+  name: z.string().min(1).max(80),
+  color: z.string().regex(/^#[0-9a-f]{6}$/i).default("#667b74"),
+  isWon: z.boolean().default(false),
+  isLost: z.boolean().default(false)
+});
+
+const stageSchema = stageFields
+  .refine((value) => !(value.isWon && value.isLost), {
+    message: "A pipeline stage cannot be both won and lost"
+  });
 
 const dealSchema = z.object({
   name: z.string().min(1).max(160),
@@ -97,13 +114,7 @@ router.post(
   "/stages",
   requireRole("ADMIN", "MANAGER"),
   asyncRoute(async (req, res) => {
-    const input = parseBody(
-      z.object({
-        name: z.string().min(1).max(80),
-        color: z.string().regex(/^#[0-9a-f]{6}$/i).default("#667b74")
-      }),
-      req.body
-    );
+    const input = parseBody(stageSchema, req.body);
     const last = await prisma.pipelineStage.findFirst({
       where: { organizationId: req.user!.organizationId },
       orderBy: { position: "desc" }
@@ -113,7 +124,9 @@ router.post(
         organizationId: req.user!.organizationId,
         name: input.name,
         color: input.color,
-        position: (last?.position ?? -1) + 1
+        position: (last?.position ?? -1) + 1,
+        isWon: input.isWon,
+        isLost: input.isLost
       }
     });
     res.status(201).json({ stage });
@@ -124,19 +137,38 @@ router.patch(
   "/stages/:id",
   requireRole("ADMIN", "MANAGER"),
   asyncRoute(async (req, res) => {
-    const input = parseBody(
-      z.object({
-        name: z.string().min(1).max(80).optional(),
-        color: z.string().regex(/^#[0-9a-f]{6}$/i).optional()
-      }),
-      req.body
-    );
+    const input = parseBody(stageFields.partial(), req.body);
+    if (input.isWon && input.isLost) {
+      throw new HttpError("A pipeline stage cannot be both won and lost", 400);
+    }
     const current = await prisma.pipelineStage.findFirst({
       where: { id: String(req.params.id), organizationId: req.user!.organizationId }
     });
     if (!current) throw new HttpError("Pipeline stage not found", 404);
+    const nextWon = input.isWon ?? current.isWon;
+    const nextLost = input.isLost ?? current.isLost;
+    if (nextWon && nextLost) {
+      throw new HttpError("A pipeline stage cannot be both won and lost", 400);
+    }
     const stage = await prisma.pipelineStage.update({ where: { id: current.id }, data: input });
     res.json({ stage });
+  })
+);
+
+router.delete(
+  "/stages/:id",
+  requireRole("ADMIN", "MANAGER"),
+  asyncRoute(async (req, res) => {
+    const current = await prisma.pipelineStage.findFirst({
+      where: { id: String(req.params.id), organizationId: req.user!.organizationId },
+      include: { _count: { select: { deals: true } } }
+    });
+    if (!current) throw new HttpError("Pipeline stage not found", 404);
+    if (current._count.deals) {
+      throw new HttpError("Move or delete the deals in this stage first", 409);
+    }
+    await prisma.pipelineStage.delete({ where: { id: current.id } });
+    res.status(204).end();
   })
 );
 
@@ -175,6 +207,17 @@ router.post(
       companyId: deal.companyId || undefined,
       type: "RECORD_CREATED",
       subject: `Created deal ${deal.name}`
+    });
+    await triggerAutomations(req.user!.organizationId, "DEAL_CREATED", {
+      entityType: "deal",
+      entityId: deal.id,
+      fields: {
+        name: deal.name,
+        value: Number(deal.value),
+        stageId: deal.stageId,
+        stageName: deal.stage.name,
+        status: deal.status
+      }
     });
     res.status(201).json({ deal });
   })
@@ -225,6 +268,20 @@ router.patch(
           : `Moved ${deal.name} to ${stage.name}`,
       metadata: { previousStageId: current.stageId, stageId }
     });
+    if (current.stageId !== stageId) {
+      await triggerAutomations(req.user!.organizationId, "DEAL_STAGE_CHANGED", {
+        entityType: "deal",
+        entityId: deal.id,
+        fields: {
+          name: deal.name,
+          value: Number(deal.value),
+          previousStageId: current.stageId,
+          stageId,
+          stageName: stage.name,
+          status: deal.status
+        }
+      });
+    }
     res.json({ deal });
   })
 );
@@ -237,7 +294,24 @@ router.delete(
       where: { id: String(req.params.id), organizationId: req.user!.organizationId }
     });
     if (!current) throw new HttpError("Deal not found", 404);
-    await prisma.deal.delete({ where: { id: current.id } });
+    const attachments = await prisma.attachment.findMany({
+      where: { organizationId: req.user!.organizationId, entityType: "DEAL", entityId: current.id },
+      select: { storageKey: true }
+    });
+    await prisma.$transaction([
+      prisma.attachment.deleteMany({
+        where: { organizationId: req.user!.organizationId, entityType: "DEAL", entityId: current.id }
+      }),
+      prisma.customFieldValue.deleteMany({
+        where: {
+          organizationId: req.user!.organizationId,
+          entityId: current.id,
+          definition: { entityType: "DEAL" }
+        }
+      }),
+      prisma.deal.delete({ where: { id: current.id } })
+    ]);
+    await Promise.all(attachments.map((item) => rm(path.join(attachmentRoot, item.storageKey), { force: true })));
     res.status(204).end();
   })
 );

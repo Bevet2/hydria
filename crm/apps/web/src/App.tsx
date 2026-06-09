@@ -4,14 +4,21 @@ import { Layout } from "./components/Layout";
 import { CompaniesPage } from "./pages/CompaniesPage";
 import { ContactsPage } from "./pages/ContactsPage";
 import { DashboardPage } from "./pages/DashboardPage";
+import { AcceptInvitationPage } from "./pages/AcceptInvitationPage";
 import { LoginPage } from "./pages/LoginPage";
 import { LeadsPage } from "./pages/LeadsPage";
 import { PipelinePage } from "./pages/PipelinePage";
 import { ProductsPage } from "./pages/ProductsPage";
 import { RecordDetailPage } from "./pages/RecordDetailPage";
 import { ReportsPage } from "./pages/ReportsPage";
+import { ResetPasswordPage } from "./pages/ResetPasswordPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { TasksPage } from "./pages/TasksPage";
+import { VerifyEmailPage } from "./pages/VerifyEmailPage";
+import { CommunicationsPage } from "./pages/CommunicationsPage";
+import { PlatformPage } from "./pages/PlatformPage";
+import { SignQuotePage } from "./pages/SignQuotePage";
+import { OAuthCallbackPage } from "./pages/OAuthCallbackPage";
 
 function ProtectedLayout() {
   const { user, loading } = useAuth();
@@ -23,6 +30,11 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/accept-invitation" element={<AcceptInvitationPage />} />
+      <Route path="/reset-password" element={<ResetPasswordPage />} />
+      <Route path="/verify-email" element={<VerifyEmailPage />} />
+      <Route path="/sign-quote" element={<SignQuotePage />} />
+      <Route path="/oauth/callback" element={<OAuthCallbackPage />} />
       <Route element={<ProtectedLayout />}>
         <Route index element={<DashboardPage />} />
         <Route path="/leads" element={<LeadsPage />} />
@@ -36,6 +48,8 @@ export default function App() {
         <Route path="/products" element={<ProductsPage />} />
         <Route path="/tasks" element={<TasksPage />} />
         <Route path="/reports" element={<ReportsPage />} />
+        <Route path="/communications" element={<CommunicationsPage />} />
+        <Route path="/platform" element={<PlatformPage />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

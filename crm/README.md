@@ -61,6 +61,8 @@ Architecture and endpoint references:
 
 - `docs/architecture.md`
 - `docs/api.md`
+- `docs/crm-capabilities.md`
+- `docs/production.md`
 
 ## Structure
 

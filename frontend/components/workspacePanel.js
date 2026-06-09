@@ -26228,6 +26228,62 @@ function renderAppPreview(container, assetUrl = "", options = {}) {
   container.appendChild(shell);
 }
 
+function crmApplicationUrl() {
+  const configured = String(window.HYDRIA_CRM_URL || "").trim();
+  if (configured) {
+    return configured.replace(/\/+$/, "");
+  }
+  return `${window.location.protocol}//${window.location.hostname}:5174`;
+}
+
+export function renderCrmWorkspaceEmbed(container, { userId = null } = {}) {
+  container.innerHTML = "";
+
+  const shell = document.createElement("div");
+  shell.className = "workspace-crm-live-shell";
+
+  const frame = document.createElement("iframe");
+  frame.className = "workspace-crm-live-frame";
+  frame.src = crmApplicationUrl();
+  frame.title = "Hydria CRM";
+  frame.setAttribute(
+    "sandbox",
+    "allow-same-origin allow-scripts allow-forms allow-modals allow-downloads allow-popups"
+  );
+  frame.setAttribute("allow", "clipboard-read; clipboard-write");
+
+  async function sendHydriaSession() {
+    if (!userId || !frame.contentWindow) {
+      return;
+    }
+    try {
+      const response = await fetch("/api/hydria/crm/session", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ userId })
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.token) {
+        throw new Error(payload.error || "CRM session creation failed");
+      }
+      const targetWindow = frame.contentWindow;
+      if (!frame.isConnected || !targetWindow) {
+        return;
+      }
+      targetWindow.postMessage(
+        { type: "hydria-crm-auth", token: payload.token },
+        new URL(frame.src).origin
+      );
+    } catch (error) {
+      console.error("Hydria CRM SSO failed", error);
+    }
+  }
+
+  frame.addEventListener("load", sendHydriaSession);
+  shell.appendChild(frame);
+  container.appendChild(shell);
+}
+
 function classifyRuntimePatch(runtimePatch = {}, runtimeSession = null, surfaceModel = null) {
   const entryPath = normalizePath(runtimePatch?.entryPath || "");
   const runtimeEntryPath = normalizePath(
@@ -26364,6 +26420,7 @@ export function renderWorkspacePreview(
     selectedStructuredItemId = "",
     selectedStructuredSubItemId = "",
     activePreviewFilter = "",
+    crmUserId = null,
     onDocumentSectionFocus = null,
     onDocumentInlineEdit = null,
     onProjectObjectSelect = null,
@@ -26408,6 +26465,12 @@ export function renderWorkspacePreview(
   const block = currentBlockId ? blocks.find((item) => item.id === currentBlockId) : null;
   const contentToRender = block?.block || section?.block || content;
   const objectKind = workObject.objectKind || workObject.kind || "document";
+  const workspaceFamilyId = String(
+    workObject.workspaceFamilyId ||
+      workObject.metadata?.workspaceFamilyId ||
+      workObject.environmentPlan?.workspaceFamilyId ||
+      ""
+  ).toLowerCase();
   const resolvedSurfaceId = currentSurfaceId || surfaceModel?.defaultSurface || "preview";
   const assetUrl = surfaceModel?.assetUrl || "";
   const mediaPreviewPath = surfaceModel?.previewAssetPath || normalizedPath;
@@ -26437,6 +26500,11 @@ export function renderWorkspacePreview(
         ? "Live draft"
         : "Live"
       : toSurfaceLabel(resolvedSurfaceId);
+
+  if (workspaceFamilyId === "crm_sales") {
+    renderCrmWorkspaceEmbed(container, { userId: crmUserId });
+    return;
+  }
 
   if (resolvedSurfaceId === "live") {
     upsertPreviewHeader(container, {

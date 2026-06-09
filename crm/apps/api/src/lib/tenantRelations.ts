@@ -1,4 +1,4 @@
-import type { CustomEntityType } from "@prisma/client";
+import type { CustomEntityType, WorkspaceEntityType } from "@prisma/client";
 import { HttpError } from "./http.js";
 import { prisma } from "./prisma.js";
 
@@ -97,6 +97,35 @@ export async function assertCustomFieldEntityInOrganization(
   entityType: CustomEntityType,
   entityId: string
 ) {
+  if (entityType === "CONTACT") {
+    await assertContactInOrganization(organizationId, entityId);
+    return;
+  }
+  if (entityType === "COMPANY") {
+    await assertCompanyInOrganization(organizationId, entityId);
+    return;
+  }
+  if (entityType === "DEAL") {
+    await assertDealInOrganization(organizationId, entityId);
+    return;
+  }
+  await assertLeadInOrganization(organizationId, entityId);
+}
+
+export async function assertWorkspaceEntityInOrganization(
+  organizationId: string,
+  entityType: WorkspaceEntityType,
+  entityId: string
+) {
+  if (entityType === "EMAIL") {
+    await assertScopedRecord("Email message", entityId, () =>
+      prisma.emailMessage.findFirst({
+        where: { id: entityId, organizationId },
+        select: { id: true }
+      })
+    );
+    return;
+  }
   if (entityType === "CONTACT") {
     await assertContactInOrganization(organizationId, entityId);
     return;

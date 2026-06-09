@@ -4,9 +4,11 @@ import {
   Gauge,
   ChartNoAxesCombined,
   LogOut,
+  Mail,
   Menu,
   Package,
   Settings,
+  Workflow,
   Target,
   UserRoundSearch,
   Users,
@@ -16,6 +18,7 @@ import { useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 import { useAuth } from "../auth";
 import { GlobalSearch } from "./GlobalSearch";
+import { NotificationCenter } from "./NotificationCenter";
 
 const navigation = [
   { to: "/", label: "Dashboard", icon: Gauge },
@@ -26,6 +29,8 @@ const navigation = [
   { to: "/products", label: "Products & quotes", icon: Package },
   { to: "/tasks", label: "Tasks", icon: CheckSquare },
   { to: "/reports", label: "Reports", icon: ChartNoAxesCombined },
+  { to: "/communications", label: "Email & calendar", icon: Mail },
+  { to: "/platform", label: "Automation", icon: Workflow },
   { to: "/settings", label: "Settings", icon: Settings }
 ];
 
@@ -77,9 +82,12 @@ export function Layout() {
       <main className="main-content">
         <header className="global-bar">
           <GlobalSearch />
-          <div className="global-context">
-            <span>{user?.organization?.name || "CRM workspace"}</span>
-            <b>{user?.role.toLowerCase()}</b>
+          <div className="global-actions">
+            <NotificationCenter />
+            <div className="global-context">
+              <span>{user?.organization?.name || "CRM workspace"}</span>
+              <b>{user?.role.toLowerCase()}</b>
+            </div>
           </div>
         </header>
         <Outlet />

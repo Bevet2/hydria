@@ -2,9 +2,52 @@ import { Router } from "express";
 import { prisma } from "../lib/prisma.js";
 import { asyncRoute } from "../lib/http.js";
 import { requireAuth } from "../middleware/auth.js";
+import { z } from "zod";
+import { parseBody } from "../lib/http.js";
 
 const router = Router();
 router.use(requireAuth);
+
+const widgetSchema = z.enum([
+  "contacts",
+  "companies",
+  "leads",
+  "openDeals",
+  "wonDeals",
+  "dueTasks",
+  "pipeline",
+  "recentActivities"
+]);
+
+router.get("/preferences", asyncRoute(async (req, res) => {
+  const preference = await prisma.dashboardPreference.findUnique({ where: { userId: req.user!.id } });
+  res.json({
+    preference: preference || {
+      widgets: ["openDeals", "wonDeals", "leads", "dueTasks", "pipeline", "recentActivities"],
+      layout: []
+    }
+  });
+}));
+
+router.put("/preferences", asyncRoute(async (req, res) => {
+  const input = parseBody(z.object({
+    widgets: z.array(widgetSchema).min(1).max(8),
+    layout: z.array(z.object({
+      id: widgetSchema,
+      position: z.coerce.number().int().min(0).max(20)
+    })).max(8).default([])
+  }), req.body);
+  const preference = await prisma.dashboardPreference.upsert({
+    where: { userId: req.user!.id },
+    update: input,
+    create: {
+      organizationId: req.user!.organizationId,
+      userId: req.user!.id,
+      ...input
+    }
+  });
+  res.json({ preference });
+}));
 
 router.get(
   "/",

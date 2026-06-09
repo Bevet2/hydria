@@ -8,6 +8,14 @@
     "build": "prisma generate && tsc -p tsconfig.json",
     "start": "node dist/src/server.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "gate:operations": "tsx scripts/operationsGate.ts",
+    "gate:productivity": "tsx scripts/productivityGate.ts",
+    "gate:platform": "tsx scripts/platformGate.ts",
+    "gate:resilience": "tsx scripts/resilienceGate.ts",
+    "gate:oauth": "tsx scripts/oauthGate.ts",
+    "gate:communications": "tsx scripts/communicationsGate.ts",
+    "gate:load": "tsx scripts/loadGate.ts",
+    "gate:commercial": "tsx scripts/commercialGate.ts",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
@@ -28,6 +36,7 @@
     "jsonwebtoken": "9.0.2",
     "morgan": "1.10.1",
     "multer": "2.1.1",
+    "pdfkit": "^0.17.2",
     "zod": "3.25.76"
   },
   "devDependencies": {
@@ -37,6 +46,7 @@
     "@types/morgan": "1.9.10",
     "@types/multer": "2.0.0",
     "@types/node": "22.15.30",
+    "@types/pdfkit": "^0.17.5",
     "prisma": "6.19.3",
     "tsx": "4.20.5",
     "typescript": "5.9.2"
