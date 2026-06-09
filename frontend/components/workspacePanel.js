@@ -57,6 +57,7 @@ import {
   renderWorkspaceFlatMenuItems,
   toggleWorkspaceDropdown
 } from "./workspaceSharedCommands.js";
+import { renderWorkspaceCanvasPanel } from "./workspaceCanvasPanel.js";
 
 function createTextFragment(text = "") {
   const fragment = document.createDocumentFragment();
@@ -1531,6 +1532,8 @@ function toSurfaceLabel(surfaceId = "") {
       return "Workflow";
     case "design":
       return "Design";
+    case "canvas":
+      return "Canvas";
     case "preview":
     case "app":
       return "Preview";
@@ -27927,6 +27930,19 @@ export function renderWorkspacePreview(
       onBlockMove: onDesignBlockMove,
       onBlockPositionChange: onDesignBlockPositionChange,
       onBlockResize: onDesignBlockResize
+    });
+    return;
+  }
+
+  if (resolvedSurfaceId === "canvas") {
+    renderWorkspaceCanvasPanel(container, {
+      workObject,
+      filePath: normalizedPath,
+      content,
+      sections,
+      blocks,
+      selectedSectionId,
+      onSectionFocus: onDocumentSectionFocus
     });
     return;
   }

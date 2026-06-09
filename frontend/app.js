@@ -894,12 +894,32 @@ function currentSurfaceModel() {
   return state.currentWorkObject?.surfaceModel || null;
 }
 
+function buildSurfaceList(workObject = null) {
+  const surfaces = Array.isArray(workObject?.surfaceModel?.availableSurfaces)
+    ? workObject.surfaceModel.availableSurfaces.filter(Boolean)
+    : [];
+  const familyId = String(
+    workObject?.workspaceFamilyId ||
+      workObject?.environmentPlan?.workspaceFamilyId ||
+      ""
+  ).toLowerCase();
+
+  if (
+    familyId !== "document_knowledge" ||
+    surfaces.some((surface) => surface.id === "canvas")
+  ) {
+    return surfaces;
+  }
+
+  return [...surfaces, { id: "canvas", label: "Canvas", enabled: true }];
+}
+
 function currentSurfaces() {
-  return currentSurfaceModel()?.availableSurfaces || [];
+  return buildSurfaceList(state.currentWorkObject);
 }
 
 function preferredSurfaceForLens(workObject = null) {
-  const surfaces = (workObject?.surfaceModel?.availableSurfaces || []).map((surface) => surface.id);
+  const surfaces = buildSurfaceList(workObject).map((surface) => surface.id);
   const defaultSurface = workObject?.surfaceModel?.defaultSurface || surfaces[0] || "";
   const { priority = "focus" } = currentWorkspaceLens();
 
@@ -2761,6 +2781,8 @@ function friendlySurfaceLabel(surfaceId = "", surfaceModel = null) {
       return "Workflow";
     case "design":
       return "Design";
+    case "canvas":
+      return "Canvas";
     case "app":
       return runtimeCapable ?"Static preview" : "Preview";
     case "preview":
@@ -8525,7 +8547,7 @@ function renderWorkspace() {
     );
   renderWorkspaceSurfaceNav(
     el["workspace-surface-nav"],
-    surfaceModel?.availableSurfaces || [],
+    currentSurfaces(),
     state.currentSurfaceId,
     (surfaceId) => {
       state.currentSurfaceId = surfaceId;

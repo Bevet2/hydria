@@ -1,9 +1,14 @@
 import { Router } from "express";
+import multer from "multer";
 import path from "node:path";
 import agenticConfig from "../src/config/agenticConfig.js";
 import HydriaBrainProvider from "../src/core/HydriaBrainProvider.js";
 import WorkObjectRuntimeService from "../src/runtime/workObjectRuntimeService.js";
 import RuntimeStateStore from "../src/runtime/runtime.state.js";
+import { extractDocumentLikeContent } from "../services/attachments/extractors/documentExtractors.js";
+import { inferAttachmentKind } from "../services/attachments/extractors/kinds.js";
+import { renderDocxArtifact } from "../services/artifacts/generators/docxGenerator.js";
+import { renderPdfArtifact } from "../services/artifacts/generators/pdfGenerator.js";
 import {
   buildWorkObjectAssetUrl,
   resolveWorkObjectRuntimeAssetPath,
@@ -25,6 +30,14 @@ const workObjectRuntimeService = new WorkObjectRuntimeService({
   store: runtimeStateStore,
   workObjectService
 });
+const documentImportUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 25 * 1024 * 1024
+  }
+});
+const DOCUMENT_IMPORT_KINDS = new Set(["pdf", "doc", "docx", "text"]);
+const DOCUMENT_EXPORT_FORMATS = new Set(["pdf", "docx", "txt"]);
 
 router.get("/", (req, res) => {
   const userId = req.query.userId ? Number(req.query.userId) : null;
@@ -96,6 +109,111 @@ router.patch("/:workObjectId", (req, res, next) => {
       success: true,
       workObject
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+function normalizeDocumentExportTitle(value = "") {
+  const safeTitle = String(value || "document")
+    .trim()
+    .replace(/[\\/:*?"<>|]+/g, " ")
+    .replace(/\s+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .toLowerCase();
+  return safeTitle || "document";
+}
+
+function formatDocumentExportTimestamp(date = new Date()) {
+  const pad = (value) => String(value).padStart(2, "0");
+  return [
+    date.getFullYear(),
+    pad(date.getMonth() + 1),
+    pad(date.getDate())
+  ].join("-") + `_${pad(date.getHours())}-${pad(date.getMinutes())}`;
+}
+
+function buildDocumentExportDownloadName(value = "", fallbackTitle = "document", extension = "pdf") {
+  const normalizedExtension = String(extension || "pdf").trim().replace(/^\.+/, "").toLowerCase() || "pdf";
+  const fallbackStem = `${normalizeDocumentExportTitle(fallbackTitle)}_${formatDocumentExportTimestamp()}`;
+  const requestedStem = String(value || "")
+    .trim()
+    .replace(/\.[^.]+$/i, "");
+  const safeStem = normalizeDocumentExportTitle(requestedStem);
+  return `${safeStem || fallbackStem}.${normalizedExtension}`;
+}
+
+router.post("/:workObjectId/document-import", (req, res, next) => {
+  documentImportUpload.single("file")(req, res, async (uploadError) => {
+    try {
+      if (uploadError) {
+        if (uploadError instanceof multer.MulterError) {
+          throw new AppError(uploadError.message, 400);
+        }
+        throw uploadError;
+      }
+
+      if (!req.file) {
+        throw new AppError("No file was provided for import", 400);
+      }
+
+      const inferredKind = inferAttachmentKind(req.file);
+      if (!DOCUMENT_IMPORT_KINDS.has(inferredKind)) {
+        throw new AppError("Unsupported import format. Use DOC, DOCX, PDF, TXT, Markdown or HTML.", 400);
+      }
+
+      const extracted =
+        inferredKind === "text"
+          ? {
+              text: req.file.buffer.toString("utf8"),
+              parser: "plain-text"
+            }
+          : await extractDocumentLikeContent(req.file, inferredKind);
+
+      res.json({
+        success: true,
+        originalName: req.file.originalname,
+        kind: inferredKind,
+        parser: extracted?.parser || "plain-text",
+        content: String(extracted?.text || "")
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+});
+
+router.post("/:workObjectId/document-export", async (req, res, next) => {
+  try {
+    const requestedFormat = String(req.body?.format || "").trim().toLowerCase();
+    const format = requestedFormat === "doc" ? "docx" : requestedFormat;
+    if (!DOCUMENT_EXPORT_FORMATS.has(format)) {
+      throw new AppError("Unsupported export format", 400);
+    }
+
+    const markdown = String(req.body?.markdown || "").replace(/\r\n/g, "\n").trim();
+    if (!markdown) {
+      throw new AppError("Nothing to export", 400);
+    }
+
+    const title = String(req.body?.title || "Document").trim() || "Document";
+    const downloadName = buildDocumentExportDownloadName(req.body?.downloadName, title, format);
+
+    if (format === "txt") {
+      res.setHeader("Content-Type", "text/plain; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="${downloadName}"`);
+      res.send(Buffer.from(`\uFEFF${markdown}`, "utf8"));
+      return;
+    }
+
+    const artifact =
+      format === "docx"
+        ? await renderDocxArtifact({ title, markdown })
+        : await renderPdfArtifact({ title, markdown });
+
+    res.setHeader("Content-Type", artifact.mimeType || "application/octet-stream");
+    res.setHeader("Content-Disposition", `attachment; filename="${downloadName}"`);
+    res.send(artifact.buffer);
   } catch (error) {
     next(error);
   }
