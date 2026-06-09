@@ -32,7 +32,7 @@ function normalizeRoutingMode(value) {
     .toLowerCase();
 
   if (
-    ["local-only", "openrouter-only", "openrouter-first", "local-first"].includes(
+    ["core-only", "core-first", "local-only", "openrouter-only", "openrouter-first", "local-first"].includes(
       normalized
     )
   ) {
@@ -233,6 +233,16 @@ const config = {
     ),
     timeoutMs: Math.max(3000, parseInteger(env.CRM_API_TIMEOUT_MS, 15000))
   },
+  hydriaCore: {
+    enabled: parseBoolean(env.HYDRIA_CORE_ENABLED, false),
+    baseUrl: firstDefined(env.HYDRIA_CORE_BASE_URL, "https://app.hydria.click/api/v1"),
+    apiKey: env.HYDRIA_CORE_API_KEY || "",
+    timeoutMs: Math.max(5000, parseInteger(env.HYDRIA_CORE_TIMEOUT_MS, 180000)),
+    includeSources: parseBoolean(env.HYDRIA_CORE_INCLUDE_SOURCES, true),
+    includeTrace: parseBoolean(env.HYDRIA_CORE_INCLUDE_TRACE, false),
+    includeDiagnostics: parseBoolean(env.HYDRIA_CORE_INCLUDE_DIAGNOSTICS, false),
+    maxInputChars: Math.max(2000, parseInteger(env.HYDRIA_CORE_MAX_INPUT_CHARS, 24000))
+  },
   localLlm: {
     enabled: parseBoolean(env.LOCAL_LLM_ENABLED, false),
     providerType: firstDefined(env.LOCAL_LLM_PROVIDER, "ollama").toLowerCase(),
@@ -296,6 +306,6 @@ const config = {
   }
 };
 
-config.llm.enabled = config.localLlm.enabled || config.openrouter.enabled;
+config.llm.enabled = config.hydriaCore.enabled || config.localLlm.enabled || config.openrouter.enabled;
 
 export default config;

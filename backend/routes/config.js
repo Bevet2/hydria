@@ -248,6 +248,12 @@ router.get("/public", (req, res) => {
       },
       taskPacks: listTaskPacks(),
       models: getPublicModelRegistry(),
+      hydriaCore: {
+        enabled: config.hydriaCore.enabled,
+        configured: Boolean(config.hydriaCore.apiKey),
+        baseUrl: config.hydriaCore.baseUrl,
+        routingMode: config.llm.routingMode
+      },
       apis: getPublicApiRegistry(),
       futureCapabilities
     }

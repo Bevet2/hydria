@@ -19,7 +19,8 @@
     "eval:realworld": "node scripts/realworldBenchmarkEval.mjs",
     "gate:workspace": "node scripts/workspaceToolIntegrationGate.mjs",
     "gate:crm-core": "node scripts/crmCoreIntegrationGate.mjs",
-    "gate:hydria-interactions": "node scripts/hydriaInteractionsClientGate.mjs"
+    "gate:hydria-interactions": "node scripts/hydriaInteractionsClientGate.mjs",
+    "smoke:hydria-core-adapter": "node scripts/hydriaCoreAdapterSmoke.mjs"
   },
   "dependencies": {
     "adm-zip": "^0.5.16",
