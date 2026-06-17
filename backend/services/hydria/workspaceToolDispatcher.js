@@ -1,5 +1,7 @@
 import { AppError } from "../../utils/errors.js";
 import { CRM_WORKSPACE_TOOLS } from "../crm/crmIntegrationClient.js";
+import { filterContentPreviewByRole } from "./dataAccessFilterService.js";
+import { getUserDataRole } from "../memory/historyService.js";
 
 const SHEET_WORKSPACE_TOOLS = Object.freeze([
   "sheet.apply_formula",
@@ -57,7 +59,58 @@ const SHEET_WORKSPACE_TOOLS = Object.freeze([
   "sheet.move_sheet",
   "sheet.set_active_sheet",
   "sheet.hide_sheet",
-  "sheet.unhide_sheet"
+  "sheet.unhide_sheet",
+  "sheet.group_rows",
+  "sheet.ungroup_rows",
+  "sheet.group_columns",
+  "sheet.ungroup_columns",
+  "sheet.transpose_range",
+  "sheet.split_column",
+  "sheet.set_column_type",
+  "sheet.fill_down",
+  "sheet.fill_right",
+  "sheet.remove_duplicates",
+  "sheet.find_replace",
+  "sheet.import_data",
+  "sheet.auto_sum",
+  "sheet.copy_range",
+  "sheet.set_horizontal_alignment",
+  "sheet.set_vertical_alignment",
+  "sheet.set_text_wrapping",
+  "sheet.set_border",
+  "sheet.clear_borders",
+  "sheet.set_number_format",
+  "sheet.set_fill_color",
+  "sheet.set_text_color",
+  "sheet.set_font_size",
+  "sheet.set_font_family",
+  "sheet.set_bold",
+  "sheet.set_italic",
+  "sheet.set_underline",
+  "sheet.set_strikethrough",
+  "sheet.insert_hyperlink",
+  "sheet.remove_hyperlink",
+  "sheet.insert_image",
+  "sheet.insert_checkbox",
+  "sheet.insert_dropdown",
+  "sheet.lock_cell",
+  "sheet.unlock_cell",
+  "sheet.set_sheet_color",
+  "sheet.clear_all",
+  "sheet.set_print_area",
+  "sheet.set_page_orientation",
+  "sheet.set_page_size",
+  "sheet.set_print_margins",
+  "sheet.set_print_scaling",
+  "sheet.insert_page_break",
+  "sheet.set_repeat_rows",
+  "sheet.set_repeat_columns",
+  "sheet.hide_row",
+  "sheet.unhide_row",
+  "sheet.hide_column",
+  "sheet.unhide_column",
+  "sheet.bulk_set_values",
+  "sheet.create_named_formula"
 ]);
 const DOC_WORKSPACE_TOOLS = Object.freeze([
   "doc.insert_section",
@@ -80,13 +133,91 @@ const DOC_WORKSPACE_TOOLS = Object.freeze([
   "doc.set_title",
   "doc.set_metadata",
   "doc.add_comment",
-  "doc.resolve_comment"
+  "doc.resolve_comment",
+  "doc.insert_header",
+  "doc.insert_footer",
+  "doc.insert_footnote",
+  "doc.highlight_text",
+  "doc.create_bookmark",
+  "doc.insert_divider",
+  "doc.insert_callout",
+  "doc.insert_video",
+  "doc.move_section",
+  "doc.duplicate_section",
+  "doc.set_language",
+  "doc.set_author",
+  "doc.add_tag",
+  "doc.number_headings",
+  "doc.insert_mention",
+  "doc.format_text",
+  "doc.set_text_color",
+  "doc.set_font_family",
+  "doc.set_font_size",
+  "doc.set_text_alignment",
+  "doc.set_line_spacing",
+  "doc.set_page_margin",
+  "doc.set_page_size",
+  "doc.set_page_orientation",
+  "doc.insert_page_number",
+  "doc.insert_date_field",
+  "doc.insert_time_field",
+  "doc.insert_watermark",
+  "doc.insert_cover_image",
+  "doc.insert_cross_reference",
+  "doc.insert_signature_block",
+  "doc.track_changes",
+  "doc.accept_change",
+  "doc.reject_change",
+  "doc.set_columns",
+  "doc.insert_text_box",
+  "doc.insert_shape"
 ]);
 const DOC_WORKSPACE_TOOL_ALIASES = Object.freeze(["doc.edit"]);
 const SLIDE_WORKSPACE_TOOLS = Object.freeze([
   "slide.add",
   "slide.update",
-  "slide.reorder"
+  "slide.reorder",
+  "slide.delete",
+  "slide.duplicate",
+  "slide.set_layout",
+  "slide.insert_image",
+  "slide.add_notes",
+  "slide.set_background",
+  "slide.add_table",
+  "slide.add_shape",
+  "slide.add_text_box",
+  "slide.add_transition",
+  "slide.set_theme",
+  "slide.add_chart",
+  "slide.add_video",
+  "slide.set_footer",
+  "slide.set_slide_number",
+  "slide.add_logo",
+  "slide.copy_style",
+  "slide.set_aspect_ratio",
+  "slide.set_custom_size",
+  "slide.add_animation",
+  "slide.remove_animation",
+  "slide.add_hyperlink",
+  "slide.remove_hyperlink",
+  "slide.set_master_slide",
+  "slide.create_section",
+  "slide.rename_section",
+  "slide.delete_section",
+  "slide.align_objects",
+  "slide.distribute_objects",
+  "slide.set_z_order",
+  "slide.group_objects",
+  "slide.ungroup_objects",
+  "slide.set_object_opacity",
+  "slide.set_object_size",
+  "slide.set_object_position",
+  "slide.insert_icon",
+  "slide.show_guides",
+  "slide.show_grid",
+  "slide.snap_to_grid",
+  "slide.add_placeholder",
+  "slide.insert_smart_art"
 ]);
 const SLIDE_WORKSPACE_TOOL_ALIASES = Object.freeze(["slide.edit"]);
 
@@ -146,16 +277,76 @@ const SUPPORTED_SHEET_OPERATIONS = new Set([
   "sheet.move_sheet",
   "sheet.set_active_sheet",
   "sheet.hide_sheet",
-  "sheet.unhide_sheet"
+  "sheet.unhide_sheet",
+  "sheet.group_rows",
+  "sheet.ungroup_rows",
+  "sheet.group_columns",
+  "sheet.ungroup_columns",
+  "sheet.transpose_range",
+  "sheet.split_column",
+  "sheet.set_column_type",
+  "sheet.fill_down",
+  "sheet.fill_right",
+  "sheet.remove_duplicates",
+  "sheet.find_replace",
+  "sheet.import_data",
+  "sheet.auto_sum",
+  "sheet.copy_range",
+  "sheet.set_horizontal_alignment",
+  "sheet.set_vertical_alignment",
+  "sheet.set_text_wrapping",
+  "sheet.set_border",
+  "sheet.clear_borders",
+  "sheet.set_number_format",
+  "sheet.set_fill_color",
+  "sheet.set_text_color",
+  "sheet.set_font_size",
+  "sheet.set_font_family",
+  "sheet.set_bold",
+  "sheet.set_italic",
+  "sheet.set_underline",
+  "sheet.set_strikethrough",
+  "sheet.insert_hyperlink",
+  "sheet.remove_hyperlink",
+  "sheet.insert_image",
+  "sheet.insert_checkbox",
+  "sheet.insert_dropdown",
+  "sheet.lock_cell",
+  "sheet.unlock_cell",
+  "sheet.set_sheet_color",
+  "sheet.clear_all",
+  "sheet.set_print_area",
+  "sheet.set_page_orientation",
+  "sheet.set_page_size",
+  "sheet.set_print_margins",
+  "sheet.set_print_scaling",
+  "sheet.insert_page_break",
+  "sheet.set_repeat_rows",
+  "sheet.set_repeat_columns",
+  "sheet.hide_row",
+  "sheet.unhide_row",
+  "sheet.hide_column",
+  "sheet.unhide_column",
+  "sheet.bulk_set_values",
+  "sheet.create_named_formula"
 ]);
+const WORKSPACE_META_TOOLS = Object.freeze(["workspace.import_from", "workspace.read"]);
 const SUPPORTED_DOC_OPERATIONS = new Set(DOC_WORKSPACE_TOOLS);
 const SUPPORTED_SLIDE_OPERATIONS = new Set(SLIDE_WORKSPACE_TOOLS);
 const SUPPORTED_CRM_OPERATIONS = new Set(CRM_WORKSPACE_TOOLS);
+const CELL_FORMAT_OPS = new Set([
+  "sheet.set_horizontal_alignment", "sheet.set_vertical_alignment", "sheet.set_text_wrapping",
+  "sheet.set_border", "sheet.clear_borders", "sheet.set_number_format", "sheet.set_fill_color",
+  "sheet.set_text_color", "sheet.set_font_size", "sheet.set_font_family",
+  "sheet.set_bold", "sheet.set_italic", "sheet.set_underline", "sheet.set_strikethrough",
+  "sheet.clear_all"
+]);
 const SUPPORTED_WORKSPACE_OPERATIONS = new Set([
   ...SUPPORTED_SHEET_OPERATIONS,
   ...SUPPORTED_DOC_OPERATIONS,
   ...SUPPORTED_SLIDE_OPERATIONS,
-  ...SUPPORTED_CRM_OPERATIONS
+  ...SUPPORTED_CRM_OPERATIONS,
+  ...WORKSPACE_META_TOOLS
 ]);
 const SHEET_OPERATION_ALIASES = new Map([
   ["add_column", "sheet.add_column"],
@@ -1603,6 +1794,475 @@ function applySheetOperation(sheet, operation = {}, model = null) {
     return { applied: "", issue: "sheet.clear_cells requires a cell, range, or column target." };
   }
 
+  if (operation.type === "sheet.group_rows" || operation.type === "sheet.ungroup_rows") {
+    const fromRow = Number(operation.raw?.fromRow ?? operation.target?.fromIndex ?? -1);
+    const toRow = Number(operation.raw?.toRow ?? operation.target?.toIndex ?? fromRow);
+    if (fromRow < 0) return { applied: "", issue: `${operation.type} requires fromRow.` };
+    if (!sheet.metadata) sheet.metadata = {};
+    if (!Array.isArray(sheet.metadata.rowGroups)) sheet.metadata.rowGroups = [];
+    if (operation.type === "sheet.ungroup_rows") {
+      sheet.metadata.rowGroups = sheet.metadata.rowGroups.filter((g) => !(g.from === fromRow && g.to === toRow));
+    } else {
+      sheet.metadata.rowGroups.push({ from: fromRow, to: toRow, collapsed: Boolean(operation.raw?.collapsed) });
+    }
+    return { applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "sheet.group_columns" || operation.type === "sheet.ungroup_columns") {
+    const fromCol = resolveSheetColumnIndex(sheet, operation);
+    if (fromCol < 0) return { applied: "", issue: `${operation.type} requires a column target.` };
+    const toCol = Number.isInteger(operation.raw?.toColumn) ? operation.raw.toColumn : fromCol;
+    if (!sheet.metadata) sheet.metadata = {};
+    if (!Array.isArray(sheet.metadata.colGroups)) sheet.metadata.colGroups = [];
+    if (operation.type === "sheet.ungroup_columns") {
+      sheet.metadata.colGroups = sheet.metadata.colGroups.filter((g) => g.from !== fromCol);
+    } else {
+      sheet.metadata.colGroups.push({ from: fromCol, to: toCol, collapsed: Boolean(operation.raw?.collapsed) });
+    }
+    return { applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "sheet.transpose_range") {
+    const parsed = parseA1Range(operation.range || operation.target?.cell || "");
+    if (!parsed) return { applied: "", issue: "sheet.transpose_range requires a valid range (e.g. A1:C5)." };
+    const { startRowIndex: sr, endRowIndex: er, startColumnIndex: sc, endColumnIndex: ec } = parsed;
+    const block = [];
+    for (let r = sr; r <= er; r++) {
+      const rowData = [];
+      for (let c = sc; c <= ec; c++) rowData.push(sheet.rows[r]?.[c] ?? "");
+      block.push(rowData);
+    }
+    const transposed = block[0].map((_, colIdx) => block.map((row) => row[colIdx]));
+    ensureSheetWidth(sheet, sc + transposed[0].length);
+    ensureSheetRows(sheet, sr + transposed.length - 1);
+    for (let r = 0; r < transposed.length; r++) {
+      for (let c = 0; c < transposed[r].length; c++) {
+        sheet.rows[sr + r][sc + c] = transposed[r][c];
+      }
+    }
+    return { applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "sheet.set_column_type") {
+    const colIndex = resolveSheetColumnIndex(sheet, operation);
+    if (colIndex < 0) return { applied: "", issue: "sheet.set_column_type requires a column target." };
+    const colType = String(operation.raw?.type || operation.raw?.colType || operation.value || "text").trim();
+    if (!sheet.columns[colIndex]) return { applied: "", issue: "Column not found." };
+    sheet.columns[colIndex] = { ...sheet.columns[colIndex], type: colType };
+    return { applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "sheet.fill_down") {
+    const parsed = parseA1Range(operation.range || operation.target?.cell || "");
+    if (!parsed) return { applied: "", issue: "sheet.fill_down requires a valid range (e.g. A1:A10)." };
+    const { startRowIndex: sr, endRowIndex: er, startColumnIndex: sc, endColumnIndex: ec } = parsed;
+    ensureSheetRows(sheet, er);
+    ensureSheetWidth(sheet, ec + 1);
+    for (let c = sc; c <= ec; c++) {
+      const src = sheet.rows[sr]?.[c] ?? "";
+      for (let r = sr + 1; r <= er; r++) sheet.rows[r][c] = src;
+    }
+    return { applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "sheet.fill_right") {
+    const parsed = parseA1Range(operation.range || operation.target?.cell || "");
+    if (!parsed) return { applied: "", issue: "sheet.fill_right requires a valid range (e.g. A1:E1)." };
+    const { startRowIndex: sr, endRowIndex: er, startColumnIndex: sc, endColumnIndex: ec } = parsed;
+    ensureSheetRows(sheet, er);
+    ensureSheetWidth(sheet, ec + 1);
+    for (let r = sr; r <= er; r++) {
+      const src = sheet.rows[r]?.[sc] ?? "";
+      for (let c = sc + 1; c <= ec; c++) sheet.rows[r][c] = src;
+    }
+    return { applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "sheet.remove_duplicates") {
+    const checkColNames = Array.isArray(operation.raw?.columns) ? operation.raw.columns : null;
+    const checkCols = checkColNames
+      ? checkColNames.map((n) => resolveSheetColumnIndex(sheet, { target: { columnName: String(n) } })).filter((i) => i >= 0)
+      : null;
+    const seen = new Set();
+    const nextRows = [];
+    for (const row of sheet.rows) {
+      const key = checkCols ? checkCols.map((c) => String(row[c] ?? "")).join("\x00") : row.map(String).join("\x00");
+      if (!seen.has(key)) { seen.add(key); nextRows.push(row); }
+    }
+    const removed = sheet.rows.length - nextRows.length;
+    sheet.rows = nextRows;
+    return { applied: operation.type, issue: removed === 0 ? "No duplicate rows found." : "" };
+  }
+
+  if (operation.type === "sheet.find_replace") {
+    const find = String(operation.raw?.find || operation.raw?.search || "").trim();
+    const replace = String(operation.raw?.replace ?? operation.raw?.with ?? "");
+    if (!find) return { applied: "", issue: "sheet.find_replace requires raw.find." };
+    const flags = operation.raw?.caseSensitive ? "g" : "gi";
+    const pattern = new RegExp(find.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), flags);
+    let count = 0;
+    sheet.rows = sheet.rows.map((row) => row.map((cell) => {
+      const next = String(cell).replace(pattern, replace);
+      if (next !== String(cell)) count++;
+      return next;
+    }));
+    return { applied: operation.type, issue: count === 0 ? `"${find}" not found in any cell.` : "" };
+  }
+
+  if (operation.type === "sheet.import_data") {
+    const data = operation.raw?.data || operation.raw?.rows;
+    if (!Array.isArray(data) || data.length === 0) return { applied: "", issue: "sheet.import_data requires raw.data (array of arrays or objects)." };
+    const maxImport = Math.min(data.length, 500);
+    for (let i = 0; i < maxImport; i++) {
+      const row = data[i];
+      if (Array.isArray(row)) {
+        ensureSheetWidth(sheet, row.length);
+        sheet.rows.push(row.map(String));
+      } else if (row && typeof row === "object") {
+        const rowArray = sheet.columns.map((col) => { const k = col.name || col.id || ""; return String(row[k] ?? row[k.toLowerCase()] ?? ""); });
+        ensureSheetWidth(sheet, rowArray.length);
+        sheet.rows.push(rowArray);
+      }
+    }
+    return { applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "sheet.auto_sum") {
+    const parsed = parseA1Range(operation.range || operation.target?.cell || "");
+    const colIndex = resolveSheetColumnIndex(sheet, operation);
+    if (colIndex >= 0 && !parsed) {
+      const colLetter = columnIndexToA1(colIndex);
+      const dataEnd = sheet.rows.length;
+      const formula = `=SUM(${colLetter}2:${colLetter}${Math.max(2, dataEnd)})`;
+      ensureSheetRows(sheet, dataEnd);
+      ensureSheetWidth(sheet, colIndex + 1);
+      sheet.rows[dataEnd][colIndex] = formula;
+      return { applied: operation.type, issue: "" };
+    }
+    if (parsed) {
+      const { startRowIndex: sr, endRowIndex: er, startColumnIndex: sc, endColumnIndex: ec } = parsed;
+      const formula = `=SUM(${columnIndexToA1(sc)}${sr + 1}:${columnIndexToA1(ec)}${er + 1})`;
+      const targetRow = er + 1;
+      ensureSheetRows(sheet, targetRow);
+      ensureSheetWidth(sheet, sc + 1);
+      sheet.rows[targetRow][sc] = formula;
+      return { applied: operation.type, issue: "" };
+    }
+    return { applied: "", issue: "sheet.auto_sum requires a column target or range." };
+  }
+
+  if (operation.type === "sheet.copy_range") {
+    const src = parseA1Range(operation.raw?.sourceRange || operation.range || "");
+    const destCell = String(operation.raw?.destCell || operation.raw?.destination || "").trim();
+    if (!src || !destCell) return { applied: "", issue: "sheet.copy_range requires raw.sourceRange and raw.destCell." };
+    const destParsed = parseA1Range(destCell);
+    if (!destParsed) return { applied: "", issue: "sheet.copy_range: invalid destCell." };
+    const { startRowIndex: sr, endRowIndex: er, startColumnIndex: sc, endColumnIndex: ec } = src;
+    const { startRowIndex: dr, startColumnIndex: dc } = destParsed;
+    const height = er - sr;
+    const width = ec - sc;
+    ensureSheetRows(sheet, dr + height);
+    ensureSheetWidth(sheet, dc + width + 1);
+    for (let r = 0; r <= height; r++) {
+      for (let c = 0; c <= width; c++) {
+        sheet.rows[dr + r][dc + c] = sheet.rows[sr + r]?.[sc + c] ?? "";
+      }
+    }
+    return { applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "sheet.split_column") {
+    const colIndex = resolveSheetColumnIndex(sheet, operation);
+    if (colIndex < 0) return { applied: "", issue: "sheet.split_column requires a column target." };
+    const delimiter = String(operation.raw?.delimiter || operation.value || ",").trim() || ",";
+    const maxParts = Math.min(Math.max(Number(operation.raw?.maxParts || 2), 2), 10);
+    const srcHeader = sheet.columns[colIndex] || { id: `col-${colIndex}`, name: `Column ${colIndex + 1}` };
+    for (let i = 1; i < maxParts; i++) {
+      const newCol = { ...srcHeader, id: `${srcHeader.id || `col-${colIndex}`}-split-${i}`, name: `${srcHeader.name || "Col"} ${i + 1}` };
+      sheet.columns.splice(colIndex + i, 0, newCol);
+    }
+    sheet.rows = sheet.rows.map((row) => {
+      const parts = String(row[colIndex] ?? "").split(delimiter).map((p) => p.trim());
+      const nextRow = [...row];
+      for (let i = 0; i < maxParts; i++) nextRow[colIndex + i] = parts[i] ?? "";
+      return nextRow;
+    });
+    return { applied: operation.type, issue: "" };
+  }
+
+  // --- Formatting ops (range / column / cell targeted) ---
+  if (CELL_FORMAT_OPS.has(operation.type)) {
+    const rangeStr = operation.range || operation.target?.range || "";
+    let formatTargets = [];
+    if (rangeStr) {
+      const r = parseA1Range(rangeStr);
+      if (r) {
+        for (let row = r.startRowIndex; row <= r.endRowIndex; row++) {
+          for (let col = r.startColumnIndex; col <= r.endColumnIndex; col++) {
+            formatTargets.push([row + 1, col]);
+          }
+        }
+      }
+    }
+    if (!formatTargets.length) formatTargets = targetCellsForFormat(sheet, operation);
+    if (!formatTargets.length) return { applied: "", issue: `${operation.type} requires a cell, column, or range target.` };
+    sheet.cellFormats = sheet.cellFormats || {};
+    const enable = operation.raw?.enable !== false && operation.value !== "false";
+    for (const [rowIndex, colIndex] of formatTargets) {
+      const key = `${rowIndex}:${colIndex}`;
+      const existing = sheet.cellFormats[key] || {};
+      if (operation.type === "sheet.set_horizontal_alignment") {
+        sheet.cellFormats[key] = { ...existing, horizontalAlignment: compact(operation.value || operation.raw?.alignment || "left", 20) };
+      } else if (operation.type === "sheet.set_vertical_alignment") {
+        sheet.cellFormats[key] = { ...existing, verticalAlignment: compact(operation.value || operation.raw?.alignment || "bottom", 20) };
+      } else if (operation.type === "sheet.set_text_wrapping") {
+        sheet.cellFormats[key] = { ...existing, textWrap: compact(operation.value || operation.raw?.mode || "overflow", 20) };
+      } else if (operation.type === "sheet.set_border") {
+        const side = compact(operation.raw?.side || "all", 20);
+        const style = compact(operation.raw?.style || "thin", 20);
+        const color = compact(operation.raw?.color || "#000000", 40);
+        const prev = existing.border || {};
+        const sides = side === "all" ? ["top", "bottom", "left", "right"] : [side];
+        const next = { ...prev };
+        for (const s of sides) next[s] = { style, color };
+        sheet.cellFormats[key] = { ...existing, border: next };
+      } else if (operation.type === "sheet.clear_borders") {
+        const { border: _b, ...rest } = existing;
+        sheet.cellFormats[key] = rest;
+      } else if (operation.type === "sheet.set_number_format") {
+        sheet.cellFormats[key] = { ...existing, numberFormat: compact(operation.value || operation.raw?.format || "", 80) };
+      } else if (operation.type === "sheet.set_fill_color") {
+        sheet.cellFormats[key] = { ...existing, fillColor: compact(operation.value || operation.raw?.color || "", 40) };
+      } else if (operation.type === "sheet.set_text_color") {
+        sheet.cellFormats[key] = { ...existing, textColor: compact(operation.value || operation.raw?.color || "", 40) };
+      } else if (operation.type === "sheet.set_font_size") {
+        const size = Number(operation.value || operation.raw?.size || 12);
+        sheet.cellFormats[key] = { ...existing, fontSize: Number.isFinite(size) ? size : 12 };
+      } else if (operation.type === "sheet.set_font_family") {
+        sheet.cellFormats[key] = { ...existing, fontFamily: compact(operation.value || operation.raw?.family || "", 80) };
+      } else if (operation.type === "sheet.set_bold") {
+        sheet.cellFormats[key] = { ...existing, bold: enable };
+      } else if (operation.type === "sheet.set_italic") {
+        sheet.cellFormats[key] = { ...existing, italic: enable };
+      } else if (operation.type === "sheet.set_underline") {
+        sheet.cellFormats[key] = { ...existing, underline: enable };
+      } else if (operation.type === "sheet.set_strikethrough") {
+        sheet.cellFormats[key] = { ...existing, strikethrough: enable };
+      } else if (operation.type === "sheet.clear_all") {
+        delete sheet.cellFormats[key];
+        if (rowIndex > 0 && sheet.rows[rowIndex - 1]) sheet.rows[rowIndex - 1][colIndex] = "";
+      }
+    }
+    return { applied: operation.type, issue: "" };
+  }
+
+  // --- Hyperlink / image / interactive cell ops ---
+  if (operation.type === "sheet.insert_hyperlink") {
+    const url = compact(operation.raw?.url || operation.value || "", 2000);
+    const label = compact(operation.raw?.label || operation.raw?.text || url, 200);
+    const targetCell = operation.target?.cell || "";
+    if (!url || !targetCell) return { applied: "", issue: "sheet.insert_hyperlink requires target.cell and raw.url." };
+    const parsed = parseA1Cell(targetCell);
+    if (!parsed) return { applied: "", issue: "sheet.insert_hyperlink: invalid target.cell." };
+    ensureSheetRows(sheet, parsed.rowIndex);
+    ensureSheetWidth(sheet, parsed.columnIndex + 1);
+    sheet.rows[parsed.rowIndex + 1][parsed.columnIndex] = `=HYPERLINK("${url}","${label}")`;
+    return { applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "sheet.remove_hyperlink") {
+    const targetCell = operation.target?.cell || "";
+    if (!targetCell) return { applied: "", issue: "sheet.remove_hyperlink requires target.cell." };
+    const parsed = parseA1Cell(targetCell);
+    if (!parsed) return { applied: "", issue: "sheet.remove_hyperlink: invalid target.cell." };
+    const rowIndex = parsed.rowIndex + 1;
+    if (sheet.rows[rowIndex]) {
+      const val = String(sheet.rows[rowIndex][parsed.columnIndex] || "");
+      if (val.toUpperCase().startsWith("=HYPERLINK")) sheet.rows[rowIndex][parsed.columnIndex] = "";
+    }
+    return { applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "sheet.insert_image") {
+    const url = compact(operation.raw?.url || operation.value || "", 2000);
+    const targetCell = operation.target?.cell || "";
+    if (!url || !targetCell) return { applied: "", issue: "sheet.insert_image requires target.cell and raw.url." };
+    const parsed = parseA1Cell(targetCell);
+    if (!parsed) return { applied: "", issue: "sheet.insert_image: invalid target.cell." };
+    ensureSheetRows(sheet, parsed.rowIndex);
+    ensureSheetWidth(sheet, parsed.columnIndex + 1);
+    sheet.rows[parsed.rowIndex + 1][parsed.columnIndex] = `=IMAGE("${url}")`;
+    return { applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "sheet.insert_checkbox") {
+    const targetCell = operation.target?.cell || "";
+    if (!targetCell) return { applied: "", issue: "sheet.insert_checkbox requires target.cell." };
+    const parsed = parseA1Cell(targetCell);
+    if (!parsed) return { applied: "", issue: "sheet.insert_checkbox: invalid target.cell." };
+    ensureSheetRows(sheet, parsed.rowIndex);
+    ensureSheetWidth(sheet, parsed.columnIndex + 1);
+    sheet.rows[parsed.rowIndex + 1][parsed.columnIndex] = "FALSE";
+    return { applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "sheet.insert_dropdown") {
+    const items = Array.isArray(operation.raw?.items) ? operation.raw.items : (operation.value || "").split(",").map((s) => s.trim()).filter(Boolean);
+    if (!items.length) return { applied: "", issue: "sheet.insert_dropdown requires raw.items (array) or value (comma-separated)." };
+    const rangeStr = operation.range || operation.target?.range || operation.target?.cell || "";
+    if (!rangeStr) return { applied: "", issue: "sheet.insert_dropdown requires a range or target.cell." };
+    if (!sheet.metadata) sheet.metadata = {};
+    if (!sheet.metadata.dataValidation) sheet.metadata.dataValidation = {};
+    sheet.metadata.dataValidation[rangeStr] = { type: "list", values: items.map((v) => compact(String(v), 200)) };
+    return { applied: operation.type, issue: "" };
+  }
+
+  // --- Cell locking ---
+  if (operation.type === "sheet.lock_cell" || operation.type === "sheet.unlock_cell") {
+    const targetCell = operation.target?.cell || operation.range || "";
+    if (!targetCell) return { applied: "", issue: `${operation.type} requires target.cell or range.` };
+    if (!sheet.metadata) sheet.metadata = {};
+    if (!Array.isArray(sheet.metadata.lockedCells)) sheet.metadata.lockedCells = [];
+    if (operation.type === "sheet.lock_cell") {
+      if (!sheet.metadata.lockedCells.includes(targetCell)) sheet.metadata.lockedCells.push(targetCell);
+    } else {
+      sheet.metadata.lockedCells = sheet.metadata.lockedCells.filter((c) => c !== targetCell);
+    }
+    return { applied: operation.type, issue: "" };
+  }
+
+  // --- Sheet color ---
+  if (operation.type === "sheet.set_sheet_color") {
+    sheet.color = compact(operation.value || operation.raw?.color || "", 40);
+    return { applied: operation.type, issue: "" };
+  }
+
+  // --- Print settings ---
+  if (operation.type === "sheet.set_print_area") {
+    const area = compact(operation.value || operation.range || operation.raw?.area || "", 100);
+    if (!area) return { applied: "", issue: "sheet.set_print_area requires a range value." };
+    if (!sheet.metadata) sheet.metadata = {};
+    if (!sheet.metadata.print) sheet.metadata.print = {};
+    sheet.metadata.print.area = area;
+    return { applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "sheet.set_page_orientation") {
+    const orientation = compact(operation.value || operation.raw?.orientation || "portrait", 20);
+    if (!sheet.metadata) sheet.metadata = {};
+    if (!sheet.metadata.print) sheet.metadata.print = {};
+    sheet.metadata.print.orientation = orientation;
+    return { applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "sheet.set_page_size") {
+    const size = compact(operation.value || operation.raw?.size || "A4", 20);
+    if (!sheet.metadata) sheet.metadata = {};
+    if (!sheet.metadata.print) sheet.metadata.print = {};
+    sheet.metadata.print.pageSize = size;
+    return { applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "sheet.set_print_margins") {
+    if (!sheet.metadata) sheet.metadata = {};
+    if (!sheet.metadata.print) sheet.metadata.print = {};
+    sheet.metadata.print.margins = {
+      top: Number(operation.raw?.top ?? 1), bottom: Number(operation.raw?.bottom ?? 1),
+      left: Number(operation.raw?.left ?? 1), right: Number(operation.raw?.right ?? 1)
+    };
+    return { applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "sheet.set_print_scaling") {
+    const scaling = Math.min(400, Math.max(10, Number(operation.value || operation.raw?.percent || 100)));
+    if (!sheet.metadata) sheet.metadata = {};
+    if (!sheet.metadata.print) sheet.metadata.print = {};
+    sheet.metadata.print.scaling = scaling;
+    return { applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "sheet.insert_page_break") {
+    const rowIndex = Number.isInteger(operation.target?.rowIndex) ? operation.target.rowIndex : Number(operation.value || -1);
+    if (rowIndex < 0) return { applied: "", issue: "sheet.insert_page_break requires target.rowIndex." };
+    if (!sheet.metadata) sheet.metadata = {};
+    if (!sheet.metadata.print) sheet.metadata.print = {};
+    if (!Array.isArray(sheet.metadata.print.pageBreaks)) sheet.metadata.print.pageBreaks = [];
+    if (!sheet.metadata.print.pageBreaks.includes(rowIndex)) sheet.metadata.print.pageBreaks.push(rowIndex);
+    return { applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "sheet.set_repeat_rows") {
+    const from = Number(operation.raw?.from ?? operation.raw?.startRow ?? 0);
+    const to = Number(operation.raw?.to ?? operation.raw?.endRow ?? from);
+    if (!sheet.metadata) sheet.metadata = {};
+    if (!sheet.metadata.print) sheet.metadata.print = {};
+    sheet.metadata.print.repeatRows = { from, to };
+    return { applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "sheet.set_repeat_columns") {
+    const from = Number(operation.raw?.from ?? operation.raw?.startColumn ?? 0);
+    const to = Number(operation.raw?.to ?? operation.raw?.endColumn ?? from);
+    if (!sheet.metadata) sheet.metadata = {};
+    if (!sheet.metadata.print) sheet.metadata.print = {};
+    sheet.metadata.print.repeatColumns = { from, to };
+    return { applied: operation.type, issue: "" };
+  }
+
+  // --- Row/column visibility ---
+  if (operation.type === "sheet.hide_row" || operation.type === "sheet.unhide_row") {
+    const rowIndex = Number.isInteger(operation.target?.rowIndex) ? operation.target.rowIndex : Number(operation.value ?? -1);
+    if (rowIndex < 0) return { applied: "", issue: `${operation.type} requires target.rowIndex.` };
+    if (!sheet.metadata) sheet.metadata = {};
+    if (!Array.isArray(sheet.metadata.hiddenRows)) sheet.metadata.hiddenRows = [];
+    if (operation.type === "sheet.hide_row") {
+      if (!sheet.metadata.hiddenRows.includes(rowIndex)) sheet.metadata.hiddenRows.push(rowIndex);
+    } else {
+      sheet.metadata.hiddenRows = sheet.metadata.hiddenRows.filter((r) => r !== rowIndex);
+    }
+    return { applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "sheet.hide_column" || operation.type === "sheet.unhide_column") {
+    const colIndex = resolveSheetColumnIndex(sheet, operation);
+    if (colIndex < 0) return { applied: "", issue: `${operation.type} requires a column target.` };
+    if (!sheet.metadata) sheet.metadata = {};
+    if (!Array.isArray(sheet.metadata.hiddenColumns)) sheet.metadata.hiddenColumns = [];
+    if (operation.type === "sheet.hide_column") {
+      if (!sheet.metadata.hiddenColumns.includes(colIndex)) sheet.metadata.hiddenColumns.push(colIndex);
+    } else {
+      sheet.metadata.hiddenColumns = sheet.metadata.hiddenColumns.filter((c) => c !== colIndex);
+    }
+    return { applied: operation.type, issue: "" };
+  }
+
+  // --- Bulk set values ---
+  if (operation.type === "sheet.bulk_set_values") {
+    const entries = Array.isArray(operation.raw?.entries) ? operation.raw.entries : [];
+    if (!entries.length) return { applied: "", issue: "sheet.bulk_set_values requires raw.entries (array of {cell, value})." };
+    let applied = 0;
+    for (const entry of entries) {
+      const parsed = parseA1Cell(String(entry?.cell || ""));
+      if (!parsed) continue;
+      ensureSheetRows(sheet, parsed.rowIndex);
+      ensureSheetWidth(sheet, parsed.columnIndex + 1);
+      sheet.rows[parsed.rowIndex + 1][parsed.columnIndex] = entry.value ?? "";
+      applied++;
+    }
+    return { applied: applied > 0 ? operation.type : "", issue: applied === 0 ? "No valid entries in raw.entries." : "" };
+  }
+
+  // --- Named formula ---
+  if (operation.type === "sheet.create_named_formula") {
+    const name = compact(operation.raw?.name || operation.title || "", 120);
+    const formula = normalizeFormula(operation.raw?.formula || operation.formula || operation.value || "");
+    if (!name || !formula) return { applied: "", issue: "sheet.create_named_formula requires raw.name and raw.formula." };
+    if (!sheet.metadata) sheet.metadata = {};
+    if (!sheet.metadata.namedFormulas) sheet.metadata.namedFormulas = {};
+    sheet.metadata.namedFormulas[name] = formula;
+    return { applied: operation.type, issue: "" };
+  }
+
   const cell = resolveOperationCell(sheet, operation);
   if (!cell) {
     return {
@@ -2411,6 +3071,321 @@ function applyDocumentOperation(content = "", operation = {}) {
     };
   }
 
+  if (operation.type === "doc.insert_header") {
+    const text = paragraphText(operation);
+    if (!text) return { content, applied: "", issue: "doc.insert_header requires text." };
+    const header = html ? `<header><p>${escapeHtml(text)}</p></header>\n\n` : `---\n**${text}**\n\n---\n\n`;
+    return { content: header + content, applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "doc.insert_footer") {
+    const text = paragraphText(operation);
+    if (!text) return { content, applied: "", issue: "doc.insert_footer requires text." };
+    const footer = html ? `\n\n<footer><p>${escapeHtml(text)}</p></footer>` : `\n\n---\n\n**${text}**`;
+    return { content: content + footer, applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "doc.insert_footnote") {
+    const ref = String(operation.raw?.ref || operation.target?.ref || "").trim() || String(Date.now()).slice(-4);
+    const text = paragraphText(operation);
+    if (!text) return { content, applied: "", issue: "doc.insert_footnote requires text." };
+    const footnote = html ? `<sup id="fn${ref}"><a href="#fnref${ref}">[${ref}]</a></sup> ${escapeHtml(text)}` : `[^${ref}]: ${text}`;
+    return { content: appendWithSpacing(content, footnote), applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "doc.highlight_text") {
+    const searchText = String(operation.raw?.searchText || operation.raw?.text || operation.value || "").trim();
+    if (!searchText) return { content, applied: "", issue: "doc.highlight_text requires searchText." };
+    const escaped = searchText.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const highlighted = html
+      ? content.replace(new RegExp(escaped, "g"), `<mark>${searchText}</mark>`)
+      : content.replace(new RegExp(escaped, "g"), `==${searchText}==`);
+    if (highlighted === content) return { content, applied: "", issue: `doc.highlight_text: text not found "${searchText}".` };
+    return { content: highlighted, applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "doc.create_bookmark") {
+    const name = String(operation.raw?.name || operation.value || operation.title || "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, "-")
+      .replace(/[^a-z0-9-]/g, "");
+    if (!name) return { content, applied: "", issue: "doc.create_bookmark requires a name." };
+    const bookmark = `<a id="${name}"></a>`;
+    return { content: appendWithSpacing(content, bookmark), applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "doc.insert_divider") {
+    return { content: appendWithSpacing(content, html ? "<hr />" : "---"), applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "doc.insert_callout") {
+    const kind = String(operation.raw?.kind || operation.raw?.type || "info").trim();
+    const text = paragraphText(operation);
+    if (!text) return { content, applied: "", issue: "doc.insert_callout requires text." };
+    const callout = html
+      ? `<div class="callout callout-${escapeHtml(kind)}"><strong>${escapeHtml(kind.toUpperCase())}</strong>: ${escapeHtml(text)}</div>`
+      : `> **${kind.toUpperCase()}**: ${text}`;
+    return { content: appendWithSpacing(content, callout), applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "doc.insert_video") {
+    const url = String(operation.raw?.url || operation.value || "").trim();
+    if (!url) return { content, applied: "", issue: "doc.insert_video requires raw.url." };
+    const title = String(operation.raw?.title || operation.title || "Vidéo").trim();
+    const video = html
+      ? `<figure><video src="${escapeHtml(url)}" controls title="${escapeHtml(title)}"></video><figcaption>${escapeHtml(title)}</figcaption></figure>`
+      : `[▶ ${title}](${url})`;
+    return { content: appendWithSpacing(content, video), applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "doc.move_section") {
+    const heading = sectionTitle(operation) || String(operation.raw?.heading || "").trim();
+    const afterHeading = String(operation.raw?.afterHeading || "").trim();
+    const beforeHeading = String(operation.raw?.beforeHeading || "").trim();
+    if (!heading) return { content, applied: "", issue: "doc.move_section requires a heading (section to move)." };
+    if (!afterHeading && !beforeHeading) return { content, applied: "", issue: "doc.move_section requires raw.afterHeading or raw.beforeHeading." };
+    const parts = content.split(/\n(?=## )/);
+    const normH = normalizeLabel(heading);
+    const normRef = normalizeLabel(afterHeading || beforeHeading);
+    const srcIdx = parts.findIndex((p) => normalizeLabel(p.match(/^## (.+)/m)?.[1] || "") === normH);
+    if (srcIdx < 0) return { content, applied: "", issue: `doc.move_section: section "${heading}" not found.` };
+    const [srcBlock] = parts.splice(srcIdx, 1);
+    const refIdx = parts.findIndex((p) => normalizeLabel(p.match(/^## (.+)/m)?.[1] || "") === normRef);
+    if (refIdx < 0) { parts.splice(srcIdx, 0, srcBlock); return { content, applied: "", issue: `doc.move_section: reference section "${afterHeading || beforeHeading}" not found.` }; }
+    parts.splice(afterHeading ? refIdx + 1 : refIdx, 0, srcBlock);
+    return { content: parts.join("\n"), applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "doc.duplicate_section") {
+    const heading = sectionTitle(operation) || String(operation.raw?.heading || "").trim();
+    if (!heading) return { content, applied: "", issue: "doc.duplicate_section requires a heading (section to copy)." };
+    const newTitle = String(operation.title || operation.raw?.newTitle || `${heading} (copie)`).trim();
+    const parts = content.split(/\n(?=## )/);
+    const normH = normalizeLabel(heading);
+    const srcIdx = parts.findIndex((p) => normalizeLabel(p.match(/^## (.+)/m)?.[1] || "") === normH);
+    if (srcIdx < 0) return { content, applied: "", issue: `doc.duplicate_section: section "${heading}" not found.` };
+    const copy = parts[srcIdx].replace(/^## .+/m, `## ${newTitle}`);
+    parts.splice(srcIdx + 1, 0, copy);
+    return { content: parts.join("\n"), applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "doc.set_language") {
+    const lang = String(operation.value || operation.raw?.language || operation.raw?.lang || "").trim();
+    if (!lang) return { content, applied: "", issue: "doc.set_language requires a language code (e.g. fr, en)." };
+    const cleaned = content.replace(/<!--\s*lang:[^>]*-->\n?/gi, "").trim();
+    return { content: `<!-- lang: ${lang} -->\n${cleaned}`, applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "doc.set_author") {
+    const author = String(operation.value || operation.raw?.author || "").trim();
+    if (!author) return { content, applied: "", issue: "doc.set_author requires an author name." };
+    const cleaned = content.replace(/<!--\s*author:[^>]*-->\n?/gi, "").trim();
+    return { content: `<!-- author: ${author} -->\n${cleaned}`, applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "doc.add_tag") {
+    const tag = String(operation.value || operation.raw?.tag || "").trim();
+    if (!tag) return { content, applied: "", issue: "doc.add_tag requires a tag value." };
+    const tagMatch = content.match(/<!--\s*tags:\s*([^>]*)-->/i);
+    if (tagMatch) {
+      const existing = tagMatch[1].split(",").map((t) => t.trim()).filter(Boolean);
+      if (!existing.includes(tag)) existing.push(tag);
+      return { content: content.replace(/<!--\s*tags:\s*[^>]*-->/i, `<!-- tags: ${existing.join(", ")} -->`), applied: operation.type, issue: "" };
+    }
+    const cleaned = content.replace(/<!--\s*tags:[^>]*-->\n?/gi, "").trim();
+    return { content: `<!-- tags: ${tag} -->\n${cleaned}`, applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "doc.number_headings") {
+    let counter = 0;
+    const numbered = content.replace(/^(## )(?:\d+\.\s*)?(.+)$/gm, (_m, hashes, title) => {
+      counter++;
+      return `${hashes}${counter}. ${title.trim()}`;
+    });
+    return { content: numbered, applied: operation.type, issue: counter === 0 ? "No ## headings found to number." : "" };
+  }
+
+  if (operation.type === "doc.insert_mention") {
+    const name = String(operation.raw?.name || operation.value || "").trim();
+    if (!name) return { content, applied: "", issue: "doc.insert_mention requires raw.name or value." };
+    const mention = html ? `<span class="mention">@${escapeHtml(name)}</span>` : `[@${name}]`;
+    return { content: appendWithSpacing(content, mention), applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "doc.format_text") {
+    const searchText = String(operation.raw?.text || operation.value || "").trim();
+    const format = String(operation.raw?.format || "bold").trim();
+    if (!searchText) return { content, applied: "", issue: "doc.format_text requires raw.text and raw.format (bold/italic/underline/strikethrough)." };
+    const escaped = searchText.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    let formatted = searchText;
+    if (format === "bold") formatted = html ? `<strong>${searchText}</strong>` : `**${searchText}**`;
+    else if (format === "italic") formatted = html ? `<em>${searchText}</em>` : `*${searchText}*`;
+    else if (format === "underline") formatted = `<u>${searchText}</u>`;
+    else if (format === "strikethrough") formatted = html ? `<s>${searchText}</s>` : `~~${searchText}~~`;
+    else if (format === "code") formatted = html ? `<code>${escapeHtml(searchText)}</code>` : `\`${searchText}\``;
+    const next = content.replace(new RegExp(escaped, "g"), formatted);
+    if (next === content) return { content, applied: "", issue: `doc.format_text: text not found "${searchText}".` };
+    return { content: next, applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "doc.set_text_color") {
+    const searchText = String(operation.raw?.text || "").trim();
+    const color = String(operation.raw?.color || operation.value || "#000000").trim();
+    if (!searchText) return { content, applied: "", issue: "doc.set_text_color requires raw.text and raw.color." };
+    const escaped = searchText.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const colored = `<span style="color:${color}">${searchText}</span>`;
+    const next = content.replace(new RegExp(escaped, "g"), colored);
+    if (next === content) return { content, applied: "", issue: `doc.set_text_color: text not found "${searchText}".` };
+    return { content: next, applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "doc.set_font_family") {
+    const family = String(operation.value || operation.raw?.family || "Arial").trim();
+    const stripped = content.replace(/<!--\s*fontFamily:[^>]*-->\n?/gi, "").trim();
+    return { content: `<!-- fontFamily: ${family} -->\n${stripped}`, applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "doc.set_font_size") {
+    const size = String(operation.value || operation.raw?.size || "12").trim();
+    const stripped = content.replace(/<!--\s*fontSize:[^>]*-->\n?/gi, "").trim();
+    return { content: `<!-- fontSize: ${size}pt -->\n${stripped}`, applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "doc.set_text_alignment") {
+    const alignment = String(operation.value || operation.raw?.alignment || "left").trim();
+    const stripped = content.replace(/<!--\s*textAlign:[^>]*-->\n?/gi, "").trim();
+    return { content: `<!-- textAlign: ${alignment} -->\n${stripped}`, applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "doc.set_line_spacing") {
+    const spacing = String(operation.value || operation.raw?.spacing || "1.5").trim();
+    const stripped = content.replace(/<!--\s*lineSpacing:[^>]*-->\n?/gi, "").trim();
+    return { content: `<!-- lineSpacing: ${spacing} -->\n${stripped}`, applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "doc.set_page_margin") {
+    const top = operation.raw?.top ?? operation.raw?.margin ?? 2.5;
+    const bottom = operation.raw?.bottom ?? top;
+    const left = operation.raw?.left ?? top;
+    const right = operation.raw?.right ?? top;
+    const stripped = content.replace(/<!--\s*pageMargin:[^>]*-->\n?/gi, "").trim();
+    return { content: `<!-- pageMargin: ${top}cm ${right}cm ${bottom}cm ${left}cm -->\n${stripped}`, applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "doc.set_page_size") {
+    const size = String(operation.value || operation.raw?.size || "A4").trim();
+    const stripped = content.replace(/<!--\s*pageSize:[^>]*-->\n?/gi, "").trim();
+    return { content: `<!-- pageSize: ${size} -->\n${stripped}`, applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "doc.set_page_orientation") {
+    const orientation = String(operation.value || operation.raw?.orientation || "portrait").trim();
+    const stripped = content.replace(/<!--\s*pageOrientation:[^>]*-->\n?/gi, "").trim();
+    return { content: `<!-- pageOrientation: ${orientation} -->\n${stripped}`, applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "doc.insert_page_number") {
+    const position = String(operation.raw?.position || "bottom-center").trim();
+    const stripped = content.replace(/<!--\s*pageNumbers:[^>]*-->\n?/gi, "").trim();
+    return { content: `<!-- pageNumbers: ${position} -->\n${stripped}`, applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "doc.insert_date_field") {
+    const fmt = String(operation.raw?.format || operation.value || "YYYY-MM-DD").trim();
+    const field = html ? `<time class="date-field" data-format="${escapeHtml(fmt)}">{DATE}</time>` : `{{DATE:${fmt}}}`;
+    return { content: appendWithSpacing(content, field), applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "doc.insert_time_field") {
+    const fmt = String(operation.raw?.format || operation.value || "HH:mm").trim();
+    const field = html ? `<time class="time-field" data-format="${escapeHtml(fmt)}">{TIME}</time>` : `{{TIME:${fmt}}}`;
+    return { content: appendWithSpacing(content, field), applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "doc.insert_watermark") {
+    const text = String(operation.value || operation.raw?.text || "DRAFT").trim();
+    const stripped = content.replace(/<!--\s*watermark:[^>]*-->\n?/gi, "").trim();
+    return { content: `<!-- watermark: ${text} -->\n${stripped}`, applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "doc.insert_cover_image") {
+    const url = String(operation.raw?.url || operation.value || "").trim();
+    if (!url) return { content, applied: "", issue: "doc.insert_cover_image requires raw.url." };
+    const alt = String(operation.raw?.alt || operation.title || "Cover image").trim();
+    const coverBlock = html ? `<figure class="cover-image"><img src="${escapeHtml(url)}" alt="${escapeHtml(alt)}"></figure>` : `![${alt}](${url})`;
+    return { content: coverBlock + "\n\n" + content, applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "doc.insert_cross_reference") {
+    const ref = String(operation.raw?.ref || operation.raw?.bookmarkName || operation.value || "").trim();
+    if (!ref) return { content, applied: "", issue: "doc.insert_cross_reference requires raw.ref or raw.bookmarkName." };
+    const label = String(operation.raw?.label || operation.title || ref).trim();
+    const crossRef = html ? `<a href="#${escapeHtml(ref)}">${escapeHtml(label)}</a>` : `[${label}](#${ref})`;
+    return { content: appendWithSpacing(content, crossRef), applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "doc.insert_signature_block") {
+    const name = String(operation.raw?.name || operation.value || "").trim();
+    const role = String(operation.raw?.role || operation.raw?.title || "").trim();
+    const block = html
+      ? `<div class="signature-block"><p>Signature: ___________________</p>${name ? `<p>${escapeHtml(name)}</p>` : ""}${role ? `<p>${escapeHtml(role)}</p>` : ""}</div>`
+      : `\n---\n\nSignature: ___________________${name ? `\n${name}` : ""}${role ? `\n${role}` : ""}\n`;
+    return { content: appendWithSpacing(content, block), applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "doc.track_changes") {
+    const enable = operation.raw?.enable !== false && operation.value !== "false";
+    const stripped = content.replace(/<!--\s*trackChanges:[^>]*-->\n?/gi, "").trim();
+    return { content: `<!-- trackChanges: ${enable} -->\n${stripped}`, applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "doc.accept_change" || operation.type === "doc.reject_change") {
+    const id = String(operation.raw?.id || operation.value || "").trim();
+    const pattern = id
+      ? new RegExp(`<!--\\s*change:${id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}:[\\s\\S]*?-->`, "g")
+      : /<!--\s*change:[^>]*-->/g;
+    if (operation.type === "doc.accept_change") {
+      const next = content.replace(pattern, (m) => {
+        const val = m.match(/value="([^"]*)"/)?.[1] ?? "";
+        return val;
+      });
+      return { content: next, applied: operation.type, issue: "" };
+    }
+    return { content: content.replace(pattern, ""), applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "doc.set_columns") {
+    const count = Math.min(6, Math.max(1, Number(operation.value || operation.raw?.count || 1)));
+    const stripped = content.replace(/<!--\s*columns:[^>]*-->\n?/gi, "").trim();
+    return { content: `<!-- columns: ${count} -->\n${stripped}`, applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "doc.insert_text_box") {
+    const text = paragraphText(operation);
+    const x = operation.raw?.x ?? 0;
+    const y = operation.raw?.y ?? 0;
+    const w = operation.raw?.width ?? 200;
+    const bh = operation.raw?.height ?? 50;
+    const box = html
+      ? `<div class="text-box" style="position:absolute;left:${x}px;top:${y}px;width:${w}px;height:${bh}px;">${escapeHtml(text)}</div>`
+      : `<!-- text-box: x=${x}, y=${y}, width=${w}, height=${bh} -->\n${text}`;
+    return { content: appendWithSpacing(content, box), applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "doc.insert_shape") {
+    const kind = String(operation.raw?.shape || operation.raw?.kind || "rectangle").trim();
+    const x = operation.raw?.x ?? 0;
+    const y = operation.raw?.y ?? 0;
+    const w = operation.raw?.width ?? 100;
+    const bh = operation.raw?.height ?? 100;
+    const color = String(operation.raw?.color || "#cccccc").trim();
+    const shape = html
+      ? `<div class="shape shape-${escapeHtml(kind)}" style="position:absolute;left:${x}px;top:${y}px;width:${w}px;height:${bh}px;background:${escapeHtml(color)};"></div>`
+      : `<!-- shape: ${kind}, x=${x}, y=${y}, width=${w}, height=${bh}, color=${color} -->`;
+    return { content: appendWithSpacing(content, shape), applied: operation.type, issue: "" };
+  }
+
   return {
     content,
     applied: "",
@@ -2586,6 +3561,468 @@ function applySlideOperation(content = "", operation = {}) {
     };
   }
 
+  if (operation.type === "slide.delete") {
+    if (deck.slides.length <= 1) {
+      return { content, applied: "", issue: "Cannot delete the last remaining slide." };
+    }
+    const slideIndex = resolveSlideIndex(deck.slides, operation);
+    if (slideIndex < 0) {
+      return { content, applied: "", issue: "slide.delete requires an existing slide target." };
+    }
+    const nextSlides = deck.slides.filter((_, idx) => idx !== slideIndex);
+    return {
+      content: buildPresentationContent({ title: deck.title, slides: nextSlides }),
+      applied: operation.type,
+      issue: ""
+    };
+  }
+
+  if (operation.type === "slide.duplicate") {
+    const slideIndex = resolveSlideIndex(deck.slides, operation);
+    if (slideIndex < 0) {
+      return { content, applied: "", issue: "slide.duplicate requires an existing slide target." };
+    }
+    const original = deck.slides[slideIndex];
+    const copyTitle = operation.title || operation.raw?.title || `${original.title} (copy)`;
+    const copy = { id: `slide-${deck.slides.length + 1}`, title: copyTitle, body: original.body };
+    const nextSlides = [...deck.slides];
+    nextSlides.splice(slideIndex + 1, 0, copy);
+    return {
+      content: buildPresentationContent({ title: deck.title, slides: nextSlides }),
+      applied: operation.type,
+      issue: ""
+    };
+  }
+
+  if (operation.type === "slide.set_layout") {
+    const slideIndex = resolveSlideIndex(deck.slides, operation);
+    if (slideIndex < 0) {
+      return { content, applied: "", issue: "slide.set_layout requires an existing slide target." };
+    }
+    const layout = String(operation.value || operation.raw?.layout || "").trim();
+    if (!layout) {
+      return { content, applied: "", issue: "slide.set_layout requires a layout value." };
+    }
+    const slide = deck.slides[slideIndex];
+    const updatedBody = slide.body
+      .replace(/<!--\s*layout:[^>]*-->/gi, "")
+      .trim()
+      .concat(`\n<!-- layout: ${layout} -->`);
+    const nextSlides = deck.slides.map((s, i) => i === slideIndex ? { ...s, body: updatedBody } : s);
+    return {
+      content: buildPresentationContent({ title: deck.title, slides: nextSlides }),
+      applied: operation.type,
+      issue: ""
+    };
+  }
+
+  if (operation.type === "slide.insert_image") {
+    const slideIndex = resolveSlideIndex(deck.slides, operation);
+    if (slideIndex < 0) {
+      return { content, applied: "", issue: "slide.insert_image requires an existing slide target." };
+    }
+    const imageUrl = String(operation.raw?.imageUrl || operation.raw?.url || operation.value || "").trim();
+    if (!imageUrl) {
+      return { content, applied: "", issue: "slide.insert_image requires an imageUrl." };
+    }
+    const altText = String(operation.raw?.altText || operation.raw?.alt || "image").trim();
+    const slide = deck.slides[slideIndex];
+    const updatedBody = `${slide.body}\n\n![${altText}](${imageUrl})`.trim();
+    const nextSlides = deck.slides.map((s, i) => i === slideIndex ? { ...s, body: updatedBody } : s);
+    return {
+      content: buildPresentationContent({ title: deck.title, slides: nextSlides }),
+      applied: operation.type,
+      issue: ""
+    };
+  }
+
+  if (operation.type === "slide.add_notes") {
+    const slideIndex = resolveSlideIndex(deck.slides, operation);
+    if (slideIndex < 0) {
+      return { content, applied: "", issue: "slide.add_notes requires an existing slide target." };
+    }
+    const notes = paragraphText(operation) || String(operation.raw?.notes || "").trim();
+    if (!notes) {
+      return { content, applied: "", issue: "slide.add_notes requires a notes value." };
+    }
+    const slide = deck.slides[slideIndex];
+    const updatedBody = slide.body
+      .replace(/<!--\s*notes:[^>]*-->/gi, "")
+      .trim()
+      .concat(`\n<!-- notes: ${notes.replace(/-->/g, "- >")} -->`);
+    const nextSlides = deck.slides.map((s, i) => i === slideIndex ? { ...s, body: updatedBody } : s);
+    return {
+      content: buildPresentationContent({ title: deck.title, slides: nextSlides }),
+      applied: operation.type,
+      issue: ""
+    };
+  }
+
+  if (operation.type === "slide.set_background") {
+    const slideIndex = resolveSlideIndex(deck.slides, operation);
+    if (slideIndex < 0) {
+      return { content, applied: "", issue: "slide.set_background requires an existing slide target." };
+    }
+    const background = String(operation.value || operation.raw?.background || operation.raw?.color || "").trim();
+    if (!background) {
+      return { content, applied: "", issue: "slide.set_background requires a background value (color or image URL)." };
+    }
+    const slide = deck.slides[slideIndex];
+    const updatedBody = slide.body
+      .replace(/<!--\s*background:[^>]*-->/gi, "")
+      .trim()
+      .concat(`\n<!-- background: ${background} -->`);
+    const nextSlides = deck.slides.map((s, i) => i === slideIndex ? { ...s, body: updatedBody } : s);
+    return {
+      content: buildPresentationContent({ title: deck.title, slides: nextSlides }),
+      applied: operation.type,
+      issue: ""
+    };
+  }
+
+  if (operation.type === "slide.add_table") {
+    const slideIndex = resolveSlideIndex(deck.slides, operation);
+    if (slideIndex < 0) return { content, applied: "", issue: "slide.add_table requires an existing slide target." };
+    const headers = Array.isArray(operation.raw?.headers) ? operation.raw.headers.map(String) : ["Colonne 1", "Colonne 2"];
+    const rows = Array.isArray(operation.raw?.rows) ? operation.raw.rows : [];
+    const tableLines = [
+      `| ${headers.join(" | ")} |`,
+      `| ${headers.map(() => "---").join(" | ")} |`,
+      ...rows.map((row) => `| ${(Array.isArray(row) ? row : [String(row)]).map(String).join(" | ")} |`)
+    ];
+    const slide = deck.slides[slideIndex];
+    const nextSlides = deck.slides.map((s, i) => i === slideIndex ? { ...s, body: `${slide.body}\n\n${tableLines.join("\n")}`.trim() } : s);
+    return { content: buildPresentationContent({ title: deck.title, slides: nextSlides }), applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "slide.add_shape") {
+    const slideIndex = resolveSlideIndex(deck.slides, operation);
+    if (slideIndex < 0) return { content, applied: "", issue: "slide.add_shape requires an existing slide target." };
+    const shape = String(operation.raw?.shape || operation.raw?.type || operation.value || "rectangle").trim();
+    const label = String(operation.raw?.label || operation.raw?.text || "").trim();
+    const slide = deck.slides[slideIndex];
+    const annotation = `<!-- shape: ${shape}${label ? `, "${label}"` : ""} -->`;
+    const nextSlides = deck.slides.map((s, i) => i === slideIndex ? { ...s, body: `${slide.body}\n${annotation}`.trim() } : s);
+    return { content: buildPresentationContent({ title: deck.title, slides: nextSlides }), applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "slide.add_text_box") {
+    const slideIndex = resolveSlideIndex(deck.slides, operation);
+    if (slideIndex < 0) return { content, applied: "", issue: "slide.add_text_box requires an existing slide target." };
+    const text = paragraphText(operation) || String(operation.raw?.text || "").trim();
+    if (!text) return { content, applied: "", issue: "slide.add_text_box requires text content." };
+    const slide = deck.slides[slideIndex];
+    const annotation = `<!-- textbox: ${text.replace(/-->/g, "- >")} -->`;
+    const nextSlides = deck.slides.map((s, i) => i === slideIndex ? { ...s, body: `${slide.body}\n${annotation}`.trim() } : s);
+    return { content: buildPresentationContent({ title: deck.title, slides: nextSlides }), applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "slide.add_transition") {
+    const slideIndex = resolveSlideIndex(deck.slides, operation);
+    if (slideIndex < 0) return { content, applied: "", issue: "slide.add_transition requires an existing slide target." };
+    const transition = String(operation.value || operation.raw?.transition || "fade").trim();
+    const slide = deck.slides[slideIndex];
+    const updatedBody = slide.body.replace(/<!--\s*transition:[^>]*-->/gi, "").trim() + `\n<!-- transition: ${transition} -->`;
+    const nextSlides = deck.slides.map((s, i) => i === slideIndex ? { ...s, body: updatedBody } : s);
+    return { content: buildPresentationContent({ title: deck.title, slides: nextSlides }), applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "slide.set_theme") {
+    const theme = String(operation.value || operation.raw?.theme || "").trim();
+    if (!theme) return { content, applied: "", issue: "slide.set_theme requires a theme name." };
+    const cleanContent = content.replace(/<!--\s*theme:[^>]*-->\n?/gi, "").trim();
+    return { content: `<!-- theme: ${theme} -->\n${cleanContent}`, applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "slide.add_chart") {
+    const slideIndex = resolveSlideIndex(deck.slides, operation);
+    if (slideIndex < 0) return { content, applied: "", issue: "slide.add_chart requires an existing slide target." };
+    const chartType = String(operation.raw?.chartType || operation.raw?.type || "bar").trim();
+    const dataRef = String(operation.raw?.dataRef || operation.raw?.source || "").trim();
+    const title = String(operation.raw?.title || operation.title || "").trim();
+    const slide = deck.slides[slideIndex];
+    const annotation = `<!-- chart: ${chartType}${title ? `, "${title}"` : ""}${dataRef ? `, source="${dataRef}"` : ""} -->`;
+    const nextSlides = deck.slides.map((s, i) => i === slideIndex ? { ...s, body: `${slide.body}\n${annotation}`.trim() } : s);
+    return { content: buildPresentationContent({ title: deck.title, slides: nextSlides }), applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "slide.add_video") {
+    const slideIndex = resolveSlideIndex(deck.slides, operation);
+    if (slideIndex < 0) return { content, applied: "", issue: "slide.add_video requires an existing slide target." };
+    const url = String(operation.raw?.url || operation.value || "").trim();
+    if (!url) return { content, applied: "", issue: "slide.add_video requires raw.url." };
+    const videoTitle = String(operation.raw?.title || operation.title || "Vidéo").trim();
+    const slide = deck.slides[slideIndex];
+    const annotation = `<!-- video: "${videoTitle}", url="${url}" -->`;
+    const nextSlides = deck.slides.map((s, i) => i === slideIndex ? { ...s, body: `${slide.body}\n${annotation}`.trim() } : s);
+    return { content: buildPresentationContent({ title: deck.title, slides: nextSlides }), applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "slide.set_footer") {
+    const footerText = String(operation.value || operation.raw?.text || operation.raw?.footer || "").trim();
+    if (!footerText) return { content, applied: "", issue: "slide.set_footer requires a footer text (value or raw.text)." };
+    const cleanContent = content.replace(/<!--\s*footer:[^>]*-->\n?/gi, "").trim();
+    return { content: `${cleanContent}\n<!-- footer: ${footerText} -->`, applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "slide.set_slide_number") {
+    const show = operation.value !== "false" && operation.raw?.show !== false;
+    const cleanContent = content.replace(/<!--\s*slide-numbers:[^>]*-->\n?/gi, "").trim();
+    return { content: `${cleanContent}\n<!-- slide-numbers: ${show ? "on" : "off"} -->`, applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "slide.add_logo") {
+    const slideIndex = resolveSlideIndex(deck.slides, operation);
+    if (slideIndex < 0) return { content, applied: "", issue: "slide.add_logo requires an existing slide target." };
+    const url = String(operation.raw?.url || operation.value || "").trim();
+    if (!url) return { content, applied: "", issue: "slide.add_logo requires raw.url." };
+    const alt = String(operation.raw?.alt || "logo").trim();
+    const position = String(operation.raw?.position || "top-right").trim();
+    const slide = deck.slides[slideIndex];
+    const annotation = `<!-- logo: url="${url}", alt="${alt}", position="${position}" -->`;
+    const nextSlides = deck.slides.map((s, i) => i === slideIndex ? { ...s, body: `${slide.body}\n${annotation}`.trim() } : s);
+    return { content: buildPresentationContent({ title: deck.title, slides: nextSlides }), applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "slide.copy_style") {
+    const srcIndex = Number.isInteger(operation.raw?.fromSlideIndex) ? operation.raw.fromSlideIndex : resolveSlideIndex(deck.slides, { target: { heading: String(operation.raw?.fromSlide || "") } });
+    const destIndex = resolveSlideIndex(deck.slides, operation);
+    if (srcIndex < 0 || srcIndex >= deck.slides.length) return { content, applied: "", issue: "slide.copy_style requires raw.fromSlideIndex (source slide)." };
+    if (destIndex < 0) return { content, applied: "", issue: "slide.copy_style requires a destination slide target." };
+    const srcSlide = deck.slides[srcIndex];
+    const stylePattern = /<!--\s*(?:layout|background|theme|transition):[^>]*-->/gi;
+    const srcStyles = (srcSlide.body.match(stylePattern) || []).join("\n");
+    if (!srcStyles) return { content, applied: "", issue: "Source slide has no style annotations to copy." };
+    const destSlide = deck.slides[destIndex];
+    const cleanDest = destSlide.body.replace(stylePattern, "").trim();
+    const nextSlides = deck.slides.map((s, i) => i === destIndex ? { ...s, body: `${cleanDest}\n${srcStyles}`.trim() } : s);
+    return { content: buildPresentationContent({ title: deck.title, slides: nextSlides }), applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "slide.set_aspect_ratio") {
+    const ratio = String(operation.value || operation.raw?.ratio || "16:9").trim();
+    const stripped = content.replace(/<!--\s*aspectRatio:[^>]*-->\n?/gi, "").trim();
+    return { content: `<!-- aspectRatio: ${ratio} -->\n${stripped}`, applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "slide.set_custom_size") {
+    const w = operation.raw?.width ?? 1920;
+    const h = operation.raw?.height ?? 1080;
+    const unit = String(operation.raw?.unit || "px").trim();
+    const stripped = content.replace(/<!--\s*slideSize:[^>]*-->\n?/gi, "").trim();
+    return { content: `<!-- slideSize: ${w}${unit}x${h}${unit} -->\n${stripped}`, applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "slide.add_animation") {
+    const slideIndex = resolveSlideIndex(deck.slides, operation);
+    if (slideIndex < 0) return { content, applied: "", issue: "slide.add_animation requires an existing slide target." };
+    const animType = String(operation.raw?.animation || operation.value || "fade").trim();
+    const target = String(operation.raw?.target || "all").trim();
+    const duration = Number(operation.raw?.duration || 0.5);
+    const slide = deck.slides[slideIndex];
+    const annotation = `<!-- animation: type="${animType}", target="${target}", duration=${duration}s -->`;
+    const nextSlides = deck.slides.map((s, i) => i === slideIndex ? { ...s, body: `${slide.body}\n${annotation}`.trim() } : s);
+    return { content: buildPresentationContent({ title: deck.title, slides: nextSlides }), applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "slide.remove_animation") {
+    const slideIndex = resolveSlideIndex(deck.slides, operation);
+    if (slideIndex < 0) return { content, applied: "", issue: "slide.remove_animation requires an existing slide target." };
+    const slide = deck.slides[slideIndex];
+    const cleaned = slide.body.replace(/<!--\s*animation:[^>]*-->\n?/gi, "").trim();
+    const nextSlides = deck.slides.map((s, i) => i === slideIndex ? { ...s, body: cleaned } : s);
+    return { content: buildPresentationContent({ title: deck.title, slides: nextSlides }), applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "slide.add_hyperlink") {
+    const slideIndex = resolveSlideIndex(deck.slides, operation);
+    if (slideIndex < 0) return { content, applied: "", issue: "slide.add_hyperlink requires an existing slide target." };
+    const url = String(operation.raw?.url || operation.value || "").trim();
+    if (!url) return { content, applied: "", issue: "slide.add_hyperlink requires raw.url." };
+    const label = String(operation.raw?.label || operation.title || url).trim();
+    const slide = deck.slides[slideIndex];
+    const link = `[${label}](${url})`;
+    const nextSlides = deck.slides.map((s, i) => i === slideIndex ? { ...s, body: `${slide.body}\n${link}`.trim() } : s);
+    return { content: buildPresentationContent({ title: deck.title, slides: nextSlides }), applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "slide.remove_hyperlink") {
+    const slideIndex = resolveSlideIndex(deck.slides, operation);
+    if (slideIndex < 0) return { content, applied: "", issue: "slide.remove_hyperlink requires an existing slide target." };
+    const url = String(operation.raw?.url || operation.value || "").trim();
+    const slide = deck.slides[slideIndex];
+    const cleaned = url
+      ? slide.body.replace(new RegExp(`\\[([^\\]]+)\\]\\(${url.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\)`, "g"), "$1")
+      : slide.body.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
+    const nextSlides = deck.slides.map((s, i) => i === slideIndex ? { ...s, body: cleaned } : s);
+    return { content: buildPresentationContent({ title: deck.title, slides: nextSlides }), applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "slide.set_master_slide") {
+    const master = String(operation.value || operation.raw?.master || "").trim();
+    if (!master) return { content, applied: "", issue: "slide.set_master_slide requires a master name (value or raw.master)." };
+    const stripped = content.replace(/<!--\s*master:[^>]*-->\n?/gi, "").trim();
+    return { content: `<!-- master: ${master} -->\n${stripped}`, applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "slide.create_section") {
+    const sectionName = String(operation.value || operation.title || operation.raw?.name || "").trim();
+    if (!sectionName) return { content, applied: "", issue: "slide.create_section requires a section name (value or raw.name)." };
+    const afterIndex = Number.isInteger(operation.raw?.afterSlideIndex) ? operation.raw.afterSlideIndex : deck.slides.length - 1;
+    const annotation = `<!-- section-start: "${sectionName}" -->`;
+    if (afterIndex >= 0 && afterIndex < deck.slides.length) {
+      const slide = deck.slides[afterIndex];
+      const nextSlides = deck.slides.map((s, i) => i === afterIndex ? { ...s, body: `${slide.body}\n${annotation}`.trim() } : s);
+      return { content: buildPresentationContent({ title: deck.title, slides: nextSlides }), applied: operation.type, issue: "" };
+    }
+    return { content: `${content}\n${annotation}`, applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "slide.rename_section") {
+    const oldName = String(operation.raw?.oldName || operation.raw?.name || "").trim();
+    const newName = String(operation.raw?.newName || operation.value || operation.title || "").trim();
+    if (!oldName || !newName) return { content, applied: "", issue: "slide.rename_section requires raw.oldName and raw.newName." };
+    const escaped = oldName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const next = content.replace(new RegExp(`(<!--\\s*section-start:\\s*")${escaped}("\\s*-->)`, "g"), `$1${newName}$2`);
+    if (next === content) return { content, applied: "", issue: `slide.rename_section: section "${oldName}" not found.` };
+    return { content: next, applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "slide.delete_section") {
+    const name = String(operation.value || operation.raw?.name || "").trim();
+    if (!name) return { content, applied: "", issue: "slide.delete_section requires a section name (value or raw.name)." };
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const next = content.replace(new RegExp(`\\n?<!--\\s*section-start:\\s*"${escaped}"\\s*-->`, "g"), "");
+    return { content: next, applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "slide.align_objects") {
+    const slideIndex = resolveSlideIndex(deck.slides, operation);
+    if (slideIndex < 0) return { content, applied: "", issue: "slide.align_objects requires an existing slide target." };
+    const alignment = String(operation.value || operation.raw?.alignment || "center").trim();
+    const slide = deck.slides[slideIndex];
+    const annotation = `<!-- align-objects: ${alignment} -->`;
+    const nextSlides = deck.slides.map((s, i) => i === slideIndex ? { ...s, body: `${slide.body}\n${annotation}`.trim() } : s);
+    return { content: buildPresentationContent({ title: deck.title, slides: nextSlides }), applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "slide.distribute_objects") {
+    const slideIndex = resolveSlideIndex(deck.slides, operation);
+    if (slideIndex < 0) return { content, applied: "", issue: "slide.distribute_objects requires an existing slide target." };
+    const direction = String(operation.value || operation.raw?.direction || "horizontal").trim();
+    const slide = deck.slides[slideIndex];
+    const annotation = `<!-- distribute-objects: ${direction} -->`;
+    const nextSlides = deck.slides.map((s, i) => i === slideIndex ? { ...s, body: `${slide.body}\n${annotation}`.trim() } : s);
+    return { content: buildPresentationContent({ title: deck.title, slides: nextSlides }), applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "slide.set_z_order") {
+    const slideIndex = resolveSlideIndex(deck.slides, operation);
+    if (slideIndex < 0) return { content, applied: "", issue: "slide.set_z_order requires an existing slide target." };
+    const target = String(operation.raw?.target || "selected").trim();
+    const order = String(operation.value || operation.raw?.order || "front").trim();
+    const slide = deck.slides[slideIndex];
+    const annotation = `<!-- z-order: target="${target}", order="${order}" -->`;
+    const nextSlides = deck.slides.map((s, i) => i === slideIndex ? { ...s, body: `${slide.body}\n${annotation}`.trim() } : s);
+    return { content: buildPresentationContent({ title: deck.title, slides: nextSlides }), applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "slide.group_objects" || operation.type === "slide.ungroup_objects") {
+    const slideIndex = resolveSlideIndex(deck.slides, operation);
+    if (slideIndex < 0) return { content, applied: "", issue: `${operation.type} requires an existing slide target.` };
+    const action = operation.type === "slide.group_objects" ? "group" : "ungroup";
+    const ids = Array.isArray(operation.raw?.objectIds) ? operation.raw.objectIds.join(",") : String(operation.raw?.objectIds || "selected");
+    const slide = deck.slides[slideIndex];
+    const annotation = `<!-- ${action}-objects: "${ids}" -->`;
+    const nextSlides = deck.slides.map((s, i) => i === slideIndex ? { ...s, body: `${slide.body}\n${annotation}`.trim() } : s);
+    return { content: buildPresentationContent({ title: deck.title, slides: nextSlides }), applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "slide.set_object_opacity") {
+    const slideIndex = resolveSlideIndex(deck.slides, operation);
+    if (slideIndex < 0) return { content, applied: "", issue: "slide.set_object_opacity requires an existing slide target." };
+    const target = String(operation.raw?.target || "selected").trim();
+    const opacity = Math.min(1, Math.max(0, Number(operation.value ?? operation.raw?.opacity ?? 1)));
+    const slide = deck.slides[slideIndex];
+    const annotation = `<!-- set-opacity: target="${target}", opacity=${opacity} -->`;
+    const nextSlides = deck.slides.map((s, i) => i === slideIndex ? { ...s, body: `${slide.body}\n${annotation}`.trim() } : s);
+    return { content: buildPresentationContent({ title: deck.title, slides: nextSlides }), applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "slide.set_object_size") {
+    const slideIndex = resolveSlideIndex(deck.slides, operation);
+    if (slideIndex < 0) return { content, applied: "", issue: "slide.set_object_size requires an existing slide target." };
+    const target = String(operation.raw?.target || "selected").trim();
+    const w = operation.raw?.width ?? 200;
+    const h = operation.raw?.height ?? 100;
+    const slide = deck.slides[slideIndex];
+    const annotation = `<!-- set-size: target="${target}", width=${w}, height=${h} -->`;
+    const nextSlides = deck.slides.map((s, i) => i === slideIndex ? { ...s, body: `${slide.body}\n${annotation}`.trim() } : s);
+    return { content: buildPresentationContent({ title: deck.title, slides: nextSlides }), applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "slide.set_object_position") {
+    const slideIndex = resolveSlideIndex(deck.slides, operation);
+    if (slideIndex < 0) return { content, applied: "", issue: "slide.set_object_position requires an existing slide target." };
+    const target = String(operation.raw?.target || "selected").trim();
+    const x = operation.raw?.x ?? 0;
+    const y = operation.raw?.y ?? 0;
+    const slide = deck.slides[slideIndex];
+    const annotation = `<!-- set-position: target="${target}", x=${x}, y=${y} -->`;
+    const nextSlides = deck.slides.map((s, i) => i === slideIndex ? { ...s, body: `${slide.body}\n${annotation}`.trim() } : s);
+    return { content: buildPresentationContent({ title: deck.title, slides: nextSlides }), applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "slide.insert_icon") {
+    const slideIndex = resolveSlideIndex(deck.slides, operation);
+    if (slideIndex < 0) return { content, applied: "", issue: "slide.insert_icon requires an existing slide target." };
+    const icon = String(operation.value || operation.raw?.icon || operation.raw?.name || "").trim();
+    if (!icon) return { content, applied: "", issue: "slide.insert_icon requires an icon name (value or raw.icon)." };
+    const slide = deck.slides[slideIndex];
+    const annotation = `<!-- icon: "${icon}" -->`;
+    const nextSlides = deck.slides.map((s, i) => i === slideIndex ? { ...s, body: `${slide.body}\n${annotation}`.trim() } : s);
+    return { content: buildPresentationContent({ title: deck.title, slides: nextSlides }), applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "slide.show_guides") {
+    const show = operation.value !== "false" && operation.raw?.show !== false;
+    const stripped = content.replace(/<!--\s*guides:[^>]*-->\n?/gi, "").trim();
+    return { content: `<!-- guides: ${show ? "on" : "off"} -->\n${stripped}`, applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "slide.show_grid") {
+    const show = operation.value !== "false" && operation.raw?.show !== false;
+    const stripped = content.replace(/<!--\s*grid:[^>]*-->\n?/gi, "").trim();
+    return { content: `<!-- grid: ${show ? "on" : "off"} -->\n${stripped}`, applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "slide.snap_to_grid") {
+    const enable = operation.value !== "false" && operation.raw?.enable !== false;
+    const stripped = content.replace(/<!--\s*snapToGrid:[^>]*-->\n?/gi, "").trim();
+    return { content: `<!-- snapToGrid: ${enable ? "on" : "off"} -->\n${stripped}`, applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "slide.add_placeholder") {
+    const slideIndex = resolveSlideIndex(deck.slides, operation);
+    if (slideIndex < 0) return { content, applied: "", issue: "slide.add_placeholder requires an existing slide target." };
+    const kind = String(operation.value || operation.raw?.kind || "text").trim();
+    const slide = deck.slides[slideIndex];
+    const annotation = `<!-- placeholder: type="${kind}" -->`;
+    const nextSlides = deck.slides.map((s, i) => i === slideIndex ? { ...s, body: `${slide.body}\n${annotation}`.trim() } : s);
+    return { content: buildPresentationContent({ title: deck.title, slides: nextSlides }), applied: operation.type, issue: "" };
+  }
+
+  if (operation.type === "slide.insert_smart_art") {
+    const slideIndex = resolveSlideIndex(deck.slides, operation);
+    if (slideIndex < 0) return { content, applied: "", issue: "slide.insert_smart_art requires an existing slide target." };
+    const kind = String(operation.value || operation.raw?.kind || "process").trim();
+    const items = Array.isArray(operation.raw?.items) ? operation.raw.items.map((v) => String(v)).join(", ") : "";
+    const slide = deck.slides[slideIndex];
+    const annotation = `<!-- smart-art: type="${kind}"${items ? `, items="${items}"` : ""} -->`;
+    const nextSlides = deck.slides.map((s, i) => i === slideIndex ? { ...s, body: `${slide.body}\n${annotation}`.trim() } : s);
+    return { content: buildPresentationContent({ title: deck.title, slides: nextSlides }), applied: operation.type, issue: "" };
+  }
+
   return {
     content,
     applied: "",
@@ -2735,7 +4172,8 @@ export function listHydriaWorkspaceTools() {
     ...DOC_WORKSPACE_TOOLS,
     ...SLIDE_WORKSPACE_TOOL_ALIASES,
     ...SLIDE_WORKSPACE_TOOLS,
-    ...CRM_WORKSPACE_TOOLS
+    ...CRM_WORKSPACE_TOOLS,
+    ...WORKSPACE_META_TOOLS
   ];
 }
 
@@ -2767,6 +4205,9 @@ function workspaceToolEngine(toolName = "") {
   }
   if (String(toolName).startsWith("crm.")) {
     return "crm";
+  }
+  if (String(toolName).startsWith("workspace.")) {
+    return "meta";
   }
   return "";
 }
@@ -2806,12 +4247,192 @@ function workspaceToolDescription(toolName = "") {
   if (toolName === "slide.edit") {
     return "Route a presentation editing request to concrete slide.* operations.";
   }
+  if (toolName === "slide.add") return "Add a new slide at the end of the presentation.";
+  if (toolName === "slide.update") return "Update the title or body of an existing slide.";
+  if (toolName === "slide.reorder") return "Move a slide from one position to another.";
+  if (toolName === "slide.delete") return "Remove a slide from the presentation.";
+  if (toolName === "slide.duplicate") return "Duplicate an existing slide, optionally renaming the copy.";
+  if (toolName === "slide.set_layout") return "Set the layout variant for a slide (e.g. 'title', 'two-column', 'blank').";
+  if (toolName === "slide.insert_image") return "Insert an image into a slide using a URL and optional alt text.";
+  if (toolName === "slide.add_notes") return "Add speaker notes to a slide (stored as a markdown comment).";
+  if (toolName === "slide.set_background") return "Set the background color or image URL for a slide.";
   if (toolName.startsWith("slide.")) {
     return "Manipulate a Hydria presentation.";
   }
   if (toolName.startsWith("crm.")) {
     return "Create or update a record in the live Hydria CRM through the signed OS adapter.";
   }
+  if (toolName === "workspace.import_from") {
+    return "Read a compact preview of another workspace object to cross-reference data. Specify target.workObjectId and optional target.maxChars (max 4000).";
+  }
+  if (toolName === "workspace.read") {
+    return "Read the FULL content of any workspace object (up to 20 000 chars). Use when the default preview isn't enough to answer. Specify target.workObjectId and optional target.maxChars.";
+  }
+  // Doc descriptions
+  if (toolName === "doc.insert_header") return "Insert a header line at the top of the document.";
+  if (toolName === "doc.insert_footer") return "Append a footer line at the bottom of the document.";
+  if (toolName === "doc.insert_footnote") return "Add a footnote reference and text. Use raw.ref for the footnote id and value/body for the text.";
+  if (toolName === "doc.highlight_text") return "Highlight all occurrences of searchText using ==text== syntax. Use raw.searchText.";
+  if (toolName === "doc.create_bookmark") return "Insert an HTML anchor bookmark. Use raw.name or value for the anchor id.";
+  // Slide descriptions
+  if (toolName === "slide.add_table") return "Add a markdown table to a slide. Use raw.headers (array) and raw.rows (array of arrays).";
+  if (toolName === "slide.add_shape") return "Add a shape annotation to a slide. Use raw.shape (e.g. rectangle, circle) and raw.label.";
+  if (toolName === "slide.add_text_box") return "Add a floating text box annotation to a slide using value or body.";
+  if (toolName === "slide.add_transition") return "Set a slide transition (e.g. fade, slide, zoom). Use value or raw.transition.";
+  if (toolName === "slide.set_theme") return "Set the presentation-wide theme. Use value or raw.theme. Applies to all slides.";
+  // Sheet descriptions
+  if (toolName === "sheet.group_rows") return "Group rows for collapsible outline. Use raw.fromRow and raw.toRow.";
+  if (toolName === "sheet.ungroup_rows") return "Remove a row group. Use raw.fromRow and raw.toRow.";
+  if (toolName === "sheet.group_columns") return "Group columns for collapsible outline. Specify the column target.";
+  if (toolName === "sheet.ungroup_columns") return "Remove a column group. Specify the column target.";
+  if (toolName === "sheet.transpose_range") return "Transpose (flip rows/columns) in a range. Use range or target.cell with A1 notation.";
+  if (toolName === "sheet.split_column") return "Split a column on a delimiter into multiple columns. Use raw.delimiter and raw.maxParts.";
+  if (toolName === "sheet.set_column_type") return "Set the data type of a column (text, number, date, boolean, currency). Use raw.type.";
+  if (toolName === "sheet.fill_down") return "Copy the top cell value down to fill the range. Use range in A1 notation.";
+  if (toolName === "sheet.fill_right") return "Copy the leftmost cell value right to fill the range. Use range in A1 notation.";
+  if (toolName === "sheet.remove_duplicates") return "Remove duplicate rows. Optionally specify raw.columns (array of column names) to compare only those.";
+  if (toolName === "sheet.find_replace") return "Find and replace values across all cells. Use raw.find, raw.replace, and optional raw.caseSensitive.";
+  if (toolName === "sheet.import_data") return "Append rows from JSON. Use raw.data (array of arrays or array of objects matching column names).";
+  if (toolName === "sheet.auto_sum") return "Insert a SUM formula at the bottom of a column or after a range. Use a column target or range.";
+  if (toolName === "sheet.copy_range") return "Copy a range to another location. Use raw.sourceRange and raw.destCell (A1 notation).";
+  // New doc ops
+  if (toolName === "doc.insert_divider") return "Insert a horizontal rule (---) to separate content.";
+  if (toolName === "doc.insert_callout") return "Insert a callout block. Use raw.kind (info/warning/tip/error) and value/body for text.";
+  if (toolName === "doc.insert_video") return "Embed a video reference. Use raw.url and optional raw.title.";
+  if (toolName === "doc.move_section") return "Move a ## section to another position. Use heading for the section to move and raw.afterHeading or raw.beforeHeading for placement.";
+  if (toolName === "doc.duplicate_section") return "Duplicate a ## section. Use heading for the source and optional raw.newTitle for the copy.";
+  if (toolName === "doc.set_language") return "Set the document language code (e.g. fr, en). Stored as a metadata comment. Use value or raw.language.";
+  if (toolName === "doc.set_author") return "Set the document author. Stored as a metadata comment. Use value or raw.author.";
+  if (toolName === "doc.add_tag") return "Add a tag/label to the document (comma-separated list in metadata comment). Use value or raw.tag.";
+  if (toolName === "doc.number_headings") return "Auto-number all ## headings (1. Title, 2. Title, ...). No parameters needed.";
+  if (toolName === "doc.insert_mention") return "Insert an @mention inline. Use raw.name or value for the person's name.";
+  // New slide ops
+  if (toolName === "slide.add_chart") return "Add a chart annotation to a slide. Use raw.chartType (bar/line/pie/scatter), optional raw.title and raw.dataRef.";
+  if (toolName === "slide.add_video") return "Embed a video reference on a slide. Use raw.url and optional raw.title.";
+  if (toolName === "slide.set_footer") return "Set a footer text visible on all slides. Use value or raw.text.";
+  if (toolName === "slide.set_slide_number") return "Show or hide slide numbers. Use value='true' or raw.show=true/false.";
+  if (toolName === "slide.add_logo") return "Add a logo image to a slide. Use raw.url, optional raw.alt and raw.position (top-right/top-left/bottom-right/bottom-left).";
+  if (toolName === "slide.copy_style") return "Copy layout/background/transition annotations from one slide to another. Use raw.fromSlideIndex and a destination slide target.";
+  // New sheet formatting ops
+  if (toolName === "sheet.set_horizontal_alignment") return "Set horizontal alignment (left/center/right/fill/justify) for a cell, column, or range. Use value or raw.alignment.";
+  if (toolName === "sheet.set_vertical_alignment") return "Set vertical alignment (top/middle/bottom) for a cell, column, or range. Use value or raw.alignment.";
+  if (toolName === "sheet.set_text_wrapping") return "Set text wrapping mode (wrap/overflow/clip) for a cell, column, or range. Use value or raw.mode.";
+  if (toolName === "sheet.set_border") return "Add a border to cells. Use raw.side (all/top/bottom/left/right), raw.style (thin/thick/dashed/dotted), raw.color.";
+  if (toolName === "sheet.clear_borders") return "Remove all borders from the target cell, column, or range.";
+  if (toolName === "sheet.set_number_format") return "Set a number format string (e.g. '0.00', '#,##0', 'DD/MM/YYYY') for a cell, column, or range. Use value or raw.format.";
+  if (toolName === "sheet.set_fill_color") return "Set the background fill color of a cell, column, or range. Use value or raw.color (hex or named color).";
+  if (toolName === "sheet.set_text_color") return "Set the text/font color of a cell, column, or range. Use value or raw.color.";
+  if (toolName === "sheet.set_font_size") return "Set the font size (in points) for a cell, column, or range. Use value or raw.size.";
+  if (toolName === "sheet.set_font_family") return "Set the font family for a cell, column, or range. Use value or raw.family.";
+  if (toolName === "sheet.set_bold") return "Enable or disable bold for a cell, column, or range. Use raw.enable (true/false, default true).";
+  if (toolName === "sheet.set_italic") return "Enable or disable italic for a cell, column, or range. Use raw.enable (true/false, default true).";
+  if (toolName === "sheet.set_underline") return "Enable or disable underline for a cell, column, or range. Use raw.enable (true/false, default true).";
+  if (toolName === "sheet.set_strikethrough") return "Enable or disable strikethrough for a cell, column, or range. Use raw.enable (true/false, default true).";
+  if (toolName === "sheet.insert_hyperlink") return "Insert a HYPERLINK formula in a cell. Use target.cell, raw.url, and optional raw.label.";
+  if (toolName === "sheet.remove_hyperlink") return "Remove a HYPERLINK formula from a cell. Use target.cell.";
+  if (toolName === "sheet.insert_image") return "Insert an IMAGE formula in a cell. Use target.cell and raw.url.";
+  if (toolName === "sheet.insert_checkbox") return "Insert a checkbox (FALSE) in a cell. Use target.cell.";
+  if (toolName === "sheet.insert_dropdown") return "Insert a dropdown data validation in a cell or range. Use raw.items (array) or value (comma-separated).";
+  if (toolName === "sheet.lock_cell") return "Lock a cell or range (protect from editing). Use target.cell or range.";
+  if (toolName === "sheet.unlock_cell") return "Unlock a previously locked cell or range. Use target.cell or range.";
+  if (toolName === "sheet.set_sheet_color") return "Set the tab color of the sheet. Use value or raw.color.";
+  if (toolName === "sheet.clear_all") return "Clear both cell content and formatting in a cell, column, or range.";
+  if (toolName === "sheet.set_print_area") return "Set the print area for the sheet. Use value or range (A1:Z100 notation).";
+  if (toolName === "sheet.set_page_orientation") return "Set the print page orientation (portrait/landscape). Use value or raw.orientation.";
+  if (toolName === "sheet.set_page_size") return "Set the print page size (A4/A3/Letter/Legal...). Use value or raw.size.";
+  if (toolName === "sheet.set_print_margins") return "Set print margins in cm. Use raw.top, raw.bottom, raw.left, raw.right.";
+  if (toolName === "sheet.set_print_scaling") return "Set print scaling as a percentage (10-400). Use value or raw.percent.";
+  if (toolName === "sheet.insert_page_break") return "Insert a manual page break before a row. Use target.rowIndex.";
+  if (toolName === "sheet.set_repeat_rows") return "Set rows to repeat on each printed page. Use raw.from and raw.to (row indices).";
+  if (toolName === "sheet.set_repeat_columns") return "Set columns to repeat on each printed page. Use raw.from and raw.to (column indices).";
+  if (toolName === "sheet.hide_row") return "Hide a row by index. Use target.rowIndex.";
+  if (toolName === "sheet.unhide_row") return "Unhide a previously hidden row. Use target.rowIndex.";
+  if (toolName === "sheet.hide_column") return "Hide a column by name or index. Use a column target.";
+  if (toolName === "sheet.unhide_column") return "Unhide a previously hidden column. Use a column target.";
+  if (toolName === "sheet.bulk_set_values") return "Set multiple cell values in one call. Use raw.entries (array of {cell: 'A1', value: ...}).";
+  if (toolName === "sheet.create_named_formula") return "Create a named formula. Use raw.name and raw.formula.";
+  // New doc formatting ops
+  if (toolName === "doc.format_text") return "Apply bold/italic/underline/strikethrough/code to an exact text string. Use raw.text and raw.format.";
+  if (toolName === "doc.set_text_color") return "Color a specific text span. Use raw.text and raw.color (hex or named color).";
+  if (toolName === "doc.set_font_family") return "Set the document-wide font family metadata. Use value or raw.family.";
+  if (toolName === "doc.set_font_size") return "Set the document-wide font size metadata. Use value or raw.size (in points).";
+  if (toolName === "doc.set_text_alignment") return "Set the document-wide text alignment metadata (left/center/right/justify). Use value or raw.alignment.";
+  if (toolName === "doc.set_line_spacing") return "Set the document-wide line spacing metadata. Use value or raw.spacing (e.g. 1.5).";
+  if (toolName === "doc.set_page_margin") return "Set page margins in cm. Use raw.top, raw.bottom, raw.left, raw.right.";
+  if (toolName === "doc.set_page_size") return "Set the page size (A4/Letter/A3...). Use value or raw.size.";
+  if (toolName === "doc.set_page_orientation") return "Set the page orientation (portrait/landscape). Use value or raw.orientation.";
+  if (toolName === "doc.insert_page_number") return "Add a page number field. Use raw.position (bottom-center/top-right...).";
+  if (toolName === "doc.insert_date_field") return "Insert a dynamic date placeholder. Use raw.format (e.g. YYYY-MM-DD).";
+  if (toolName === "doc.insert_time_field") return "Insert a dynamic time placeholder. Use raw.format (e.g. HH:mm).";
+  if (toolName === "doc.insert_watermark") return "Add a watermark text to the document. Use value or raw.text (e.g. DRAFT, CONFIDENTIAL).";
+  if (toolName === "doc.insert_cover_image") return "Add a cover image at the top of the document. Use raw.url and optional raw.alt.";
+  if (toolName === "doc.insert_cross_reference") return "Insert a cross-reference link to a bookmark. Use raw.ref (bookmark name) and optional raw.label.";
+  if (toolName === "doc.insert_signature_block") return "Insert a signature block. Use raw.name and optional raw.role.";
+  if (toolName === "doc.track_changes") return "Enable or disable change tracking. Use raw.enable (true/false) or value.";
+  if (toolName === "doc.accept_change") return "Accept a tracked change by id. Use raw.id or leave empty to accept all.";
+  if (toolName === "doc.reject_change") return "Reject a tracked change by id. Use raw.id or leave empty to reject all.";
+  if (toolName === "doc.set_columns") return "Set the number of text columns in the document layout (1-6). Use value or raw.count.";
+  if (toolName === "doc.insert_text_box") return "Insert a floating text box. Use value for text, raw.x/y for position, raw.width/height for size.";
+  if (toolName === "doc.insert_shape") return "Insert a shape annotation. Use raw.shape (rectangle/circle/arrow...), raw.x/y, raw.width/height, raw.color.";
+  // New slide ops 2
+  if (toolName === "slide.set_aspect_ratio") return "Set the slide aspect ratio (e.g. 16:9, 4:3). Use value or raw.ratio.";
+  if (toolName === "slide.set_custom_size") return "Set a custom slide size. Use raw.width, raw.height, and optional raw.unit (px/cm/in).";
+  if (toolName === "slide.add_animation") return "Add an animation to slide elements. Use raw.animation (fade/fly/zoom...), raw.target, raw.duration.";
+  if (toolName === "slide.remove_animation") return "Remove all animation annotations from a slide.";
+  if (toolName === "slide.add_hyperlink") return "Add a hyperlink to a slide. Use raw.url, optional raw.label. Targets the slide by index or heading.";
+  if (toolName === "slide.remove_hyperlink") return "Remove a hyperlink from a slide. Use raw.url to remove a specific link, or leave empty for all.";
+  if (toolName === "slide.set_master_slide") return "Set the master slide template. Use value or raw.master (master name).";
+  if (toolName === "slide.create_section") return "Create a section marker in the presentation. Use value or raw.name, optional raw.afterSlideIndex.";
+  if (toolName === "slide.rename_section") return "Rename a section. Use raw.oldName and raw.newName.";
+  if (toolName === "slide.delete_section") return "Remove a section marker. Use value or raw.name.";
+  if (toolName === "slide.align_objects") return "Align objects on a slide (left/center/right/top/middle/bottom). Use value or raw.alignment.";
+  if (toolName === "slide.distribute_objects") return "Distribute objects evenly on a slide. Use value or raw.direction (horizontal/vertical).";
+  if (toolName === "slide.set_z_order") return "Set the stacking order of an object. Use raw.target and value or raw.order (front/back/forward/backward).";
+  if (toolName === "slide.group_objects") return "Group objects together on a slide. Use raw.objectIds (array of ids).";
+  if (toolName === "slide.ungroup_objects") return "Ungroup previously grouped objects on a slide. Use raw.objectIds.";
+  if (toolName === "slide.set_object_opacity") return "Set the opacity of an object (0-1). Use raw.target and value or raw.opacity.";
+  if (toolName === "slide.set_object_size") return "Resize an object on a slide. Use raw.target, raw.width, and raw.height.";
+  if (toolName === "slide.set_object_position") return "Move an object on a slide. Use raw.target, raw.x, and raw.y.";
+  if (toolName === "slide.insert_icon") return "Insert an icon on a slide. Use value or raw.icon (icon name/id).";
+  if (toolName === "slide.show_guides") return "Show or hide alignment guides. Use value='true'/'false' or raw.show.";
+  if (toolName === "slide.show_grid") return "Show or hide the grid. Use value='true'/'false' or raw.show.";
+  if (toolName === "slide.snap_to_grid") return "Enable or disable snap-to-grid. Use value='true'/'false' or raw.enable.";
+  if (toolName === "slide.add_placeholder") return "Add a content placeholder to a slide. Use value or raw.kind (text/image/chart/table/video/icon).";
+  if (toolName === "slide.insert_smart_art") return "Insert a SmartArt/diagram on a slide. Use value or raw.kind (process/cycle/hierarchy...) and optional raw.items.";
+  // CRM ops
+  if (toolName === "crm.list_at_risk_accounts") return "List accounts flagged as at-risk based on health score. Use optional raw.threshold.";
+  if (toolName === "crm.bulk_delete") return "Delete multiple CRM records in one operation. Use raw.ids (array) and raw.entity.";
+  if (toolName === "crm.export_records") return "Export CRM records to a file. Use raw.entity and optional raw.format (csv/xlsx/json).";
+  if (toolName === "crm.import_contacts") return "Import contacts from a data array. Use raw.contacts (array of objects).";
+  if (toolName === "crm.create_segment") return "Create a new CRM segment or list. Use raw.name, raw.criteria.";
+  if (toolName === "crm.update_segment") return "Update an existing segment's criteria. Use raw.id and raw.criteria.";
+  if (toolName === "crm.delete_segment") return "Delete a CRM segment. Use raw.id.";
+  if (toolName === "crm.set_deal_priority") return "Set the priority level of a deal. Use raw.dealId and raw.priority (low/medium/high/critical).";
+  if (toolName === "crm.add_deal_probability") return "Set the close probability (0-100) of a deal. Use raw.dealId and raw.probability.";
+  if (toolName === "crm.set_deal_amount") return "Update the monetary amount of a deal. Use raw.dealId and raw.amount.";
+  if (toolName === "crm.add_attachment") return "Attach a file or document to a CRM record. Use raw.recordId, raw.entity, raw.url, optional raw.name.";
+  if (toolName === "crm.remove_attachment") return "Remove an attachment from a CRM record. Use raw.attachmentId.";
+  if (toolName === "crm.subscribe_marketing_list") return "Subscribe a contact to a marketing list. Use raw.contactId and raw.listId.";
+  if (toolName === "crm.unsubscribe_marketing_list") return "Unsubscribe a contact from a marketing list. Use raw.contactId and raw.listId.";
+  if (toolName === "crm.create_marketing_list") return "Create a new marketing list. Use raw.name and optional raw.type.";
+  if (toolName === "crm.create_invoice") return "Create an invoice for a deal or account. Use raw.dealId or raw.companyId and raw.items.";
+  if (toolName === "crm.update_invoice") return "Update an existing invoice. Use raw.invoiceId and the fields to update.";
+  if (toolName === "crm.delete_invoice") return "Delete an invoice. Use raw.invoiceId.";
+  if (toolName === "crm.process_payment") return "Record a payment for an invoice. Use raw.invoiceId, raw.amount, and raw.method.";
+  if (toolName === "crm.record_refund") return "Record a refund for a payment. Use raw.paymentId and raw.amount.";
+  if (toolName === "crm.create_contract") return "Create a contract. Use raw.name, raw.parties, and optional raw.dealId.";
+  if (toolName === "crm.update_contract") return "Update a contract's fields. Use raw.contractId and the updated fields.";
+  if (toolName === "crm.close_contract") return "Mark a contract as signed/closed. Use raw.contractId.";
+  if (toolName === "crm.create_opportunity") return "Create a new sales opportunity. Use raw.name, raw.companyId, and optional raw.amount.";
+  if (toolName === "crm.update_opportunity") return "Update an opportunity's details. Use raw.opportunityId and the fields to update.";
+  if (toolName === "crm.close_opportunity") return "Mark an opportunity as won or lost. Use raw.opportunityId and raw.outcome (won/lost).";
+  if (toolName === "crm.trigger_workflow") return "Trigger a CRM automation workflow. Use raw.workflowId and optional raw.recordId.";
+  if (toolName === "crm.update_pipeline_stage") return "Update a pipeline stage's properties. Use raw.stageId and the fields to update.";
+  if (toolName === "crm.create_custom_field") return "Create a custom field on a CRM entity. Use raw.entity, raw.name, raw.type (text/number/date/bool).";
+  if (toolName === "crm.delete_custom_field") return "Delete a custom field. Use raw.fieldId.";
+  if (toolName === "crm.add_document") return "Attach a document to a CRM record. Use raw.recordId, raw.entity, raw.url, raw.title.";
+  if (toolName === "crm.send_sms") return "Send an SMS to a contact. Use raw.contactId and raw.message.";
+  if (toolName === "crm.create_reminder") return "Create a reminder for a CRM record. Use raw.recordId, raw.entity, raw.message, and raw.dueAt (ISO datetime).";
   return "Hydria workspace tool.";
 }
 
@@ -2886,10 +4507,10 @@ export function buildWorkspaceContextFields({ activeWorkObject = null, contentPr
       ? "data_spreadsheet"
       : workObjectFamilyId(activeWorkObject),
     contentPreview: crmLike
-      ? compact(contentPreview, 5000)
+      ? compact(contentPreview, 10000)
       : sheetLike
       ? buildSheetWorkspaceContentPreview(contentPreview)
-      : compact(contentPreview, 2500),
+      : compact(contentPreview, 8000),
     contentFormat: crmLike
       ? "hydria-crm-json-preview"
       : sheetLike
@@ -2901,30 +4522,43 @@ export function buildWorkspaceContextFields({ activeWorkObject = null, contentPr
 
 function buildSheetWorkspaceContentPreview(content = "") {
   const model = parseHydriaSheetModel(content);
-  const sheet = activeSheetForOperations(model, []) || model.sheets[0];
+  const activeSheet = activeSheetForOperations(model, []) || model.sheets[0];
   const maxColumns = 40;
-  const maxRows = 25;
-  const columns = (sheet?.columns || []).slice(0, maxColumns);
-  const rows = (sheet?.rows || [])
-    .slice(0, maxRows)
-    .map((row) => columns.map((_, columnIndex) => String(row?.[columnIndex] ?? "")));
+  const maxRows = 60;
+
+  const buildSheetPreview = (sheet) => {
+    const columns = (sheet?.columns || []).slice(0, maxColumns);
+    const rows = (sheet?.rows || [])
+      .slice(0, maxRows)
+      .map((row) => columns.map((_, columnIndex) => String(row?.[columnIndex] ?? "")));
+    return {
+      id: sheet?.id || "sheet-1",
+      name: sheet?.name || "Sheet 1",
+      columnCount: sheet?.columns?.length || columns.length,
+      rowCount: sheet?.rows?.length || rows.length,
+      columns,
+      rows
+    };
+  };
+
+  // Include all sheets (active first), up to 4 total
+  const orderedSheets = [
+    activeSheet,
+    ...model.sheets.filter((s) => s?.id !== activeSheet?.id)
+  ].filter(Boolean).slice(0, 4);
+
+  const sheetsPreview = orderedSheets.map(buildSheetPreview);
+  const active = sheetsPreview[0];
 
   return JSON.stringify({
     kind: "hydria-sheet",
     version: model.version || 1,
-    activeSheetId: sheet?.id || model.activeSheetId || "sheet-1",
-    columnCount: sheet?.columns?.length || columns.length,
-    rowCount: sheet?.rows?.length || rows.length,
-    columns,
-    rows,
-    sheets: [
-      {
-        id: sheet?.id || model.activeSheetId || "sheet-1",
-        name: sheet?.name || "Sheet 1",
-        columns,
-        rows
-      }
-    ]
+    activeSheetId: activeSheet?.id || model.activeSheetId || "sheet-1",
+    columnCount: active?.columnCount || 0,
+    rowCount: active?.rowCount || 0,
+    columns: active?.columns || [],
+    rows: active?.rows || [],
+    sheets: sheetsPreview
   });
 }
 
@@ -3788,6 +5422,88 @@ export async function executeWorkspaceToolCalls({
   const results = [];
 
   for (const call of normalizedCalls) {
+    // Cross-workspace import — read-only, returns content as importedContent
+    if (call.payload.toolName === "workspace.import_from") {
+      const importOp = (call.payload.operations || []).find((op) => op.type === "workspace.import_from") || {};
+      const sourceId = String(importOp.target?.workObjectId || call.target?.workObjectId || "").trim();
+      const maxChars = Math.min(Math.max(Number(importOp.target?.maxChars || 3000), 500), 4000);
+
+      if (!sourceId) {
+        results.push({
+          type: "workspace_tool_call",
+          status: "failed",
+          toolName: call.payload.toolName,
+          issues: ["workspace.import_from requires target.workObjectId (the source workspace object id)."]
+        });
+        continue;
+      }
+
+      try {
+        const source = workObjectService.readContent({ workObjectId: sourceId, entryPath: "" });
+        results.push({
+          type: "workspace_tool_call",
+          status: "completed",
+          toolName: call.payload.toolName,
+          workObjectId: sourceId,
+          importedTitle: source.workObject?.title || sourceId,
+          importedKind: source.workObject?.objectKind || source.workObject?.kind || "document",
+          importedContent: (source.content || "").slice(0, maxChars),
+          issues: []
+        });
+      } catch {
+        results.push({
+          type: "workspace_tool_call",
+          status: "failed",
+          toolName: call.payload.toolName,
+          issues: [`Could not read workspace object ${sourceId}.`]
+        });
+      }
+      continue;
+    }
+
+    // workspace.read — full content read for Core "vision" on a workspace object
+    if (call.payload.toolName === "workspace.read") {
+      const readOp = (call.payload.operations || []).find((op) => op.type === "workspace.read") || {};
+      const targetId = String(readOp.target?.workObjectId || call.target?.workObjectId || activeWorkObject?.id || "").trim();
+      const maxChars = Math.min(Math.max(Number(readOp.target?.maxChars || 12000), 1000), 20000);
+
+      if (!targetId) {
+        results.push({
+          type: "workspace_tool_call",
+          status: "failed",
+          toolName: call.payload.toolName,
+          issues: ["workspace.read requires target.workObjectId."]
+        });
+        continue;
+      }
+
+      try {
+        const src = workObjectService.readContent({ workObjectId: targetId, entryPath: readOp.target?.entryPath || "" });
+        assertWorkObjectAccess(src.workObject, userId);
+        const dataRole = getUserDataRole(userId);
+        const srcFields = buildWorkspaceContextFields({ activeWorkObject: src.workObject, contentPreview: src.content || "" });
+        const filteredContent = filterContentPreviewByRole(src.content || "", dataRole, srcFields.workspaceFamilyId);
+        results.push({
+          type: "workspace_tool_call",
+          status: "completed",
+          toolName: call.payload.toolName,
+          workObjectId: targetId,
+          importedTitle: src.workObject?.title || targetId,
+          importedKind: src.workObject?.objectKind || src.workObject?.kind || "document",
+          importedContent: filteredContent.slice(0, maxChars),
+          issues: []
+        });
+      } catch {
+        results.push({
+          type: "workspace_tool_call",
+          status: "failed",
+          toolName: call.payload.toolName,
+          issues: [`Could not read workspace object ${targetId}.`]
+        });
+      }
+      continue;
+    }
+
     const workObjectId = call.target.workObjectId || activeWorkObject?.id || "";
     const entryPath = call.target.entryPath || workObjectEntryPath(activeWorkObject) || "table.csv";
     if (!workObjectId) {
