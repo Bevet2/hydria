@@ -2066,7 +2066,7 @@ function applySheetOperation(sheet, operation = {}, model = null) {
     if (!parsed) return { applied: "", issue: "sheet.insert_hyperlink: invalid target.cell." };
     ensureSheetRows(sheet, parsed.rowIndex);
     ensureSheetWidth(sheet, parsed.columnIndex + 1);
-    sheet.rows[parsed.rowIndex + 1][parsed.columnIndex] = `=HYPERLINK("${url}","${label}")`;
+    sheet.rows[parsed.rowIndex][parsed.columnIndex] = `=HYPERLINK("${url}","${label}")`;
     return { applied: operation.type, issue: "" };
   }
 
@@ -2075,7 +2075,7 @@ function applySheetOperation(sheet, operation = {}, model = null) {
     if (!targetCell) return { applied: "", issue: "sheet.remove_hyperlink requires target.cell." };
     const parsed = parseA1Cell(targetCell);
     if (!parsed) return { applied: "", issue: "sheet.remove_hyperlink: invalid target.cell." };
-    const rowIndex = parsed.rowIndex + 1;
+    const rowIndex = parsed.rowIndex;
     if (sheet.rows[rowIndex]) {
       const val = String(sheet.rows[rowIndex][parsed.columnIndex] || "");
       if (val.toUpperCase().startsWith("=HYPERLINK")) sheet.rows[rowIndex][parsed.columnIndex] = "";
@@ -2091,7 +2091,7 @@ function applySheetOperation(sheet, operation = {}, model = null) {
     if (!parsed) return { applied: "", issue: "sheet.insert_image: invalid target.cell." };
     ensureSheetRows(sheet, parsed.rowIndex);
     ensureSheetWidth(sheet, parsed.columnIndex + 1);
-    sheet.rows[parsed.rowIndex + 1][parsed.columnIndex] = `=IMAGE("${url}")`;
+    sheet.rows[parsed.rowIndex][parsed.columnIndex] = `=IMAGE("${url}")`;
     return { applied: operation.type, issue: "" };
   }
 
@@ -2102,7 +2102,7 @@ function applySheetOperation(sheet, operation = {}, model = null) {
     if (!parsed) return { applied: "", issue: "sheet.insert_checkbox: invalid target.cell." };
     ensureSheetRows(sheet, parsed.rowIndex);
     ensureSheetWidth(sheet, parsed.columnIndex + 1);
-    sheet.rows[parsed.rowIndex + 1][parsed.columnIndex] = "FALSE";
+    sheet.rows[parsed.rowIndex][parsed.columnIndex] = "FALSE";
     return { applied: operation.type, issue: "" };
   }
 
@@ -2246,7 +2246,7 @@ function applySheetOperation(sheet, operation = {}, model = null) {
       if (!parsed) continue;
       ensureSheetRows(sheet, parsed.rowIndex);
       ensureSheetWidth(sheet, parsed.columnIndex + 1);
-      sheet.rows[parsed.rowIndex + 1][parsed.columnIndex] = entry.value ?? "";
+      sheet.rows[parsed.rowIndex][parsed.columnIndex] = entry.value ?? "";
       applied++;
     }
     return { applied: applied > 0 ? operation.type : "", issue: applied === 0 ? "No valid entries in raw.entries." : "" };
@@ -3347,8 +3347,8 @@ function applyDocumentOperation(content = "", operation = {}) {
       : /<!--\s*change:[^>]*-->/g;
     if (operation.type === "doc.accept_change") {
       const next = content.replace(pattern, (m) => {
-        const val = m.match(/value="([^"]*)"/)?.[1] ?? "";
-        return val;
+        const val = m.match(/value="([^"]*)"/)?.[1];
+        return val !== undefined ? val : m;
       });
       return { content: next, applied: operation.type, issue: "" };
     }
