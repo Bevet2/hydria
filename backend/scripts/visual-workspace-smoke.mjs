@@ -95,7 +95,11 @@ async function isVisible(locator) {
 
 async function maybeOpenWorkspacePage(page, label) {
   const existingSheet = page.locator(".workspace-sheet-cell-input").first();
+  const existingDocument = page.locator(".workspace-document-page-sheet").first();
   if (label === "Sheets" && (await isVisible(existingSheet))) {
+    return;
+  }
+  if (label === "Docs" && (await isVisible(existingDocument))) {
     return;
   }
 
@@ -114,6 +118,14 @@ async function maybeOpenWorkspacePage(page, label) {
       await page.waitForTimeout(1000);
     }
   }
+  if (label === "Docs" && !(await isVisible(existingDocument))) {
+    const createDocument = page.locator('.workspace-launcher-card[data-workspace="docs"]').first();
+    if (await isVisible(createDocument)) {
+      await createDocument.click({ timeout: 5000 });
+      await page.waitForLoadState("networkidle", { timeout: 3000 }).catch(() => {});
+      await page.waitForTimeout(1000);
+    }
+  }
 }
 
 async function waitForWorkspace(page, baseUrl) {
@@ -123,6 +135,51 @@ async function waitForWorkspace(page, baseUrl) {
 }
 
 const scenarios = [
+  {
+    name: "chat-rich-message-renderer",
+    tags: ["chat", "markdown", "actions"],
+    run: async ({ page }) => {
+      const result = await page.evaluate(async () => {
+        const module = await import("/components/chatMessage.js");
+        const node = module.renderChatMessage(
+          {
+            role: "assistant",
+            content: [
+              "## Result",
+              "",
+              "| Item | Value |",
+              "| --- | --- |",
+              "| Total | 42 |",
+              "",
+              "```js",
+              "console.log('ok');",
+              "```"
+            ].join("\n")
+          },
+          {
+            showActions: true,
+            onRegenerateMessage: () => {}
+          }
+        );
+        document.body.appendChild(node);
+        const output = {
+          heading: node.querySelector("h2")?.textContent || "",
+          tableRows: node.querySelectorAll("table tr").length,
+          hasCode: Boolean(node.querySelector("pre code")),
+          actionLabels: [...node.querySelectorAll(".message-actions button")].map(
+            (button) => button.textContent
+          )
+        };
+        node.remove();
+        return output;
+      });
+      assert.equal(result.heading, "Result");
+      assert.equal(result.tableRows, 2);
+      assert.equal(result.hasCode, true);
+      assert.deepEqual(result.actionLabels, ["Copier", "Regenerer"]);
+      return result;
+    }
+  },
   {
     name: "shared-icons",
     tags: ["shared", "docs", "sheets"],
@@ -371,6 +428,384 @@ const scenarios = [
     }
   },
   {
+    name: "docs-word-review-layout",
+    tags: ["docs", "word", "review", "layout"],
+    run: async ({ page, options }) => {
+      await waitForWorkspace(page, options.baseUrl);
+      await maybeOpenWorkspacePage(page, "Docs");
+      const documentPage = page.locator(".workspace-document-page-sheet").first();
+      await documentPage.waitFor({ state: "visible", timeout: 10000 });
+
+      const menuBar = page.locator(".workspace-docs-menubar").first();
+      assert.equal(await isVisible(menuBar), true, "Docs should expose a Word-style ribbon");
+      assert.equal(
+        await isVisible(page.locator(".workspace-docs-statusbar").first()),
+        true,
+        "Docs should expose pages, word count and zoom in a status bar"
+      );
+
+      const removedStaleValidationComments = await page.evaluate(() => {
+        const staleNodes = Array.from(
+          document.querySelectorAll('.workspace-docs-comment-anchor[data-docs-comment-text^="Commentaire de validation"]')
+        );
+        staleNodes.forEach((node) => node.replaceWith(...node.childNodes));
+        const shell = document.querySelector(".workspace-document-preview-body-docs");
+        shell?.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: "" }));
+        return staleNodes.length;
+      });
+      if (removedStaleValidationComments) {
+        await page.waitForTimeout(1200);
+      }
+      const initialDocumentSnapshot = await page.evaluate(() => {
+        const shell = document.querySelector(".workspace-document-preview-body-docs");
+        if (!shell) return "";
+        const clone = shell.cloneNode(true);
+        clone.querySelectorAll(
+          ".workspace-docs-page-control-bar, .workspace-docs-page-header, .workspace-docs-page-footer, .workspace-docs-vertical-ruler, .workspace-docs-image-resize-handle"
+        ).forEach((node) => node.remove());
+        clone.querySelectorAll(".workspace-document-page-sheet").forEach((pageNode) => {
+          pageNode.replaceWith(...Array.from(pageNode.childNodes));
+        });
+        clone.querySelectorAll("[contenteditable], [spellcheck], [data-placeholder]").forEach((node) => {
+          node.removeAttribute("contenteditable");
+          node.removeAttribute("spellcheck");
+          node.removeAttribute("data-placeholder");
+        });
+        clone.querySelectorAll(".workspace-inline-editable").forEach((node) => {
+          node.classList.remove("workspace-inline-editable");
+        });
+        return String(clone.innerHTML || "").trim();
+      });
+      const initialHeaderState = await page.evaluate(
+        () => document.querySelector(".workspace-docs-page-meta")?.dataset.showHeaderFooter || "false"
+      );
+      const headerInitiallyVisible = initialHeaderState === "true";
+      if (!headerInitiallyVisible) {
+        await menuBar.getByRole("button", { name: "Mise en page", exact: true }).click();
+        await page.getByRole("button", { name: /En-tetes et pieds de page/i }).click();
+        await page.waitForFunction(
+          () => document.querySelector(".workspace-docs-page-meta")?.dataset.showHeaderFooter === "true",
+          undefined,
+          { timeout: 5000 }
+        );
+      }
+      await page.locator(".workspace-docs-page-header-text").first().waitFor({ state: "visible", timeout: 5000 });
+
+      const typingMarker = `Hydria typing validation ${Date.now()}`;
+      const typingTarget = page.locator(
+        ".workspace-document-page-sheet h1, .workspace-document-page-sheet p, .workspace-document-page-sheet blockquote"
+      ).first();
+      await typingTarget.click({ force: true });
+      await page.keyboard.type(typingMarker);
+      assert.equal(
+        await page.locator(".workspace-document-preview-body-docs").innerText().then((text) => text.includes(typingMarker)),
+        true,
+        "Docs should accept real keyboard input"
+      );
+      await page.waitForTimeout(900);
+      await page.keyboard.type(" continued");
+      assert.equal(
+        await page.locator(".workspace-document-preview-body-docs").innerText().then(
+          (text) => text.includes(`${typingMarker} continued`)
+        ),
+        true,
+        "Docs should keep the caret after autosave"
+      );
+
+      await page.evaluate(() => {
+        const paragraph =
+          document.querySelector(".workspace-document-page-sheet p") ||
+          document.querySelector(".workspace-document-page-sheet h1");
+        if (!paragraph) throw new Error("No editable Docs paragraph found");
+        if (!String(paragraph.textContent || "").trim()) {
+          paragraph.textContent = "Texte de revision Hydria";
+          paragraph.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: "Texte de revision Hydria" }));
+        }
+        const textNode = Array.from(paragraph.childNodes).find((node) => node.nodeType === Node.TEXT_NODE);
+        if (!textNode) throw new Error("No text node available for comment selection");
+        const range = document.createRange();
+        range.setStart(textNode, 0);
+        range.setEnd(textNode, Math.min(5, textNode.nodeValue?.length || 0));
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+        paragraph.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+      });
+
+      await menuBar.getByRole("button", { name: "Révision", exact: true }).click();
+      const validationComment = `Commentaire de validation ${Date.now()}`;
+      page.once("dialog", (dialog) => dialog.accept(validationComment));
+      await page.getByRole("button", { name: "Nouveau commentaire", exact: true }).click();
+      await page.locator(".workspace-docs-review-pane").waitFor({ state: "visible", timeout: 5000 });
+      const commentAnchor = page.locator(`.workspace-docs-comment-anchor[data-docs-comment-text="${validationComment}"]`);
+      assert.equal(await commentAnchor.count(), 1, "A Docs comment should remain anchored to selected text");
+      assert.match(
+        (await page.locator(".workspace-docs-review-pane").innerText()) || "",
+        new RegExp(validationComment),
+        "The review pane should display the persisted comment"
+      );
+
+      const zoomValue = await page.locator(".workspace-docs-zoom-controls select").inputValue();
+      const validationCard = page.locator(".workspace-docs-review-card", { hasText: validationComment });
+      await validationCard.getByRole("button", { name: "Supprimer", exact: true }).click();
+      await commentAnchor.waitFor({ state: "detached", timeout: 5000 }).catch(() => {});
+      await page.evaluate((snapshot) => {
+        const shell = document.querySelector(".workspace-document-preview-body-docs");
+        if (!shell) throw new Error("Docs shell unavailable during validation cleanup");
+        shell.innerHTML = snapshot || "<p><br></p>";
+        shell.dispatchEvent(new InputEvent("input", {
+          bubbles: true,
+          inputType: "insertReplacementText",
+          data: null
+        }));
+      }, initialDocumentSnapshot);
+      await page.waitForTimeout(2500);
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await waitForWorkspace(page, options.baseUrl);
+      await maybeOpenWorkspacePage(page, "Docs");
+      await page.locator(".workspace-document-page-sheet").first().waitFor({ state: "visible", timeout: 10000 });
+      const persistedState = await page.evaluate((marker) => {
+        const shell = document.querySelector(".workspace-document-preview-body-docs");
+        return {
+          header: document.querySelector(".workspace-docs-page-meta")?.dataset.showHeaderFooter || "false",
+          hasTypingMarker: String(shell?.innerText || "").includes(marker),
+          validationComments: shell?.querySelectorAll(
+            '.workspace-docs-comment-anchor[data-docs-comment-text^="Commentaire de validation"]'
+          ).length || 0
+        };
+      }, typingMarker);
+      assert.equal(
+        persistedState.header,
+        initialHeaderState,
+        "The Docs visual gate should restore and persist the initial header/footer state"
+      );
+      assert.equal(persistedState.hasTypingMarker, false, "The Docs visual gate should remove typed validation text");
+      assert.equal(persistedState.validationComments, 0, "The Docs visual gate should remove validation comments");
+      return {
+        headerEditable: true,
+        keyboardInput: true,
+        comments: 1,
+        reviewPane: true,
+        zoom: zoomValue
+      };
+    }
+  },
+  {
+    name: "docs-context-format-page-break",
+    tags: ["docs", "context-menu", "formatting", "pagination"],
+    run: async ({ page, options }) => {
+      await waitForWorkspace(page, options.baseUrl);
+      await maybeOpenWorkspacePage(page, "Docs");
+      await page.locator(".workspace-document-page-sheet").first().waitFor({ state: "visible", timeout: 10000 });
+
+      const captureSnapshot = () =>
+        page.evaluate(() => {
+          const shell = document.querySelector(".workspace-document-preview-body-docs");
+          if (!shell) return "";
+          const clone = shell.cloneNode(true);
+          clone.querySelectorAll(
+            ".workspace-docs-page-control-bar, .workspace-docs-page-header, .workspace-docs-page-footer, .workspace-docs-vertical-ruler, .workspace-docs-image-resize-handle"
+          ).forEach((node) => node.remove());
+          clone.querySelectorAll(".workspace-document-page-sheet").forEach((pageNode) => {
+            pageNode.replaceWith(...Array.from(pageNode.childNodes));
+          });
+          clone.querySelectorAll("[contenteditable], [spellcheck], [data-placeholder]").forEach((node) => {
+            node.removeAttribute("contenteditable");
+            node.removeAttribute("spellcheck");
+            node.removeAttribute("data-placeholder");
+          });
+          clone.querySelectorAll(".workspace-inline-editable").forEach((node) => {
+            node.classList.remove("workspace-inline-editable");
+          });
+          return String(clone.innerHTML || "").trim();
+        });
+      const restoreSnapshot = async (snapshot) => {
+        await page.evaluate((html) => {
+          const shell = document.querySelector(".workspace-document-preview-body-docs");
+          if (!shell) throw new Error("Docs shell unavailable during pagination cleanup");
+          shell.innerHTML = html || "<p><br></p>";
+          shell.dispatchEvent(new InputEvent("input", {
+            bubbles: true,
+            inputType: "insertReplacementText",
+            data: null
+          }));
+        }, snapshot);
+        await page.waitForTimeout(2500);
+        await page.reload({ waitUntil: "domcontentloaded" });
+        await waitForWorkspace(page, options.baseUrl);
+        await maybeOpenWorkspacePage(page, "Docs");
+        await page.locator(".workspace-document-page-sheet").first().waitFor({ state: "visible", timeout: 10000 });
+      };
+
+      const originalSnapshot = await captureSnapshot();
+      let formattingResult = null;
+      let paginationResult = null;
+      try {
+        await page.evaluate(() => {
+          const target = document.querySelector(
+            ".workspace-document-page-sheet h1, .workspace-document-page-sheet p"
+          );
+          if (!target) throw new Error("No Docs text block available");
+          let textNode = Array.from(target.childNodes).find(
+            (node) => node.nodeType === Node.TEXT_NODE && String(node.nodeValue || "").length >= 4
+          );
+          if (!textNode) {
+            target.textContent = "Hydria document validation";
+            textNode = target.firstChild;
+          }
+          const range = document.createRange();
+          range.setStart(textNode, 0);
+          range.setEnd(textNode, 4);
+          const selection = window.getSelection();
+          selection.removeAllRanges();
+          selection.addRange(range);
+          target.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+          target.dispatchEvent(new MouseEvent("contextmenu", {
+            bubbles: true,
+            cancelable: true,
+            clientX: 900,
+            clientY: 500,
+            button: 2
+          }));
+        });
+
+        const contextMenu = page.locator(".workspace-docs-table-menu");
+        await contextMenu.waitFor({ state: "visible", timeout: 5000 });
+        assert.equal(
+          await isVisible(contextMenu.locator(".workspace-docs-context-quickbar")),
+          true,
+          "The Docs context menu should expose direct Word-style formatting controls"
+        );
+        const sizeButton = contextMenu.locator("button").filter({ hasText: "Taille" }).first();
+        await sizeButton.click({ timeout: 5000 });
+        const sizeSubmenu = sizeButton.locator("xpath=..").locator(".workspace-docs-table-submenu");
+        assert.equal(
+          await isVisible(sizeSubmenu),
+          true,
+          "Clicking the font-size submenu should keep it open"
+        );
+        await sizeSubmenu.locator("button").filter({ hasText: /^24$/ }).click({ timeout: 5000 });
+        await page.waitForTimeout(500);
+        formattingResult = await page.evaluate(() => {
+          const target = document.querySelector(
+            ".workspace-document-page-sheet h1, .workspace-document-page-sheet p"
+          );
+          return {
+            selectedTextSize:
+              Array.from(target?.querySelectorAll("span") || []).find(
+                (span) => String(span.textContent || "").length === 4
+              )?.style.fontSize || ""
+          };
+        });
+        assert.equal(
+          formattingResult.selectedTextSize,
+          "24px",
+          "Font size should apply to the selected text from the context menu"
+        );
+
+        await restoreSnapshot(originalSnapshot);
+        const pagesBefore = await page.locator(".workspace-document-page-sheet").count();
+        const wordsBefore = (await page.locator(".workspace-docs-status-metrics").innerText()).match(/\d+\s+mots/)?.[0] || "";
+        await page.evaluate(() => {
+          const target = document.querySelector(
+            ".workspace-document-page-sheet h1, .workspace-document-page-sheet p"
+          );
+          if (!target) throw new Error("No Docs text block available for page break");
+          const walker = document.createTreeWalker(target, NodeFilter.SHOW_TEXT);
+          let textNode = walker.nextNode();
+          while (textNode && !String(textNode.nodeValue || "").trim()) {
+            textNode = walker.nextNode();
+          }
+          if (!textNode || String(textNode.nodeValue || "").length < 2) {
+            target.textContent = "Hydria pagination validation";
+            textNode = target.firstChild;
+          }
+          const range = document.createRange();
+          range.setStart(textNode, Math.max(1, Math.floor(textNode.nodeValue.length / 2)));
+          range.collapse(true);
+          const selection = window.getSelection();
+          selection.removeAllRanges();
+          selection.addRange(range);
+          target.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+        });
+        const menuBar = page.locator(".workspace-docs-menubar").first();
+        await menuBar.getByRole("button", { name: "Insertion", exact: true }).click();
+        await page.getByRole("button", { name: "Saut de page", exact: true }).click();
+        await page.waitForTimeout(900);
+        await page.reload({ waitUntil: "domcontentloaded" });
+        await waitForWorkspace(page, options.baseUrl);
+        await maybeOpenWorkspacePage(page, "Docs");
+        await page.locator(".workspace-document-page-sheet").first().waitFor({ state: "visible", timeout: 10000 });
+
+        paginationResult = await page.evaluate((expectedPages) => {
+          const shell = document.querySelector(".workspace-document-preview-body-docs");
+          const pages = Array.from(shell?.querySelectorAll(":scope > .workspace-document-page-sheet") || []);
+          return {
+            pages: pages.length,
+            expectedPages,
+            breaks: shell?.querySelectorAll(":scope > .workspace-docs-page-break").length || 0,
+            placeholders: /New page|Start writing on the next page/i.test(String(shell?.textContent || "")),
+            strayBlocks:
+              Array.from(shell?.children || []).filter(
+                (node) =>
+                  !node.matches(
+                    ".workspace-document-page-sheet, .workspace-docs-page-break, .workspace-docs-page-meta"
+                  )
+              ).length
+          };
+        }, pagesBefore + 1);
+        assert.equal(paginationResult.pages, paginationResult.expectedPages, "A page break should add one page");
+        assert.equal(paginationResult.breaks, 1, "A page break should persist exactly once");
+        assert.equal(paginationResult.placeholders, false, "A page break should not inject placeholder text");
+        assert.equal(paginationResult.strayBlocks, 0, "All editable content should remain inside page sheets");
+        assert.equal(
+          (await page.locator(".workspace-docs-status-metrics").innerText()).includes(wordsBefore),
+          true,
+          "A page break should not change the document word count"
+        );
+
+        await page.evaluate(() => {
+          const pageBreak = document.querySelector(".workspace-docs-page-break");
+          if (!pageBreak) throw new Error("Persisted page break unavailable for context-menu removal");
+          const rect = pageBreak.getBoundingClientRect();
+          pageBreak.dispatchEvent(new MouseEvent("contextmenu", {
+            bubbles: true,
+            cancelable: true,
+            clientX: rect.left + 4,
+            clientY: rect.top + 4,
+            button: 2
+          }));
+        });
+        const pageBreakMenu = page.locator(".workspace-docs-table-menu");
+        await pageBreakMenu.waitFor({ state: "visible", timeout: 5000 });
+        await pageBreakMenu
+          .locator("button")
+          .filter({ hasText: "Supprimer le saut de page" })
+          .click({ timeout: 5000 });
+        await page.waitForTimeout(500);
+        assert.equal(
+          await page.locator(".workspace-docs-page-break").count(),
+          0,
+          "The context menu should remove a page break"
+        );
+        assert.equal(
+          await page.locator(".workspace-document-page-sheet").count(),
+          pagesBefore,
+          "Removing a page break should restore the previous page count"
+        );
+      } finally {
+        await restoreSnapshot(originalSnapshot);
+      }
+
+      return {
+        quickFormatting: formattingResult?.selectedTextSize || "",
+        persistedPages: paginationResult?.pages || 0,
+        persistedBreaks: paginationResult?.breaks || 0,
+        contextRemoval: true
+      };
+    }
+  },
+  {
     name: "sheets-toolbar-context-menu-fullscreen",
     tags: ["sheets", "menus", "fullscreen"],
     run: async ({ page, options }) => {
@@ -452,8 +887,8 @@ const scenarios = [
         const text = document.body.innerText || "";
         return {
           url: window.location.href,
-          hasCrmHeading: /CRM WORKSPACE|CRM/i.test(text),
-          hasCreateAction: /Create a CRM workspace|Create CRM workspace|Créer/i.test(text),
+          hasCrmHeading: /HYDRIA CRM WORKSPACE|HYDRIA CRM/i.test(text),
+          hasCreateAction: /Open Hydria CRM|Create a CRM workspace|Create CRM workspace|Créer/i.test(text),
           hasSalesLanguage: /contacts|companies|deals|sales|pipeline|follow-up|CRM/i.test(text)
         };
       });
@@ -473,8 +908,128 @@ const scenarios = [
         true,
         "CRM workspace page should expose CRM sales work"
       );
+      const crmShell = page.locator(".workspace-crm-preview-card").first();
+      assert.equal(await isVisible(crmShell), true, "CRM should render inside the Hydria OS application shell");
+      assert.equal(
+        await crmShell.locator(".workspace-application-preview-tabs").count(),
+        0,
+        "CRM should not expose workspace shortcut tabs"
+      );
+      assert.equal(
+        await isVisible(crmShell.getByRole("button", { name: "Full screen", exact: true })),
+        true,
+        "CRM should expose the full screen control"
+      );
+      await crmShell.getByRole("button", { name: "Full screen", exact: true }).click();
+      assert.equal(
+        await isVisible(page.locator(".workspace-crm-preview-card.is-expanded")),
+        true,
+        "CRM full screen should open"
+      );
+      await page.getByRole("button", { name: "Exit full screen", exact: true }).click();
 
       return crmPageCheck;
+    }
+  },
+  {
+    name: "hydria-core-chat-page",
+    tags: ["chat", "core", "workspace"],
+    run: async ({ page, options }) => {
+      const baseUrl = String(options.baseUrl || "").replace(/\/+$/, "");
+      await page.goto(`${baseUrl}/workspace/chat`, { waitUntil: "domcontentloaded", timeout: 30000 });
+      await page.waitForLoadState("networkidle", { timeout: 5000 }).catch(() => {});
+      await page.waitForTimeout(500);
+
+      const chatPage = page.locator(".core-chat-page").first();
+      assert.equal(await isVisible(chatPage), true, "Hydria Core chat page should render");
+      assert.equal(
+        await isVisible(chatPage.locator(".core-chat-composer textarea")),
+        true,
+        "Hydria Core chat should expose a composer"
+      );
+      assert.equal(
+        await isVisible(chatPage.getByRole("button", { name: "Send", exact: true })),
+        true,
+        "Hydria Core chat should expose a send action"
+      );
+      const navLabels = await page.locator("#workspace-switcher .workspace-switcher-chip").allInnerTexts();
+      assert.match(navLabels[0] || "", /^Overview/i, "Overview should remain first in navigation");
+      assert.match(navLabels[1] || "", /^Chat/i, "Chat should be placed between Overview and Docs");
+      assert.match(navLabels[2] || "", /^Docs/i, "Docs should follow Chat");
+      const composerHeight = await chatPage.locator(".core-chat-composer textarea").evaluate(
+        (element) => element.getBoundingClientRect().height
+      );
+      assert.ok(composerHeight < 80, "The empty chat composer should stay compact");
+      assert.equal(
+        await isVisible(chatPage.getByRole("button", { name: "Importer des fichiers", exact: true })),
+        true,
+        "Hydria Core chat should expose file import"
+      );
+      let multipartUploadObserved = false;
+      await page.route("**/api/hydria/chat/stream", async (route) => {
+        const request = route.request();
+        const contentType = request.headers()["content-type"] || "";
+        const body = request.postDataBuffer()?.toString("utf8") || "";
+        multipartUploadObserved =
+          contentType.includes("multipart/form-data") &&
+          body.includes("hydria-core-notes.txt") &&
+          body.includes("Attachment integration test");
+        await new Promise((resolve) => setTimeout(resolve, 900));
+        await route.fulfill({
+          status: 200,
+          contentType: "text/event-stream",
+          body: [
+            'event: start\ndata: {"generationId":"visual-gate"}\n\n',
+            'event: chunk\ndata: {"text":"Optimistic UI "}\n\n',
+            'event: chunk\ndata: {"text":"test response"}\n\n',
+            'event: done\ndata: {"answer":"Optimistic UI test response"}\n\n'
+          ].join("")
+        });
+      });
+      const optimisticPrompt = `Optimistic message ${Date.now()}`;
+      await chatPage.locator(".core-chat-file-input").setInputFiles({
+        name: "hydria-core-notes.txt",
+        mimeType: "text/plain",
+        buffer: Buffer.from("Attachment integration test")
+      });
+      assert.equal(
+        await isVisible(chatPage.locator(".core-chat-attachment-chip", {
+          hasText: "hydria-core-notes.txt"
+        })),
+        true,
+        "Selected file should be previewed before sending"
+      );
+      await chatPage.locator(".core-chat-composer textarea").fill(optimisticPrompt);
+      await chatPage.getByRole("button", { name: "Send", exact: true }).click();
+      const optimisticBubble = chatPage.locator(".message.user.is-pending .message-bubble", {
+        hasText: optimisticPrompt
+      });
+      await optimisticBubble.waitFor({ state: "visible", timeout: 250 });
+      assert.equal(
+        await isVisible(optimisticBubble),
+        true,
+        "The user message should appear before Hydria Core responds"
+      );
+      assert.equal(
+        await isVisible(optimisticBubble.locator(".message-attachment", {
+          hasText: "hydria-core-notes.txt"
+        })),
+        true,
+        "The optimistic user message should retain its attachment"
+      );
+      await page.waitForTimeout(1100);
+      assert.equal(
+        multipartUploadObserved,
+        true,
+        "Hydria Core chat should send attachments as multipart form data"
+      );
+      await page.unroute("**/api/hydria/chat/stream");
+
+      return {
+        url: page.url(),
+        messageCount: await chatPage.locator(".core-chat-thread .message").count(),
+        composerHeight: Math.round(composerHeight)
+      };
     }
   }
 ];
