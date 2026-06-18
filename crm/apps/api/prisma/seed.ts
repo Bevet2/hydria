@@ -7,8 +7,8 @@ async function main() {
   const passwordHash = await bcrypt.hash("Northstar123!", 12);
   const organization = await prisma.organization.upsert({
     where: { slug: "northstar-demo" },
-    update: {},
-    create: { name: "Northstar Demo", slug: "northstar-demo" }
+    update: { name: "Hydria CRM" },
+    create: { name: "Hydria CRM", slug: "northstar-demo" }
   });
   const admin = await prisma.user.upsert({
     where: { email: "admin@northstar.local" },
@@ -43,6 +43,21 @@ async function main() {
       orderBy: { position: "asc" }
     });
   }
+
+  await prisma.supportQueue.upsert({
+    where: { organizationId_name: { organizationId: organization.id, name: "Support" } },
+    update: { active: true },
+    create: {
+      organizationId: organization.id,
+      name: "Support",
+      description: "Default queue for customer support and account follow-up.",
+      firstResponseMinutes: 240,
+      resolutionMinutes: 1440,
+      escalationAfterMinutes: 720,
+      routingStrategy: "LEAST_OPEN",
+      active: true
+    }
+  });
 
   const count = await prisma.company.count({ where: { organizationId: organization.id } });
   if (count === 0) {
