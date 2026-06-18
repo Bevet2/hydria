@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hydria Share</title>
+    <style>
+      :root { color-scheme: light; font-family: Inter, ui-sans-serif, system-ui, sans-serif; color: #202124; background: #f6f7f5; }
+      * { box-sizing: border-box; }
+      body { margin: 0; }
+      header { height: 62px; padding: 0 24px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid #dde1dc; background: #fff; position: sticky; top: 0; z-index: 2; }
+      header b { width: 30px; height: 30px; display: grid; place-items: center; background: #202428; color: white; border-radius: 7px; }
+      header span { color: #69716b; font-size: 13px; }
+      main { width: min(900px, calc(100% - 32px)); margin: 34px auto 80px; }
+      h1 { font-size: 24px; margin: 0 0 8px; }
+      .meta { color: #747b76; margin-bottom: 30px; }
+      .message { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 12px; margin: 22px 0; }
+      .message > b { width: 30px; height: 30px; border-radius: 7px; background: #202428; color: white; display: grid; place-items: center; font-size: 12px; }
+      .message.user > b { background: #147a67; }
+      .message p { white-space: pre-wrap; line-height: 1.65; margin: 3px 0; }
+      .document { background: white; border: 1px solid #dde1dc; padding: 42px 48px; min-height: 520px; white-space: pre-wrap; line-height: 1.65; overflow-wrap: anywhere; }
+      .comment-box { margin-top: 20px; padding: 18px; border: 1px solid #dde1dc; background: white; }
+      textarea { width: 100%; min-height: 90px; resize: vertical; padding: 12px; border: 1px solid #cfd5d0; font: inherit; }
+      button { margin-top: 10px; padding: 9px 14px; border: 0; background: #147a67; color: white; font-weight: 650; cursor: pointer; }
+      .error { color: #a52b2b; }
+      @media (max-width: 640px) { .document { padding: 24px 20px; } main { margin-top: 22px; } }
+    </style>
+  </head>
+  <body>
+    <header><b>H</b><div><strong>Hydria</strong><br /><span>Contenu partagé</span></div></header>
+    <main id="content"><p>Chargement...</p></main>
+    <script type="module">
+      const host = document.getElementById("content");
+      const [, kind, token] = location.pathname.match(/^\/share\/(chat|work)\/([^/]+)/) || [];
+      const text = (tag, value, className = "") => {
+        const node = document.createElement(tag);
+        node.textContent = value;
+        if (className) node.className = className;
+        return node;
+      };
+      const loadChat = async () => {
+        const response = await fetch(`/api/conversations/shared/${encodeURIComponent(token)}`);
+        if (!response.ok) throw new Error("Cette conversation n'est plus disponible.");
+        const payload = await response.json();
+        host.replaceChildren(text("h1", payload.conversation.title), text("p", "Conversation Hydria en lecture seule", "meta"));
+        payload.messages.forEach((message) => {
+          const item = document.createElement("article");
+          item.className = `message ${message.role}`;
+          item.append(text("b", message.role === "user" ? "U" : "H"), text("p", message.content));
+          host.appendChild(item);
+        });
+      };
+      const loadWork = async () => {
+        const response = await fetch(`/api/work-objects/shared/${encodeURIComponent(token)}?content=1`);
+        if (!response.ok) throw new Error("Ce document n'est plus disponible.");
+        const payload = await response.json();
+        const workObject = payload.workObject;
+        const sharing = workObject.metadata?.sharing || {};
+        host.replaceChildren(
+          text("h1", workObject.title || "Document Hydria"),
+          text("p", `Accès ${sharing.defaultRole || "viewer"} · révision ${workObject.revision || 1}`, "meta")
+        );
+        const documentNode = text("article", workObject.file?.content || workObject.summary || "");
+        documentNode.className = "document";
+        host.appendChild(documentNode);
+        if (["commenter", "editor"].includes(sharing.defaultRole)) {
+          const box = document.createElement("form");
+          box.className = "comment-box";
+          const input = document.createElement("textarea");
+          input.required = true;
+          input.placeholder = "Ajouter un commentaire";
+          const submit = text("button", "Publier");
+          submit.type = "submit";
+          box.append(input, submit);
+          box.addEventListener("submit", async (event) => {
+            event.preventDefault();
+            submit.disabled = true;
+            const annotations = [...(workObject.metadata?.annotations || []), {
+              id: crypto.randomUUID(),
+              type: "comment",
+              body: input.value.trim(),
+              authorName: "Invité",
+              entryPath: workObject.file?.path || workObject.primaryFile || "",
+              replies: [],
+              resolved: false,
+              createdAt: new Date().toISOString()
+            }];
+            const result = await fetch(`/api/work-objects/${encodeURIComponent(workObject.id)}/annotations`, {
+              method: "PUT",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ shareToken: token, annotations })
+            });
+            submit.disabled = false;
+            if (!result.ok) {
+              alert("Le commentaire n'a pas pu être publié.");
+              return;
+            }
+            input.value = "";
+            submit.textContent = "Publié";
+          });
+          host.appendChild(box);
+        }
+      };
+      (kind === "chat" ? loadChat() : loadWork()).catch((error) => {
+        host.replaceChildren(text("p", error.message || "Lien invalide.", "error"));
+      });
+    </script>
+  </body>
+</html>
