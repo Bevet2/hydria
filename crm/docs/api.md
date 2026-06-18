@@ -1,6 +1,6 @@
 # REST API
 
-Base URL: `http://localhost:4010/api`
+Base URL through Hydria OS: `http://localhost:3001/crm-api`
 
 Authenticated requests accept either a session JWT or an API key:
 
@@ -34,6 +34,25 @@ Invitation, verification and reset links are delivered to
 - `/dashboard`, `/dashboard/preferences`, `/reports` and `/search?q=...`
   provide operational reporting and per-user dashboard configuration.
 - `/notifications` provides reminders, assignments and overdue alerts.
+- `GET|POST /tickets`, `GET|PATCH|DELETE /tickets/:id`
+- `GET|POST /tickets/queues`, `PATCH /tickets/queues/:queueId`
+- `POST /tickets/:id/messages`, `POST /tickets/:id/escalate`
+- Secure customer portal:
+  `POST /tickets/portal/:token/request-access`,
+  `POST /tickets/portal/:token/session`,
+  authenticated `GET /tickets/portal/:token` and
+  `POST /tickets/portal/:token/messages`
+
+Support queues accept `routingStrategy`, `businessHours`, `holidays`,
+`pauseStatuses` and a graduated `escalationPolicy`. The worker calculates SLA
+deadlines in business minutes, pauses clocks in configured statuses and emits
+notifications and ticket events for breaches and escalation levels.
+- Ticket attachments use `/attachments` with `entityType: "TICKET"`.
+- `GET|POST /custom-objects`, `PATCH|DELETE /custom-objects/:definitionId`
+- `GET|POST /custom-objects/:definitionId/records`
+- `PATCH|DELETE /custom-objects/:definitionId/records/:recordId`
+- Teams and permissions: `GET|POST /users/teams`,
+  `PATCH /users/teams/:teamId`, `PATCH /users/:id/permissions`
 
 ## Data operations
 
@@ -63,13 +82,16 @@ queued email, field updates and deal-stage moves.
 ## Communications and integrations
 
 - `GET /integrations`
-- `POST /integrations/oauth/:provider/start|exchange`
+- `GET /integrations/oauth/config`
+- `POST /integrations/oauth/:provider/start`
+- `POST /integrations/oauth/callback` (public provider callback exchange)
 - `POST /integrations/custom`
 - `POST /integrations/:id/sync`, `DELETE /integrations/:id`
 - `GET /integrations/readiness`
 - `GET|POST /communications/templates`
 - `GET|POST /communications/messages`
 - `GET /communications/conversations`
+- `POST /communications/conversations/:id/read|reply`
 - `POST /communications/messages/:id/reply-received`
 - `GET|POST /communications/calendar`, `DELETE /communications/calendar/:id`
 
@@ -81,13 +103,17 @@ connectors support accounting, support and marketing systems.
 Register this exact web callback in both provider consoles:
 
 ```text
-http://localhost:5174/oauth/callback
+http://localhost:3001/crm/oauth/callback
 ```
 
 Google requires the Gmail and Google Calendar APIs, an OAuth web client and the
 configured test users while the consent screen is in testing. Microsoft Entra
 requires a Web redirect URI, a client secret and delegated permissions
 `User.Read`, `Mail.ReadWrite`, `Mail.Send` and `Calendars.ReadWrite`.
+
+`GET /integrations/oauth/config` never exposes credentials. It returns the
+callback URI, provider readiness, missing environment variable names and a
+link to the provider console.
 
 The CRM uses a popup-safe authorization-code flow with server-side one-time
 state storage and PKCE. This also works when the CRM iframe uses `127.0.0.1`
@@ -102,6 +128,8 @@ while the registered callback uses `localhost`.
 - `POST /commercial/approvals/:id/decision`
 - Public electronic signature: `GET|POST /commercial/signatures/:token`
 - `GET /commercial/invoices`, `GET|PATCH /commercial/invoices/:id`
+- `GET /commercial/invoices/:id/pdf`
+- `POST /commercial/quotes/:id/send`, `POST /commercial/invoices/:id/send`
 - `POST /commercial/invoices/:id/checkout`
 - `POST /commercial/invoices/:id/payments`
 - `POST /commercial/payments/:id/refunds`
@@ -124,8 +152,10 @@ Stripe checkout and webhook processing require `STRIPE_SECRET_KEY` and
 - Backups: `GET /backups/export`, `POST /backups/restore`
 - Scheduled backups: `GET|PUT /backups/schedule`, `POST /backups/schedule/run`
 
-Backup schema v2 contains business, communication, automation, quote,
-invoicing and GDPR records plus attachments. API keys, OAuth tokens, webhook
+Backup schema v4 contains business, communication, automation, quote,
+invoicing, support tickets, SLA queues, teams, permission policies, custom
+objects, campaigns, territories, sequences, saved reports and GDPR records
+plus attachments. API keys, OAuth tokens, webhook
 secrets and backup credentials are intentionally excluded. Restore replaces
 the active organization's data and requires multipart confirmation `RESTORE`.
 
@@ -145,10 +175,11 @@ and `CRM_INTEGRATION_SECRET` must match.
 - `POST /integrations/hydria/query`
 - `POST /integrations/hydria/actions`
 
-Canonical operations include create/update for CRM records, lead conversion,
-deal-stage updates, product addition, quote creation, customer summaries and
-confirmed sensitive deletion. Hydria OS exposes `/api/hydria/control` with
-`workspaceFamilyId: "crm_sales"`.
+Canonical operations include create/update for CRM records and tickets, lead
+conversion, deal-stage updates, product addition, quote creation, customer
+summaries and confirmed sensitive deletion. Ticket operations are
+`crm.create_ticket` and `crm.update_ticket`. Hydria OS exposes
+`/api/hydria/control` with `workspaceFamilyId: "crm_sales"`.
 
 ## Validation gates
 
@@ -163,6 +194,10 @@ npm run gate:resilience
 npm run gate:oauth
 npm run gate:communications
 npm run gate:commercial
+npm run gate:tickets
+npm run gate:backup-restore
+npm run gate:custom-objects
+npm run gate:sales-ops
 npm run gate:load
 npm run test:e2e -w @northstar/web
 ```

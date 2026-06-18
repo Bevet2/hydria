@@ -36,6 +36,23 @@ services:
       timeout: 5s
       retries: 10
 
+  worker:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    command: ["sh", "-c", "npx prisma migrate deploy && node dist/src/worker.js"]
+    env_file: staging.env
+    environment:
+      ATTACHMENT_DIR: /app/storage/attachments
+      BACKUP_DIR: /app/storage/backups
+    volumes:
+      - northstar_staging_attachments:/app/storage/attachments
+      - northstar_staging_backups:/app/storage/backups
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   web:
     build:
       context: .

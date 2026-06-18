@@ -1,6 +1,6 @@
-# Northstar CRM architecture
+# Hydria CRM architecture
 
-Northstar CRM is an original implementation. It does not reuse Twenty CRM source code, schemas or visual assets.
+Hydria CRM is an original implementation integrated into Hydria OS. It does not reuse third-party CRM source code, schemas or visual assets.
 
 ## Applications
 

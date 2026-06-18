@@ -5,13 +5,18 @@
 - Session authentication, refresh rotation, password reset, invitations and
   email verification
 - TOTP MFA, recovery codes, active-session review and remote revocation
-- Organization isolation and admin/manager/member/viewer permissions
+- Organization isolation, admin/manager/member/viewer roles, teams and
+  object/property permission policies
 - Contacts, companies, leads, lead conversion, opportunities and pipelines
 - Products, editable quote lines, discounts, taxes, PDFs, versions, approval
   inbox and electronic signing
 - Invoices, due dates, manual/Stripe payments, refunds, credit notes, reminders
   and accounting connector dispatch
 - Tasks, reminders, recurrence, notifications, notes and activity timelines
+- Customer-support tickets with automatic routing, business-hours SLA,
+  holidays, paused clocks, graduated escalation, threaded public/internal
+  messages, attachments, audit history and email-code customer portal
+- Fully configurable custom CRM objects with typed fields and records
 - Workflow automations, assignment rules and execution history
 - Duplicate detection and guided merge for contacts, companies and leads
 - Bulk operations and saved views across companies, leads, opportunities,
@@ -21,7 +26,7 @@
 - Email templates, conversation grouping, attachments, reply tracking and
   meetings
 - Sales goals, reports, forecasts, global search and user-configurable
-  dashboards
+  dashboards including ticket and SLA widgets
 - API keys, OAuth connections, signed webhooks and custom HTTPS connectors
 - Consent records, privacy export/anonymization/deletion and retention policies
 - Persistent job workers with exponential retry, dead-letter administration

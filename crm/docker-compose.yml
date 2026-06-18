@@ -22,16 +22,59 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-northstar}:${POSTGRES_PASSWORD:-northstar_dev}@postgres:5432/${POSTGRES_DB:-northstar_crm}?schema=public
       JWT_SECRET: ${JWT_SECRET:-northstar-local-development-secret}
+      SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY:-northstar-local-encryption-secret}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-8h}
       API_PORT: 4010
       WEB_ORIGIN: http://localhost:4174
       PUBLIC_WEB_URL: http://localhost:4174
+      OAUTH_REDIRECT_URL: http://localhost:4174/oauth/callback
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      MICROSOFT_CLIENT_ID: ${MICROSOFT_CLIENT_ID:-}
+      MICROSOFT_CLIENT_SECRET: ${MICROSOFT_CLIENT_SECRET:-}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      TRANSACTIONAL_EMAIL_URL: ${TRANSACTIONAL_EMAIL_URL:-}
+      TRANSACTIONAL_EMAIL_TOKEN: ${TRANSACTIONAL_EMAIL_TOKEN:-}
+      ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
       RUN_DB_SEED: "true"
       ATTACHMENT_DIR: /app/storage/attachments
+      BACKUP_DIR: /app/storage/backups
     ports:
       - "4010:4010"
     volumes:
       - northstar_attachments:/app/storage/attachments
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    command: ["sh", "-c", "npx prisma migrate deploy && node dist/src/worker.js"]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-northstar}:${POSTGRES_PASSWORD:-northstar_dev}@postgres:5432/${POSTGRES_DB:-northstar_crm}?schema=public
+      JWT_SECRET: ${JWT_SECRET:-northstar-local-development-secret}
+      SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY:-northstar-local-encryption-secret}
+      WEB_ORIGIN: http://localhost:4174
+      PUBLIC_WEB_URL: http://localhost:4174
+      OAUTH_REDIRECT_URL: http://localhost:4174/oauth/callback
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      MICROSOFT_CLIENT_ID: ${MICROSOFT_CLIENT_ID:-}
+      MICROSOFT_CLIENT_SECRET: ${MICROSOFT_CLIENT_SECRET:-}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      TRANSACTIONAL_EMAIL_URL: ${TRANSACTIONAL_EMAIL_URL:-}
+      TRANSACTIONAL_EMAIL_TOKEN: ${TRANSACTIONAL_EMAIL_TOKEN:-}
+      ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
+      ATTACHMENT_DIR: /app/storage/attachments
+      BACKUP_DIR: /app/storage/backups
+    volumes:
+      - northstar_attachments:/app/storage/attachments
+      - northstar_backups:/app/storage/backups
+      - northstar_backups:/app/storage/backups
     depends_on:
       postgres:
         condition: service_healthy
@@ -50,3 +93,4 @@ services:
 volumes:
   northstar_postgres:
   northstar_attachments:
+  northstar_backups:
