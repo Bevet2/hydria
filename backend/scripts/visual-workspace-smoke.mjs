@@ -96,10 +96,14 @@ async function isVisible(locator) {
 async function maybeOpenWorkspacePage(page, label) {
   const existingSheet = page.locator(".workspace-sheet-cell-input").first();
   const existingDocument = page.locator(".workspace-document-page-sheet").first();
+  const existingSlides = page.locator(".workspace-presentation-preview-viewport").first();
   if (label === "Sheets" && (await isVisible(existingSheet))) {
     return;
   }
   if (label === "Docs" && (await isVisible(existingDocument))) {
+    return;
+  }
+  if (label === "Slides" && (await isVisible(existingSlides))) {
     return;
   }
 
@@ -122,6 +126,14 @@ async function maybeOpenWorkspacePage(page, label) {
     const createDocument = page.locator('.workspace-launcher-card[data-workspace="docs"]').first();
     if (await isVisible(createDocument)) {
       await createDocument.click({ timeout: 5000 });
+      await page.waitForLoadState("networkidle", { timeout: 3000 }).catch(() => {});
+      await page.waitForTimeout(1000);
+    }
+  }
+  if (label === "Slides" && !(await isVisible(existingSlides))) {
+    const createSlides = page.locator('.workspace-launcher-card[data-workspace="slides"]').first();
+    if (await isVisible(createSlides)) {
+      await createSlides.click({ timeout: 5000 });
       await page.waitForLoadState("networkidle", { timeout: 3000 }).catch(() => {});
       await page.waitForTimeout(1000);
     }
@@ -517,10 +529,11 @@ const scenarios = [
           document.querySelector(".workspace-document-page-sheet p") ||
           document.querySelector(".workspace-document-page-sheet h1");
         if (!paragraph) throw new Error("No editable Docs paragraph found");
-        if (!String(paragraph.textContent || "").trim()) {
-          paragraph.textContent = "Texte de revision Hydria";
-          paragraph.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: "Texte de revision Hydria" }));
-        }
+        // Always normalise to a flat text node so Range.setStart works regardless
+        // of whether the editor wraps content in <span> or other inline elements.
+        const existingText = String(paragraph.textContent || "").trim() || "Texte de revision Hydria";
+        paragraph.textContent = existingText;
+        paragraph.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: existingText }));
         const textNode = Array.from(paragraph.childNodes).find((node) => node.nodeType === Node.TEXT_NODE);
         if (!textNode) throw new Error("No text node available for comment selection");
         const range = document.createRange();
@@ -862,6 +875,64 @@ const scenarios = [
           width: Math.round(overlayBox?.width || 0),
           height: Math.round(overlayBox?.height || 0)
         }
+      };
+    }
+  },
+  {
+    name: "slides-presentation-smoke",
+    tags: ["slides", "presentation", "workspace"],
+    run: async ({ page, options }) => {
+      await waitForWorkspace(page, options.baseUrl);
+      await maybeOpenWorkspacePage(page, "Slides");
+      const viewport = page.locator(".workspace-presentation-preview-viewport").first();
+      await viewport.waitFor({ state: "visible", timeout: 12000 });
+
+      const slideCards = page.locator(".workspace-presentation-preview-card");
+      const slideCount = await slideCards.count();
+      assert.ok(slideCount >= 1, "Presentation should render at least one slide thumbnail");
+
+      // Verify the slide position counter is visible (e.g. "Slide 1 of N")
+      const positionText = await page.evaluate(() => {
+        const el = Array.from(document.querySelectorAll(".workspace-presentation-preview-viewport *"))
+          .find((node) => /slide\s+\d+\s+of\s+\d+/i.test(node.textContent || ""));
+        return el ? el.textContent.trim() : null;
+      });
+      assert.ok(positionText, "Slide position counter (Slide X of N) should be visible");
+      assert.match(positionText, /slide\s+1\s+of\s+\d+/i, "First slide should be active by default");
+
+      // Verify Slides / Notes tabs exist
+      const tabsText = await page.evaluate(() => {
+        const strip = document.querySelector(".workspace-code-tabs");
+        return strip ? strip.textContent.trim() : null;
+      });
+      assert.ok(
+        tabsText && /slides/i.test(tabsText) && /notes/i.test(tabsText),
+        "Slides presentation toolbar should show Slides and Notes tabs"
+      );
+
+      // Navigate to the second slide if one exists
+      let navigatedToSlide2 = false;
+      if (slideCount >= 2) {
+        await slideCards.nth(1).click({ timeout: 5000 });
+        await page.waitForTimeout(600);
+        const updatedPosition = await page.evaluate(() => {
+          const el = Array.from(document.querySelectorAll(".workspace-presentation-preview-viewport *"))
+            .find((node) => /slide\s+\d+\s+of\s+\d+/i.test(node.textContent || ""));
+          return el ? el.textContent.trim() : null;
+        });
+        assert.match(
+          updatedPosition || "",
+          /slide\s+2\s+of\s+\d+/i,
+          "Clicking slide thumbnail 2 should navigate to slide 2"
+        );
+        navigatedToSlide2 = true;
+      }
+
+      return {
+        slideCount,
+        positionText,
+        tabsText,
+        navigatedToSlide2
       };
     }
   },

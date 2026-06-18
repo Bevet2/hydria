@@ -3486,6 +3486,23 @@ function buildPresentationContent({ title = "Untitled presentation", slides = []
     .trim();
 }
 
+function updateSlideHydriaMeta(body, updates) {
+  const META_OPEN = "<!-- hydria-slide:";
+  const startIdx = body.indexOf(META_OPEN);
+  let existing = {};
+  let stripped = body;
+  if (startIdx >= 0) {
+    const endIdx = body.indexOf("-->", startIdx);
+    if (endIdx >= 0) {
+      const fragment = body.slice(startIdx + META_OPEN.length, endIdx).trim();
+      try { existing = JSON.parse(fragment); } catch {}
+      stripped = (body.slice(0, startIdx) + body.slice(endIdx + 3)).trim();
+    }
+  }
+  const merged = { ...existing, ...updates };
+  return `${stripped}\n<!-- hydria-slide: ${JSON.stringify(merged)} -->`.trim();
+}
+
 function resolveSlideIndex(slides = [], operation = {}) {
   const target = operation.target || {};
   if (Number.isInteger(target.slideIndex)) {
@@ -3636,10 +3653,9 @@ function applySlideOperation(content = "", operation = {}) {
       return { content, applied: "", issue: "slide.set_layout requires a layout value." };
     }
     const slide = deck.slides[slideIndex];
-    const updatedBody = slide.body
-      .replace(/<!--\s*layout:[^>]*-->/gi, "")
-      .trim()
-      .concat(`\n<!-- layout: ${layout} -->`);
+    // Store as hydria-slide JSON so the frontend can read it via parsePresentationSlideMeta
+    const cleanBody = slide.body.replace(/<!--\s*layout:[^>]*-->/gi, "").trim();
+    const updatedBody = updateSlideHydriaMeta(cleanBody, { layout });
     const nextSlides = deck.slides.map((s, i) => i === slideIndex ? { ...s, body: updatedBody } : s);
     return {
       content: buildPresentationContent({ title: deck.title, slides: nextSlides }),
@@ -3700,10 +3716,9 @@ function applySlideOperation(content = "", operation = {}) {
       return { content, applied: "", issue: "slide.set_background requires a background value (color or image URL)." };
     }
     const slide = deck.slides[slideIndex];
-    const updatedBody = slide.body
-      .replace(/<!--\s*background:[^>]*-->/gi, "")
-      .trim()
-      .concat(`\n<!-- background: ${background} -->`);
+    // Store as hydria-slide JSON so the frontend can read it via parsePresentationSlideMeta
+    const cleanBody = slide.body.replace(/<!--\s*background:[^>]*-->/gi, "").trim();
+    const updatedBody = updateSlideHydriaMeta(cleanBody, { background });
     const nextSlides = deck.slides.map((s, i) => i === slideIndex ? { ...s, body: updatedBody } : s);
     return {
       content: buildPresentationContent({ title: deck.title, slides: nextSlides }),
