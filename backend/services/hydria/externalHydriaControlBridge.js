@@ -13,6 +13,8 @@ import {
   normalizeWorkspaceToolCallsFromCore,
   synthesizeWorkspaceToolCallsFromPrompt
 } from "./workspaceToolDispatcher.js";
+import { filterContentPreviewByRole } from "./dataAccessFilterService.js";
+import { getUserDataRole } from "../memory/historyService.js";
 
 const ALLOWED_ACTIONS = new Set([
   "reply",
@@ -257,6 +259,12 @@ function buildHydriaState({
     activeWorkObject,
     contentPreview: activeWorkObjectContent
   });
+  const dataRole = getUserDataRole(userId);
+  const contentPreview = filterContentPreviewByRole(
+    workspaceFields.contentPreview,
+    dataRole,
+    workspaceFields.workspaceFamilyId
+  );
 
   return {
     user: {
@@ -286,7 +294,7 @@ function buildHydriaState({
           primaryFile: activeWorkObject.file?.path || activeWorkObject.primaryFile || "",
           entryPath: activeWorkObject.file?.path || activeWorkObject.primaryFile || "",
           contentFormat: workspaceFields.contentFormat,
-          contentPreview: compact(activeWorkObjectContent, 1200),
+          contentPreview,
           workspaceTools: workspaceFields.workspaceTools
         }
       : null,
@@ -324,6 +332,36 @@ function buildPublicWorkspaceContext({
     workspaceTools: workspaceFields.workspaceTools
   });
   const activeEntryPath = activeWorkObject?.file?.path || activeWorkObject?.primaryFile || activeWorkObject?.activeEntryPath || "";
+  const dataRole = getUserDataRole(userId);
+  const contentPreview = filterContentPreviewByRole(
+    workspaceFields.contentPreview,
+    dataRole,
+    workspaceFields.workspaceFamilyId
+  );
+
+  // Build additionalSources: content preview of up to 2 recent work objects (not the active one)
+  const additionalSources = [];
+  if (workObjectService && activeWorkObject) {
+    const candidates = recentWorkObjects.filter((wo) => wo.id !== activeWorkObject.id).slice(0, 2);
+    for (const candidate of candidates) {
+      try {
+        const entryPath = candidate.primaryFile || candidate.activeEntryPath || "";
+        const src = workObjectService.readContent({ workObjectId: candidate.id, entryPath });
+        const srcFields = buildWorkspaceContextFields({ activeWorkObject: src.workObject, contentPreview: src.content || "" });
+        const srcPreview = filterContentPreviewByRole(srcFields.contentPreview, dataRole, srcFields.workspaceFamilyId);
+        if (srcPreview) {
+          additionalSources.push({
+            id: candidate.id,
+            title: candidate.title || candidate.id,
+            kind: candidate.objectKind || candidate.kind || "document",
+            contentPreview: srcPreview.slice(0, 1200)
+          });
+        }
+      } catch {
+        // Skip unreadable work objects silently
+      }
+    }
+  }
 
   return {
     os: {
@@ -338,7 +376,7 @@ function buildPublicWorkspaceContext({
     userRequest: compact(prompt, 1600),
     workspaceFamilyId: workspaceFields.workspaceFamilyId,
     contentFormat: workspaceFields.contentFormat,
-    contentPreview: workspaceFields.contentPreview,
+    contentPreview,
     workspaceTools: workspaceFields.workspaceTools,
     workspaceToolContract,
     activeWorkObject: activeWorkObject
@@ -349,11 +387,12 @@ function buildPublicWorkspaceContext({
           workspaceFamilyId: workspaceFields.workspaceFamilyId,
           entryPath: activeEntryPath,
           contentFormat: workspaceFields.contentFormat,
-          contentPreview: workspaceFields.contentPreview,
+          contentPreview,
           editable: true,
           workspaceTools: workspaceFields.workspaceTools
         }
       : undefined,
+    additionalSources: additionalSources.length ? additionalSources : undefined,
     recentWorkObjects: recentWorkObjects.map((item) => ({
       id: item.id,
       title: item.title,

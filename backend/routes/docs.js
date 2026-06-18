@@ -1,8 +1,13 @@
 import { Router } from "express";
 import * as cheerio from "cheerio";
 import {
+  AlignmentType,
   Document,
+  Footer,
+  Header,
   HeadingLevel,
+  PageNumber,
+  PageOrientation,
   Packer,
   Paragraph,
   Table,
@@ -326,8 +331,63 @@ function appendDocxNode(children, $, node) {
   (node.children || []).forEach((child) => appendDocxNode(children, $, child));
 }
 
+function extractDocsPageSettings($) {
+  const node = $(".workspace-docs-page-meta").first();
+  const enabled = String(node.attr("data-show-header-footer") || "") === "true";
+  const pageNumbers = String(node.attr("data-show-page-numbers") || "") === "true";
+  const pageMargins = ["narrow", "wide"].includes(node.attr("data-page-margins"))
+    ? node.attr("data-page-margins")
+    : "normal";
+  const margin = pageMargins === "narrow" ? 720 : pageMargins === "wide" ? 2160 : 1440;
+  const pageSize = node.attr("data-page-size") === "letter" ? "letter" : "a4";
+  const orientation = node.attr("data-page-orientation") === "landscape"
+    ? PageOrientation.LANDSCAPE
+    : PageOrientation.PORTRAIT;
+  const dimensions = pageSize === "letter"
+    ? { width: 12240, height: 15840 }
+    : { width: 11906, height: 16838 };
+  const pageNumberStart = Math.max(1, Number.parseInt(node.attr("data-page-number-start") || "1", 10) || 1);
+  const settings = {
+    enabled,
+    pageNumbers,
+    headerText: String(node.attr("data-header-text") || ""),
+    footerText: String(node.attr("data-footer-text") || ""),
+    pageNumberPosition: node.attr("data-page-number-position") === "header" ? "header" : "footer",
+    showPageNumberOnFirstPage: node.attr("data-page-number-show-on-first-page") !== "false",
+    pageNumberStart,
+    size: { ...dimensions, orientation },
+    margin: {
+      top: margin,
+      right: margin,
+      bottom: margin,
+      left: margin,
+      header: 540,
+      footer: 540
+    }
+  };
+  node.remove();
+  return settings;
+}
+
+function buildDocxHeaderFooterParagraphs(text = "", showPageNumber = false) {
+  const children = [];
+  if (text) {
+    children.push(new Paragraph({ children: [new TextRun(text)] }));
+  }
+  if (showPageNumber) {
+    children.push(
+      new Paragraph({
+        alignment: AlignmentType.RIGHT,
+        children: [new TextRun({ children: [PageNumber.CURRENT] })]
+      })
+    );
+  }
+  return children.length ? children : [new Paragraph({ children: [] })];
+}
+
 async function buildDocxBuffer({ title, html }) {
   const $ = cheerio.load(`<main>${html}</main>`);
+  const pageSettings = extractDocsPageSettings($);
   const children = [];
   $("main")
     .contents()
@@ -336,8 +396,41 @@ async function buildDocxBuffer({ title, html }) {
   const document = new Document({
     creator: "Hydria",
     title,
+    settings: {
+      updateFields: true
+    },
     sections: [
       {
+        properties: {
+          page: {
+            size: pageSettings.size,
+            margin: pageSettings.margin,
+            pageNumbers: { start: pageSettings.pageNumberStart }
+          },
+          titlePage: !pageSettings.showPageNumberOnFirstPage
+        },
+        headers:
+          pageSettings.enabled || (pageSettings.pageNumbers && pageSettings.pageNumberPosition === "header")
+            ? {
+                default: new Header({
+                  children: buildDocxHeaderFooterParagraphs(
+                    pageSettings.headerText,
+                    pageSettings.pageNumbers && pageSettings.pageNumberPosition === "header"
+                  )
+                })
+              }
+            : undefined,
+        footers:
+          pageSettings.enabled || (pageSettings.pageNumbers && pageSettings.pageNumberPosition === "footer")
+            ? {
+                default: new Footer({
+                  children: buildDocxHeaderFooterParagraphs(
+                    pageSettings.footerText,
+                    pageSettings.pageNumbers && pageSettings.pageNumberPosition === "footer"
+                  )
+                })
+              }
+            : undefined,
         children: children.length ? children : [new Paragraph({ text: title, heading: HeadingLevel.TITLE })]
       }
     ]
@@ -485,7 +578,13 @@ function writePdfNode(doc, $, node) {
 
 async function buildPdfBuffer({ title, html }) {
   const $ = cheerio.load(`<main>${html}</main>`);
-  const doc = new PDFDocument({ margin: 56, size: "A4" });
+  const pageSettings = extractDocsPageSettings($);
+  const marginPoints = Math.max(24, Math.round((pageSettings.margin.top || 1440) / 20));
+  const doc = new PDFDocument({
+    margin: marginPoints,
+    size: pageSettings.size.width === 12240 ? "LETTER" : "A4",
+    layout: pageSettings.size.orientation === PageOrientation.LANDSCAPE ? "landscape" : "portrait"
+  });
   const chunks = [];
   return new Promise((resolve, reject) => {
     doc.on("data", (chunk) => chunks.push(chunk));

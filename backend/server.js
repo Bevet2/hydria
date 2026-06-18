@@ -1,6 +1,7 @@
 import path from "node:path";
 import express from "express";
 import cors from "cors";
+import { proxyCrmApi } from "./middleware/crmApiProxy.js";
 import config from "./config/hydria.config.js";
 import { initDatabase } from "./db/sqlite.js";
 import { AppError, normalizeError } from "./utils/errors.js";
@@ -24,6 +25,7 @@ initDatabase();
 const app = express();
 
 app.use(cors());
+app.use("/crm-api", proxyCrmApi);
 app.use(express.json({ limit: "10mb" }));
 
 app.use("/api/health", healthRouter);
@@ -58,6 +60,18 @@ app.use(
   })
 );
 
+app.use(
+  "/crm",
+  express.static(config.paths.crmWebDistDir, {
+    index: false,
+    setHeaders: (res, filePath) => {
+      if (/\.(?:html|js|css|json|svg)$/i.test(filePath)) {
+        res.setHeader("Cache-Control", "no-store");
+      }
+    }
+  })
+);
+
 function sendFrontendApp(req, res) {
   res.setHeader("Cache-Control", "no-store");
   res.sendFile(path.join(config.paths.frontendDir, "index.html"));
@@ -65,6 +79,14 @@ function sendFrontendApp(req, res) {
 
 app.get("/", sendFrontendApp);
 app.get(/^\/workspace(?:\/[^/]+)?\/?$/, sendFrontendApp);
+app.get(/^\/crm(?:\/.*)?$/, (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  res.sendFile(path.join(config.paths.crmWebDistDir, "index.html"));
+});
+app.get(/^\/share\/(?:chat|work)\/[^/]+\/?$/, (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  res.sendFile(path.join(config.paths.frontendDir, "share.html"));
+});
 
 app.use((req, res, next) => {
   next(new AppError("Route not found", 404));

@@ -3,6 +3,10 @@ import multer from "multer";
 import XLSX from "xlsx";
 import AdmZip from "adm-zip";
 import PDFDocument from "pdfkit";
+import {
+  calculateWorkbook,
+  formulaEngineCapabilities
+} from "../services/sheets/formulaEngine.js";
 import { AppError } from "../utils/errors.js";
 
 const router = Router();
@@ -10,6 +14,24 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
     fileSize: 25 * 1024 * 1024
+  }
+});
+
+router.get("/formula-capabilities", (_req, res) => {
+  res.json({ success: true, capabilities: formulaEngineCapabilities() });
+});
+
+router.post("/calculate", (req, res, next) => {
+  try {
+    res.json({
+      success: true,
+      calculation: calculateWorkbook({
+        model: req.body?.model || {},
+        engineId: req.body?.engineId || ""
+      })
+    });
+  } catch (error) {
+    next(error);
   }
 });
 

@@ -185,7 +185,7 @@ router.get("/public", (req, res) => {
         controlEnabled: config.externalHydria.controlEnabled
       },
       crm: {
-        apiUrl: config.crm.apiUrl,
+        apiUrl: config.crm.publicApiUrl,
         webUrl: config.crm.webUrl
       },
       tools: {

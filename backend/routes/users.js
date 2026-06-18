@@ -25,9 +25,13 @@ router.post("/", (req, res) => {
 router.get("/:userId/conversations", (req, res) => {
   res.json({
     success: true,
-    conversations: listConversationsByUser(req.params.userId)
+    conversations: listConversationsByUser(req.params.userId, {
+      search: req.query.search || "",
+      archived: req.query.archived === "1" || req.query.archived === "true",
+      folder: req.query.folder || "",
+      projectId: req.query.projectId || ""
+    })
   });
 });
 
 export default router;
-

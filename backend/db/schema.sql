@@ -9,9 +9,15 @@ CREATE TABLE IF NOT EXISTS conversations (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER NOT NULL,
   title TEXT NOT NULL,
+  archived_at TEXT,
+  folder TEXT DEFAULT '',
+  project_id TEXT DEFAULT '',
+  share_token TEXT,
+  parent_conversation_id INTEGER,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (parent_conversation_id) REFERENCES conversations(id) ON DELETE SET NULL
 );
 
 CREATE TABLE IF NOT EXISTS messages (
@@ -23,8 +29,27 @@ CREATE TABLE IF NOT EXISTS messages (
   route_used TEXT,
   models_used TEXT DEFAULT '[]',
   apis_used TEXT DEFAULT '[]',
+  parent_message_id INTEGER,
+  branch_id TEXT DEFAULT '',
+  citations_json TEXT DEFAULT '[]',
+  status TEXT DEFAULT 'complete',
+  error TEXT DEFAULT '',
+  generation_id TEXT DEFAULT '',
+  updated_at TEXT,
   created_at TEXT NOT NULL,
-  FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+  FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+  FOREIGN KEY (parent_message_id) REFERENCES messages(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS chat_projects (
+  id TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL,
+  name TEXT NOT NULL,
+  description TEXT DEFAULT '',
+  archived_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS user_preferences (
@@ -63,8 +88,8 @@ CREATE TABLE IF NOT EXISTS execution_logs (
 
 CREATE INDEX IF NOT EXISTS idx_conversations_user_id ON conversations(user_id);
 CREATE INDEX IF NOT EXISTS idx_messages_conversation_id ON messages(conversation_id);
+CREATE INDEX IF NOT EXISTS idx_chat_projects_user_id ON chat_projects(user_id);
 CREATE INDEX IF NOT EXISTS idx_preferences_user_id ON user_preferences(user_id);
 CREATE INDEX IF NOT EXISTS idx_memory_user_id ON user_memory(user_id);
 CREATE INDEX IF NOT EXISTS idx_memory_source_conversation ON user_memory(source_conversation_id);
 CREATE INDEX IF NOT EXISTS idx_execution_logs_conversation_id ON execution_logs(conversation_id);
-

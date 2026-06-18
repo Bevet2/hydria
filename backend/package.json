@@ -18,6 +18,8 @@
     "test:visual-workspace:list": "node scripts/visual-workspace-smoke.mjs --list",
     "eval:realworld": "node scripts/realworldBenchmarkEval.mjs",
     "gate:workspace": "node scripts/workspaceToolIntegrationGate.mjs",
+    "gate:work-object-library": "node scripts/workObjectLibraryGate.mjs",
+    "gate:collaboration-formulas": "node scripts/collaborationFormulaGate.mjs",
     "gate:crm-core": "node scripts/crmCoreIntegrationGate.mjs",
     "gate:hydria-interactions": "node scripts/hydriaInteractionsClientGate.mjs",
     "smoke:hydria-core-adapter": "node scripts/hydriaCoreAdapterSmoke.mjs"
@@ -30,6 +32,7 @@
     "docx": "^9.5.1",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
+    "hyperformula": "^3.3.0",
     "mammoth": "^1.8.1",
     "multer": "^2.0.2",
     "pdf-parse": "^1.1.1",
