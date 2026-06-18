@@ -9,6 +9,7 @@ export const WORKSPACE_ICON_SVG = {
   alignMiddle: '<path d="M4 12h16"/><path d="M8 5h8v14H8z"/>',
   alignRight: '<path d="M4 6h16"/><path d="M10 11h10"/><path d="M4 16h16"/><path d="M10 21h10"/>',
   alignTop: '<path d="M5 5h14"/><path d="M8 9h8v10H8z"/>',
+  attachment: '<path d="M8.5 12.5l6.1-6.1a3 3 0 0 1 4.2 4.2l-8.5 8.5a5 5 0 0 1-7.1-7.1l8-8"/><path d="M7.5 15.5l8-8"/>',
   areaChart: '<path d="M4 18l5-7 4 3 4-8 3 12H4z"/><path d="M4 20h16"/>',
   axes: '<path d="M5 4v15h15"/><path d="M5 14h15"/><path d="M10 19v-3"/><path d="M15 19v-6"/><path d="M20 19v-10"/>',
   barChart: '<path d="M4 19h16"/><path d="M6 16h3"/><path d="M6 11h8"/><path d="M6 6h12"/>',
@@ -24,6 +25,7 @@ export const WORKSPACE_ICON_SVG = {
   chevronUp: '<path d="M7 14l5-5 5 5"/>',
   clean: '<path d="M4 20h16"/><path d="M8 17l8-8"/><path d="M10 5l9 9"/><path d="M5 16l3 3"/>',
   close: '<path d="M6 6l12 12"/><path d="M18 6L6 18"/>',
+  code: '<path d="M8 9l-4 3 4 3"/><path d="M16 9l4 3-4 3"/><path d="M14 5l-4 14"/>',
   columnInsert: '<path d="M7 4v16"/><path d="M17 4v16"/><path d="M10 12h4"/><path d="M12 10v4"/>',
   copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><rect x="4" y="4" width="12" height="12" rx="2"/>',
   csv: '<path d="M6 3h9l4 4v14H6z"/><path d="M15 3v5h5"/><path d="M8 15h8"/><path d="M8 18h5"/>',
@@ -33,6 +35,7 @@ export const WORKSPACE_ICON_SVG = {
   divider: '<path d="M4 12h16"/>',
   docx: '<path d="M6 3h9l4 4v14H6z"/><path d="M15 3v5h5"/><path d="M8 12h8"/><path d="M8 16h8"/><path d="M8 19h5"/>',
   duplicate: '<rect x="8" y="8" width="11" height="11" rx="2"/><path d="M5 15V5h10"/>',
+  download: '<path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/>',
   eraser: '<path d="M4 16l8-8 6 6-5 5H7z"/><path d="M12 19h8"/>',
   eyeOff: '<path d="M3 3l18 18"/><path d="M10.6 10.6a2 2 0 0 0 2.8 2.8"/><path d="M9.5 5.3A9.8 9.8 0 0 1 12 5c5 0 8 4 9 7a12 12 0 0 1-2.4 3.7"/><path d="M6.1 6.8A12 12 0 0 0 3 12c1 3 4 7 9 7a9.8 9.8 0 0 0 3.5-.6"/>',
   fileSpreadsheet: '<path d="M6 3h9l4 4v14H6z"/><path d="M15 3v5h5"/><path d="M8 12h9"/><path d="M8 16h9"/><path d="M11 9v10"/>',
@@ -42,6 +45,7 @@ export const WORKSPACE_ICON_SVG = {
   freeze: '<path d="M5 5h14v14H5z"/><path d="M5 10h14"/><path d="M10 5v14"/>',
   function: '<path d="M8 19c2-6 3-10 4-14"/><path d="M5 9h8"/><path d="M14 13l5 5"/><path d="M19 13l-5 5"/>',
   grid: '<rect x="4" y="4" width="16" height="16"/><path d="M4 10h16"/><path d="M4 16h16"/><path d="M10 4v16"/><path d="M16 4v16"/>',
+  group: '<rect x="4" y="4" width="7" height="7" rx="1"/><rect x="13" y="13" width="7" height="7" rx="1"/><path d="M11 7h5a1 1 0 0 1 1 1v5"/><path d="M13 17H8a1 1 0 0 1-1-1v-5"/>',
   image: '<rect x="4" y="5" width="16" height="14" rx="2"/><circle cx="9" cy="10" r="1.5"/><path d="M5 18l5-5 3 3 2-2 4 4"/>',
   insert: '<path d="M12 5v14"/><path d="M5 12h14"/>',
   italic: '<path d="M10 5h8"/><path d="M6 19h8"/><path d="M14 5l-4 14"/>',
@@ -50,6 +54,7 @@ export const WORKSPACE_ICON_SVG = {
   list: '<path d="M8 6h12"/><path d="M8 12h12"/><path d="M8 18h12"/><path d="M4 6h.01"/><path d="M4 12h.01"/><path d="M4 18h.01"/>',
   lock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
   merge: '<rect x="4" y="7" width="16" height="10" rx="1"/><path d="M9 7v10"/><path d="M15 7v10"/><path d="M8 12h8"/><path d="M13 9l3 3-3 3"/><path d="M11 9l-3 3 3 3"/>',
+  maximize: '<path d="M8 3H3v5"/><path d="M3 3l7 7"/><path d="M16 3h5v5"/><path d="M21 3l-7 7"/><path d="M8 21H3v-5"/><path d="M3 21l7-7"/><path d="M16 21h5v-5"/><path d="M21 21l-7-7"/>',
   move: '<path d="M12 3v18"/><path d="M3 12h18"/><path d="M8 7l4-4 4 4"/><path d="M8 17l4 4 4-4"/><path d="M7 8l-4 4 4 4"/><path d="M17 8l4 4-4 4"/>',
   note: '<path d="M5 4h14v12l-5 5H5z"/><path d="M14 16v5"/><path d="M14 16h5"/>',
   number: '<path d="M8 4L6 20"/><path d="M16 4l-2 16"/><path d="M4 9h16"/><path d="M3 15h16"/>',
@@ -60,7 +65,9 @@ export const WORKSPACE_ICON_SVG = {
   percent: '<path d="M19 5L5 19"/><circle cx="7" cy="7" r="2"/><circle cx="17" cy="17" r="2"/>',
   pieChart: '<path d="M11 3v9h9a9 9 0 1 1-9-9z"/><path d="M13 3.2A9 9 0 0 1 20.8 10H13z"/>',
   pivot: '<rect x="4" y="5" width="16" height="14" rx="1"/><path d="M4 10h16"/><path d="M10 5v14"/><path d="M14 14h4"/><path d="M16 12v4"/><path d="M6 7.5h2"/><path d="M12 7.5h6"/>',
+  play: '<path d="M8 5v14l11-7z"/>',
   print: '<path d="M7 8V4h10v4"/><rect x="6" y="14" width="12" height="7"/><path d="M6 18H4a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2"/>',
+  presentation: '<rect x="4" y="4" width="16" height="11" rx="1"/><path d="M12 15v5"/><path d="M8 20h8"/><path d="M9 9l3 2 3-2"/>',
   quote: '<path d="M9 7H5v6h4v4H3v-4a6 6 0 0 1 6-6z"/><path d="M21 7h-4v6h4v4h-6v-4a6 6 0 0 1 6-6z"/>',
   redo: '<path d="M15 7h5v5"/><path d="M20 7c-2.8-2.8-7.2-3-10.2-.4-3.1 2.7-3.2 7.4-.3 10.2 2.1 2.1 5.2 2.7 7.8 1.5"/>',
   refresh: '<path d="M20 12a8 8 0 1 1-2.3-5.7"/><path d="M20 4v6h-6"/>',
@@ -69,6 +76,7 @@ export const WORKSPACE_ICON_SVG = {
   search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="M16 16l4 4"/>',
   shape: '<rect x="4" y="9" width="8" height="8" rx="1"/><circle cx="16" cy="9" r="4"/><path d="M15 14l5 6h-10z"/>',
   sheet: '<path d="M6 3h9l4 4v14H6z"/><path d="M15 3v5h5"/><path d="M8 12h8"/><path d="M8 16h8"/>',
+  sidebar: '<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M14 4v16"/><path d="M7 8h4"/><path d="M7 12h4"/><path d="M7 16h4"/>',
   slicer: '<path d="M4 5h16"/><path d="M7 10h10"/><path d="M9 15h6"/><path d="M11 20h2"/>',
   sort: '<path d="M8 5v14"/><path d="M5 8l3-3 3 3"/><path d="M16 19V5"/><path d="M13 16l3 3 3-3"/>',
   sortAsc: '<path d="M8 5v14"/><path d="M5 8l3-3 3 3"/><path d="M14 7h6"/><path d="M14 12h4"/><path d="M14 17h2"/>',
@@ -515,11 +523,7 @@ export function renderWorkspaceNestedMenuItems(
           return;
         }
         if (hasSubmenu) {
-          if (row.classList.contains(itemOpenClassName)) {
-            row.classList.remove(itemOpenClassName);
-          } else {
-            openSubmenu?.(row, host);
-          }
+          openSubmenu?.(row, host);
           return;
         }
         closeMenu?.();

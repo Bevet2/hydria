@@ -130,3 +130,19 @@ export function createDashboardWorkspaceCommandAdapter(operations = {}) {
     dashboardRefresh: () => call("refresh")
   };
 }
+
+export function createPresentationWorkspaceCommandAdapter(operations = {}) {
+  const call = (name = "", ...args) => callWorkspaceOperation(operations, name, ...args);
+
+  // Slides shares the command dispatcher with Docs, Sheets and Dashboard, but
+  // keeps deck-specific mutations in the presentation model.
+  return {
+    slideAdd: () => call("addSlide"),
+    slideDuplicate: () => call("duplicateSlide"),
+    slideDelete: () => call("deleteSlide"),
+    slideMoveLeft: () => call("moveSlide", -1),
+    slideMoveRight: () => call("moveSlide", 1),
+    slideLayout: (_command, { value = "" } = {}) => call("setLayout", value),
+    slideTheme: (_command, { value = "" } = {}) => call("setTheme", value)
+  };
+}

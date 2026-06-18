@@ -2,6 +2,15 @@ export const WORKSPACE_ROUTE_PREFIX = "/workspace/";
 
 export const WORKSPACE_PAGES = Object.freeze([
   {
+    slug: "chat",
+    kind: "project",
+    family: "ai_agent",
+    label: "Chat",
+    title: "Chat",
+    description: "Talk directly with Hydria Core.",
+    hint: "Open chat"
+  },
+  {
     slug: "docs",
     kind: "document",
     family: "document_knowledge",
@@ -41,10 +50,10 @@ export const WORKSPACE_PAGES = Object.freeze([
     slug: "crm",
     kind: "project",
     family: "crm_sales",
-    label: "CRM",
-    title: "CRM",
-    description: "Manage contacts, companies, deals and sales follow-up in a dedicated workspace.",
-    hint: "Create a CRM workspace"
+    label: "Hydria CRM",
+    title: "Hydria CRM",
+    description: "Manage contacts, companies, deals and sales follow-up directly in Hydria CRM.",
+    hint: "Open Hydria CRM"
   },
   {
     slug: "automation",

@@ -19,6 +19,7 @@ import {
 } from "./components/workspacePanel.js";
 import {
   createDashboardWorkspaceCommandAdapter,
+  createPresentationWorkspaceCommandAdapter,
   createWorkspaceLens,
   createWorkspaceCommandExecutor,
   createWorkspaceDashboardHomeMenuItems,
@@ -33,6 +34,14 @@ import {
   workspacePagePath
 } from "./components/workspaceSharedCommands.js";
 import { apiClient } from "./services/apiClient.js";
+import {
+  applyCollaborationOperation,
+  buildCollaborationOperation,
+  collaborationClientId,
+  collaborationQueueSize,
+  queueCollaborationOperation,
+  replayCollaborationOperations
+} from "./services/collaborationClient.js";
 import { sessionStore } from "./services/sessionStore.js";
 
 const initialWorkspacePage = parseWorkspacePagePath();
@@ -83,6 +92,49 @@ const state = {
   workspacePageSlug: initialWorkspacePage?.slug || "",
   routeHydrating: true,
   routeTransitioning: false,
+  coreChatLoading: false,
+  coreChatAttachments: [],
+  coreChatPendingMessages: [],
+  coreChatStreamingText: "",
+  coreChatGenerationId: "",
+  coreChatStatus: "",
+  coreChatModel: "hydria-core",
+  coreChatToolMode: "auto",
+  coreChatCatalog: { models: [], tools: [] },
+  chatProjects: [],
+  conversationTree: [],
+  currentChatProjectId: "",
+  currentConversationFolder: "",
+  conversationSearch: "",
+  showArchivedConversations: false,
+  workspaceLibraryQuery: "",
+  workspaceLibraryShowArchived: false,
+  workspaceLibraryShowTrash: false,
+  workspaceLibrarySearchResults: [],
+  workspacePresence: [],
+  workspaceRemoteRevision: null,
+  collaborationVersion: 0,
+  collaborationPersistedRevision: 0,
+  collaborationServerContent: "",
+  collaborationClientId: collaborationClientId(),
+  collaborationQueueSize: collaborationQueueSize(),
+  collaborationApplyingRemote: false,
+  sheetCalculation: null,
+  sheetCalculationEngineId: "",
+  presentationClipboard: null,
+  presentationZoom: 1,
+  presentationRibbonTab: "home",
+  presentationSelectedElementIds: [],
+  presentationSelectionCleared: false,
+  presentationFormatBrush: null,
+  presentationUndoStack: [],
+  presentationRedoStack: [],
+  presentationShowGrid: false,
+  presentationShowGuides: false,
+  presentationSnapToGrid: false,
+  presentationShowSlideRail: true,
+  presentationShowInspector: false,
+  offline: !navigator.onLine,
   ready: false,
   bootPromise: null
 };
@@ -91,6 +143,16 @@ const el = {};
 let workspacePreviewExpandedPlaceholder = null;
 let workspacePreviewExpandedOverlay = null;
 let workspacePreviewExpandedFrame = null;
+let workspaceLibrarySearchHandle = null;
+let workspacePresenceHandle = null;
+let workspaceEventSource = null;
+let workspaceCursorHandle = null;
+let collaborationSyncHandle = null;
+let collaborationPendingChange = null;
+let collaborationSending = null;
+let sheetCalculationHandle = null;
+let sheetCalculationRequestId = 0;
+let presentationKeyboardHandler = null;
 
 function createDashboardCommandButton(item = {}, executeCommand = null) {
   return createWorkspaceMenuActionButton(item, {
@@ -432,6 +494,13 @@ async function activateWorkspacePage(page = null, { historyMode = "push" } = {})
       return;
     }
 
+    if (page.slug === "chat") {
+      await flushPendingWorkObjectChanges();
+      clearCurrentWorkObjectState();
+      renderWorkspace();
+      return;
+    }
+
     const currentPage = workspacePageForWorkObject(state.currentWorkObject);
     if (currentPage?.slug === page.slug) {
       renderWorkspace();
@@ -625,6 +694,53 @@ function currentEditorKey() {
   ].join("::");
 }
 
+function localDraftStorageKey(
+  workObjectId = state.currentWorkObjectId,
+  entryPath = state.currentWorkObjectFile
+) {
+  return `hydria-work-object-draft:${workObjectId || ""}:${entryPath || ""}`;
+}
+
+function persistLocalWorkspaceDraft() {
+  if (!state.currentWorkObjectId || !state.currentWorkObjectFile) {
+    return;
+  }
+  if (!state.editorDirty) {
+    localStorage.removeItem(localDraftStorageKey());
+    return;
+  }
+  localStorage.setItem(
+    localDraftStorageKey(),
+    JSON.stringify({
+      content: state.editorDraft,
+      revision: state.currentWorkObject?.revision || 1,
+      savedAt: new Date().toISOString()
+    })
+  );
+}
+
+function restoreLocalWorkspaceDraft() {
+  const raw = localStorage.getItem(localDraftStorageKey());
+  if (!raw) {
+    return false;
+  }
+  try {
+    const draft = JSON.parse(raw);
+    if (typeof draft.content !== "string" || draft.content === currentEditorBaseline()) {
+      localStorage.removeItem(localDraftStorageKey());
+      return false;
+    }
+    state.editorDirty = true;
+    state.editorDraft = draft.content;
+    state.editorDraftKey = currentEditorKey();
+    setStatus(`Brouillon local restaure (${new Date(draft.savedAt).toLocaleString()}).`);
+    return true;
+  } catch {
+    localStorage.removeItem(localDraftStorageKey());
+    return false;
+  }
+}
+
 function currentDraftContent() {
   if (usesWholeFileStructuredEditing()) {
     if (state.editorDirty && state.editorDraftKey === currentEditorKey()) {
@@ -678,20 +794,34 @@ function updateDocumentPreviewInline(nextMarkdown = "") {
 }
 
 function updatePresentationPreviewInline(slideId = "", payload = {}) {
-  const slide = state.currentSections.find((section) => section.id === slideId) || currentSection();
-  if (slideId) {
-    state.currentSectionId = slideId;
-  }
+  const content = normalizePresentationSourceText(currentDraftContent());
+  const deck = derivePresentationDeck(content, state.currentWorkObject?.title || "Untitled presentation");
+  const slideSections = deriveWorkspaceSections(content, state.currentWorkObjectFile || "slides.md")
+    .filter((section) => isPresentationSection(section));
+  const activeIndex = Math.max(
+    0,
+    slideSections.findIndex((section) => section.id === (slideId || state.currentSectionId))
+  );
+  const nextSlides = deck.slides.map((slide, index) => {
+    if (index !== activeIndex) {
+      return slide;
+    }
+    return {
+      ...slide,
+      title:
+        String(payload.title || slide.title || "Slide").replace(/^slide\s+\d+\s*-\s*/i, "").trim() ||
+        "Slide",
+      body: normalizeEditorText(payload.body || "").trim()
+    };
+  });
+  const nextContent = buildPresentationContent({ title: deck.title, slides: nextSlides });
+  state.currentSectionId = presentationSectionIdForIndex(nextContent, activeIndex);
   state.currentBlockId = "";
-  const nextTitle =
-    String(payload.title || slide?.title || "Slide").replace(/^slide\s+\d+\s*-\s*/i, "").trim() ||
-    "Slide";
-  const nextBody = normalizeEditorText(payload.body || "").trim();
-  const nextBlock = nextBody ? `## ${nextTitle}\n\n${nextBody}` : `## ${nextTitle}`;
-  syncPreviewInlineDraft(nextBlock);
+  syncPreviewInlineDraft(nextContent);
 }
 
 function updateSpreadsheetDraftFromPreview(model = {}, options = {}) {
+  scheduleSheetCalculation(model);
   syncEditorDraft(buildSpreadsheetContent(model), {
     forceEditMode: false,
     refreshWorkspace: Boolean(options.refreshWorkspace),
@@ -895,14 +1025,19 @@ function currentSurfaceModel() {
 }
 
 function buildSurfaceList(workObject = null) {
-  const surfaces = Array.isArray(workObject?.surfaceModel?.availableSurfaces)
+  let surfaces = Array.isArray(workObject?.surfaceModel?.availableSurfaces)
     ? workObject.surfaceModel.availableSurfaces.filter(Boolean)
     : [];
+  const kind = String(workObject?.objectKind || workObject?.kind || "").toLowerCase();
   const familyId = String(
     workObject?.workspaceFamilyId ||
       workObject?.environmentPlan?.workspaceFamilyId ||
       ""
   ).toLowerCase();
+
+  if (kind === "presentation" || familyId === "presentation") {
+    surfaces = surfaces.filter((surface) => surface.id !== "preview");
+  }
 
   if (
     familyId !== "document_knowledge" ||
@@ -1118,7 +1253,7 @@ function currentDatasetWorkspaceProfile() {
       computedPanelHint: "Expose totals, averages and the main numeric drivers."
     },
     crm_sales: {
-      workspaceLabel: "CRM workspace",
+      workspaceLabel: "Hydria CRM workspace",
       heroCopy: "Track leads, accounts, opportunities, products, quotes and forecasts like a complete sales CRM.",
       sheetName: "Pipeline",
       tabs: ["Pipeline", "Leads", "Forecast", "Quotes", "Summary"],
@@ -2000,8 +2135,640 @@ function isPresentationSection(section = null) {
   return Boolean(section && section.id !== "whole-file" && Number(section.level || 0) >= 2);
 }
 
+const PRESENTATION_SLIDE_LAYOUTS = Object.freeze([
+  { value: "title", label: "Title" },
+  { value: "content", label: "Content" },
+  { value: "bullets", label: "Bullets" },
+  { value: "two-column", label: "Two columns" },
+  { value: "comparison", label: "Comparison" },
+  { value: "quote", label: "Quote" },
+  { value: "image", label: "Image" },
+  { value: "section", label: "Section break" }
+]);
+
+const PRESENTATION_SLIDE_THEMES = Object.freeze([
+  { value: "default", label: "Neutral" },
+  { value: "product", label: "Product" },
+  { value: "problem", label: "Problem" },
+  { value: "proof", label: "Proof" },
+  { value: "roadmap", label: "Roadmap" },
+  { value: "insight", label: "Insight" }
+]);
+
+const PRESENTATION_SLIDE_TRANSITIONS = Object.freeze([
+  { value: "none", label: "None" },
+  { value: "fade", label: "Fade" },
+  { value: "push", label: "Push" },
+  { value: "wipe", label: "Wipe" },
+  { value: "split", label: "Split" },
+  { value: "zoom", label: "Zoom" }
+]);
+
+const PRESENTATION_SLIDE_BACKGROUNDS = Object.freeze([
+  { value: "#ffffff", label: "White" },
+  { value: "#f8fafc", label: "Soft gray" },
+  { value: "#eff6ff", label: "Blue tint" },
+  { value: "#f0fdf4", label: "Green tint" },
+  { value: "#fff7ed", label: "Warm tint" },
+  { value: "#111827", label: "Dark" }
+]);
+
+const PRESENTATION_ELEMENT_TYPES = Object.freeze(["title", "text", "shape", "image", "table", "chart", "icon", "video", "code", "equation"]);
+const PRESENTATION_SHAPE_TYPES = Object.freeze(["rectangle", "round-rect", "ellipse", "line", "callout", "triangle", "diamond", "arrow"]);
+const PRESENTATION_TEXT_ALIGNMENTS = Object.freeze(["left", "center", "right"]);
+const PRESENTATION_CHART_TYPES = Object.freeze(["bar", "column", "line", "pie"]);
+const PRESENTATION_ELEMENT_ANIMATIONS = Object.freeze([
+  { value: "none", label: "None" },
+  { value: "fade", label: "Fade" },
+  { value: "rise", label: "Rise" },
+  { value: "zoom", label: "Zoom" },
+  { value: "wipe", label: "Wipe" }
+]);
+const PRESENTATION_FONT_OPTIONS = Object.freeze([
+  { value: "", label: "Default" },
+  { value: "Arial, sans-serif", label: "Arial" },
+  { value: "Calibri, Candara, Segoe, sans-serif", label: "Calibri" },
+  { value: "Georgia, serif", label: "Georgia" },
+  { value: "Impact, sans-serif", label: "Impact" },
+  { value: "\"IBM Plex Sans\", sans-serif", label: "IBM Plex" },
+  { value: "\"Times New Roman\", serif", label: "Times" },
+  { value: "Verdana, sans-serif", label: "Verdana" }
+]);
+const PRESENTATION_DECK_TEMPLATES = Object.freeze([
+  {
+    id: "web-product",
+    label: "Web pitch",
+    theme: "product",
+    background: "#ffffff",
+    accent: "#2563eb",
+    titleColor: "#111827",
+    bodyColor: "#334155",
+    fontFamily: "\"IBM Plex Sans\", sans-serif",
+    transition: "fade"
+  },
+  {
+    id: "ai-report",
+    label: "AI report",
+    theme: "insight",
+    background: "#f8fafc",
+    accent: "#0f766e",
+    titleColor: "#102a43",
+    bodyColor: "#334e68",
+    fontFamily: "Arial, sans-serif",
+    transition: "push"
+  },
+  {
+    id: "business-native",
+    label: "Native PPTX",
+    theme: "proof",
+    background: "#ffffff",
+    accent: "#1d4ed8",
+    titleColor: "#172033",
+    bodyColor: "#344054",
+    fontFamily: "Calibri, Candara, Segoe, sans-serif",
+    transition: "none"
+  },
+  {
+    id: "interactive-class",
+    label: "Interactive",
+    theme: "roadmap",
+    background: "#eff6ff",
+    accent: "#7c3aed",
+    titleColor: "#1e1b4b",
+    bodyColor: "#334155",
+    fontFamily: "Verdana, sans-serif",
+    transition: "zoom"
+  }
+]);
+const PRESENTATION_SLIDE_META_PATTERN = /^<!--\s*hydria-slide:\s*(\{[\s\S]*\})\s*-->\s*$/i;
+
+function normalizePresentationSourceText(value = "") {
+  const text = normalizeEditorText(value);
+  const actualLineBreaks = (text.match(/\n/g) || []).length;
+  if (actualLineBreaks < 2 && /\\n/.test(text)) {
+    return text.replace(/\\n/g, "\n");
+  }
+  return text;
+}
+
+function presentationOptionValue(options = [], value = "", fallback = "") {
+  const normalized = String(value || "").trim().toLowerCase();
+  return options.some((option) => option.value === normalized) ? normalized : fallback;
+}
+
+function normalizePresentationLayout(value = "") {
+  return presentationOptionValue(PRESENTATION_SLIDE_LAYOUTS, value, "content");
+}
+
+function normalizePresentationTheme(value = "") {
+  return presentationOptionValue(PRESENTATION_SLIDE_THEMES, value, "default");
+}
+
+function normalizePresentationTransition(value = "") {
+  return presentationOptionValue(PRESENTATION_SLIDE_TRANSITIONS, value, "none");
+}
+
+function clampPresentationNumber(value, min, max, fallback) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) {
+    return fallback;
+  }
+  return Math.max(min, Math.min(max, number));
+}
+
+function normalizePresentationColor(value = "", fallback = "#ffffff") {
+  const text = String(value || "").trim();
+  if (!text) {
+    return fallback;
+  }
+  if (
+    /^#[0-9a-f]{3,8}$/i.test(text) ||
+    /^rgba?\([\d\s.,%]+\)$/i.test(text) ||
+    /^hsla?\([\d\s.,%]+\)$/i.test(text) ||
+    text === "transparent"
+  ) {
+    return text;
+  }
+  return fallback;
+}
+
+function createPresentationElementId(prefix = "element") {
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function parsePresentationSlideMetaLine(line = "") {
+  const match = String(line || "").trim().match(PRESENTATION_SLIDE_META_PATTERN);
+  if (!match) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(match[1]);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function stripPresentationInternalMeta(value = "") {
+  return normalizeEditorText(value)
+    .split("\n")
+    .filter((line) => !parsePresentationSlideMetaLine(line))
+    .join("\n")
+    .trim();
+}
+
+function inferPresentationSlideLayout(title = "", body = "") {
+  const text = `${title}\n${body}`.toLowerCase();
+  const visibleLines = stripPresentationInternalMeta(body)
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const bulletCount = visibleLines.filter((line) => /^[-*]\s+/.test(line) || /^\d+\.\s+/.test(line)).length;
+  const wordCount = countWords(visibleLines.join(" "));
+
+  if (visibleLines.some((line) => /^>\s+/.test(line))) {
+    return "quote";
+  }
+  if (/(https?:\/\/\S+\.(?:png|jpe?g|gif|webp|svg)|\bimage\s*:)/i.test(body)) {
+    return "image";
+  }
+  if (visibleLines.some((line) => /\s\|\s/.test(line)) || /\b(vs|versus|compare|comparison|comparaison)\b/i.test(text)) {
+    return "comparison";
+  }
+  if (bulletCount >= 3) {
+    return "bullets";
+  }
+  if (visibleLines.length >= 4) {
+    return "two-column";
+  }
+  if (wordCount <= 18) {
+    return "title";
+  }
+  return "content";
+}
+
+function inferPresentationSlideTheme(title = "", body = "") {
+  const text = `${title}\n${body}`.toLowerCase();
+  if (/\b(why|problem|pain|risk|risque|enjeu|opportunity|opportunite)\b/.test(text)) {
+    return "problem";
+  }
+  if (/\b(product|demo|feature|workflow|interface|produit|fonction)\b/.test(text)) {
+    return "product";
+  }
+  if (/\b(proof|metric|kpi|signal|traction|evidence|preuve|mesure|resultat)\b/.test(text)) {
+    return "proof";
+  }
+  if (/\b(next|roadmap|milestone|timeline|plan|suite|jalon)\b/.test(text)) {
+    return "roadmap";
+  }
+  if (/\b(insight|analysis|data|learned|analyse|donnee|signal)\b/.test(text)) {
+    return "insight";
+  }
+  return "default";
+}
+
+function presentationDefaultBackground(theme = "default") {
+  switch (theme) {
+    case "problem":
+      return "#fff7ed";
+    case "proof":
+      return "#f0fdf4";
+    case "roadmap":
+      return "#eff6ff";
+    case "insight":
+      return "#f8fafc";
+    case "product":
+      return "#ffffff";
+    default:
+      return "#ffffff";
+  }
+}
+
+function presentationVisibleLines(body = "") {
+  return stripPresentationInternalMeta(body)
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function presentationBulletsFromBody(body = "") {
+  return presentationVisibleLines(body)
+    .filter((line) => /^[-*]\s+/.test(line) || /^\d+\.\s+/.test(line))
+    .map((line) => line.replace(/^[-*]\s+|^\d+\.\s+/, "").trim())
+    .filter(Boolean);
+}
+
+function presentationParagraphsFromBody(body = "") {
+  return presentationVisibleLines(body)
+    .filter((line) => !/^[-*]\s+/.test(line) && !/^\d+\.\s+/.test(line))
+    .map((line) => line.replace(/^>\s+/, "").trim())
+    .filter(Boolean);
+}
+
+function createDefaultPresentationElements({ title = "", body = "", layout = "content", image = "", cta = "" } = {}) {
+  const paragraphs = presentationParagraphsFromBody(body);
+  const bullets = presentationBulletsFromBody(body);
+  const bodyText = bullets.length
+    ? bullets.map((item) => `- ${item}`).join("\n")
+    : paragraphs.join("\n") || "Main point";
+  const elements = [
+    {
+      id: "title",
+      type: "title",
+      text: title || "Slide title",
+      x: layout === "section" ? 12 : 7,
+      y: layout === "section" ? 34 : 10,
+      w: layout === "section" ? 76 : 80,
+      h: layout === "section" ? 18 : 22,
+      fontSize: layout === "section" ? 46 : 34,
+      bold: true,
+      color: "#111827",
+      fill: "transparent",
+      stroke: "transparent",
+      align: layout === "section" ? "center" : "left"
+    }
+  ];
+
+  if (layout !== "section") {
+    elements.push({
+      id: "body",
+      type: "text",
+      text: bodyText,
+      x: 7,
+      y: layout === "title" ? 40 : 30,
+      w: layout === "two-column" || layout === "image" ? 42 : 58,
+      h: layout === "title" ? 20 : 36,
+      fontSize: bullets.length ? 22 : 20,
+      color: "#374151",
+      fill: "transparent",
+      stroke: "transparent",
+      align: "left"
+    });
+  }
+
+  if (layout === "two-column") {
+    const secondColumnText = paragraphs.slice(2).join("\n") || bullets.slice(2).map((item) => `- ${item}`).join("\n") || "Second idea";
+    elements.push({
+      id: "column-2",
+      type: "text",
+      text: secondColumnText,
+      x: 54,
+      y: 28,
+      w: 38,
+      h: 36,
+      fontSize: 20,
+      color: "#374151",
+      fill: "#f8fafc",
+      stroke: "#e5e7eb",
+      align: "left"
+    });
+  }
+
+  if (layout === "comparison") {
+    elements.push(
+      {
+        id: "compare-left",
+        type: "shape",
+        shape: "rectangle",
+        text: paragraphs[0] || bullets[0] || "Option A",
+        x: 7,
+        y: 35,
+        w: 40,
+        h: 32,
+        fontSize: 20,
+        color: "#111827",
+        fill: "#eff6ff",
+        stroke: "#bfdbfe",
+        align: "center"
+      },
+      {
+        id: "compare-right",
+        type: "shape",
+        shape: "rectangle",
+        text: paragraphs[1] || bullets[1] || "Option B",
+        x: 53,
+        y: 35,
+        w: 40,
+        h: 32,
+        fontSize: 20,
+        color: "#111827",
+        fill: "#f0fdf4",
+        stroke: "#bbf7d0",
+        align: "center"
+      }
+    );
+  }
+
+  if (layout === "image" || image) {
+    elements.push({
+      id: "image",
+      type: "image",
+      src: image,
+      text: "Image",
+      x: 56,
+      y: 25,
+      w: 36,
+      h: 44,
+      fill: "#f8fafc",
+      stroke: "#cbd5e1"
+    });
+  }
+
+  if (cta) {
+    elements.push({
+      id: "cta",
+      type: "shape",
+      shape: "callout",
+      text: cta,
+      x: 62,
+      y: 74,
+      w: 30,
+      h: 12,
+      fontSize: 14,
+      bold: true,
+      color: "#0f172a",
+      fill: "#dbeafe",
+      stroke: "#93c5fd",
+      align: "center"
+    });
+  }
+
+  return elements;
+}
+
+function normalizePresentationElement(element = {}, index = 0, fallback = {}) {
+  const type = PRESENTATION_ELEMENT_TYPES.includes(String(element.type || "").toLowerCase())
+    ? String(element.type || "").toLowerCase()
+    : "text";
+  const shape = PRESENTATION_SHAPE_TYPES.includes(String(element.shape || "").toLowerCase())
+    ? String(element.shape || "").toLowerCase()
+    : "rectangle";
+  const align = PRESENTATION_TEXT_ALIGNMENTS.includes(String(element.align || "").toLowerCase())
+    ? String(element.align || "").toLowerCase()
+    : "left";
+  const chartType = PRESENTATION_CHART_TYPES.includes(String(element.chartType || "").toLowerCase())
+    ? String(element.chartType || "").toLowerCase()
+    : "bar";
+  return {
+    id: String(element.id || `${type}-${index + 1}`).trim() || `${type}-${index + 1}`,
+    type,
+    shape,
+    chartType,
+    groupId: String(element.groupId || "").trim(),
+    locked: Boolean(element.locked),
+    text: String(element.text ?? fallback.text ?? ""),
+    src: String(element.src || element.image || element.imageUrl || "").trim(),
+    x: clampPresentationNumber(element.x, 0, 100, fallback.x ?? 8),
+    y: clampPresentationNumber(element.y, 0, 100, fallback.y ?? 18),
+    w: clampPresentationNumber(element.w ?? element.width, 3, 100, fallback.w ?? 42),
+    h: clampPresentationNumber(element.h ?? element.height, 3, 100, fallback.h ?? 16),
+    z: clampPresentationNumber(element.z, 0, 1000, index),
+    fontSize: clampPresentationNumber(element.fontSize, 8, 96, type === "title" ? 38 : 20),
+    fontFamily: String(element.fontFamily || "").trim(),
+    bold: Boolean(element.bold || type === "title"),
+    italic: Boolean(element.italic),
+    underline: Boolean(element.underline),
+    align,
+    color: normalizePresentationColor(element.color, type === "shape" || type === "chart" ? "#111827" : "#374151"),
+    fill: normalizePresentationColor(
+      element.fill || element.background,
+      type === "shape" || type === "table" || type === "chart" || type === "code" ? "#ffffff" : "transparent"
+    ),
+    stroke: normalizePresentationColor(
+      element.stroke || element.borderColor,
+      type === "shape" || type === "image" || type === "table" || type === "chart" || type === "video" || type === "code"
+        ? "#cbd5e1"
+        : "transparent"
+    ),
+    strokeWidth: clampPresentationNumber(
+      element.strokeWidth ?? element.borderWidth,
+      0,
+      8,
+      type === "shape" || type === "image" || type === "table" || type === "chart" || type === "video" || type === "code" ? 1 : 0
+    ),
+    opacity: clampPresentationNumber(element.opacity, 0.1, 1, 1),
+    rotation: clampPresentationNumber(element.rotation, -180, 180, 0),
+    flipX: Boolean(element.flipX),
+    flipY: Boolean(element.flipY),
+    animation: PRESENTATION_ELEMENT_ANIMATIONS.some((animation) => animation.value === String(element.animation || "").toLowerCase())
+      ? String(element.animation || "").toLowerCase()
+      : "none",
+    cropX: clampPresentationNumber(element.cropX ?? element.objectPositionX, 0, 100, 50),
+    cropY: clampPresentationNumber(element.cropY ?? element.objectPositionY, 0, 100, 50),
+    zoom: clampPresentationNumber(element.zoom ?? element.cropZoom, 1, 4, 1)
+  };
+}
+
+function presentationElementDuplicateSignature(element = {}) {
+  const signatureKeys = [
+    "type",
+    "shape",
+    "text",
+    "src",
+    "chartType",
+    "x",
+    "y",
+    "w",
+    "h",
+    "fontSize",
+    "fontFamily",
+    "bold",
+    "italic",
+    "underline",
+    "align",
+    "color",
+    "fill",
+    "stroke",
+    "strokeWidth",
+    "opacity",
+    "rotation",
+    "flipX",
+    "flipY",
+    "animation",
+    "cropX",
+    "cropY",
+    "zoom"
+  ];
+  return signatureKeys.map((key) => `${key}:${String(element[key] ?? "")}`).join("|");
+}
+
+function normalizePresentationElements(elements = [], context = {}) {
+  const source = Array.isArray(elements) && elements.length
+    ? elements
+    : createDefaultPresentationElements(context);
+  const seenIds = new Set();
+  return source.map((element, index) => {
+    const normalized = normalizePresentationElement(element, index);
+    const baseId = normalized.id || `${normalized.type}-${index + 1}`;
+    let nextId = baseId;
+    let suffix = 2;
+    while (seenIds.has(nextId)) {
+      nextId = `${baseId}-${suffix}`;
+      suffix += 1;
+    }
+    seenIds.add(nextId);
+    return nextId === normalized.id ? normalized : { ...normalized, id: nextId };
+  });
+}
+
+function parsePresentationTableText(value = "") {
+  const rows = normalizeEditorText(value)
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) =>
+      line
+        .split(/\s*\|\s*|,/)
+        .map((cell) => cell.trim())
+        .filter((cell, index, cells) => cell || cells.length <= 1 || index === 0)
+    )
+    .filter((row) => row.length);
+  if (!rows.length) {
+    return {
+      headers: ["Column", "Value"],
+      rows: [["Item", "0"]]
+    };
+  }
+  const width = Math.max(...rows.map((row) => row.length));
+  const normalizedRows = rows.map((row) => Array.from({ length: width }, (_, index) => row[index] || ""));
+  return {
+    headers: normalizedRows[0],
+    rows: normalizedRows.slice(1)
+  };
+}
+
+function parsePresentationChartText(value = "") {
+  const items = normalizeEditorText(value)
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line, index) => {
+      const parts = line.split(/\s*\|\s*|,/).map((part) => part.trim()).filter(Boolean);
+      const label = parts.length > 1 ? parts[0] : `Item ${index + 1}`;
+      const numericSource = parts.length > 1 ? parts[1] : parts[0];
+      const valueNumber = Number(String(numericSource || "").replace(/[^\d.-]/g, ""));
+      return {
+        label,
+        value: Number.isFinite(valueNumber) ? valueNumber : index + 1
+      };
+    })
+    .filter((item) => item.label);
+  return items.length
+    ? items
+    : [
+        { label: "North", value: 42 },
+        { label: "South", value: 28 },
+        { label: "West", value: 18 }
+      ];
+}
+
+function presentationElementIconName(element = {}) {
+  if (element.type === "image") return "image";
+  if (element.type === "table") return "table";
+  if (element.type === "chart") return element.chartType === "line" ? "lineChart" : element.chartType === "pie" ? "pieChart" : "chart";
+  if (element.type === "video") return "play";
+  if (element.type === "code") return "code";
+  if (element.type === "equation") return "function";
+  if (element.type === "icon") return "shape";
+  if (element.shape === "line") return "lineChart";
+  if (element.type === "shape") return "shape";
+  return "text";
+}
+
+function normalizePresentationSlideMeta(meta = {}, { title = "", body = "" } = {}) {
+  const inferredLayout = inferPresentationSlideLayout(title, body);
+  const inferredTheme = inferPresentationSlideTheme(title, body);
+  const layout = normalizePresentationLayout(meta.layout || inferredLayout);
+  const theme = normalizePresentationTheme(meta.theme || inferredTheme);
+  const image = String(meta.image || meta.imageUrl || "").trim();
+  const cta = String(meta.cta || meta.nextStep || "").trim();
+  return {
+    layout,
+    theme,
+    background: normalizePresentationColor(meta.background || meta.backgroundColor, presentationDefaultBackground(theme)),
+    transition: normalizePresentationTransition(meta.transition),
+    transitionDuration: clampPresentationNumber(meta.transitionDuration ?? meta.duration, 0.1, 10, 1),
+    notes: String(meta.notes || meta.speakerNotes || "").trim(),
+    image,
+    cta,
+    elements: normalizePresentationElements(meta.elements, { title, body, layout, image, cta })
+  };
+}
+
+function splitPresentationSlideLines(lines = []) {
+  const metadata = {};
+  const bodyLines = [];
+
+  for (const rawLine of lines) {
+    const parsedMeta = parsePresentationSlideMetaLine(rawLine);
+    if (parsedMeta) {
+      Object.assign(metadata, parsedMeta);
+      continue;
+    }
+    bodyLines.push(rawLine);
+  }
+
+  return { metadata, bodyLines };
+}
+
+function buildPresentationSlideMetaComment(slide = {}) {
+  const meta = normalizePresentationSlideMeta(slide, {
+    title: slide.title || "",
+    body: slide.body || ""
+  });
+  return `<!-- hydria-slide: ${JSON.stringify(meta)} -->`;
+}
+
+function presentationSectionIdForIndex(content = "", slideIndex = 0) {
+  const sections = deriveWorkspaceSections(content, state.currentWorkObjectFile || "slides.md")
+    .filter((section) => isPresentationSection(section));
+  const safeIndex = Math.max(0, Math.min(sections.length - 1, Number(slideIndex || 0)));
+  return sections[safeIndex]?.id || "";
+}
+
 function derivePresentationDeck(content = "", fallbackTitle = "Untitled presentation") {
-  const text = normalizeEditorText(content);
+  const text = normalizePresentationSourceText(content);
   const lines = text.split("\n");
   const titleLine = lines.find((line) => /^#\s+/.test(line.trim()));
   const deckTitle = titleLine ?titleLine.trim().replace(/^#\s+/, "") : fallbackTitle;
@@ -2032,16 +2799,29 @@ function derivePresentationDeck(content = "", fallbackTitle = "Untitled presenta
   }
 
   const slides = sections.length
-    ?sections.map((slide, index) => ({
-        id: `slide-${index + 1}`,
-        title: slide.title || `Slide ${index + 1}`,
-        body: slide.bodyLines.join("\n").trim()
-      }))
+    ?sections.map((slide, index) => {
+        const parsed = splitPresentationSlideLines(slide.bodyLines);
+        const rawBody = parsed.bodyLines.join("\n");
+        const title = slide.title || `Slide ${index + 1}`;
+        return {
+          id: `slide-${index + 1}`,
+          title,
+          body: stripPresentationInternalMeta(rawBody),
+          ...normalizePresentationSlideMeta(parsed.metadata, {
+            title,
+            body: rawBody
+          })
+        };
+      })
     : [
         {
           id: "slide-1",
           title: "Slide 1",
-          body: "Add the main message here."
+          body: "Add the main message here.",
+          ...normalizePresentationSlideMeta({ layout: "title", theme: "default" }, {
+            title: "Slide 1",
+            body: "Add the main message here."
+          })
         }
       ];
 
@@ -2724,7 +3504,12 @@ function buildPresentationContent({ title = "Untitled presentation", slides = []
     : [
         {
           title: "Slide 1",
-          body: "Add the first key message here."
+          body: "Add the first key message here.",
+          layout: "title",
+          theme: "default",
+          notes: "",
+          image: "",
+          cta: ""
         }
       ];
 
@@ -2733,7 +3518,8 @@ function buildPresentationContent({ title = "Untitled presentation", slides = []
     "",
     ...safeSlides.flatMap((slide, index) => [
       `## Slide ${index + 1} - ${String(slide.title || "Untitled slide").trim()}`,
-      String(slide.body || "").trim() || "Add the main point here.",
+      buildPresentationSlideMetaComment(slide),
+      stripPresentationInternalMeta(slide.body || "") || "Add the main point here.",
       ""
     ])
   ]
@@ -2758,7 +3544,8 @@ function isRuntimeTrackedFile(filePath = state.currentWorkObjectFile) {
 }
 
 function setWorkspaceMode(mode = "view") {
-  state.workspaceMode = ["view", "edit"].includes(mode) ?mode : "view";
+  const nextMode = ["view", "edit"].includes(mode) ? mode : "view";
+  state.workspaceMode = nextMode === "view" && isPresentationWorkspace() ? "edit" : nextMode;
 }
 
 function setCopilotOpen(flag) {
@@ -2840,6 +3627,10 @@ function renderWorkspaceModeNav() {
   }
 
   container.innerHTML = "";
+  container.classList.toggle("hidden", isPresentationWorkspace());
+  if (isPresentationWorkspace()) {
+    return;
+  }
   const modes = [
     { id: "view", label: "Preview" },
     { id: "edit", label: "Modify" }
@@ -3125,6 +3916,204 @@ async function flushPendingWorkObjectChanges() {
   });
 }
 
+function scheduleSheetCalculation(model = null) {
+  if (!model || !Array.isArray(model.sheets)) return;
+  if (sheetCalculationHandle) window.clearTimeout(sheetCalculationHandle);
+  const requestId = ++sheetCalculationRequestId;
+  sheetCalculationHandle = window.setTimeout(async () => {
+    sheetCalculationHandle = null;
+    try {
+      const payload = await apiClient.calculateSheet(
+        model,
+        state.sheetCalculationEngineId
+      );
+      if (
+        requestId !== sheetCalculationRequestId ||
+        !isSheetWorkObject(state.currentWorkObject)
+      ) {
+        return;
+      }
+      state.sheetCalculation = payload.calculation || null;
+      state.sheetCalculationEngineId =
+        payload.calculation?.engineId || state.sheetCalculationEngineId;
+      refreshPreviewPane();
+    } catch (error) {
+      state.sheetCalculation = {
+        engine: "local-fallback",
+        errors: [{ message: error.message || "Formula engine unavailable" }]
+      };
+    }
+  }, 220);
+}
+
+function usesCollaborativeEditing() {
+  return Boolean(
+    state.currentWorkObjectId &&
+      state.currentWorkObjectFile &&
+      (
+        isDocumentWorkObject(state.currentWorkObject) ||
+        isSheetWorkObject(state.currentWorkObject)
+      )
+  );
+}
+
+function updateCollaborativeWorkObjectContent(content = "", revision = null) {
+  if (!state.currentWorkObject) return;
+  state.currentWorkObject = {
+    ...state.currentWorkObject,
+    ...(revision ? { revision: Number(revision) } : {}),
+    content: String(content || ""),
+    file: {
+      ...(state.currentWorkObject.file || {}),
+      path: state.currentWorkObjectFile,
+      content: String(content || "")
+    }
+  };
+  mergeWorkObject(state.currentWorkObject);
+}
+
+async function hydrateWorkObjectCollaboration() {
+  if (!usesCollaborativeEditing()) return null;
+  const payload = await apiClient.getWorkObjectCollaboration(
+    state.currentWorkObjectId,
+    {
+      entryPath: state.currentWorkObjectFile,
+      userId: state.currentUserId
+    }
+  );
+  const collaboration = payload.collaboration || {};
+  state.collaborationVersion = Number(collaboration.version || 0);
+  state.collaborationPersistedRevision = Number(
+    collaboration.persistedRevision || state.currentWorkObject?.revision || 1
+  );
+  state.collaborationServerContent = String(
+    collaboration.content ?? currentContent()
+  );
+  updateCollaborativeWorkObjectContent(
+    state.collaborationServerContent,
+    state.collaborationPersistedRevision
+  );
+  return collaboration;
+}
+
+function scheduleCollaborativeOperation(previousContent = "", nextContent = "") {
+  if (
+    !usesCollaborativeEditing() ||
+    state.collaborationApplyingRemote ||
+    previousContent === nextContent
+  ) {
+    return;
+  }
+  if (!collaborationPendingChange) {
+    collaborationPendingChange = {
+      workObjectId: state.currentWorkObjectId,
+      entryPath: state.currentWorkObjectFile,
+      previousContent,
+      nextContent
+    };
+  } else {
+    collaborationPendingChange.nextContent = nextContent;
+  }
+  if (collaborationSyncHandle) window.clearTimeout(collaborationSyncHandle);
+  collaborationSyncHandle = window.setTimeout(() => {
+    collaborationSyncHandle = null;
+    flushCollaborativeOperation().catch(handleError);
+  }, 180);
+}
+
+async function sendQueuedCollaborationOperation(item = {}) {
+  const payload = await apiClient.applyWorkObjectOperation(item.workObjectId, {
+    entryPath: item.entryPath,
+    userId: item.userId,
+    clientId: state.collaborationClientId,
+    baseVersion: item.baseVersion,
+    operation: item.operation
+  });
+  const collaboration = payload.collaboration || {};
+  if (
+    String(item.workObjectId) === String(state.currentWorkObjectId) &&
+    String(item.entryPath) === String(state.currentWorkObjectFile)
+  ) {
+    state.collaborationVersion = Number(
+      collaboration.version || state.collaborationVersion
+    );
+    state.collaborationServerContent = String(
+      collaboration.content ?? state.collaborationServerContent
+    );
+  }
+  return collaboration;
+}
+
+async function flushCollaborativeOperation() {
+  if (collaborationSyncHandle) {
+    window.clearTimeout(collaborationSyncHandle);
+    collaborationSyncHandle = null;
+  }
+  if (collaborationSending) {
+    await collaborationSending;
+    if (collaborationPendingChange) return flushCollaborativeOperation();
+    return null;
+  }
+  const change = collaborationPendingChange;
+  collaborationPendingChange = null;
+  if (!change) return null;
+  if (
+    String(change.workObjectId) !== String(state.currentWorkObjectId) ||
+    String(change.entryPath) !== String(state.currentWorkObjectFile)
+  ) {
+    return null;
+  }
+  const operation = buildCollaborationOperation(
+    change.previousContent,
+    change.nextContent,
+    { sheet: isSheetWorkObject(state.currentWorkObject) }
+  );
+  if (!operation) return null;
+  const item = {
+    workObjectId: change.workObjectId,
+    entryPath: change.entryPath,
+    userId: state.currentUserId,
+    baseVersion: state.collaborationVersion,
+    operation
+  };
+  if (state.offline || !navigator.onLine) {
+    state.collaborationQueueSize = queueCollaborationOperation(item);
+    state.collaborationVersion += 1;
+    setStatus(
+      `Mode hors ligne : ${state.collaborationQueueSize} modification(s) en attente.`
+    );
+    return null;
+  }
+
+  collaborationSending = sendQueuedCollaborationOperation(item);
+  try {
+    const collaboration = await collaborationSending;
+    state.collaborationPersistedRevision = Number(
+      collaboration.persistedRevision || state.collaborationPersistedRevision
+    );
+    return collaboration;
+  } catch (error) {
+    if (!navigator.onLine || Number(error?.status || 0) >= 500) {
+      state.collaborationQueueSize = queueCollaborationOperation(item);
+      state.collaborationVersion = Math.max(
+        state.collaborationVersion,
+        Number(item.baseVersion || 0) + 1
+      );
+      persistLocalWorkspaceDraft();
+      return null;
+    }
+    throw error;
+  } finally {
+    collaborationSending = null;
+    if (collaborationPendingChange) {
+      scheduleCollaborativeOperation(
+        collaborationPendingChange.previousContent,
+        collaborationPendingChange.nextContent
+      );
+    }
+  }
+}
+
 function scheduleAutoSave() {
   clearAutoSaveTimer();
 
@@ -3132,7 +4121,9 @@ function scheduleAutoSave() {
     !state.editorDirty ||
     !state.currentWorkObjectId ||
     !state.currentWorkObjectFile ||
-    state.loading
+    state.loading ||
+    state.offline ||
+    usesCollaborativeEditing()
   ) {
     return;
   }
@@ -3152,10 +4143,12 @@ function syncEditorDraft(nextValue = "", options = {}) {
     suppressPreviewRefresh = false
   } = options;
 
+  const previousContent = currentDraftContent();
   const normalized = String(nextValue || "");
   state.editorDirty = normalized !== currentEditorBaseline();
   state.editorDraft = normalized;
   state.editorDraftKey = currentEditorKey();
+  persistLocalWorkspaceDraft();
   if (el["work-object-editor"]) {
     el["work-object-editor"].value = normalized;
   }
@@ -3187,7 +4180,11 @@ function syncEditorDraft(nextValue = "", options = {}) {
     }
   }, 120);
 
-  scheduleAutoSave();
+  if (usesCollaborativeEditing()) {
+    scheduleCollaborativeOperation(previousContent, normalized);
+  } else {
+    scheduleAutoSave();
+  }
 
   if (refreshWorkspace) {
     renderWorkspace();
@@ -3501,6 +4498,761 @@ function renderMessages() {
   el["chat-thread"].scrollTop = el["chat-thread"].scrollHeight;
 }
 
+async function runCoreChatPrompt(prompt = "", attachments = []) {
+  const input = String(prompt || "").trim();
+  const selectedAttachments = Array.from(attachments || []);
+  if ((!input && !selectedAttachments.length) || state.coreChatLoading) {
+    return;
+  }
+  if (!state.currentUserId) {
+    throw new Error("Create or select a user first");
+  }
+
+  const pendingMessage = {
+    id: `core-chat-pending-${Date.now()}`,
+    role: "user",
+    content: input || "Analyse les fichiers joints.",
+    attachments: selectedAttachments.map((file) => ({
+      name: file.name,
+      sizeBytes: file.size
+    })),
+    created_at: new Date().toISOString(),
+    pending: true,
+    conversationId: state.currentConversationId || null,
+    persistedMessageCount: state.messages.length
+  };
+  state.coreChatPendingMessages.push(pendingMessage);
+  state.coreChatLoading = true;
+  state.coreChatStreamingText = "";
+  state.coreChatStatus = "Hydria Core analyse la demande...";
+  state.coreChatGenerationId = crypto.randomUUID();
+  renderWorkspace();
+  setStatus("Hydria Core is responding...");
+  try {
+    await ensureConversation();
+    pendingMessage.conversationId = state.currentConversationId;
+    let finalAnswer = "";
+    await apiClient.streamHydriaCore({
+      userId: state.currentUserId,
+      conversationId: state.currentConversationId,
+      projectId: state.currentProjectId || "",
+      prompt: input,
+      attachments: selectedAttachments,
+      generationId: state.coreChatGenerationId,
+      model: state.coreChatModel,
+      toolMode: state.coreChatToolMode
+    }, (event, payload) => {
+      if (event === "start") {
+        state.coreChatPendingMessages = state.coreChatPendingMessages.filter(
+          (message) => message.id !== pendingMessage.id
+        );
+      } else if (event === "status") {
+        state.coreChatStatus = payload.text || "";
+      } else if (event === "chunk") {
+        state.coreChatStreamingText += payload.text || "";
+      } else if (event === "done") {
+        finalAnswer = payload.answer || state.coreChatStreamingText;
+      } else if (event === "stopped") {
+        state.coreChatStatus = "Generation arretee.";
+      }
+      renderWorkspace();
+    });
+    await loadMessages();
+    await loadChatWorkspaceData();
+    state.coreChatPendingMessages = state.coreChatPendingMessages.filter(
+      (message) => message.id !== pendingMessage.id
+    );
+    updateLastRun({
+      strategy: "hydria-core-direct-chat",
+      modelsUsed: ["Hydria Core"],
+      meta: {
+        externalHydria: true
+      }
+    });
+    setStatus(finalAnswer || state.coreChatStatus || "Hydria Core responded.");
+  } catch (error) {
+    await loadMessages().catch(() => {});
+    const persisted = state.messages
+      .slice(pendingMessage.persistedMessageCount)
+      .some((message) => message.role === "user");
+    if (persisted) {
+      state.coreChatPendingMessages = state.coreChatPendingMessages.filter(
+        (message) => message.id !== pendingMessage.id
+      );
+    }
+    throw error;
+  } finally {
+    state.coreChatLoading = false;
+    state.coreChatStreamingText = "";
+    state.coreChatGenerationId = "";
+    state.coreChatStatus = "";
+    renderWorkspace();
+  }
+}
+
+async function loadChatWorkspaceData() {
+  if (!state.currentUserId) {
+    state.chatProjects = [];
+    state.conversationTree = [];
+    return;
+  }
+  const [catalog, projects, tree] = await Promise.all([
+    apiClient.getHydriaChatCatalog().catch(() => ({ models: [], tools: [] })),
+    apiClient.listChatProjects(state.currentUserId).catch(() => ({ projects: [] })),
+    apiClient.getConversationTree(state.currentUserId).catch(() => ({ tree: [] }))
+  ]);
+  state.coreChatCatalog = {
+    models: catalog.models || [],
+    tools: catalog.tools || []
+  };
+  state.chatProjects = projects.projects || [];
+  state.conversationTree = tree.tree || [];
+}
+
+function flattenConversationTree(nodes = [], depth = 0, output = []) {
+  nodes.forEach((node) => {
+    output.push({ ...node, depth });
+    flattenConversationTree(node.children || [], depth + 1, output);
+  });
+  return output;
+}
+
+function renderCoreChatWorkspace(container) {
+  container.innerHTML = "";
+  container.classList.add("workspace-launcher-core-chat");
+
+  const page = document.createElement("section");
+  page.className = "core-chat-page";
+
+  const header = document.createElement("header");
+  header.className = "core-chat-header";
+  const headingGroup = document.createElement("div");
+  headingGroup.className = "core-chat-heading";
+  const identity = document.createElement("span");
+  identity.className = "core-chat-identity";
+  identity.textContent = "H";
+  const headingCopy = document.createElement("div");
+  const heading = document.createElement("h3");
+  heading.textContent = "Chat";
+  const model = document.createElement("span");
+  model.className = "core-chat-model";
+  const modelDot = document.createElement("span");
+  modelDot.className = "core-chat-model-dot";
+  const modelLabel = document.createElement("span");
+  modelLabel.textContent = "Hydria Core";
+  const coreReady = Boolean(state.config?.config?.hydriaExternal?.configured);
+  model.classList.toggle("is-offline", !coreReady);
+  model.append(modelDot, modelLabel);
+  headingCopy.append(heading, model);
+  headingGroup.append(identity, headingCopy);
+
+  const actions = document.createElement("div");
+  actions.className = "core-chat-header-actions";
+  const modelSelect = document.createElement("select");
+  modelSelect.className = "core-chat-header-select";
+  modelSelect.title = "Modele";
+  const modelCatalog = state.coreChatCatalog.models.length
+    ? state.coreChatCatalog.models
+    : [
+        { id: "hydria-core", label: "Hydria Core", available: true },
+        { id: "local", label: "Hydria Local", available: true }
+      ];
+  modelCatalog.forEach((entry) => {
+    const option = document.createElement("option");
+    option.value = entry.id;
+    option.textContent = entry.available === false ? `${entry.label} indisponible` : entry.label;
+    option.disabled = entry.available === false;
+    option.title = (entry.capabilities || []).join(", ");
+    modelSelect.appendChild(option);
+  });
+  modelSelect.value = state.coreChatModel;
+  modelSelect.disabled = state.coreChatLoading;
+  modelSelect.addEventListener("change", () => {
+    state.coreChatModel = modelSelect.value;
+  });
+  const toolSelect = document.createElement("select");
+  toolSelect.className = "core-chat-header-select";
+  toolSelect.title = "Outils";
+  const toolCatalog = state.coreChatCatalog.tools.length
+    ? state.coreChatCatalog.tools
+    : [
+        { id: "auto", label: "Outils auto", available: true },
+        { id: "files", label: "Fichiers", available: true },
+        { id: "none", label: "Sans outils", available: true }
+      ];
+  toolCatalog.forEach((entry) => {
+    const option = document.createElement("option");
+    option.value = entry.id;
+    option.textContent = entry.label;
+    option.disabled = entry.available === false;
+    toolSelect.appendChild(option);
+  });
+  toolSelect.value = state.coreChatToolMode;
+  toolSelect.disabled = state.coreChatLoading;
+  toolSelect.addEventListener("change", () => {
+    state.coreChatToolMode = toolSelect.value;
+  });
+  const searchButton = document.createElement("button");
+  searchButton.type = "button";
+  searchButton.className = "core-chat-icon-button";
+  searchButton.title = "Rechercher dans les conversations";
+  searchButton.textContent = "?";
+  searchButton.addEventListener("click", async () => {
+    const query = window.prompt("Rechercher dans les conversations", state.conversationSearch);
+    if (query === null) return;
+    state.conversationSearch = query.trim();
+    const payload = await apiClient.listConversations(state.currentUserId, {
+      search: state.conversationSearch,
+      archived: state.showArchivedConversations ? 1 : ""
+    });
+    state.conversations = payload.conversations || [];
+    renderConversations();
+  });
+  const archiveButton = document.createElement("button");
+  archiveButton.type = "button";
+  archiveButton.className = "core-chat-icon-button";
+  archiveButton.title = state.showArchivedConversations
+    ? "Restaurer cette conversation"
+    : "Archiver cette conversation";
+  archiveButton.textContent = state.showArchivedConversations ? "R" : "A";
+  archiveButton.disabled = !state.currentConversationId || state.coreChatLoading;
+  archiveButton.addEventListener("click", async () => {
+    await apiClient.updateConversation(state.currentConversationId, {
+      userId: state.currentUserId,
+      archived: !state.showArchivedConversations
+    });
+    state.conversations = state.conversations.filter(
+      (conversation) => Number(conversation.id) !== Number(state.currentConversationId)
+    );
+    const next = state.conversations[0];
+    if (next) await selectConversation(next.id);
+    else {
+      state.currentConversationId = null;
+      state.messages = [];
+      renderWorkspace();
+    }
+  });
+  const archiveListButton = document.createElement("button");
+  archiveListButton.type = "button";
+  archiveListButton.className = `core-chat-icon-button${
+    state.showArchivedConversations ? " active" : ""
+  }`;
+  archiveListButton.title = state.showArchivedConversations
+    ? "Afficher les conversations actives"
+    : "Afficher les archives";
+  archiveListButton.textContent = "H";
+  archiveListButton.addEventListener("click", async () => {
+    state.showArchivedConversations = !state.showArchivedConversations;
+    const payload = await apiClient.listConversations(state.currentUserId, {
+      search: state.conversationSearch,
+      archived: state.showArchivedConversations ? 1 : ""
+    });
+    state.conversations = payload.conversations || [];
+    const next = state.conversations[0];
+    if (next) await selectConversation(next.id);
+    else {
+      state.currentConversationId = null;
+      state.messages = [];
+      renderConversations();
+      renderWorkspace();
+    }
+  });
+  const shareButton = document.createElement("button");
+  shareButton.type = "button";
+  shareButton.className = "core-chat-icon-button";
+  shareButton.title = "Partager cette conversation";
+  shareButton.textContent = "S";
+  shareButton.disabled = !state.currentConversationId;
+  shareButton.addEventListener("click", async () => {
+    const payload = await apiClient.shareConversation(
+      state.currentConversationId,
+      state.currentUserId
+    );
+    const shareUrl = `${window.location.origin}${payload.shareUrl}`;
+    await navigator.clipboard?.writeText(shareUrl).catch(() => {});
+    window.prompt("Lien de partage", shareUrl);
+  });
+  const newChatButton = document.createElement("button");
+  newChatButton.type = "button";
+  newChatButton.className = "core-chat-icon-button";
+  newChatButton.title = "New chat";
+  newChatButton.setAttribute("aria-label", "New chat");
+  newChatButton.appendChild(
+    createWorkspaceIconNode("insert", {
+      className: "core-chat-button-icon",
+      label: "New chat"
+    })
+  );
+  newChatButton.disabled = state.coreChatLoading;
+  newChatButton.addEventListener("click", async () => {
+    await createConversation();
+    await activateWorkspacePage(workspacePageFromSlug("chat"), { historyMode: "replace" });
+  });
+  const clearButton = document.createElement("button");
+  clearButton.type = "button";
+  clearButton.className = "core-chat-icon-button";
+  clearButton.title = "Clear conversation";
+  clearButton.setAttribute("aria-label", "Clear conversation");
+  clearButton.appendChild(
+    createWorkspaceIconNode("delete", {
+      className: "core-chat-button-icon",
+      label: "Clear"
+    })
+  );
+  clearButton.disabled = !state.currentConversationId || state.coreChatLoading;
+  clearButton.addEventListener("click", async () => {
+    await clearConversation();
+    renderWorkspace();
+  });
+  actions.append(
+    modelSelect,
+    toolSelect,
+    searchButton,
+    archiveListButton,
+    archiveButton,
+    shareButton,
+    newChatButton,
+    clearButton
+  );
+  header.append(headingGroup, actions);
+
+  const conversationRail = document.createElement("aside");
+  conversationRail.className = "core-chat-conversation-rail";
+  const railHeader = document.createElement("div");
+  railHeader.className = "core-chat-rail-header";
+  const railTitle = document.createElement("strong");
+  railTitle.textContent = "Conversations";
+  const newProjectButton = document.createElement("button");
+  newProjectButton.type = "button";
+  newProjectButton.className = "core-chat-icon-button";
+  newProjectButton.title = "Nouveau projet";
+  newProjectButton.textContent = "+";
+  newProjectButton.addEventListener("click", async () => {
+    const name = window.prompt("Nom du projet");
+    if (!name?.trim()) return;
+    const payload = await apiClient.createChatProject({
+      userId: state.currentUserId,
+      name: name.trim()
+    });
+    state.chatProjects.unshift(payload.project);
+    state.currentChatProjectId = payload.project.id;
+    renderWorkspace();
+  });
+  railHeader.append(railTitle, newProjectButton);
+
+  const railFilters = document.createElement("div");
+  railFilters.className = "core-chat-rail-filters";
+  const projectSelect = document.createElement("select");
+  projectSelect.setAttribute("aria-label", "Projet de conversations");
+  const allProjects = document.createElement("option");
+  allProjects.value = "";
+  allProjects.textContent = "Tous les projets";
+  projectSelect.appendChild(allProjects);
+  state.chatProjects.forEach((project) => {
+    const option = document.createElement("option");
+    option.value = project.id;
+    option.textContent = project.name;
+    projectSelect.appendChild(option);
+  });
+  projectSelect.value = state.currentChatProjectId;
+  projectSelect.addEventListener("change", () => {
+    state.currentChatProjectId = projectSelect.value;
+    renderWorkspace();
+  });
+  const railSearch = document.createElement("input");
+  railSearch.type = "search";
+  railSearch.placeholder = "Rechercher";
+  railSearch.value = state.conversationSearch;
+  railSearch.addEventListener("input", () => {
+    state.conversationSearch = railSearch.value;
+    renderWorkspace();
+  });
+  railFilters.append(projectSelect, railSearch);
+
+  const conversationTreeList = document.createElement("div");
+  conversationTreeList.className = "core-chat-tree";
+  const normalizedSearch = state.conversationSearch.trim().toLowerCase();
+  const treeEntries = flattenConversationTree(state.conversationTree.length
+    ? state.conversationTree
+    : state.conversations.map((conversation) => ({ ...conversation, children: [] })))
+    .filter((conversation) =>
+      (!state.currentChatProjectId || conversation.project_id === state.currentChatProjectId) &&
+      (!normalizedSearch ||
+        String(conversation.title || "").toLowerCase().includes(normalizedSearch))
+    );
+  treeEntries.forEach((conversation) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `core-chat-tree-item${
+      Number(conversation.id) === Number(state.currentConversationId) ? " active" : ""
+    }`;
+    button.style.setProperty("--branch-depth", String(conversation.depth || 0));
+    const titleNode = document.createElement("span");
+    titleNode.textContent = conversation.title || "Conversation";
+    const metaNode = document.createElement("small");
+    metaNode.textContent = conversation.depth
+      ? `Branche · ${conversation.message_count || 0} messages`
+      : `${conversation.message_count || 0} messages`;
+    button.append(titleNode, metaNode);
+    button.addEventListener("click", () => {
+      selectConversation(conversation.id).catch(handleError);
+    });
+    conversationTreeList.appendChild(button);
+  });
+  if (!treeEntries.length) {
+    const emptyTree = document.createElement("p");
+    emptyTree.className = "core-chat-tree-empty";
+    emptyTree.textContent = "Aucune conversation.";
+    conversationTreeList.appendChild(emptyTree);
+  }
+
+  const currentConversation = state.conversations.find(
+    (conversation) => Number(conversation.id) === Number(state.currentConversationId)
+  );
+  if (currentConversation) {
+    const organize = document.createElement("div");
+    organize.className = "core-chat-organize";
+    const folderInput = document.createElement("input");
+    folderInput.placeholder = "Dossier";
+    folderInput.value = currentConversation.folder || "";
+    folderInput.setAttribute("aria-label", "Dossier de la conversation");
+    const assignProject = document.createElement("select");
+    assignProject.setAttribute("aria-label", "Projet de la conversation");
+    const noProject = document.createElement("option");
+    noProject.value = "";
+    noProject.textContent = "Sans projet";
+    assignProject.appendChild(noProject);
+    state.chatProjects.forEach((project) => {
+      const option = document.createElement("option");
+      option.value = project.id;
+      option.textContent = project.name;
+      assignProject.appendChild(option);
+    });
+    assignProject.value = currentConversation.project_id || "";
+    const saveOrganize = async () => {
+      const payload = await apiClient.updateConversation(currentConversation.id, {
+        userId: state.currentUserId,
+        folder: folderInput.value.trim(),
+        projectId: assignProject.value
+      });
+      Object.assign(currentConversation, payload.conversation);
+      await loadChatWorkspaceData();
+      renderWorkspace();
+    };
+    folderInput.addEventListener("change", () => saveOrganize().catch(handleError));
+    assignProject.addEventListener("change", () => saveOrganize().catch(handleError));
+    organize.append(folderInput, assignProject);
+    conversationRail.append(railHeader, railFilters, conversationTreeList, organize);
+  } else {
+    conversationRail.append(railHeader, railFilters, conversationTreeList);
+  }
+
+  const thread = document.createElement("div");
+  thread.className = "core-chat-thread";
+  const pendingMessages = state.coreChatPendingMessages.filter(
+    (message) =>
+      !message.conversationId ||
+      Number(message.conversationId) === Number(state.currentConversationId || 0)
+  );
+  const chatMessages = [
+    ...state.messages,
+    ...pendingMessages
+  ];
+  if (!chatMessages.length) {
+    const empty = document.createElement("div");
+    empty.className = "core-chat-empty";
+    const emptyMark = document.createElement("span");
+    emptyMark.className = "core-chat-empty-mark";
+    emptyMark.textContent = "H";
+    const emptyTitle = document.createElement("h4");
+    emptyTitle.textContent = "Comment puis-je vous aider ?";
+    const suggestions = document.createElement("div");
+    suggestions.className = "core-chat-suggestions";
+    [
+      "Structurer une idée",
+      "Rédiger un plan",
+      "Analyser un problème",
+      "Préparer une synthèse"
+    ].forEach((label) => {
+      const suggestion = document.createElement("button");
+      suggestion.type = "button";
+      suggestion.textContent = label;
+      suggestion.addEventListener("click", () => {
+        input.value = label;
+        input.dispatchEvent(new Event("input"));
+        input.focus();
+      });
+      suggestions.appendChild(suggestion);
+    });
+    empty.append(emptyMark, emptyTitle, suggestions);
+    thread.appendChild(empty);
+  } else {
+    chatMessages.forEach((message, messageIndex) => {
+      const previousUserMessage = [...chatMessages]
+        .slice(0, messageIndex)
+        .reverse()
+        .find((candidate) => candidate.role === "user");
+      thread.appendChild(
+        renderChatMessage(message, {
+          onOpenWorkObject: (workObject) =>
+            selectWorkObject(workObject.id, preferredOpenPath(workObject)).catch(handleError),
+          onContinueWithObject: (workObject) =>
+            continueWithWorkObject(workObject.id, preferredOpenPath(workObject)).catch(handleError),
+          showActions: true,
+          onEditMessage: async (selectedMessage) => {
+            if (selectedMessage.role !== "user" || !Number(selectedMessage.id)) {
+              input.value = String(selectedMessage.content || "");
+              input.dispatchEvent(new Event("input"));
+              input.focus();
+              return;
+            }
+            const payload = await apiClient.branchConversation(state.currentConversationId, {
+              userId: state.currentUserId,
+              messageId: selectedMessage.id,
+              title: `${state.conversations.find((item) => Number(item.id) === Number(state.currentConversationId))?.title || "Conversation"} (branche)`
+            });
+            state.conversations.unshift(payload.conversation);
+            await loadChatWorkspaceData();
+            await selectConversation(payload.conversation.id);
+            input.value = String(selectedMessage.content || "");
+            input.dispatchEvent(new Event("input"));
+            input.focus();
+          },
+          onRegenerateMessage: () => {
+            const prompt = String(previousUserMessage?.content || "").trim();
+            if (prompt) {
+              runCoreChatPrompt(prompt).catch(handleError);
+            }
+          }
+        })
+      );
+    });
+  }
+  if (state.coreChatLoading) {
+    if (state.coreChatStreamingText) {
+      thread.appendChild(
+        renderChatMessage({
+          id: `stream-${state.coreChatGenerationId}`,
+          role: "assistant",
+          content: state.coreChatStreamingText,
+          streaming: true
+        })
+      );
+    } else {
+      const thinking = document.createElement("article");
+      thinking.className = "message assistant core-chat-thinking";
+      const bubble = document.createElement("div");
+      bubble.className = "message-bubble";
+      const dots = document.createElement("span");
+      dots.className = "core-chat-thinking-dots";
+      dots.innerHTML = "<i></i><i></i><i></i>";
+      const status = document.createElement("small");
+      status.textContent = state.coreChatStatus || "Hydria Core reflechit...";
+      bubble.append(dots, status);
+      thinking.appendChild(bubble);
+      thread.appendChild(thinking);
+    }
+  }
+
+  const form = document.createElement("form");
+  form.className = "core-chat-composer";
+  const fileInput = document.createElement("input");
+  fileInput.type = "file";
+  fileInput.multiple = true;
+  fileInput.className = "core-chat-file-input";
+  fileInput.accept = [
+    ".pdf", ".doc", ".docx", ".txt", ".md", ".rtf", ".log",
+    ".csv", ".tsv", ".xls", ".xlsx", ".ods",
+    ".ppt", ".pptx", ".odp",
+    ".json", ".jsonc", ".jsonl", ".ndjson", ".xml", ".yaml", ".yml", ".toml",
+    ".env", ".cfg", ".conf", ".config", ".ini", ".properties",
+    ".js", ".jsx", ".ts", ".tsx", ".py", ".java", ".cs", ".cpp", ".c",
+    ".h", ".hpp", ".go", ".rs", ".php", ".rb", ".sql", ".html", ".css",
+    ".kt", ".lua", ".ps1", ".sh", ".swift", ".bat",
+    ".zip", ".7z", ".rar", ".tar", ".gz", ".bz2", ".tgz", ".xz",
+    "image/*", "audio/*", "video/*"
+  ].join(",");
+  const attachmentList = document.createElement("div");
+  attachmentList.className = "core-chat-attachment-list";
+  const composerControls = document.createElement("div");
+  composerControls.className = "core-chat-composer-controls";
+  const attachButton = document.createElement("button");
+  attachButton.type = "button";
+  attachButton.className = "core-chat-attach-button";
+  attachButton.title = "Importer des fichiers";
+  attachButton.setAttribute("aria-label", "Importer des fichiers");
+  attachButton.appendChild(
+    createWorkspaceIconNode("attachment", {
+      className: "core-chat-button-icon",
+      label: "Importer des fichiers"
+    })
+  );
+  attachButton.disabled = state.coreChatLoading;
+  attachButton.addEventListener("click", () => fileInput.click());
+  const input = document.createElement("textarea");
+  input.rows = 1;
+  input.placeholder = "Écrivez votre message...";
+  input.disabled = state.coreChatLoading;
+  const sendButton = document.createElement("button");
+  sendButton.type = state.coreChatLoading ? "button" : "submit";
+  sendButton.className = "core-chat-send-button";
+  sendButton.title = state.coreChatLoading ? "Arreter" : "Send";
+  sendButton.setAttribute("aria-label", state.coreChatLoading ? "Arreter" : "Send");
+  sendButton.disabled = !state.coreChatLoading;
+  if (state.coreChatLoading) {
+    sendButton.classList.add("is-stop");
+    const stopMark = document.createElement("span");
+    stopMark.className = "core-chat-stop-mark";
+    sendButton.appendChild(stopMark);
+    sendButton.addEventListener("click", () => {
+      if (state.coreChatGenerationId) {
+        apiClient.stopHydriaCore(state.coreChatGenerationId).catch(handleError);
+        state.coreChatStatus = "Arret demande...";
+        renderWorkspace();
+      }
+    });
+  } else {
+    sendButton.appendChild(
+      createWorkspaceIconNode("chevronUp", {
+        className: "core-chat-button-icon",
+        label: "Send"
+      })
+    );
+  }
+  composerControls.append(attachButton, input, sendButton);
+  form.append(fileInput, attachmentList, composerControls);
+
+  const updateComposerState = () => {
+    attachmentList.innerHTML = "";
+    attachmentList.classList.toggle("hidden", !state.coreChatAttachments.length);
+
+    state.coreChatAttachments.forEach((file, index) => {
+      const chip = document.createElement("div");
+      chip.className = "core-chat-attachment-chip";
+      const icon = createWorkspaceIconNode("page", {
+        className: "core-chat-attachment-icon",
+        label: "File"
+      });
+      const copy = document.createElement("span");
+      copy.className = "core-chat-attachment-copy";
+      const name = document.createElement("strong");
+      name.textContent = file.name;
+      const size = document.createElement("small");
+      size.textContent = formatBytes(file.size);
+      copy.append(name, size);
+      const removeButton = document.createElement("button");
+      removeButton.type = "button";
+      removeButton.className = "core-chat-attachment-remove";
+      removeButton.title = `Retirer ${file.name}`;
+      removeButton.setAttribute("aria-label", `Retirer ${file.name}`);
+      removeButton.appendChild(
+        createWorkspaceIconNode("close", {
+          className: "core-chat-attachment-remove-icon",
+          label: "Retirer"
+        })
+      );
+      removeButton.disabled = state.coreChatLoading;
+      removeButton.addEventListener("click", () => {
+        state.coreChatAttachments = state.coreChatAttachments.filter(
+          (_, fileIndex) => fileIndex !== index
+        );
+        updateComposerState();
+      });
+      chip.append(icon, copy, removeButton);
+      attachmentList.appendChild(chip);
+    });
+
+    sendButton.disabled = state.coreChatLoading
+      ? false
+      : !input.value.trim() && !state.coreChatAttachments.length;
+  };
+
+  const addFiles = (files = []) => {
+    const attachmentConfig = state.config?.config?.attachments || {};
+    const maxFiles = Number(attachmentConfig.maxFiles || 6);
+    const maxFileSize = Number(attachmentConfig.maxFileSizeBytes || 15 * 1024 * 1024);
+    const availableSlots = Math.max(0, maxFiles - state.coreChatAttachments.length);
+    const incoming = Array.from(files || []);
+    const accepted = incoming
+      .filter((file) => {
+        if (file.size > maxFileSize) {
+          setStatus(`${file.name} dépasse la taille maximale de ${formatBytes(maxFileSize)}.`);
+          return false;
+        }
+        return true;
+      })
+      .slice(0, availableSlots);
+
+    if (incoming.length > availableSlots) {
+      setStatus(`Hydria accepte jusqu'à ${maxFiles} fichiers par message.`);
+    }
+    state.coreChatAttachments = [...state.coreChatAttachments, ...accepted];
+    fileInput.value = "";
+    updateComposerState();
+  };
+
+  fileInput.addEventListener("change", (event) => addFiles(event.target.files));
+  input.addEventListener("input", () => {
+    input.style.height = "auto";
+    input.style.height = `${Math.min(input.scrollHeight, 180)}px`;
+    updateComposerState();
+  });
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      if (input.value.trim() || state.coreChatAttachments.length) {
+        form.requestSubmit();
+      }
+    }
+  });
+  form.addEventListener("dragover", (event) => {
+    event.preventDefault();
+    form.classList.add("is-dragover");
+  });
+  form.addEventListener("dragleave", (event) => {
+    if (!form.contains(event.relatedTarget)) {
+      form.classList.remove("is-dragover");
+    }
+  });
+  form.addEventListener("drop", (event) => {
+    event.preventDefault();
+    form.classList.remove("is-dragover");
+    addFiles(event.dataTransfer?.files || []);
+  });
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const prompt = input.value.trim();
+    const attachments = [...state.coreChatAttachments];
+    if (!prompt && !attachments.length) {
+      return;
+    }
+    input.value = "";
+    input.style.height = "auto";
+    state.coreChatAttachments = [];
+    updateComposerState();
+    runCoreChatPrompt(prompt, attachments).catch(handleError);
+  });
+  updateComposerState();
+
+  const composerDock = document.createElement("div");
+  composerDock.className = "core-chat-composer-dock";
+  composerDock.appendChild(form);
+  const chatMain = document.createElement("div");
+  chatMain.className = "core-chat-main";
+  chatMain.append(thread, composerDock);
+  const chatLayout = document.createElement("div");
+  chatLayout.className = "core-chat-layout";
+  chatLayout.append(conversationRail, chatMain);
+  page.append(header, chatLayout);
+  container.appendChild(page);
+  window.requestAnimationFrame(() => {
+    thread.scrollTop = thread.scrollHeight;
+    if (!chatMessages.length && !state.coreChatLoading) {
+      input.focus();
+    }
+  });
+}
+
 function renderWorkspaceSwitcher(hasVisibleWorkspace = false) {
   const container = el["workspace-switcher"];
   if (!container) {
@@ -3671,7 +5423,8 @@ function workspaceDocumentMeta(workObject = {}, config = currentWorkspaceDocumen
   const primaryPath = workObject.primaryFile || getEditableFiles(workObject)[0] || "";
   const fileLabel = friendlyFileLabel(primaryPath);
   const status = workObject.status || "";
-  return [fileLabel, status].filter(Boolean).join(" | ") || config?.defaultMeta || "Workspace document";
+  const revision = workObject.revision ? `rev. ${workObject.revision}` : "";
+  return [fileLabel, status, revision].filter(Boolean).join(" | ") || config?.defaultMeta || "Workspace document";
 }
 
 function isSheetDocumentClosed(workObjectId = "") {
@@ -3714,14 +5467,59 @@ function workspaceDocumentsForConfig(config = currentWorkspaceDocumentListConfig
   ].filter(Boolean);
 
   const seen = new Set();
-  return candidates.filter((workObject) => {
-    const id = String(workObject.id || "");
-    if (!id || seen.has(id)) {
-      return false;
-    }
-    seen.add(id);
-    return true;
-  }).filter((workObject) => !isSheetDocumentClosed(workObject.id));
+  const query = state.workspaceLibraryQuery.trim().toLowerCase();
+  return candidates
+    .filter((workObject) => {
+      const id = String(workObject.id || "");
+      if (!id || seen.has(id)) {
+        return false;
+      }
+      seen.add(id);
+      return true;
+    })
+    .filter((workObject) => !isSheetDocumentClosed(workObject.id))
+    .filter((workObject) =>
+      state.workspaceLibraryShowTrash
+        ? String(workObject.status || "").toLowerCase() === "trashed"
+        : String(workObject.status || "").toLowerCase() !== "trashed"
+    )
+    .filter(
+      (workObject) =>
+        state.workspaceLibraryShowArchived ||
+        String(workObject.status || "").toLowerCase() !== "archived"
+    )
+    .filter((workObject) => {
+      if (!query) {
+        return true;
+      }
+      if (
+        state.workspaceLibrarySearchResults.some(
+          (result) => String(result.id) === String(workObject.id)
+        )
+      ) {
+        return true;
+      }
+      return [
+        workObject.title,
+        workObject.summary,
+        workObject.primaryFile,
+        workObject.workspaceFamilyLabel,
+        workObject.status
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+        .includes(query);
+    })
+    .sort((left, right) => {
+      const favoriteDelta =
+        Number(Boolean(right.metadata?.favorite)) -
+        Number(Boolean(left.metadata?.favorite));
+      if (favoriteDelta) {
+        return favoriteDelta;
+      }
+      return new Date(right.updatedAt || 0) - new Date(left.updatedAt || 0);
+    });
 }
 
 function workspaceSheetDocuments() {
@@ -3841,6 +5639,479 @@ async function saveWorkspaceSheetDocument(workObject = {}) {
   }
 }
 
+async function toggleWorkspaceDocumentFavorite(workObject = {}) {
+  const favorite = !Boolean(workObject.metadata?.favorite);
+  const payload = await apiClient.updateWorkObject(workObject.id, {
+    metadata: { favorite }
+  });
+  if (payload.workObject) {
+    mergeWorkObject(payload.workObject);
+    if (String(state.currentWorkObjectId) === String(payload.workObject.id)) {
+      state.currentWorkObject = { ...state.currentWorkObject, ...payload.workObject };
+    }
+  }
+  renderWorkObjects();
+  renderWorkspace();
+  setStatus(favorite ? "Document ajoute aux favoris." : "Document retire des favoris.");
+}
+
+async function archiveWorkspaceDocument(workObject = {}) {
+  const archived = String(workObject.status || "").toLowerCase() === "archived";
+  const payload = await apiClient.updateWorkObject(workObject.id, {
+    status: archived ? "ready" : "archived"
+  });
+  if (payload.workObject) {
+    mergeWorkObject(payload.workObject);
+    if (String(state.currentWorkObjectId) === String(payload.workObject.id)) {
+      if (!archived) {
+        clearCurrentWorkObjectState();
+      } else {
+        state.currentWorkObject = { ...state.currentWorkObject, ...payload.workObject };
+      }
+    }
+  }
+  renderWorkObjects();
+  renderWorkspace();
+  setStatus(archived ? "Document restaure." : "Document archive.");
+}
+
+async function trashWorkspaceDocument(workObject = {}) {
+  const trashed = String(workObject.status || "").toLowerCase() === "trashed";
+  const payload = trashed
+    ? await apiClient.restoreTrashedWorkObject(workObject.id, state.currentUserId)
+    : await apiClient.trashWorkObject(workObject.id, state.currentUserId);
+  if (payload.workObject) {
+    mergeWorkObject(payload.workObject);
+    if (!trashed && String(state.currentWorkObjectId) === String(workObject.id)) {
+      clearCurrentWorkObjectState();
+    }
+  }
+  renderWorkObjects();
+  renderWorkspace();
+  setStatus(trashed ? "Document restaure depuis la corbeille." : "Document place dans la corbeille.");
+}
+
+async function deleteWorkspaceDocumentPermanently(workObject = {}) {
+  if (!window.confirm(`Supprimer definitivement "${workObject.title || "Document"}" ?`)) {
+    return;
+  }
+  await apiClient.deleteWorkObjectPermanently(workObject.id, state.currentUserId);
+  state.workObjects = state.workObjects.filter(
+    (item) => String(item.id) !== String(workObject.id)
+  );
+  if (String(state.currentWorkObjectId) === String(workObject.id)) {
+    clearCurrentWorkObjectState();
+  }
+  renderWorkObjects();
+  renderWorkspace();
+  setStatus("Document supprime definitivement.");
+}
+
+async function shareWorkspaceDocument(workObject = {}) {
+  const current = workObject.metadata?.sharing || {};
+  const visibility = window.confirm(
+    current.visibility === "link"
+      ? "Le partage par lien est actif. OK pour le conserver, Annuler pour le desactiver."
+      : "Activer le partage par lien pour ce document ?"
+  )
+    ? "link"
+    : "private";
+  const requestedRole =
+    visibility === "link"
+      ? window.prompt(
+          "Role du lien : viewer, commenter ou editor",
+          current.defaultRole || "viewer"
+        )
+      : current.defaultRole || "viewer";
+  if (
+    visibility === "link" &&
+    !["viewer", "commenter", "editor"].includes(requestedRole)
+  ) {
+    setStatus("Role de partage invalide.");
+    return;
+  }
+
+  const payload = await apiClient.updateWorkObjectSharing(workObject.id, {
+    userId: state.currentUserId,
+    visibility,
+    defaultRole: requestedRole,
+    shares: current.shares || []
+  });
+  if (payload.workObject) {
+    mergeWorkObject(payload.workObject);
+    if (String(state.currentWorkObjectId) === String(payload.workObject.id)) {
+      state.currentWorkObject = { ...state.currentWorkObject, ...payload.workObject };
+    }
+  }
+
+  const token = payload.workObject?.metadata?.sharing?.shareToken;
+  if (visibility === "link" && token) {
+    const shareUrl = `${window.location.origin}/share/work/${token}`;
+    await navigator.clipboard?.writeText(shareUrl).catch(() => {});
+    window.prompt("Lien de partage", shareUrl);
+  }
+  renderWorkspace();
+  setStatus(visibility === "link" ? "Partage par lien active." : "Partage par lien desactive.");
+}
+
+function closeWorkspaceAnnotations() {
+  document.getElementById("workspace-annotations-overlay")?.remove();
+}
+
+async function saveWorkspaceAnnotations(workObject, annotations) {
+  const payload = await apiClient.updateWorkObjectAnnotations(workObject.id, {
+    userId: state.currentUserId,
+    annotations
+  });
+  if (payload.workObject) {
+    mergeWorkObject(payload.workObject);
+    if (String(state.currentWorkObjectId) === String(payload.workObject.id)) {
+      state.currentWorkObject = { ...state.currentWorkObject, ...payload.workObject };
+    }
+  }
+  return payload.workObject;
+}
+
+function showWorkspaceAnnotations(workObject = state.currentWorkObject) {
+  closeWorkspaceAnnotations();
+  if (!workObject) return;
+  let annotations = [...(workObject.metadata?.annotations || [])];
+  const overlay = document.createElement("div");
+  overlay.id = "workspace-annotations-overlay";
+  overlay.className = "workspace-version-history-overlay";
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) closeWorkspaceAnnotations();
+  });
+  const panel = document.createElement("section");
+  panel.className = "workspace-annotations-panel";
+  const header = document.createElement("header");
+  const heading = document.createElement("div");
+  const title = document.createElement("h3");
+  title.textContent = "Commentaires et suggestions";
+  const subtitle = document.createElement("p");
+  subtitle.textContent = friendlyFileLabel(state.currentWorkObjectFile || workObject.primaryFile || "");
+  heading.append(title, subtitle);
+  const closeButton = document.createElement("button");
+  closeButton.type = "button";
+  closeButton.className = "workspace-version-history-close";
+  closeButton.textContent = "x";
+  closeButton.addEventListener("click", closeWorkspaceAnnotations);
+  header.append(heading, closeButton);
+  const toolbar = document.createElement("div");
+  toolbar.className = "workspace-annotations-toolbar";
+  const addButton = document.createElement("button");
+  addButton.type = "button";
+  addButton.textContent = "Ajouter un commentaire";
+  const suggestButton = document.createElement("button");
+  suggestButton.type = "button";
+  suggestButton.textContent = "Proposer une modification";
+  toolbar.append(addButton, suggestButton);
+  const list = document.createElement("div");
+  list.className = "workspace-annotations-list";
+
+  const annotationAnchorLabel = (anchor = {}) => {
+    if (anchor.type === "cell" && anchor.cell) return `Cellule ${anchor.cell}`;
+    if (anchor.type === "text" && anchor.quote) {
+      return `Texte : "${String(anchor.quote).slice(0, 80)}"`;
+    }
+    if (anchor.type === "text" && Number(anchor.blockIndex) >= 0) {
+      return `Bloc ${Number(anchor.blockIndex) + 1}`;
+    }
+    return "";
+  };
+
+  const applySuggestion = async (annotation) => {
+    const replacement = String(annotation.suggestedText || "").trim();
+    if (!replacement) throw new Error("Cette suggestion ne contient aucun remplacement.");
+    const anchor = annotation.anchor || {};
+    if (anchor.type === "cell" && anchor.cell) {
+      const [rowIndex, columnIndex] = String(anchor.cell).split(":").map(Number);
+      const model = deriveSpreadsheetDraft(currentDraftContent());
+      const sheet =
+        model.sheets.find((item) => item.id === model.activeSheetId) ||
+        model.sheets[0];
+      if (!sheet || rowIndex < 0 || columnIndex < 0) {
+        throw new Error("La cellule cible n'existe plus.");
+      }
+      while (sheet.rows.length <= rowIndex) sheet.rows.push([]);
+      while (sheet.rows[rowIndex].length <= columnIndex) sheet.rows[rowIndex].push("");
+      sheet.rows[rowIndex][columnIndex] = replacement;
+      syncEditorDraft(buildSpreadsheetContent(model), { refreshWorkspace: true });
+    } else {
+      const quote = String(anchor.quote || "");
+      const source = currentDraftContent();
+      if (!quote || !source.includes(quote)) {
+        throw new Error("Le texte cible n'existe plus dans le document.");
+      }
+      syncEditorDraft(source.replace(quote, replacement), {
+        refreshWorkspace: true
+      });
+    }
+    annotation.resolved = true;
+    annotation.acceptedAt = new Date().toISOString();
+    annotation.acceptedByUserId = state.currentUserId;
+    await saveWorkspaceAnnotations(workObject, annotations);
+  };
+
+  const redraw = () => {
+    list.innerHTML = "";
+    const visible = annotations.filter(
+      (annotation) =>
+        !annotation.entryPath ||
+        annotation.entryPath === (state.currentWorkObjectFile || workObject.primaryFile)
+    );
+    if (!visible.length) {
+      const empty = document.createElement("p");
+      empty.textContent = "Aucun commentaire sur ce fichier.";
+      list.appendChild(empty);
+    }
+    visible.forEach((annotation) => {
+      const item = document.createElement("article");
+      const meta = document.createElement("span");
+      meta.textContent = [
+        annotation.type === "suggestion" ? "Suggestion" : "Commentaire",
+        annotation.authorName || `User ${annotation.authorUserId || ""}`,
+        annotation.resolved ? "resolu" : ""
+      ].filter(Boolean).join(" | ");
+      const body = document.createElement("p");
+      body.textContent = annotation.body || "";
+      item.append(meta, body);
+      const anchorLabel = annotationAnchorLabel(annotation.anchor);
+      if (anchorLabel) {
+        const anchor = document.createElement("small");
+        anchor.className = "workspace-annotation-anchor";
+        anchor.textContent = anchorLabel;
+        item.appendChild(anchor);
+      }
+      if (annotation.type === "suggestion" && annotation.suggestedText) {
+        const replacement = document.createElement("pre");
+        replacement.className = "workspace-annotation-suggestion";
+        replacement.textContent = annotation.suggestedText;
+        item.appendChild(replacement);
+      }
+      (annotation.replies || []).forEach((reply) => {
+        const replyNode = document.createElement("blockquote");
+        replyNode.textContent = `${reply.authorName || `User ${reply.authorUserId || ""}`}: ${reply.body || ""}`;
+        item.appendChild(replyNode);
+      });
+      const actions = document.createElement("div");
+      const replyButton = document.createElement("button");
+      replyButton.type = "button";
+      replyButton.textContent = "Repondre";
+      replyButton.addEventListener("click", async () => {
+        const body = window.prompt("Votre reponse");
+        if (!body?.trim()) return;
+        annotation.replies = [
+          ...(annotation.replies || []),
+          {
+            id: crypto.randomUUID(),
+            body: body.trim(),
+            authorUserId: state.currentUserId,
+            authorName: currentUserDisplayName(),
+            createdAt: new Date().toISOString()
+          }
+        ];
+        await saveWorkspaceAnnotations(workObject, annotations);
+        redraw();
+      });
+      const resolveButton = document.createElement("button");
+      resolveButton.type = "button";
+      resolveButton.textContent = annotation.resolved ? "Reouvrir" : "Resoudre";
+      resolveButton.addEventListener("click", async () => {
+        annotation.resolved = !annotation.resolved;
+        await saveWorkspaceAnnotations(workObject, annotations);
+        redraw();
+      });
+      actions.append(replyButton);
+      if (
+        annotation.type === "suggestion" &&
+        annotation.suggestedText &&
+        !annotation.acceptedAt
+      ) {
+        const acceptButton = document.createElement("button");
+        acceptButton.type = "button";
+        acceptButton.textContent = "Accepter";
+        acceptButton.addEventListener("click", () => {
+          applySuggestion(annotation).then(redraw).catch(handleError);
+        });
+        actions.appendChild(acceptButton);
+      }
+      actions.append(resolveButton);
+      item.appendChild(actions);
+      list.appendChild(item);
+    });
+  };
+
+  const addAnnotation = async (type) => {
+    const body = window.prompt(
+      type === "suggestion"
+        ? "Pourquoi proposez-vous cette modification ?"
+        : "Commentaire (utilisez @nom pour mentionner)"
+    );
+    if (!body?.trim()) return;
+    const anchor = captureWorkspaceCursor();
+    const suggestedText =
+      type === "suggestion"
+        ? window.prompt("Texte ou valeur de remplacement", anchor?.quote || "")
+        : "";
+    if (type === "suggestion" && !suggestedText?.trim()) return;
+    annotations.push({
+      id: crypto.randomUUID(),
+      type,
+      body: body.trim(),
+      authorUserId: state.currentUserId,
+      authorName: currentUserDisplayName(),
+      entryPath: state.currentWorkObjectFile || workObject.primaryFile || "",
+      sectionId: state.currentSectionId || "",
+      blockId: state.currentBlockId || "",
+      anchor,
+      suggestedText: String(suggestedText || "").trim(),
+      mentions: [...body.matchAll(/@([\w.-]+)/g)].map((match) => match[1]),
+      replies: [],
+      resolved: false,
+      createdAt: new Date().toISOString()
+    });
+    await saveWorkspaceAnnotations(workObject, annotations);
+    redraw();
+  };
+  addButton.addEventListener("click", () => addAnnotation("comment").catch(handleError));
+  suggestButton.addEventListener("click", () => addAnnotation("suggestion").catch(handleError));
+  redraw();
+  panel.append(header, toolbar, list);
+  overlay.appendChild(panel);
+  document.body.appendChild(overlay);
+}
+
+function closeWorkspaceVersionHistory() {
+  document.getElementById("workspace-version-history-overlay")?.remove();
+}
+
+async function showWorkspaceVersionHistory(workObject = {}) {
+  closeWorkspaceVersionHistory();
+  const payload = await apiClient.getWorkObjectHistory(workObject.id);
+  const history = payload.history || [];
+  const overlay = document.createElement("div");
+  overlay.id = "workspace-version-history-overlay";
+  overlay.className = "workspace-version-history-overlay";
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) {
+      closeWorkspaceVersionHistory();
+    }
+  });
+
+  const panel = document.createElement("section");
+  panel.className = "workspace-version-history-panel";
+  panel.setAttribute("role", "dialog");
+  panel.setAttribute("aria-modal", "true");
+  panel.setAttribute("aria-label", `Historique de ${workObject.title || "document"}`);
+
+  const header = document.createElement("header");
+  const heading = document.createElement("div");
+  const title = document.createElement("h3");
+  title.textContent = "Historique des versions";
+  const subtitle = document.createElement("p");
+  subtitle.textContent = `${workObject.title || "Document"} | revision actuelle ${workObject.revision || 1}`;
+  heading.append(title, subtitle);
+  const closeButton = document.createElement("button");
+  closeButton.type = "button";
+  closeButton.className = "workspace-version-history-close";
+  closeButton.textContent = "x";
+  closeButton.title = "Fermer";
+  closeButton.setAttribute("aria-label", "Fermer");
+  closeButton.addEventListener("click", closeWorkspaceVersionHistory);
+  header.append(heading, closeButton);
+
+  const list = document.createElement("div");
+  list.className = "workspace-version-history-list";
+  const comparison = document.createElement("div");
+  comparison.className = "workspace-version-compare hidden";
+  if (!history.length) {
+    const empty = document.createElement("p");
+    empty.className = "workspace-version-history-empty";
+    empty.textContent = "Aucune version precedente.";
+    list.appendChild(empty);
+  }
+
+  history.forEach((entry) => {
+    const item = document.createElement("article");
+    const copy = document.createElement("div");
+    const label = document.createElement("strong");
+    label.textContent = `Revision ${entry.revision || "?"}`;
+    const meta = document.createElement("span");
+    const date = entry.at ? new Date(entry.at).toLocaleString() : "";
+    meta.textContent = [entry.actor || "", date, entry.note || entry.type || ""]
+      .filter(Boolean)
+      .join(" | ");
+    copy.append(label, meta);
+    item.appendChild(copy);
+
+    if (entry.restorable) {
+      const compareButton = document.createElement("button");
+      compareButton.type = "button";
+      compareButton.textContent = "Comparer";
+      compareButton.addEventListener("click", async () => {
+        compareButton.disabled = true;
+        try {
+          const [snapshotPayload, currentPayload] = await Promise.all([
+            apiClient.getWorkObjectHistorySnapshot(workObject.id, entry.id),
+            apiClient.getWorkObject(workObject.id, entry.entryPath || workObject.primaryFile || "")
+          ]);
+          comparison.innerHTML = "";
+          comparison.classList.remove("hidden");
+          const oldColumn = document.createElement("section");
+          const newColumn = document.createElement("section");
+          const oldTitle = document.createElement("strong");
+          const newTitle = document.createElement("strong");
+          const oldContent = document.createElement("pre");
+          const newContent = document.createElement("pre");
+          oldTitle.textContent = `Revision ${entry.revision || "?"}`;
+          newTitle.textContent = `Revision ${currentPayload.workObject?.revision || "actuelle"}`;
+          oldContent.textContent = snapshotPayload.snapshot?.content || "";
+          newContent.textContent = currentPayload.workObject?.file?.content || "";
+          oldColumn.append(oldTitle, oldContent);
+          newColumn.append(newTitle, newContent);
+          comparison.append(oldColumn, newColumn);
+        } finally {
+          compareButton.disabled = false;
+        }
+      });
+      const restoreButton = document.createElement("button");
+      restoreButton.type = "button";
+      restoreButton.textContent = "Restaurer";
+      restoreButton.addEventListener("click", async () => {
+        if (!window.confirm(`Restaurer la revision ${entry.revision || ""} ?`)) {
+          return;
+        }
+        restoreButton.disabled = true;
+        try {
+          const restored = await apiClient.restoreWorkObjectHistory(workObject.id, entry.id);
+          if (restored.workObject) {
+            mergeWorkObject(restored.workObject);
+            await selectWorkObject(
+              restored.workObject.id,
+              restored.workObject.primaryFile || preferredOpenPath(restored.workObject)
+            );
+          }
+          closeWorkspaceVersionHistory();
+          setStatus(`Revision ${entry.revision || ""} restauree.`);
+        } finally {
+          restoreButton.disabled = false;
+        }
+      });
+      const actions = document.createElement("div");
+      actions.className = "workspace-version-history-actions";
+      actions.append(compareButton, restoreButton);
+      item.appendChild(actions);
+    }
+    list.appendChild(item);
+  });
+
+  panel.append(header, list, comparison);
+  overlay.appendChild(panel);
+  document.body.appendChild(overlay);
+  closeButton.focus();
+}
+
 async function closeWorkspaceSheetDocument(workObject = {}, config = currentWorkspaceDocumentListConfig()) {
   const openDocuments = workspaceDocumentsForConfig(config);
   if (String(state.currentWorkObjectId) === String(workObject.id) && openDocuments.length <= 1) {
@@ -3883,6 +6154,23 @@ function showWorkspaceSheetDocumentMenu(event, workObject = {}) {
     meta: String(state.currentWorkObjectId) === String(workObject.id) && state.editorDirty ? "modifie" : "",
     action: () => saveWorkspaceSheetDocument(workObject).catch(handleError)
   });
+  appendSheetDocumentMenuAction(menu, {
+    label: workObject.metadata?.favorite ? "Retirer des favoris" : "Ajouter aux favoris",
+    action: () => toggleWorkspaceDocumentFavorite(workObject).catch(handleError)
+  });
+  appendSheetDocumentMenuAction(menu, {
+    label: "Historique des versions",
+    action: () => showWorkspaceVersionHistory(workObject).catch(handleError)
+  });
+  appendSheetDocumentMenuAction(menu, {
+    label: "Partager",
+    action: () => shareWorkspaceDocument(workObject).catch(handleError)
+  });
+  appendSheetDocumentMenuAction(menu, {
+    label: "Commentaires et suggestions",
+    meta: String(workObject.metadata?.annotations?.length || ""),
+    action: () => showWorkspaceAnnotations(workObject)
+  });
   appendSheetDocumentMenuSeparator(menu);
   appendSheetDocumentMenuAction(menu, {
     label: "Nouveau document",
@@ -3894,7 +6182,30 @@ function showWorkspaceSheetDocumentMenu(event, workObject = {}) {
       ).catch(handleError)
   });
   appendSheetDocumentMenuAction(menu, {
-    label: "Fermer",
+    label:
+      String(workObject.status || "").toLowerCase() === "archived"
+        ? "Restaurer"
+        : "Archiver",
+    danger: String(workObject.status || "").toLowerCase() !== "archived",
+    action: () => archiveWorkspaceDocument(workObject).catch(handleError)
+  });
+  appendSheetDocumentMenuAction(menu, {
+    label:
+      String(workObject.status || "").toLowerCase() === "trashed"
+        ? "Restaurer de la corbeille"
+        : "Mettre a la corbeille",
+    danger: String(workObject.status || "").toLowerCase() !== "trashed",
+    action: () => trashWorkspaceDocument(workObject).catch(handleError)
+  });
+  if (String(workObject.status || "").toLowerCase() === "trashed") {
+    appendSheetDocumentMenuAction(menu, {
+      label: "Supprimer definitivement",
+      danger: true,
+      action: () => deleteWorkspaceDocumentPermanently(workObject).catch(handleError)
+    });
+  }
+  appendSheetDocumentMenuAction(menu, {
+    label: "Fermer l'onglet",
     danger: true,
     action: () => closeWorkspaceSheetDocument(workObject, config).catch(handleError)
   });
@@ -3928,6 +6239,71 @@ function renderWorkspaceSheetDocuments() {
   count.textContent = `${sheetObjects.length || 0} document${sheetObjects.length === 1 ? "" : "s"}`;
   titleWrap.append(title, count);
 
+  const tools = document.createElement("div");
+  tools.className = "workspace-sheet-documents-tools";
+  const search = document.createElement("input");
+  search.type = "search";
+  search.value = state.workspaceLibraryQuery;
+  search.placeholder = "Rechercher";
+  search.setAttribute("aria-label", "Rechercher dans la bibliotheque");
+  search.addEventListener("input", () => {
+    state.workspaceLibraryQuery = search.value;
+    window.clearTimeout(workspaceLibrarySearchHandle);
+    workspaceLibrarySearchHandle = window.setTimeout(async () => {
+      const query = state.workspaceLibraryQuery.trim();
+      try {
+        state.workspaceLibrarySearchResults = query
+          ? (
+              await apiClient.searchWorkObjects(
+                state.currentUserId,
+                query,
+                config.newKind === "dataset" ? "dataset" : "document"
+              )
+            ).results || []
+          : [];
+        renderWorkspaceSheetDocuments();
+      } catch (error) {
+        handleError(error);
+      }
+    }, 220);
+    renderWorkspaceSheetDocuments();
+    requestAnimationFrame(() => {
+      const nextSearch = el["workspace-sheet-documents"]?.querySelector(
+        ".workspace-sheet-documents-tools input"
+      );
+      if (nextSearch) {
+        nextSearch.focus();
+        nextSearch.setSelectionRange(search.value.length, search.value.length);
+      }
+    });
+  });
+  const archivedButton = document.createElement("button");
+  archivedButton.type = "button";
+  archivedButton.className = `workspace-sheet-document-archive-toggle${
+    state.workspaceLibraryShowArchived ? " active" : ""
+  }`;
+  archivedButton.textContent = "Archives";
+  archivedButton.setAttribute("aria-pressed", String(state.workspaceLibraryShowArchived));
+  archivedButton.addEventListener("click", () => {
+    state.workspaceLibraryShowArchived = !state.workspaceLibraryShowArchived;
+    renderWorkspaceSheetDocuments();
+  });
+  const trashButton = document.createElement("button");
+  trashButton.type = "button";
+  trashButton.className = `workspace-sheet-document-archive-toggle${
+    state.workspaceLibraryShowTrash ? " active" : ""
+  }`;
+  trashButton.textContent = "Corbeille";
+  trashButton.setAttribute("aria-pressed", String(state.workspaceLibraryShowTrash));
+  trashButton.addEventListener("click", () => {
+    state.workspaceLibraryShowTrash = !state.workspaceLibraryShowTrash;
+    if (state.workspaceLibraryShowTrash) {
+      state.workspaceLibraryShowArchived = true;
+    }
+    renderWorkspaceSheetDocuments();
+  });
+  tools.append(search, archivedButton, trashButton);
+
   const newButton = document.createElement("button");
   newButton.type = "button";
   newButton.className = "workspace-sheet-document-new";
@@ -3937,7 +6313,7 @@ function renderWorkspaceSheetDocuments() {
     createBlankWorkspace(config.newKind, config.newFamily, config.newLabel).catch(handleError);
   });
 
-  header.append(titleWrap, newButton);
+  header.append(titleWrap, tools, newButton);
   container.appendChild(header);
 
   const list = document.createElement("div");
@@ -3976,7 +6352,9 @@ function renderWorkspaceSheetDocuments() {
     });
 
     const label = document.createElement("strong");
-    label.textContent = workObject.title || config.newTitle || "Untitled document";
+    label.textContent = `${workObject.metadata?.favorite ? "[Favorite] " : ""}${
+      workObject.title || config.newTitle || "Untitled document"
+    }`;
     const meta = document.createElement("span");
     meta.textContent = workspaceDocumentMeta(workObject, config);
     item.append(label, meta);
@@ -4066,6 +6444,7 @@ function refreshPreviewPane() {
     onPresentationSlideFocus: focusPresentationSlide,
     onPresentationSlideEdit: updatePresentationPreviewInline,
     onDataGridEdit: updateSpreadsheetDraftFromPreview,
+    sheetCalculation: state.sheetCalculation,
     onDashboardFilterToggle: toggleDashboardPreviewFilter,
     onDashboardWidgetMove: moveDashboardWidget,
     onDashboardWidgetDrop: moveDashboardWidgetTo,
@@ -4084,6 +6463,7 @@ function refreshPreviewPane() {
     onDesignBlockPositionChange: updateDesignBlockPosition,
     onDesignBlockResize: resizeDesignBlock
   });
+  renderRemoteWorkspacePresence();
 }
 
 function applyWorkspaceLabels() {
@@ -5330,13 +7710,140 @@ function renderDatasetStructuredEditor(container) {
   container.appendChild(shell);
 }
 
-function renderPresentationStructuredEditor(container) {
-  const draftContent = currentDraftContent();
+function renderPresentationStructuredEditorLegacy(container) {
+  const draftContent = normalizePresentationSourceText(currentDraftContent());
   const deck = derivePresentationDeck(draftContent, state.currentWorkObject?.title || "Untitled presentation");
-  const slideSections = state.currentSections.filter((section) => isPresentationSection(section));
-  const selectedIndex = Math.max(0, slideSections.findIndex((section) => section.id === state.currentSectionId));
-  const activeSlideIndex = slideSections.length ?selectedIndex : 0;
+  const slideSections = deriveWorkspaceSections(draftContent, state.currentWorkObjectFile || "slides.md")
+    .filter((section) => isPresentationSection(section));
+  const selectedIndex = slideSections.findIndex((section) => section.id === state.currentSectionId);
+  const activeSlideIndex = selectedIndex >= 0 ? selectedIndex : 0;
   const activeSlide = deck.slides[activeSlideIndex] || deck.slides[0];
+  if (slideSections.length && selectedIndex < 0) {
+    state.currentSectionId = slideSections[activeSlideIndex]?.id || "";
+    state.currentBlockId = "";
+  }
+  const activeSlideBody = stripPresentationInternalMeta(activeSlide?.body || "");
+  const activeSlideLines = activeSlideBody
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const activeSlideBullets = activeSlideLines
+    .filter((line) => /^[-*]\s+/.test(line) || /^\d+\.\s+/.test(line))
+    .map((line) => line.replace(/^[-*]\s+|^\d+\.\s+/, "").trim())
+    .filter(Boolean);
+  const activeSlideParagraphs = activeSlideLines.filter(
+    (line) => !/^[-*]\s+/.test(line) && !/^\d+\.\s+/.test(line)
+  );
+  const writePresentationDraft = (updater = null, { refreshWorkspace = false, selectIndex = activeSlideIndex } = {}) => {
+    const nextDeck = derivePresentationDeck(currentDraftContent(), state.currentWorkObject?.title || "Untitled presentation");
+    let nextSelectIndex = Number.isInteger(selectIndex) ? selectIndex : activeSlideIndex;
+    if (typeof updater === "function") {
+      const returnedIndex = updater(nextDeck);
+      if (Number.isInteger(returnedIndex)) {
+        nextSelectIndex = returnedIndex;
+      }
+    }
+    if (!nextDeck.slides.length) {
+      nextDeck.slides.push({
+        title: "Slide 1",
+        body: "Add the main message here.",
+        layout: "title",
+        theme: "default",
+        notes: "",
+        image: "",
+        cta: ""
+      });
+      nextSelectIndex = 0;
+    }
+    const safeIndex = Math.max(0, Math.min(nextDeck.slides.length - 1, nextSelectIndex));
+    const nextContent = buildPresentationContent({ title: nextDeck.title, slides: nextDeck.slides });
+    state.currentSectionId = presentationSectionIdForIndex(nextContent, safeIndex);
+    state.currentBlockId = "";
+    syncEditorDraft(nextContent, { refreshWorkspace });
+  };
+  const executePresentationCommand = createWorkspaceCommandExecutor(
+    "presentation",
+    createPresentationWorkspaceCommandAdapter({
+      addSlide: () => {
+        writePresentationDraft((nextDeck) => {
+          const insertIndex = Math.min(nextDeck.slides.length, activeSlideIndex + 1);
+          const seed = nextDeck.slides[activeSlideIndex] || {};
+          nextDeck.slides.splice(insertIndex, 0, {
+            title: `Slide ${nextDeck.slides.length + 1}`,
+            body: "- Main message\n- Proof point\n- Next step",
+            layout: "bullets",
+            theme: seed.theme || "default",
+            notes: "",
+            image: "",
+            cta: ""
+          });
+          return insertIndex;
+        }, { refreshWorkspace: true });
+      },
+      duplicateSlide: () => {
+        writePresentationDraft((nextDeck) => {
+          const seed = nextDeck.slides[activeSlideIndex] || nextDeck.slides[0];
+          const insertIndex = Math.min(nextDeck.slides.length, activeSlideIndex + 1);
+          nextDeck.slides.splice(insertIndex, 0, {
+            ...seed,
+            title: `${seed.title || "Slide"} copy`
+          });
+          return insertIndex;
+        }, { refreshWorkspace: true });
+      },
+      deleteSlide: () => {
+        if (deck.slides.length <= 1) {
+          return;
+        }
+        writePresentationDraft((nextDeck) => {
+          nextDeck.slides.splice(activeSlideIndex, 1);
+          return Math.max(0, activeSlideIndex - 1);
+        }, { refreshWorkspace: true });
+      },
+      moveSlide: (direction = 0) => {
+        const nextIndex = activeSlideIndex + Number(direction || 0);
+        if (nextIndex < 0 || nextIndex >= deck.slides.length) {
+          return;
+        }
+        writePresentationDraft((nextDeck) => {
+          nextDeck.slides = moveItemInArray(nextDeck.slides, activeSlideIndex, nextIndex);
+          return nextIndex;
+        }, { refreshWorkspace: true });
+      },
+      setLayout: (layout = "") => {
+        writePresentationDraft((nextDeck) => {
+          nextDeck.slides = nextDeck.slides.map((slide, index) =>
+            index === activeSlideIndex ? { ...slide, layout: normalizePresentationLayout(layout) } : slide
+          );
+        }, { refreshWorkspace: true });
+      },
+      setTheme: (theme = "") => {
+        writePresentationDraft((nextDeck) => {
+          nextDeck.slides = nextDeck.slides.map((slide, index) =>
+            index === activeSlideIndex ? { ...slide, theme: normalizePresentationTheme(theme) } : slide
+          );
+        }, { refreshWorkspace: true });
+      }
+    })
+  );
+  const createCommandButton = (commandId = "", label = "", { disabled = false, value = "" } = {}) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "ghost-button workspace-slide-command-button";
+    button.disabled = disabled;
+    button.title = label;
+    button.appendChild(
+      createWorkspaceIconNode(getWorkspaceCommandIcon(commandId), {
+        className: "workspace-slide-command-icon",
+        label
+      })
+    );
+    const text = document.createElement("span");
+    text.textContent = label;
+    button.appendChild(text);
+    button.addEventListener("click", () => executePresentationCommand(commandId, { value }));
+    return button;
+  };
 
   const shell = document.createElement("div");
   shell.className = "workspace-slide-editor workspace-presentation-workbench";
@@ -5346,81 +7853,60 @@ function renderPresentationStructuredEditor(container) {
 
   const stats = document.createElement("div");
   stats.className = "workspace-structured-stats";
-  stats.textContent = `${deck.slides.length} slides | deck workspace`;
-
-  const addSlideButton = document.createElement("button");
-  addSlideButton.type = "button";
-  addSlideButton.className = "ghost-button";
-  addSlideButton.textContent = "Add slide";
-  addSlideButton.addEventListener("click", () => {
-    const nextDeck = derivePresentationDeck(currentDraftContent(), state.currentWorkObject?.title || "Untitled presentation");
-    const nextSlides = [
-      ...nextDeck.slides,
-      {
-        title: `Slide ${nextDeck.slides.length + 1}`,
-        body: "Add the next key point here."
-      }
-    ];
-    syncEditorDraft(
-      buildPresentationContent({
-        title: nextDeck.title,
-        slides: nextSlides
-      }),
-      { refreshWorkspace: true }
-    );
-  });
-
-  const duplicateSlideButton = document.createElement("button");
-  duplicateSlideButton.type = "button";
-  duplicateSlideButton.className = "ghost-button";
-  duplicateSlideButton.textContent = "Duplicate";
-  duplicateSlideButton.addEventListener("click", () => {
-    const nextDeck = derivePresentationDeck(currentDraftContent(), state.currentWorkObject?.title || "Untitled presentation");
-    const seed = nextDeck.slides[activeSlideIndex] || nextDeck.slides[0];
-    const nextSlides = [...nextDeck.slides];
-    nextSlides.splice(activeSlideIndex + 1, 0, {
-      ...seed,
-      title: `${seed.title || "Slide"} copy`
-    });
-    syncEditorDraft(buildPresentationContent({ title: nextDeck.title, slides: nextSlides }), {
-      refreshWorkspace: true
-    });
-  });
-
-  const moveLeftButton = document.createElement("button");
-  moveLeftButton.type = "button";
-  moveLeftButton.className = "ghost-button";
-  moveLeftButton.textContent = "Move left";
-  moveLeftButton.disabled = activeSlideIndex <= 0;
-  moveLeftButton.addEventListener("click", () => {
-    const nextDeck = derivePresentationDeck(currentDraftContent(), state.currentWorkObject?.title || "Untitled presentation");
-    const nextSlides = [...nextDeck.slides];
-    const [moved] = nextSlides.splice(activeSlideIndex, 1);
-    nextSlides.splice(activeSlideIndex - 1, 0, moved);
-    syncEditorDraft(buildPresentationContent({ title: nextDeck.title, slides: nextSlides }), {
-      refreshWorkspace: true
-    });
-  });
-
-  const moveRightButton = document.createElement("button");
-  moveRightButton.type = "button";
-  moveRightButton.className = "ghost-button";
-  moveRightButton.textContent = "Move right";
-  moveRightButton.disabled = activeSlideIndex >= deck.slides.length - 1;
-  moveRightButton.addEventListener("click", () => {
-    const nextDeck = derivePresentationDeck(currentDraftContent(), state.currentWorkObject?.title || "Untitled presentation");
-    const nextSlides = [...nextDeck.slides];
-    const [moved] = nextSlides.splice(activeSlideIndex, 1);
-    nextSlides.splice(activeSlideIndex + 1, 0, moved);
-    syncEditorDraft(buildPresentationContent({ title: nextDeck.title, slides: nextSlides }), {
-      refreshWorkspace: true
-    });
-  });
+  stats.textContent = `${deck.slides.length} slides | ${activeSlide.layout || "content"} | ${activeSlide.theme || "default"}`;
 
   const actions = document.createElement("div");
   actions.className = "workspace-structured-actions";
-  actions.append(addSlideButton, duplicateSlideButton, moveLeftButton, moveRightButton);
+  actions.append(
+    createCommandButton("slideAdd", "Add slide"),
+    createCommandButton("slideDuplicate", "Duplicate"),
+    createCommandButton("slideMoveLeft", "Move left", { disabled: activeSlideIndex <= 0 }),
+    createCommandButton("slideMoveRight", "Move right", { disabled: activeSlideIndex >= deck.slides.length - 1 }),
+    createCommandButton("slideDelete", "Delete", { disabled: deck.slides.length <= 1 })
+  );
   toolbar.append(stats, actions);
+
+  const insightGrid = createStructuredInsightGrid([
+    { label: "Slides", value: deck.slides.length, meta: "Deck structure" },
+    {
+      label: "Layouts",
+      value: new Set(deck.slides.map((slide) => slide.layout || "content")).size,
+      meta: deck.slides.map((slide) => slide.layout || "content").slice(0, 3).join(", ")
+    },
+    {
+      label: "Speaker notes",
+      value: deck.slides.filter((slide) => String(slide.notes || "").trim()).length,
+      meta: "Slides with presenter context"
+    },
+    {
+      label: "Visual slides",
+      value: deck.slides.filter((slide) => String(slide.image || "").trim() || slide.layout === "image").length,
+      meta: "Image-ready layouts"
+    }
+  ]);
+
+  const presentationHero = document.createElement("div");
+  presentationHero.className = "workspace-presentation-hero";
+  const presentationHeroMeta = document.createElement("div");
+  presentationHeroMeta.className = "workspace-document-hero-meta";
+  const presentationHeroKicker = document.createElement("span");
+  presentationHeroKicker.className = "tiny";
+  presentationHeroKicker.textContent = "Slides workspace";
+  const presentationHeroTitle = document.createElement("strong");
+  presentationHeroTitle.textContent = deck.title || state.currentWorkObject?.title || "Slides";
+  const presentationHeroCopy = document.createElement("p");
+  presentationHeroCopy.textContent = "Build the deck slide by slide with layout, story, speaker notes and a live presentation canvas.";
+  presentationHeroMeta.append(presentationHeroKicker, presentationHeroTitle, presentationHeroCopy);
+  const presentationHeroTabs = document.createElement("div");
+  presentationHeroTabs.className = "workspace-sheet-tabs";
+  ["Slides", "Design", "Notes", "Preview"].forEach((label, index) => {
+    const chip = document.createElement("span");
+    chip.className = `workspace-sheet-tab${index === 0 ? " active" : ""}`;
+    chip.textContent = label;
+    presentationHeroTabs.appendChild(chip);
+  });
+  presentationHero.append(presentationHeroMeta, presentationHeroTabs);
+
   const deckTitleLabel = document.createElement("label");
   deckTitleLabel.className = "composer-label";
   deckTitleLabel.textContent = "Deck title";
@@ -5429,13 +7915,9 @@ function renderPresentationStructuredEditor(container) {
   deckTitleInput.value = deck.title;
   deckTitleInput.className = "workspace-slide-title-input";
   deckTitleInput.addEventListener("input", (event) => {
-    const nextDeck = derivePresentationDeck(currentDraftContent(), state.currentWorkObject?.title || "Untitled presentation");
-    syncEditorDraft(
-      buildPresentationContent({
-        title: event.target.value,
-        slides: nextDeck.slides
-      })
-    );
+    writePresentationDraft((nextDeck) => {
+      nextDeck.title = event.target.value;
+    }, { refreshWorkspace: false });
   });
 
   const slideRail = document.createElement("div");
@@ -5446,8 +7928,7 @@ function renderPresentationStructuredEditor(container) {
     button.className = `workspace-slide-pill${index === activeSlideIndex ?" active" : ""}`;
     button.textContent = slide.title || `Slide ${index + 1}`;
     button.addEventListener("click", () => {
-      const nextSection = slideSections[index];
-      state.currentSectionId = nextSection?.id || "";
+      state.currentSectionId = slideSections[index]?.id || "";
       state.currentBlockId = "";
       renderWorkspace();
     });
@@ -5462,11 +7943,43 @@ function renderPresentationStructuredEditor(container) {
   slideTitleInput.className = "workspace-slide-title-input";
   slideTitleInput.value = activeSlide?.title || "";
   slideTitleInput.addEventListener("input", (event) => {
-    const nextDeck = derivePresentationDeck(currentDraftContent(), state.currentWorkObject?.title || "Untitled presentation");
-    const nextSlides = nextDeck.slides.map((slide, index) =>
-      index === activeSlideIndex ?{ ...slide, title: event.target.value } : slide
-    );
-    syncEditorDraft(buildPresentationContent({ title: nextDeck.title, slides: nextSlides }));
+    writePresentationDraft((nextDeck) => {
+      nextDeck.slides = nextDeck.slides.map((slide, index) =>
+        index === activeSlideIndex ?{ ...slide, title: event.target.value } : slide
+      );
+    }, { refreshWorkspace: false });
+  });
+
+  const slideLayoutLabel = document.createElement("label");
+  slideLayoutLabel.className = "composer-label";
+  slideLayoutLabel.textContent = "Layout";
+  const slideLayoutSelect = document.createElement("select");
+  slideLayoutSelect.className = "workspace-slide-title-input workspace-slide-select";
+  PRESENTATION_SLIDE_LAYOUTS.forEach((layout) => {
+    const option = document.createElement("option");
+    option.value = layout.value;
+    option.textContent = layout.label;
+    option.selected = (activeSlide.layout || "content") === layout.value;
+    slideLayoutSelect.appendChild(option);
+  });
+  slideLayoutSelect.addEventListener("change", (event) => {
+    executePresentationCommand("slideLayout", { value: event.target.value });
+  });
+
+  const slideThemeLabel = document.createElement("label");
+  slideThemeLabel.className = "composer-label";
+  slideThemeLabel.textContent = "Theme";
+  const slideThemeSelect = document.createElement("select");
+  slideThemeSelect.className = "workspace-slide-title-input workspace-slide-select";
+  PRESENTATION_SLIDE_THEMES.forEach((theme) => {
+    const option = document.createElement("option");
+    option.value = theme.value;
+    option.textContent = theme.label;
+    option.selected = (activeSlide.theme || "default") === theme.value;
+    slideThemeSelect.appendChild(option);
+  });
+  slideThemeSelect.addEventListener("change", (event) => {
+    executePresentationCommand("slideTheme", { value: event.target.value });
   });
 
   const slideBodyLabel = document.createElement("label");
@@ -5475,14 +7988,69 @@ function renderPresentationStructuredEditor(container) {
   const slideBodyInput = document.createElement("textarea");
   slideBodyInput.rows = 10;
   slideBodyInput.className = "workspace-slide-body-input";
-  slideBodyInput.value = activeSlide?.body || "";
+  slideBodyInput.value = activeSlideBody;
   slideBodyInput.addEventListener("input", (event) => {
-    const nextDeck = derivePresentationDeck(currentDraftContent(), state.currentWorkObject?.title || "Untitled presentation");
-    const nextSlides = nextDeck.slides.map((slide, index) =>
-      index === activeSlideIndex ?{ ...slide, body: event.target.value } : slide
-    );
-    syncEditorDraft(buildPresentationContent({ title: nextDeck.title, slides: nextSlides }));
+    writePresentationDraft((nextDeck) => {
+      nextDeck.slides = nextDeck.slides.map((slide, index) =>
+        index === activeSlideIndex ?{ ...slide, body: event.target.value } : slide
+      );
+    }, { refreshWorkspace: false });
   });
+
+  const notesLabel = document.createElement("label");
+  notesLabel.className = "composer-label";
+  notesLabel.textContent = "Speaker notes";
+  const notesInput = document.createElement("textarea");
+  notesInput.rows = 5;
+  notesInput.className = "workspace-slide-body-input workspace-slide-notes-input";
+  notesInput.value = activeSlide?.notes || "";
+  notesInput.addEventListener("input", (event) => {
+    writePresentationDraft((nextDeck) => {
+      nextDeck.slides = nextDeck.slides.map((slide, index) =>
+        index === activeSlideIndex ?{ ...slide, notes: event.target.value } : slide
+      );
+    }, { refreshWorkspace: false });
+  });
+
+  const mediaFieldGrid = document.createElement("div");
+  mediaFieldGrid.className = "workspace-editor-field-grid";
+  const imageField = document.createElement("label");
+  imageField.className = "workspace-editor-inline-field";
+  const imageFieldLabel = document.createElement("span");
+  imageFieldLabel.className = "composer-label";
+  imageFieldLabel.textContent = "Image URL";
+  const imageInput = document.createElement("input");
+  imageInput.type = "url";
+  imageInput.className = "workspace-slide-title-input";
+  imageInput.value = activeSlide?.image || "";
+  imageInput.placeholder = "https://...";
+  imageInput.addEventListener("input", (event) => {
+    writePresentationDraft((nextDeck) => {
+      nextDeck.slides = nextDeck.slides.map((slide, index) =>
+        index === activeSlideIndex ?{ ...slide, image: event.target.value } : slide
+      );
+    }, { refreshWorkspace: false });
+  });
+  imageField.append(imageFieldLabel, imageInput);
+  const ctaField = document.createElement("label");
+  ctaField.className = "workspace-editor-inline-field";
+  const ctaFieldLabel = document.createElement("span");
+  ctaFieldLabel.className = "composer-label";
+  ctaFieldLabel.textContent = "CTA";
+  const ctaInput = document.createElement("input");
+  ctaInput.type = "text";
+  ctaInput.className = "workspace-slide-title-input";
+  ctaInput.value = activeSlide?.cta || "";
+  ctaInput.placeholder = "Next step";
+  ctaInput.addEventListener("input", (event) => {
+    writePresentationDraft((nextDeck) => {
+      nextDeck.slides = nextDeck.slides.map((slide, index) =>
+        index === activeSlideIndex ?{ ...slide, cta: event.target.value } : slide
+      );
+    }, { refreshWorkspace: false });
+  });
+  ctaField.append(ctaFieldLabel, ctaInput);
+  mediaFieldGrid.append(imageField, ctaField);
 
   const layout = document.createElement("div");
   layout.className = "workspace-editor-layout workspace-presentation-layout";
@@ -5497,14 +8065,13 @@ function renderPresentationStructuredEditor(container) {
       deck.slides.map((slide, index) => ({
         id: slide.id || `slide-${index + 1}`,
         title: slide.title || `Slide ${index + 1}`,
-        meta: `${normalizeEditorText(slide.body).split("\n").filter((line) => line.trim()).length || 1} talking points`
+        meta: `${slide.layout || "content"} | ${normalizeEditorText(slide.body).split("\n").filter((line) => line.trim()).length || 1} points`
       })),
       activeSlide?.id || "",
       {
         onSelect: (slide) => {
           const index = deck.slides.findIndex((item) => item.id === slide.id);
-          const nextSection = slideSections[index];
-          state.currentSectionId = nextSection?.id || "";
+          state.currentSectionId = slideSections[index]?.id || "";
           state.currentBlockId = "";
           renderWorkspace();
         }
@@ -5513,23 +8080,64 @@ function renderPresentationStructuredEditor(container) {
   );
   sidebar.appendChild(slidePanel.panel);
 
-  const editingPanel = createEditorPanel("How to modify", "Pick a slide, change its title and content, then Hydria keeps the deck in sync.");
-  const editingSteps = document.createElement("div");
-  editingSteps.className = "workspace-flow-chip-list";
-  ["1 Pick a slide", "2 Rewrite the message", "3 Saved automatically"].forEach((label, index) => {
-    const chip = document.createElement("span");
-    chip.className = `workspace-flow-chip${index === 0 ? " active" : ""}`;
-    chip.textContent = label;
-    editingSteps.appendChild(chip);
-  });
-  editingPanel.body.appendChild(editingSteps);
-  sidebar.appendChild(editingPanel.panel);
+  const designPanel = createEditorPanel("Slide design", "Switch the active slide layout and theme without rewriting the content.");
+  designPanel.body.appendChild(
+    createEditorMiniList(
+      PRESENTATION_SLIDE_LAYOUTS.map((layout) => ({
+        id: layout.value,
+        title: layout.label,
+        meta: layout.value === activeSlide.layout ? "Active layout" : "Apply layout"
+      })),
+      activeSlide.layout || "content",
+      {
+        onSelect: (layout) => executePresentationCommand("slideLayout", { value: layout.id })
+      }
+    )
+  );
+  designPanel.body.appendChild(
+    createEditorMiniList(
+      PRESENTATION_SLIDE_THEMES.map((theme) => ({
+        id: theme.value,
+        title: theme.label,
+        meta: theme.value === activeSlide.theme ? "Active theme" : "Apply theme"
+      })),
+      activeSlide.theme || "default",
+      {
+        onSelect: (theme) => executePresentationCommand("slideTheme", { value: theme.id })
+      }
+    )
+  );
+  sidebar.appendChild(designPanel.panel);
+
+  const storyPanel = createEditorPanel("Deck profile", "Keep the narrative structure visible while you edit.");
+  const storyGrid = createStructuredInsightGrid([
+    { label: "Current slide", value: `${activeSlideIndex + 1}/${deck.slides.length}`, meta: activeSlide.title || "Slide" },
+    { label: "Body points", value: activeSlideLines.length || 1, meta: activeSlideBullets.length ? `${activeSlideBullets.length} bullets` : "Narrative text" },
+    { label: "Theme", value: activeSlide.theme || "default", meta: activeSlide.layout || "content" }
+  ]);
+  if (storyGrid) {
+    storyPanel.body.appendChild(storyGrid);
+  }
+  sidebar.appendChild(storyPanel.panel);
 
   const slideEditorPanel = createEditorPanel("Edit current slide", "Change the deck title, then rewrite the active slide directly.");
-  slideEditorPanel.body.append(deckTitleLabel, deckTitleInput, slideTitleLabel, slideTitleInput, slideBodyLabel, slideBodyInput);
+  slideEditorPanel.body.append(
+    deckTitleLabel,
+    deckTitleInput,
+    slideRail,
+    slideTitleLabel,
+    slideTitleInput,
+    slideLayoutLabel,
+    slideLayoutSelect,
+    slideThemeLabel,
+    slideThemeSelect,
+    slideBodyLabel,
+    slideBodyInput,
+    mediaFieldGrid
+  );
   main.appendChild(slideEditorPanel.panel);
 
-  const stagePanel = createEditorPanel("Current slide snapshot", "Keep a compact reminder of the active slide while you edit.");
+  const stagePanel = createEditorPanel("Slides stage", "Preview the active slide as a presentation surface, not as raw markdown.");
   const stageShell = document.createElement("div");
   stageShell.className = "workspace-presentation-stage-shell";
   const stageHeader = document.createElement("div");
@@ -5540,12 +8148,12 @@ function renderPresentationStructuredEditor(container) {
   stageName.textContent = activeSlide?.title || "Slide";
   const stageHint = document.createElement("span");
   stageHint.className = "tiny";
-  stageHint.textContent = `Slide ${activeSlideIndex + 1} of ${deck.slides.length}`;
+  stageHint.textContent = `Slide ${activeSlideIndex + 1} of ${deck.slides.length} | ${activeSlide.layout || "content"}`;
   stageHeaderMeta.append(stageName, stageHint);
   const stageChips = document.createElement("div");
   stageChips.className = "workspace-chip-list";
   [
-    "Story",
+    activeSlide.theme || "Story",
     normalizeEditorText(activeSlide?.body || "").split("\n").filter((line) => line.trim()).length > 3 ? "Dense" : "Lean",
     activeSlideIndex === 0 ? "Opening" : activeSlideIndex === deck.slides.length - 1 ? "Closing" : "Middle"
   ].forEach((label, index) => {
@@ -5564,8 +8172,7 @@ function renderPresentationStructuredEditor(container) {
     thumb.type = "button";
     thumb.className = `workspace-presentation-thumbnail${index === activeSlideIndex ? " active" : ""}`;
     thumb.addEventListener("click", () => {
-      const nextSection = slideSections[index];
-      state.currentSectionId = nextSection?.id || "";
+      state.currentSectionId = slideSections[index]?.id || "";
       state.currentBlockId = "";
       renderWorkspace();
     });
@@ -5581,24 +8188,71 @@ function renderPresentationStructuredEditor(container) {
   });
 
   const stageCanvas = document.createElement("article");
-  stageCanvas.className = "workspace-presentation-stage-canvas";
+  stageCanvas.className = `workspace-presentation-stage-canvas layout-${activeSlide.layout || "content"} theme-${activeSlide.theme || "default"}`;
+  stageCanvas.dataset.layout = activeSlide.layout || "content";
+  stageCanvas.dataset.theme = activeSlide.theme || "default";
   const stageCanvasKicker = document.createElement("span");
   stageCanvasKicker.className = "workspace-slide-kicker";
-  stageCanvasKicker.textContent = "Active slide";
+  stageCanvasKicker.textContent = `${activeSlide.layout || "content"} | ${activeSlide.theme || "default"}`;
   const stageCanvasTitle = document.createElement("h3");
   stageCanvasTitle.textContent = activeSlide?.title || "Slide";
   const stageCanvasBody = document.createElement("div");
   stageCanvasBody.className = "workspace-presentation-stage-body";
-  normalizeEditorText(activeSlide?.body || "")
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .slice(0, 6)
-    .forEach((line) => {
-      const item = document.createElement(/^[-*]\s+/.test(line) || /^\d+\.\s+/.test(line) ? "li" : "p");
-      item.textContent = line.replace(/^[-*]\s+|^\d+\.\s+/, "");
+  if (activeSlide.layout === "image" && activeSlide.image) {
+    const figure = document.createElement("figure");
+    figure.className = "workspace-presentation-stage-figure";
+    const image = document.createElement("img");
+    image.src = activeSlide.image;
+    image.alt = activeSlide.title || "Slide visual";
+    figure.appendChild(image);
+    stageCanvasBody.appendChild(figure);
+  }
+  if (activeSlide.layout === "quote") {
+    const quote = document.createElement("blockquote");
+    quote.textContent =
+      activeSlideParagraphs.find((line) => /^>\s+/.test(line))?.replace(/^>\s+/, "") ||
+      activeSlideParagraphs[0] ||
+      "Add a strong quote or statement.";
+    stageCanvasBody.appendChild(quote);
+  } else if (activeSlide.layout === "comparison") {
+    const comparisonGrid = document.createElement("div");
+    comparisonGrid.className = "workspace-presentation-comparison-grid";
+    const comparisonLines = activeSlideParagraphs.length ? activeSlideParagraphs : activeSlideBullets;
+    comparisonLines.slice(0, 4).forEach((line, index) => {
+      const [label = `Side ${index + 1}`, value = line] = String(line || "").split("|").map((part) => part.trim());
+      const card = document.createElement("article");
+      card.className = "workspace-presentation-comparison-card";
+      const cardLabel = document.createElement("span");
+      cardLabel.className = "tiny";
+      cardLabel.textContent = value === line ? `Point ${index + 1}` : label;
+      const cardValue = document.createElement("p");
+      cardValue.textContent = value || line;
+      card.append(cardLabel, cardValue);
+      comparisonGrid.appendChild(card);
+    });
+    stageCanvasBody.appendChild(comparisonGrid);
+  } else {
+    activeSlideParagraphs.slice(0, activeSlide.layout === "two-column" ? 4 : 3).forEach((line) => {
+      const item = document.createElement(/^>\s+/.test(line) ? "blockquote" : "p");
+      item.textContent = line.replace(/^>\s+/, "");
       stageCanvasBody.appendChild(item);
     });
+    if (activeSlideBullets.length) {
+      const list = document.createElement("ul");
+      activeSlideBullets.slice(0, 6).forEach((line) => {
+        const item = document.createElement("li");
+        item.textContent = line;
+        list.appendChild(item);
+      });
+      stageCanvasBody.appendChild(list);
+    }
+  }
+  if (activeSlide.cta) {
+    const cta = document.createElement("div");
+    cta.className = "workspace-presentation-cta";
+    cta.textContent = activeSlide.cta;
+    stageCanvasBody.appendChild(cta);
+  }
   if (!stageCanvasBody.childNodes.length) {
     const fallback = document.createElement("p");
     fallback.textContent = "Add the key message, proof points and next step for this slide.";
@@ -5622,11 +8276,11 @@ function renderPresentationStructuredEditor(container) {
   [
     {
       label: "Presenter note",
-      value: normalizeEditorText(activeSlide?.body || "").split("\n").filter((line) => line.trim())[0] || "Lead with the most important message."
+      value: activeSlide.notes || activeSlideParagraphs[0] || activeSlideBullets[0] || "Lead with the most important message."
     },
     {
-      label: "Audience signal",
-      value: activeSlideIndex === 0 ? "Hook interest quickly." : activeSlideIndex === deck.slides.length - 1 ? "Make the next action obvious." : "Support the story with proof."
+      label: "Next action",
+      value: activeSlide.cta || (activeSlideIndex === deck.slides.length - 1 ? "Make the next action obvious." : "Support the story with proof.")
     }
   ].forEach((item) => {
     const card = document.createElement("article");
@@ -5642,12 +8296,4461 @@ function renderPresentationStructuredEditor(container) {
   notesPanel.appendChild(notesGrid);
   stageWorkbench.append(stageThumbRail, stageCanvas, notesPanel);
   stageShell.append(stageHeader, stageWorkbench);
-  const noteSummaryPanel = createEditorPanel("Presenter notes", "Hydria keeps the speaking angle visible while you rewrite the slide.");
-  noteSummaryPanel.body.appendChild(notesPanel);
+  stagePanel.body.appendChild(stageShell);
+  main.appendChild(stagePanel.panel);
+
+  const noteSummaryPanel = createEditorPanel("Presenter script", "Keep notes separate from the visible slide content.");
+  noteSummaryPanel.body.append(notesLabel, notesInput);
   main.appendChild(noteSummaryPanel.panel);
 
   layout.append(sidebar, main);
-  shell.append(toolbar, layout);
+  shell.append(toolbar);
+  if (insightGrid) {
+    shell.appendChild(insightGrid);
+  }
+  shell.append(presentationHero, layout);
+  container.appendChild(shell);
+}
+
+function renderPresentationStructuredEditor(container) {
+  const draftContent = normalizePresentationSourceText(currentDraftContent());
+  const deck = derivePresentationDeck(draftContent, state.currentWorkObject?.title || "Untitled presentation");
+  const slideSections = deriveWorkspaceSections(draftContent, state.currentWorkObjectFile || "slides.md")
+    .filter((section) => isPresentationSection(section));
+  const selectedIndex = slideSections.findIndex((section) => section.id === state.currentSectionId);
+  const activeSlideIndex = selectedIndex >= 0 ? selectedIndex : 0;
+  const activeSlide = deck.slides[activeSlideIndex] || deck.slides[0];
+  if (slideSections.length && selectedIndex < 0) {
+    state.currentSectionId = slideSections[activeSlideIndex]?.id || "";
+    state.currentBlockId = "";
+  }
+
+  const visibleBody = stripPresentationInternalMeta(activeSlide?.body || "");
+  const activeElements = normalizePresentationElements(activeSlide?.elements, {
+    title: activeSlide?.title || "",
+    body: visibleBody,
+    layout: activeSlide?.layout || "content",
+    image: activeSlide?.image || "",
+    cta: activeSlide?.cta || ""
+  }).sort((left, right) => Number(left.z || 0) - Number(right.z || 0));
+
+  const validElementIds = new Set(activeElements.map((element) => element.id));
+  let selectedElementIds = [
+    ...new Set(
+      [
+        ...(Array.isArray(state.presentationSelectedElementIds) ? state.presentationSelectedElementIds : []),
+        state.currentStructuredSubItemId
+      ]
+        .map((id) => String(id || ""))
+        .filter((id) => id && validElementIds.has(id))
+    )
+  ];
+  if (!selectedElementIds.length && activeElements.length && !state.presentationSelectionCleared) {
+    selectedElementIds = [activeElements[0].id];
+  }
+  state.presentationSelectedElementIds = selectedElementIds;
+  state.currentStructuredSubItemId = selectedElementIds[0] || "";
+  const selectedElementSet = new Set(selectedElementIds);
+  const selectedElements = activeElements.filter((element) => selectedElementSet.has(element.id));
+  const selectedElement =
+    selectedElements.find((element) => element.id === state.currentStructuredSubItemId) || selectedElements[0] || null;
+  const hasMultiSelection = selectedElements.length > 1;
+
+  const setPresentationSelection = (ids = [], primaryId = "") => {
+    const nextIds = [
+      ...new Set(
+        ids
+          .map((id) => String(id || ""))
+          .filter((id) => id && validElementIds.has(id))
+      )
+    ];
+    state.presentationSelectedElementIds = nextIds;
+    state.currentStructuredSubItemId = primaryId && nextIds.includes(primaryId) ? primaryId : nextIds[0] || "";
+    state.presentationSelectionCleared = !nextIds.length;
+  };
+
+  const setActivePresentationSlide = (nextIndex = 0) => {
+    const safeIndex = Math.max(0, Math.min(deck.slides.length - 1, Number(nextIndex || 0)));
+    state.currentSectionId = slideSections[safeIndex]?.id || presentationSectionIdForIndex(currentDraftContent(), safeIndex);
+    state.currentBlockId = "";
+    state.currentStructuredSubItemId = "";
+    state.presentationSelectedElementIds = [];
+    state.presentationSelectionCleared = true;
+    renderWorkspace();
+  };
+
+  const writePresentationDraft = (
+    updater = null,
+    {
+      refreshWorkspace = false,
+      selectIndex = activeSlideIndex,
+      selectedElementId = state.currentStructuredSubItemId,
+      selectedElementIds: nextSelectedElementIds = null,
+      skipHistory = false
+    } = {}
+  ) => {
+    const previousContent = currentDraftContent();
+    const nextDeck = derivePresentationDeck(previousContent, state.currentWorkObject?.title || "Untitled presentation");
+    let nextSelectIndex = Number.isInteger(selectIndex) ? selectIndex : activeSlideIndex;
+    if (typeof updater === "function") {
+      const returnedIndex = updater(nextDeck);
+      if (Number.isInteger(returnedIndex)) {
+        nextSelectIndex = returnedIndex;
+      }
+    }
+    if (!nextDeck.slides.length) {
+      nextDeck.slides.push({
+        title: "Slide 1",
+        body: "Add the main message here.",
+        ...normalizePresentationSlideMeta({ layout: "title", theme: "default" }, {
+          title: "Slide 1",
+          body: "Add the main message here."
+        })
+      });
+      nextSelectIndex = 0;
+    }
+    nextDeck.slides = nextDeck.slides.map((slide) => ({
+      ...slide,
+      ...normalizePresentationSlideMeta(slide, {
+        title: slide.title || "",
+        body: slide.body || ""
+      })
+    }));
+    const safeIndex = Math.max(0, Math.min(nextDeck.slides.length - 1, nextSelectIndex));
+    const nextContent = buildPresentationContent({ title: nextDeck.title, slides: nextDeck.slides });
+    state.currentSectionId = presentationSectionIdForIndex(nextContent, safeIndex);
+    state.currentBlockId = "";
+    const safeSlide = nextDeck.slides[safeIndex] || {};
+    const safeElements = normalizePresentationElements(safeSlide.elements, {
+      title: safeSlide.title,
+      body: safeSlide.body,
+      layout: safeSlide.layout,
+      image: safeSlide.image,
+      cta: safeSlide.cta
+    });
+    const safeElementIds = new Set(safeElements.map((element) => element.id));
+    const requestedSelection = Array.isArray(nextSelectedElementIds) ? nextSelectedElementIds : [selectedElementId];
+    const nextSelection = [
+      ...new Set(
+        requestedSelection
+          .map((id) => String(id || ""))
+          .filter((id) => id && safeElementIds.has(id))
+      )
+    ];
+    state.presentationSelectedElementIds = nextSelection.length ? nextSelection : safeElements[0]?.id ? [safeElements[0].id] : [];
+    state.currentStructuredSubItemId =
+      selectedElementId && state.presentationSelectedElementIds.includes(selectedElementId)
+        ? selectedElementId
+        : state.presentationSelectedElementIds[0] || "";
+    state.presentationSelectionCleared = !state.presentationSelectedElementIds.length;
+    if (!skipHistory && nextContent !== previousContent) {
+      const undoStack = Array.isArray(state.presentationUndoStack) ? state.presentationUndoStack : [];
+      if (undoStack[undoStack.length - 1] !== previousContent) {
+        state.presentationUndoStack = [...undoStack.slice(-39), previousContent];
+      }
+      state.presentationRedoStack = [];
+    }
+    syncEditorDraft(nextContent, { refreshWorkspace });
+  };
+
+  const restorePresentationHistoryContent = (content = "") => {
+    const nextContent = normalizePresentationSourceText(content);
+    const nextDeck = derivePresentationDeck(nextContent, state.currentWorkObject?.title || "Untitled presentation");
+    const nextIndex = Math.max(0, Math.min(nextDeck.slides.length - 1, activeSlideIndex));
+    state.currentSectionId = presentationSectionIdForIndex(nextContent, nextIndex);
+    state.currentBlockId = "";
+    state.currentStructuredSubItemId = nextDeck.slides[nextIndex]?.elements?.[0]?.id || "";
+    state.presentationSelectedElementIds = state.currentStructuredSubItemId ? [state.currentStructuredSubItemId] : [];
+    state.presentationSelectionCleared = !state.presentationSelectedElementIds.length;
+    syncEditorDraft(nextContent, { refreshWorkspace: true });
+  };
+
+  const undoPresentationChange = () => {
+    const undoStack = Array.isArray(state.presentationUndoStack) ? state.presentationUndoStack : [];
+    if (!undoStack.length) {
+      return;
+    }
+    const previousContent = undoStack[undoStack.length - 1];
+    state.presentationUndoStack = undoStack.slice(0, -1);
+    state.presentationRedoStack = [...(state.presentationRedoStack || []).slice(-39), currentDraftContent()];
+    restorePresentationHistoryContent(previousContent);
+  };
+
+  const redoPresentationChange = () => {
+    const redoStack = Array.isArray(state.presentationRedoStack) ? state.presentationRedoStack : [];
+    if (!redoStack.length) {
+      return;
+    }
+    const nextContent = redoStack[redoStack.length - 1];
+    state.presentationRedoStack = redoStack.slice(0, -1);
+    state.presentationUndoStack = [...(state.presentationUndoStack || []).slice(-39), currentDraftContent()];
+    restorePresentationHistoryContent(nextContent);
+  };
+
+  const updateActiveSlide = (patch = {}, options = {}) => {
+    writePresentationDraft((nextDeck) => {
+      nextDeck.slides = nextDeck.slides.map((slide, index) =>
+        index === activeSlideIndex
+          ? {
+              ...slide,
+              ...patch
+            }
+          : slide
+      );
+    }, options);
+  };
+
+  const updateElement = (
+    elementId = "",
+    patch = {},
+    { refreshWorkspace = false, selectedElementIds: nextSelection = [elementId] } = {}
+  ) => {
+    if (!elementId) {
+      return;
+    }
+    writePresentationDraft((nextDeck) => {
+      nextDeck.slides = nextDeck.slides.map((slide, index) => {
+        if (index !== activeSlideIndex) {
+          return slide;
+        }
+        const elements = normalizePresentationElements(slide.elements, {
+          title: slide.title,
+          body: slide.body,
+          layout: slide.layout,
+          image: slide.image,
+          cta: slide.cta
+        }).map((element) => (element.id === elementId ? { ...element, ...patch } : element));
+        return { ...slide, elements };
+      });
+    }, { refreshWorkspace, selectedElementId: elementId, selectedElementIds: nextSelection });
+  };
+
+  const updateElementsByIds = (
+    elementIds = [],
+    mapper = (element) => element,
+    { refreshWorkspace = false, selectedElementId = elementIds[0] || "", selectedElementIds: nextSelection = elementIds } = {}
+  ) => {
+    const ids = new Set(elementIds.filter(Boolean));
+    if (!ids.size || typeof mapper !== "function") {
+      return;
+    }
+    writePresentationDraft((nextDeck) => {
+      nextDeck.slides = nextDeck.slides.map((slide, index) => {
+        if (index !== activeSlideIndex) {
+          return slide;
+        }
+        const elements = normalizePresentationElements(slide.elements, {
+          title: slide.title,
+          body: slide.body,
+          layout: slide.layout,
+          image: slide.image,
+          cta: slide.cta
+        }).map((element) => (ids.has(element.id) ? mapper(element) : element));
+        return { ...slide, elements };
+      });
+    }, { refreshWorkspace, selectedElementId, selectedElementIds: nextSelection });
+  };
+
+  const selectionBounds = (elements = selectedElements) => {
+    const list = elements.filter(Boolean);
+    if (!list.length) {
+      return null;
+    }
+    const left = Math.min(...list.map((element) => Number(element.x || 0)));
+    const top = Math.min(...list.map((element) => Number(element.y || 0)));
+    const right = Math.max(...list.map((element) => Number(element.x || 0) + Number(element.w || 0)));
+    const bottom = Math.max(...list.map((element) => Number(element.y || 0) + Number(element.h || 0)));
+    return { x: left, y: top, w: right - left, h: bottom - top, right, bottom };
+  };
+
+  const copyPresentationFormatting = (element = selectedElement) => {
+    if (!element) {
+      return null;
+    }
+    return {
+      fontSize: element.fontSize,
+      fontFamily: element.fontFamily,
+      bold: element.bold,
+      italic: element.italic,
+      underline: element.underline,
+      align: element.align,
+      color: element.color,
+      fill: element.fill,
+      stroke: element.stroke,
+      strokeWidth: element.strokeWidth,
+      opacity: element.opacity,
+      shape: element.shape,
+      chartType: element.chartType
+    };
+  };
+
+  const copySelectedFormatting = () => {
+    const formatting = copyPresentationFormatting(selectedElement);
+    if (!formatting) {
+      return;
+    }
+    state.presentationFormatBrush = formatting;
+    setStatus("Mise en forme prete a appliquer.");
+    renderWorkspace();
+  };
+
+  const applyPresentationFormatBrush = (elementId = "") => {
+    if (!elementId || !state.presentationFormatBrush) {
+      return false;
+    }
+    updateElement(elementId, { ...state.presentationFormatBrush }, { refreshWorkspace: true });
+    state.presentationFormatBrush = null;
+    setStatus("Mise en forme appliquee.");
+    return true;
+  };
+
+  const groupSelectedElements = () => {
+    if (selectedElements.length < 2) {
+      return;
+    }
+    const groupId = createPresentationElementId("group");
+    updateElementsByIds(selectedElementIds, (element) => ({ ...element, groupId }), {
+      refreshWorkspace: true,
+      selectedElementId: selectedElement?.id || selectedElementIds[0],
+      selectedElementIds
+    });
+  };
+
+  const ungroupSelectedElements = () => {
+    if (!selectedElements.some((element) => element.groupId)) {
+      return;
+    }
+    updateElementsByIds(selectedElementIds, (element) => ({ ...element, groupId: "" }), {
+      refreshWorkspace: true,
+      selectedElementId: selectedElement?.id || selectedElementIds[0],
+      selectedElementIds
+    });
+  };
+
+  const toggleSelectedLock = () => {
+    if (!selectedElements.length) {
+      return;
+    }
+    const shouldLock = selectedElements.some((element) => !element.locked);
+    updateElementsByIds(selectedElementIds, (element) => ({ ...element, locked: shouldLock }), {
+      refreshWorkspace: true,
+      selectedElementId: selectedElement?.id || selectedElementIds[0],
+      selectedElementIds
+    });
+  };
+
+  const selectAllPresentationElements = () => {
+    const allIds = activeElements.map((element) => element.id);
+    setPresentationSelection(allIds, allIds[0] || "");
+    renderWorkspace();
+  };
+
+  const selectPresentationElementOrGroup = (element = null) => {
+    if (!element) {
+      return;
+    }
+    if (element.groupId) {
+      const groupIds = activeElements.filter((item) => item.groupId === element.groupId).map((item) => item.id);
+      setPresentationSelection(groupIds.length ? groupIds : [element.id], element.id);
+      return;
+    }
+    setPresentationSelection([element.id], element.id);
+  };
+
+  const insertElement = (partial = {}) => {
+    const id = createPresentationElementId(partial.type || "element");
+    const element = normalizePresentationElement(
+      {
+        id,
+        z: activeElements.length + 1,
+        ...partial
+      },
+      activeElements.length
+    );
+    writePresentationDraft((nextDeck) => {
+      nextDeck.slides = nextDeck.slides.map((slide, index) => {
+        if (index !== activeSlideIndex) {
+          return slide;
+        }
+        const elements = normalizePresentationElements(slide.elements, {
+          title: slide.title,
+          body: slide.body,
+          layout: slide.layout,
+          image: slide.image,
+          cta: slide.cta
+        });
+        return { ...slide, elements: [...elements, element] };
+      });
+    }, { refreshWorkspace: true, selectedElementId: id });
+  };
+
+  const copyElementToClipboard = (element = null) => {
+    if (!element) {
+      return;
+    }
+    state.presentationClipboard = { ...element };
+    setStatus("Objet copie.");
+  };
+
+  const copyElementsToClipboard = (elements = []) => {
+    const list = elements.filter(Boolean);
+    if (!list.length) {
+      return;
+    }
+    if (list.length === 1) {
+      copyElementToClipboard(list[0]);
+      return;
+    }
+    state.presentationClipboard = {
+      type: "selection",
+      elements: list.map((element) => ({ ...element }))
+    };
+    setStatus(`${list.length} objets copies.`);
+  };
+
+  const duplicateElementFrom = (source = null) => {
+    if (!source) {
+      return;
+    }
+    insertElement({
+      ...source,
+      id: createPresentationElementId(source.type || "element"),
+      x: Math.min(94, Number(source.x || 0) + 4),
+      y: Math.min(94, Number(source.y || 0) + 4),
+      z: activeElements.length + 1
+    });
+  };
+
+  const duplicateElementsFrom = (sources = []) => {
+    const list = sources.filter(Boolean);
+    if (!list.length) {
+      return;
+    }
+    if (list.length === 1) {
+      duplicateElementFrom(list[0]);
+      return;
+    }
+    const clones = list.map((source, index) => ({
+      ...source,
+      id: createPresentationElementId(source.type || "element"),
+      x: Math.min(94, Number(source.x || 0) + 4),
+      y: Math.min(94, Number(source.y || 0) + 4),
+      z: activeElements.length + index + 1
+    }));
+    writePresentationDraft((nextDeck) => {
+      nextDeck.slides = nextDeck.slides.map((slide, index) => {
+        if (index !== activeSlideIndex) {
+          return slide;
+        }
+        const elements = normalizePresentationElements(slide.elements, {
+          title: slide.title,
+          body: slide.body,
+          layout: slide.layout,
+          image: slide.image,
+          cta: slide.cta
+        });
+        return { ...slide, elements: [...elements, ...clones] };
+      });
+    }, { refreshWorkspace: true, selectedElementId: clones[0]?.id || "", selectedElementIds: clones.map((clone) => clone.id) });
+  };
+
+  const removeElementById = (elementId = "") => {
+    if (!elementId || activeElements.length <= 1) {
+      return;
+    }
+    const nextSelection = activeElements.find((element) => element.id !== elementId)?.id || "";
+    writePresentationDraft((nextDeck) => {
+      nextDeck.slides = nextDeck.slides.map((slide, index) => {
+        if (index !== activeSlideIndex) {
+          return slide;
+        }
+        return {
+          ...slide,
+          elements: normalizePresentationElements(slide.elements, {
+            title: slide.title,
+            body: slide.body,
+            layout: slide.layout,
+            image: slide.image,
+            cta: slide.cta
+          }).filter((element) => element.id !== elementId)
+        };
+      });
+    }, { refreshWorkspace: true, selectedElementId: nextSelection });
+  };
+
+  const removeElementsByIds = (elementIds = []) => {
+    const lockedIds = new Set(activeElements.filter((element) => element.locked).map((element) => element.id));
+    const ids = new Set(elementIds.filter((id) => id && !lockedIds.has(id)));
+    if (!ids.size || activeElements.length <= 1) {
+      return;
+    }
+    const remaining = activeElements.filter((element) => !ids.has(element.id));
+    if (!remaining.length) {
+      return;
+    }
+    const nextSelection = remaining[0]?.id || "";
+    writePresentationDraft((nextDeck) => {
+      nextDeck.slides = nextDeck.slides.map((slide, index) => {
+        if (index !== activeSlideIndex) {
+          return slide;
+        }
+        return {
+          ...slide,
+          elements: normalizePresentationElements(slide.elements, {
+            title: slide.title,
+            body: slide.body,
+            layout: slide.layout,
+            image: slide.image,
+            cta: slide.cta
+          }).filter((element) => !ids.has(element.id))
+        };
+      });
+    }, { refreshWorkspace: true, selectedElementId: nextSelection, selectedElementIds: nextSelection ? [nextSelection] : [] });
+  };
+
+  const moveElementDepth = (elementId = "", delta = 0) => {
+    if (!elementId) {
+      return;
+    }
+    const sorted = [...activeElements];
+    const currentIndex = sorted.findIndex((element) => element.id === elementId);
+    if (currentIndex < 0) {
+      return;
+    }
+    const nextIndex = Math.max(0, Math.min(sorted.length - 1, currentIndex + Number(delta || 0)));
+    if (currentIndex === nextIndex) {
+      return;
+    }
+    const nextSorted = moveItemInArray(sorted, currentIndex, nextIndex).map((element, index) => ({
+      ...element,
+      z: index
+    }));
+    updateActiveSlide({ elements: nextSorted }, { refreshWorkspace: true, selectedElementId: elementId });
+  };
+
+  const alignElement = (element = null, alignment = "") => {
+    if (!element) {
+      return;
+    }
+    const patch = {};
+    if (alignment === "left") patch.x = 0;
+    if (alignment === "center") patch.x = Math.max(0, (100 - Number(element.w || 0)) / 2);
+    if (alignment === "right") patch.x = Math.max(0, 100 - Number(element.w || 0));
+    if (alignment === "top") patch.y = 0;
+    if (alignment === "middle") patch.y = Math.max(0, (100 - Number(element.h || 0)) / 2);
+    if (alignment === "bottom") patch.y = Math.max(0, 100 - Number(element.h || 0));
+    updateElement(element.id, patch, { refreshWorkspace: true });
+  };
+
+  const focusSelectedTextEditor = () => {
+    window.setTimeout(() => {
+      const editor = document.querySelector(".workspace-powerpoint-textarea");
+      editor?.focus();
+      editor?.select?.();
+    }, 0);
+  };
+
+  const removeSelectedElement = () => {
+    if (!selectedElements.length) {
+      return;
+    }
+    removeElementsByIds(selectedElementIds);
+  };
+
+  const duplicateSelectedElement = () => {
+    duplicateElementsFrom(selectedElements);
+  };
+
+  const moveSelectedElementDepth = (delta = 0) => {
+    if (!selectedElementIds.length) {
+      return;
+    }
+    if (selectedElementIds.length === 1) {
+      moveElementDepth(selectedElementIds[0], delta);
+      return;
+    }
+    if (Math.abs(Number(delta || 0)) > 1) {
+      const ids = new Set(selectedElementIds);
+      const selectedInOrder = activeElements.filter((element) => ids.has(element.id));
+      const rest = activeElements.filter((element) => !ids.has(element.id));
+      const nextSorted = (Number(delta || 0) > 0 ? [...rest, ...selectedInOrder] : [...selectedInOrder, ...rest])
+        .map((element, index) => ({ ...element, z: index }));
+      updateActiveSlide({ elements: nextSorted }, {
+        refreshWorkspace: true,
+        selectedElementId: selectedElement?.id || selectedElementIds[0],
+        selectedElementIds
+      });
+      return;
+    }
+    const sorted = [...activeElements];
+    const direction = Number(delta || 0) > 0 ? 1 : -1;
+    const ids = new Set(selectedElementIds);
+    const ordered = direction > 0 ? [...sorted].reverse() : sorted;
+    ordered.forEach((element) => {
+      const currentIndex = sorted.findIndex((item) => item.id === element.id);
+      const swapIndex = currentIndex + direction;
+      if (!ids.has(element.id) || swapIndex < 0 || swapIndex >= sorted.length || ids.has(sorted[swapIndex]?.id)) {
+        return;
+      }
+      [sorted[currentIndex], sorted[swapIndex]] = [sorted[swapIndex], sorted[currentIndex]];
+    });
+    const nextSorted = sorted.map((element, index) => ({ ...element, z: index }));
+    updateActiveSlide({ elements: nextSorted }, { refreshWorkspace: true, selectedElementId: selectedElement?.id || selectedElementIds[0], selectedElementIds });
+  };
+
+  const copySelectedElement = () => {
+    copyElementsToClipboard(selectedElements);
+  };
+
+  const cutSelectedElement = () => {
+    if (!selectedElements.length || activeElements.length <= selectedElements.length) {
+      return;
+    }
+    copyElementsToClipboard(selectedElements);
+    removeElementsByIds(selectedElementIds);
+  };
+
+  const pastePresentationClipboard = () => {
+    if (!state.presentationClipboard) {
+      return;
+    }
+    const clipboardElements = Array.isArray(state.presentationClipboard.elements)
+      ? state.presentationClipboard.elements
+      : [];
+    if (clipboardElements.length) {
+      const clones = clipboardElements.map((source, index) => ({
+        ...source,
+        id: createPresentationElementId(source.type || "element"),
+        x: Math.min(94, Number(source.x || 0) + 4),
+        y: Math.min(94, Number(source.y || 0) + 4),
+        z: activeElements.length + index + 1
+      }));
+      writePresentationDraft((nextDeck) => {
+        nextDeck.slides = nextDeck.slides.map((slide, index) => {
+          if (index !== activeSlideIndex) {
+            return slide;
+          }
+          const elements = normalizePresentationElements(slide.elements, {
+            title: slide.title,
+            body: slide.body,
+            layout: slide.layout,
+            image: slide.image,
+            cta: slide.cta
+          });
+          return { ...slide, elements: [...elements, ...clones] };
+        });
+      }, { refreshWorkspace: true, selectedElementId: clones[0]?.id || "", selectedElementIds: clones.map((clone) => clone.id) });
+      return;
+    }
+    insertElement({
+      ...state.presentationClipboard,
+      id: createPresentationElementId(state.presentationClipboard.type || "element"),
+      x: Math.min(94, Number(state.presentationClipboard.x || 0) + 4),
+      y: Math.min(94, Number(state.presentationClipboard.y || 0) + 4),
+      z: activeElements.length + 1
+    });
+  };
+
+  const alignSelectedElement = (alignment = "") => {
+    if (!selectedElements.length) {
+      return;
+    }
+    if (selectedElements.length > 1) {
+      const bounds = selectionBounds(selectedElements);
+      if (!bounds) {
+        return;
+      }
+      updateElementsByIds(selectedElementIds, (element) => {
+        const patch = {};
+        if (alignment === "left") patch.x = bounds.x;
+        if (alignment === "center") patch.x = bounds.x + bounds.w / 2 - Number(element.w || 0) / 2;
+        if (alignment === "right") patch.x = bounds.right - Number(element.w || 0);
+        if (alignment === "top") patch.y = bounds.y;
+        if (alignment === "middle") patch.y = bounds.y + bounds.h / 2 - Number(element.h || 0) / 2;
+        if (alignment === "bottom") patch.y = bounds.bottom - Number(element.h || 0);
+        return { ...element, ...patch };
+      }, { refreshWorkspace: true, selectedElementId: selectedElement?.id || selectedElementIds[0], selectedElementIds });
+      return;
+    }
+    alignElement(selectedElement, alignment);
+  };
+
+  const distributeSelectedElements = (axis = "horizontal") => {
+    if (selectedElements.length < 3) {
+      return;
+    }
+    const sorted = [...selectedElements].sort((left, right) =>
+      axis === "horizontal"
+        ? Number(left.x || 0) - Number(right.x || 0)
+        : Number(left.y || 0) - Number(right.y || 0)
+    );
+    const first = sorted[0];
+    const last = sorted[sorted.length - 1];
+    const start = axis === "horizontal" ? Number(first.x || 0) : Number(first.y || 0);
+    const end = axis === "horizontal" ? Number(last.x || 0) : Number(last.y || 0);
+    const step = (end - start) / Math.max(1, sorted.length - 1);
+    const positions = new Map(sorted.map((element, index) => [element.id, start + step * index]));
+    updateElementsByIds(selectedElementIds, (element) => ({
+      ...element,
+      [axis === "horizontal" ? "x" : "y"]: positions.get(element.id) ?? element[axis === "horizontal" ? "x" : "y"]
+    }), { refreshWorkspace: true, selectedElementId: selectedElement?.id || selectedElementIds[0], selectedElementIds });
+  };
+
+  const nudgeSelectedElement = (dx = 0, dy = 0) => {
+    if (!selectedElements.length) {
+      return;
+    }
+    const movableIds = selectedElements.filter((element) => !element.locked).map((element) => element.id);
+    if (!movableIds.length) {
+      return;
+    }
+    updateElementsByIds(movableIds, (element) => ({
+      ...element,
+      x: clampPresentationNumber(Number(element.x || 0) + dx, 0, 100 - Number(element.w || 0), element.x),
+      y: clampPresentationNumber(Number(element.y || 0) + dy, 0, 100 - Number(element.h || 0), element.y)
+    }), { refreshWorkspace: true, selectedElementId: selectedElement?.id || selectedElementIds[0], selectedElementIds });
+  };
+
+  const zoomPresentationCanvas = (delta = 0) => {
+    state.presentationZoom = Math.max(0.5, Math.min(2, Number(state.presentationZoom || 1) + delta));
+    renderWorkspace();
+  };
+
+  const handlePresentationKeyboard = (event) => {
+    if (!isPresentationWorkspace()) {
+      return;
+    }
+    const tagName = String(event.target?.tagName || "").toLowerCase();
+    if (tagName === "input" || tagName === "textarea" || event.target?.isContentEditable) {
+      return;
+    }
+    const step = event.shiftKey ? 5 : 1;
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a") {
+      event.preventDefault();
+      selectAllPresentationElements();
+      return;
+    }
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "x") {
+      event.preventDefault();
+      cutSelectedElement();
+      return;
+    }
+    if (event.key === "Delete" || event.key === "Backspace") {
+      event.preventDefault();
+      removeSelectedElement();
+      return;
+    }
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "d") {
+      event.preventDefault();
+      duplicateSelectedElement();
+      return;
+    }
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
+      event.preventDefault();
+      if (event.shiftKey) {
+        redoPresentationChange();
+      } else {
+        undoPresentationChange();
+      }
+      return;
+    }
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "y") {
+      event.preventDefault();
+      redoPresentationChange();
+      return;
+    }
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "c") {
+      event.preventDefault();
+      copySelectedElement();
+      return;
+    }
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "v") {
+      event.preventDefault();
+      pastePresentationClipboard();
+      return;
+    }
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      nudgeSelectedElement(-step, 0);
+    } else if (event.key === "ArrowRight") {
+      event.preventDefault();
+      nudgeSelectedElement(step, 0);
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      nudgeSelectedElement(0, -step);
+    } else if (event.key === "ArrowDown") {
+      event.preventDefault();
+      nudgeSelectedElement(0, step);
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      setPresentationSelection([], "");
+      renderWorkspace();
+      return;
+    }
+    if (event.key === "Tab" && activeElements.length) {
+      event.preventDefault();
+      const currentIndex = activeElements.findIndex((element) => element.id === selectedElementIds[0]);
+      const nextIndex = event.shiftKey
+        ? (currentIndex <= 0 ? activeElements.length - 1 : currentIndex - 1)
+        : (currentIndex >= activeElements.length - 1 ? 0 : currentIndex + 1);
+      const nextElement = activeElements[nextIndex];
+      if (nextElement) {
+        setPresentationSelection([nextElement.id], nextElement.id);
+        renderWorkspace();
+      }
+      return;
+    }
+    if (event.key === "F5") {
+      event.preventDefault();
+      openPresentationSlideShow(event.shiftKey ? activeSlideIndex : 0, { fullscreen: true });
+      return;
+    }
+    if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+      event.preventDefault();
+      executePresentationCommand("slideAdd");
+      return;
+    }
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "g") {
+      event.preventDefault();
+      if (event.shiftKey) {
+        ungroupSelectedElements();
+      } else {
+        groupSelectedElements();
+      }
+      return;
+    }
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "l") {
+      event.preventDefault();
+      toggleSelectedLock();
+      return;
+    }
+  };
+
+  if (presentationKeyboardHandler) {
+    document.removeEventListener("keydown", presentationKeyboardHandler);
+  }
+  presentationKeyboardHandler = handlePresentationKeyboard;
+  document.addEventListener("keydown", presentationKeyboardHandler);
+
+  const executePresentationCommand = createWorkspaceCommandExecutor(
+    "presentation",
+    createPresentationWorkspaceCommandAdapter({
+      addSlide: () => {
+        writePresentationDraft((nextDeck) => {
+          const insertIndex = Math.min(nextDeck.slides.length, activeSlideIndex + 1);
+          const seed = nextDeck.slides[activeSlideIndex] || {};
+          const title = `Slide ${nextDeck.slides.length + 1}`;
+          const body = "- Main message\n- Proof point\n- Next step";
+          nextDeck.slides.splice(insertIndex, 0, {
+            title,
+            body,
+            ...normalizePresentationSlideMeta(
+              {
+                layout: "bullets",
+                theme: seed.theme || "default",
+                background: seed.background || presentationDefaultBackground(seed.theme || "default")
+              },
+              { title, body }
+            )
+          });
+          return insertIndex;
+        }, { refreshWorkspace: true });
+      },
+      duplicateSlide: () => {
+        writePresentationDraft((nextDeck) => {
+          const seed = nextDeck.slides[activeSlideIndex] || nextDeck.slides[0];
+          const insertIndex = Math.min(nextDeck.slides.length, activeSlideIndex + 1);
+          const elements = normalizePresentationElements(seed.elements, {
+            title: seed.title,
+            body: seed.body,
+            layout: seed.layout,
+            image: seed.image,
+            cta: seed.cta
+          }).map((element) => ({
+            ...element,
+            id: createPresentationElementId(element.type)
+          }));
+          nextDeck.slides.splice(insertIndex, 0, {
+            ...seed,
+            title: `${seed.title || "Slide"} copy`,
+            elements
+          });
+          return insertIndex;
+        }, { refreshWorkspace: true });
+      },
+      deleteSlide: () => {
+        if (deck.slides.length <= 1) {
+          return;
+        }
+        writePresentationDraft((nextDeck) => {
+          nextDeck.slides.splice(activeSlideIndex, 1);
+          return Math.max(0, activeSlideIndex - 1);
+        }, { refreshWorkspace: true });
+      },
+      moveSlide: (direction = 0) => {
+        const nextIndex = activeSlideIndex + Number(direction || 0);
+        if (nextIndex < 0 || nextIndex >= deck.slides.length) {
+          return;
+        }
+        writePresentationDraft((nextDeck) => {
+          nextDeck.slides = moveItemInArray(nextDeck.slides, activeSlideIndex, nextIndex);
+          return nextIndex;
+        }, { refreshWorkspace: true });
+      },
+      setLayout: (layout = "") => {
+        const nextLayout = normalizePresentationLayout(layout);
+        updateActiveSlide({
+          layout: nextLayout,
+          elements: createDefaultPresentationElements({
+            title: activeSlide?.title || "",
+            body: visibleBody,
+            layout: nextLayout,
+            image: activeSlide?.image || "",
+            cta: activeSlide?.cta || ""
+          })
+        }, { refreshWorkspace: true });
+      },
+      setTheme: (theme = "") => {
+        const nextTheme = normalizePresentationTheme(theme);
+        updateActiveSlide({
+          theme: nextTheme,
+          background: presentationDefaultBackground(nextTheme)
+        }, { refreshWorkspace: true });
+      }
+    })
+  );
+
+  const downloadPresentationExport = async () => {
+    if (!state.currentWorkObjectId) {
+      return;
+    }
+    const markdown = buildPresentationContent({ title: deck.title, slides: deck.slides });
+    const response = await fetch(`/api/work-objects/${encodeURIComponent(state.currentWorkObjectId)}/presentation-export`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        markdown,
+        title: deck.title || state.currentWorkObject?.title || "Presentation",
+        downloadName: `${deck.title || state.currentWorkObject?.title || "presentation"}.pptx`
+      })
+    });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      throw new Error(payload.error || "Presentation export failed");
+    }
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${String(deck.title || "presentation").replace(/[^\w.-]+/g, "_")}.pptx`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+    setStatus("Presentation PPTX exportee.");
+  };
+
+  const openPresentationSlideShow = (startIndex = 0, { fullscreen = false, presenter = false } = {}) => {
+    let slideIndex = Math.max(0, Math.min(deck.slides.length - 1, Number(startIndex || 0)));
+    const overlay = document.createElement("div");
+    overlay.className = `workspace-powerpoint-slideshow${presenter ? " is-presenter" : ""}`;
+    overlay.tabIndex = -1;
+    const frame = document.createElement("div");
+    frame.className = "workspace-powerpoint-slideshow-frame";
+    const presenterPanel = document.createElement("aside");
+    presenterPanel.className = "workspace-powerpoint-presenter-panel";
+    const controls = document.createElement("div");
+    controls.className = "workspace-powerpoint-slideshow-controls";
+    const previousButton = createRibbonButton("Previous", "chevronLeft", () => {
+      slideIndex = Math.max(0, slideIndex - 1);
+      renderSlide();
+    });
+    const nextButton = createRibbonButton("Next", "chevronRight", () => {
+      slideIndex = Math.min(deck.slides.length - 1, slideIndex + 1);
+      renderSlide();
+    });
+    const closeButton = createRibbonButton("Close", "close", () => close());
+    const counter = document.createElement("span");
+    counter.className = "workspace-powerpoint-slideshow-counter";
+    controls.append(previousButton, counter, nextButton, closeButton);
+    overlay.append(frame, presenterPanel, controls);
+
+    const renderElement = (element, host) => {
+      const node = document.createElement("div");
+      node.className = [
+        "workspace-powerpoint-slideshow-element",
+        "workspace-powerpoint-element",
+        `type-${element.type}`,
+        `shape-${element.shape || "rectangle"}`,
+        element.animation && element.animation !== "none" ? `animate-${element.animation}` : ""
+      ].filter(Boolean).join(" ");
+      node.style.left = `${element.x}%`;
+      node.style.top = `${element.y}%`;
+      node.style.width = `${element.w}%`;
+      node.style.height = `${element.h}%`;
+      node.style.zIndex = String(element.z || 0);
+      node.style.color = element.color;
+      node.style.background = element.fill;
+      node.style.borderColor = element.stroke;
+      node.style.borderWidth = `${Number(element.strokeWidth || 0)}px`;
+      node.style.opacity = String(element.opacity);
+      node.style.transform = `rotate(${element.rotation || 0}deg) scale(${element.flipX ? -1 : 1}, ${element.flipY ? -1 : 1})`;
+      node.style.textAlign = element.align || "left";
+      node.style.fontSize = `${element.fontSize}px`;
+      node.style.fontFamily = element.fontFamily || "";
+      node.style.fontWeight = element.bold ? "700" : "400";
+      node.style.fontStyle = element.italic ? "italic" : "normal";
+      node.style.textDecoration = element.underline ? "underline" : "none";
+      if (element.type === "image" && element.src) {
+        const image = document.createElement("img");
+        image.src = element.src;
+        image.alt = element.text || "Slide image";
+        image.style.objectPosition = `${element.cropX || 50}% ${element.cropY || 50}%`;
+        image.style.transform = `scale(${element.zoom || 1})`;
+        node.appendChild(image);
+      } else if (element.type === "table") {
+        const tableData = parsePresentationTableText(element.text || "");
+        const table = document.createElement("table");
+        table.className = "workspace-powerpoint-table";
+        const thead = document.createElement("thead");
+        const headerRow = document.createElement("tr");
+        tableData.headers.forEach((header) => {
+          const cell = document.createElement("th");
+          cell.textContent = header;
+          headerRow.appendChild(cell);
+        });
+        thead.appendChild(headerRow);
+        const tbody = document.createElement("tbody");
+        tableData.rows.forEach((row) => {
+          const tr = document.createElement("tr");
+          row.forEach((value) => {
+            const cell = document.createElement("td");
+            cell.textContent = value;
+            tr.appendChild(cell);
+          });
+          tbody.appendChild(tr);
+        });
+        table.append(thead, tbody);
+        node.appendChild(table);
+      } else if (element.type === "chart") {
+        const data = parsePresentationChartText(element.text || "");
+        const maxValue = Math.max(1, ...data.map((item) => Math.abs(Number(item.value || 0))));
+        const chart = document.createElement("div");
+        chart.className = `workspace-powerpoint-chart chart-${element.chartType || "bar"}`;
+        data.slice(0, 8).forEach((item, index) => {
+          const bar = document.createElement("span");
+          bar.className = "workspace-powerpoint-chart-bar";
+          bar.style.setProperty("--value", `${Math.max(4, Math.abs(item.value) / maxValue * 100)}%`);
+          bar.style.setProperty("--bar-index", String(index));
+          const label = document.createElement("em");
+          label.textContent = item.label;
+          const value = document.createElement("strong");
+          value.textContent = String(item.value);
+          bar.append(label, value);
+          chart.appendChild(bar);
+        });
+        node.appendChild(chart);
+      } else if (element.type === "icon") {
+        const icon = document.createElement("span");
+        icon.className = "workspace-powerpoint-icon-object";
+        icon.textContent = element.text || "*";
+        node.appendChild(icon);
+      } else if (element.type === "video") {
+        const shell = document.createElement("span");
+        shell.className = "workspace-powerpoint-video-object";
+        shell.appendChild(createWorkspaceIconNode("play", {
+          className: "workspace-powerpoint-video-play",
+          label: "Play"
+        }));
+        const label = document.createElement("strong");
+        label.textContent = element.text || "Video";
+        shell.appendChild(label);
+        node.appendChild(shell);
+      } else if (element.type === "code") {
+        const code = document.createElement("code");
+        code.className = "workspace-powerpoint-code-object";
+        code.textContent = element.text || "";
+        node.appendChild(code);
+      } else {
+        const text = document.createElement("span");
+        text.className = element.type === "equation" ? "workspace-powerpoint-equation-object" : "workspace-powerpoint-element-text";
+        text.textContent = element.text || "";
+        node.appendChild(text);
+      }
+      host.appendChild(node);
+    };
+
+    function renderSlide() {
+      const slide = deck.slides[slideIndex] || deck.slides[0] || {};
+      frame.innerHTML = "";
+      const slideCanvas = document.createElement("section");
+      const slideTransition = slide.transition || "none";
+      slideCanvas.className = [
+        "workspace-powerpoint-slideshow-slide",
+        "workspace-powerpoint-slide",
+        `theme-${slide.theme || "default"}`,
+        slideTransition && slideTransition !== "none" ? `transition-${slideTransition}` : ""
+      ].filter(Boolean).join(" ");
+      slideCanvas.style.background = slide.background || presentationDefaultBackground(slide.theme || "default");
+      slideCanvas.style.animationDuration = `${Number(slide.transitionDuration || 1)}s`;
+      normalizePresentationElements(slide.elements, {
+        title: slide.title,
+        body: stripPresentationInternalMeta(slide.body || ""),
+        layout: slide.layout,
+        image: slide.image,
+        cta: slide.cta
+      })
+        .sort((left, right) => Number(left.z || 0) - Number(right.z || 0))
+        .forEach((element) => renderElement(element, slideCanvas));
+      frame.appendChild(slideCanvas);
+      if (presenter) {
+        presenterPanel.innerHTML = "";
+        const panelTitle = document.createElement("strong");
+        panelTitle.textContent = "Presenter view";
+        const notesLabel = document.createElement("span");
+        notesLabel.textContent = "Speaker notes";
+        const notesText = document.createElement("p");
+        notesText.textContent = slide.notes || "No speaker notes for this slide.";
+        const nextLabel = document.createElement("span");
+        nextLabel.textContent = "Next slide";
+        const nextText = document.createElement("p");
+        nextText.textContent = deck.slides[slideIndex + 1]?.title || "End of deck";
+        presenterPanel.append(panelTitle, notesLabel, notesText, nextLabel, nextText);
+      }
+      counter.textContent = `${slideIndex + 1} / ${deck.slides.length}`;
+      previousButton.disabled = slideIndex <= 0;
+      nextButton.disabled = slideIndex >= deck.slides.length - 1;
+    }
+
+    function onKeydown(event) {
+      if (event.key === "Escape") {
+        close();
+      } else if (event.key === "ArrowRight" || event.key === "PageDown" || event.key === " ") {
+        event.preventDefault();
+        slideIndex = Math.min(deck.slides.length - 1, slideIndex + 1);
+        renderSlide();
+      } else if (event.key === "ArrowLeft" || event.key === "PageUp") {
+        event.preventDefault();
+        slideIndex = Math.max(0, slideIndex - 1);
+        renderSlide();
+      }
+    }
+
+    function close() {
+      document.removeEventListener("keydown", onKeydown, true);
+      if (document.fullscreenElement === overlay && document.exitFullscreen) {
+        document.exitFullscreen().catch?.(() => {});
+      }
+      overlay.remove();
+    }
+
+    document.body.appendChild(overlay);
+    document.addEventListener("keydown", onKeydown, true);
+    renderSlide();
+    if (fullscreen && overlay.requestFullscreen) {
+      overlay.requestFullscreen().catch(() => {});
+    }
+    overlay.focus({ preventScroll: true });
+  };
+
+  const createRibbonButton = (
+    label = "",
+    icon = "",
+    action = null,
+    { disabled = false, active = false, size = "regular", compact = false } = {}
+  ) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = [
+      "workspace-powerpoint-command",
+      active ? "active" : "",
+      size ? `size-${size}` : "",
+      compact ? "is-compact" : ""
+    ].filter(Boolean).join(" ");
+    button.disabled = disabled;
+    button.title = label;
+    button.appendChild(
+      createWorkspaceIconNode(icon || getWorkspaceCommandIcon(label), {
+        className: "workspace-powerpoint-command-icon",
+        label
+      })
+    );
+    const text = document.createElement("span");
+    text.textContent = label;
+    button.appendChild(text);
+    if (typeof action === "function") {
+      button.addEventListener("click", action);
+    }
+    return button;
+  };
+
+  const createRibbonMenuButton = (label = "", icon = "", items = [], options = {}) =>
+    createRibbonButton(label, icon, (event) => showPresentationContextMenu(event, items), options);
+
+  const createRibbonStack = (children = []) => {
+    const stack = document.createElement("div");
+    stack.className = "workspace-powerpoint-ribbon-stack";
+    children.filter(Boolean).forEach((child) => stack.appendChild(child));
+    return stack;
+  };
+
+  const createRibbonGroup = (label = "", children = [], { wide = false } = {}) => {
+    const group = document.createElement("div");
+    group.className = `workspace-powerpoint-ribbon-group${wide ? " is-wide" : ""}`;
+    const body = document.createElement("div");
+    body.className = "workspace-powerpoint-ribbon-actions";
+    children.filter(Boolean).forEach((child) => body.appendChild(child));
+    const caption = document.createElement("span");
+    caption.className = "workspace-powerpoint-ribbon-caption";
+    caption.textContent = label;
+    group.append(body, caption);
+    return group;
+  };
+
+  const createSelect = (label = "", options = [], value = "", onChange = null) => {
+    const wrap = document.createElement("label");
+    wrap.className = "workspace-powerpoint-select-wrap";
+    const caption = document.createElement("span");
+    caption.textContent = label;
+    const select = document.createElement("select");
+    select.className = "workspace-powerpoint-select";
+    options.forEach((option) => {
+      const item = document.createElement("option");
+      item.value = option.value;
+      item.textContent = option.label;
+      item.selected = String(option.value) === String(value);
+      select.appendChild(item);
+    });
+    if (typeof onChange === "function") {
+      select.addEventListener("change", (event) => onChange(event.target.value));
+    }
+    wrap.append(caption, select);
+    return wrap;
+  };
+
+  const createRibbonField = (label = "", input = null) => {
+    const wrap = document.createElement("label");
+    wrap.className = "workspace-powerpoint-ribbon-field";
+    const caption = document.createElement("span");
+    caption.textContent = label;
+    wrap.appendChild(caption);
+    if (input) {
+      wrap.appendChild(input);
+    }
+    return wrap;
+  };
+
+  const createThemeGallery = () => {
+    const gallery = document.createElement("div");
+    gallery.className = "workspace-powerpoint-theme-gallery";
+    PRESENTATION_SLIDE_THEMES.forEach((theme) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = `workspace-powerpoint-theme-preset${activeSlide?.theme === theme.value ? " active" : ""}`;
+      button.title = theme.label;
+      button.style.background = presentationDefaultBackground(theme.value);
+      button.addEventListener("click", () => executePresentationCommand("slideTheme", { value: theme.value }));
+      const label = document.createElement("span");
+      label.textContent = theme.label;
+      button.appendChild(label);
+      gallery.appendChild(button);
+    });
+    return gallery;
+  };
+
+  const createLayoutGallery = () => {
+    const gallery = document.createElement("div");
+    gallery.className = "workspace-powerpoint-layout-gallery";
+    PRESENTATION_SLIDE_LAYOUTS.slice(0, 6).forEach((layout) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = `workspace-powerpoint-layout-preset layout-${layout.value}${activeSlide?.layout === layout.value ? " active" : ""}`;
+      button.title = layout.label;
+      button.addEventListener("click", () => executePresentationCommand("slideLayout", { value: layout.value }));
+      const preview = document.createElement("span");
+      preview.className = "workspace-powerpoint-layout-preview";
+      preview.innerHTML = "<i></i><b></b><em></em>";
+      const label = document.createElement("span");
+      label.textContent = layout.label;
+      button.append(preview, label);
+      gallery.appendChild(button);
+    });
+    return gallery;
+  };
+
+  const createInspectorField = (label = "", input = null) => {
+    const field = document.createElement("label");
+    field.className = "workspace-powerpoint-field";
+    const caption = document.createElement("span");
+    caption.textContent = label;
+    field.appendChild(caption);
+    if (input) {
+      field.appendChild(input);
+    }
+    return field;
+  };
+
+  const createTextInput = (value = "", onInput = null, { type = "text", min = "", max = "", step = "" } = {}) => {
+    const input = document.createElement("input");
+    input.type = type;
+    input.value = value ?? "";
+    input.className = "workspace-powerpoint-input";
+    if (min !== "") input.min = min;
+    if (max !== "") input.max = max;
+    if (step !== "") input.step = step;
+    if (typeof onInput === "function") {
+      input.addEventListener(type === "number" || type === "color" ? "change" : "input", (event) => onInput(event.target.value));
+    }
+    return input;
+  };
+
+  const closePresentationContextMenu = () => {
+    document.querySelectorAll(".workspace-powerpoint-context-menu").forEach((menu) => menu.remove());
+  };
+
+  const showPresentationContextMenu = (event, items = []) => {
+    event.preventDefault();
+    event.stopPropagation();
+    closePresentationContextMenu();
+
+    const menu = document.createElement("div");
+    menu.className = "workspace-powerpoint-context-menu";
+    menu.setAttribute("role", "menu");
+
+    let closeOnOutside = null;
+    let closeOnEscape = null;
+    const cleanup = () => {
+      menu.remove();
+      if (closeOnOutside) {
+        document.removeEventListener("pointerdown", closeOnOutside, true);
+      }
+      if (closeOnEscape) {
+        document.removeEventListener("keydown", closeOnEscape, true);
+      }
+    };
+
+    const appendMenuItems = (host, menuItems = []) => {
+      menuItems.forEach((item) => {
+        if (item?.separator) {
+          const separator = document.createElement("div");
+          separator.className = "workspace-powerpoint-context-separator";
+          host.appendChild(separator);
+          return;
+        }
+
+        const hasChildren = Array.isArray(item?.children) && item.children.length;
+        const rowHost = hasChildren ? document.createElement("div") : host;
+        if (hasChildren) {
+          rowHost.className = "workspace-powerpoint-context-submenu-wrap";
+          host.appendChild(rowHost);
+        }
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = [
+          "workspace-powerpoint-context-item",
+          item?.danger ? "danger" : "",
+          hasChildren ? "has-submenu" : ""
+        ].filter(Boolean).join(" ");
+        button.disabled = Boolean(item?.disabled);
+        button.setAttribute("role", "menuitem");
+        button.appendChild(
+          createWorkspaceIconNode(item?.icon || getWorkspaceCommandIcon(item?.label || ""), {
+            className: "workspace-powerpoint-context-icon",
+            label: item?.label || ""
+          })
+        );
+        const label = document.createElement("span");
+        label.textContent = item?.label || "";
+        button.appendChild(label);
+        if (hasChildren) {
+          const arrow = document.createElement("b");
+          arrow.className = "workspace-powerpoint-context-submenu-arrow";
+          arrow.textContent = ">";
+          button.appendChild(arrow);
+          const submenu = document.createElement("div");
+          submenu.className = "workspace-powerpoint-context-menu workspace-powerpoint-context-submenu";
+          submenu.setAttribute("role", "menu");
+          appendMenuItems(submenu, item.children);
+          rowHost.append(button, submenu);
+          button.addEventListener("click", (clickEvent) => {
+            clickEvent.preventDefault();
+            clickEvent.stopPropagation();
+          });
+          return;
+        }
+        if (typeof item?.action === "function") {
+          button.addEventListener("click", (clickEvent) => {
+            clickEvent.preventDefault();
+            clickEvent.stopPropagation();
+            cleanup();
+            if (!button.disabled) {
+              item.action();
+            }
+          });
+        }
+        rowHost.appendChild(button);
+      });
+    };
+
+    appendMenuItems(menu, items);
+
+    const menuHost = document.fullscreenElement || document.body;
+    menuHost.appendChild(menu);
+    const menuRect = menu.getBoundingClientRect();
+    const left = Math.max(8, Math.min(event.clientX, window.innerWidth - menuRect.width - 8));
+    const top = Math.max(8, Math.min(event.clientY, window.innerHeight - menuRect.height - 8));
+    menu.style.left = `${left}px`;
+    menu.style.top = `${top}px`;
+
+    closeOnOutside = (pointerEvent) => {
+      if (!menu.contains(pointerEvent.target)) {
+        cleanup();
+      }
+    };
+    closeOnEscape = (keyboardEvent) => {
+      if (keyboardEvent.key === "Escape") {
+        cleanup();
+      }
+    };
+    window.setTimeout(() => {
+      document.addEventListener("pointerdown", closeOnOutside, true);
+      document.addEventListener("keydown", closeOnEscape, true);
+    }, 0);
+  };
+
+  const shell = document.createElement("div");
+  shell.className = "workspace-powerpoint-app workspace-slide-editor";
+  shell.tabIndex = -1;
+  const togglePresentationEditorFullscreen = () => {
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+      return;
+    }
+    container.requestFullscreen?.().catch(() => {});
+  };
+
+  const titleBar = document.createElement("div");
+  titleBar.className = "workspace-powerpoint-titlebar";
+  const titleMeta = document.createElement("div");
+  titleMeta.className = "workspace-powerpoint-title-meta";
+  const deckTitleInput = createTextInput(deck.title, (value) => {
+    writePresentationDraft((nextDeck) => {
+      nextDeck.title = value;
+    }, { refreshWorkspace: false });
+  });
+  deckTitleInput.classList.add("workspace-powerpoint-deck-title");
+  const deckMeta = document.createElement("span");
+  deckMeta.textContent = `${deck.slides.length} slides | ${activeSlide?.layout || "content"} | ${activeSlide?.transition || "none"} | ${selectedElements.length} selected`;
+  titleMeta.append(deckTitleInput, deckMeta);
+  const titleActions = document.createElement("div");
+  titleActions.className = "workspace-powerpoint-title-actions";
+  const slideJump = createSelect(
+    "Slide",
+    deck.slides.map((slide, index) => ({
+      value: String(index),
+      label: `${index + 1}. ${slide.title || "Untitled"}`
+    })),
+    String(activeSlideIndex),
+    (value) => setActivePresentationSlide(Number(value))
+  );
+  slideJump.classList.add("workspace-powerpoint-slide-jump");
+  titleActions.append(
+    slideJump,
+    createRibbonButton("Plein ecran", "maximize", togglePresentationEditorFullscreen),
+    createRibbonButton("Diaporama", "play", () => openPresentationSlideShow(activeSlideIndex, { fullscreen: true })),
+    createRibbonButton("Vue presentateur", "presentation", () => openPresentationSlideShow(activeSlideIndex, { fullscreen: true, presenter: true })),
+    createRibbonButton("Export PPTX", "download", () => downloadPresentationExport().catch(handleError))
+  );
+  titleBar.append(titleMeta, titleActions);
+
+  const updateSelectedElementStyle = (patch = {}) => {
+    if (!selectedElements.length) {
+      return;
+    }
+    updateElementsByIds(selectedElementIds, (element) => ({ ...element, ...patch }), {
+      refreshWorkspace: true,
+      selectedElementId: selectedElement?.id || selectedElementIds[0],
+      selectedElementIds
+    });
+  };
+
+  const isPresentationTextAlignmentTarget = (element = null) =>
+    Boolean(
+      element &&
+        element.shape !== "line" &&
+        ["title", "text", "shape", "icon", "video", "equation"].includes(String(element.type || ""))
+    );
+
+  const isPresentationShapeEditable = (element = null) =>
+    Boolean(element && ["title", "text", "shape"].includes(String(element.type || "")));
+
+  const selectedTextAlignmentEnabled = selectedElements.some(isPresentationTextAlignmentTarget);
+  const selectedShapeEditEnabled = selectedElements.some(isPresentationShapeEditable);
+
+  const setSelectedTextAlignment = (alignment = "left") => {
+    if (!selectedTextAlignmentEnabled || !PRESENTATION_TEXT_ALIGNMENTS.includes(alignment)) {
+      return;
+    }
+    updateElementsByIds(selectedElementIds, (element) =>
+      isPresentationTextAlignmentTarget(element) ? { ...element, align: alignment } : element
+    , {
+      refreshWorkspace: true,
+      selectedElementId: selectedElement?.id || selectedElementIds[0],
+      selectedElementIds
+    });
+  };
+
+  const setSelectedShapeType = (shape = "rectangle") => {
+    const nextShape = PRESENTATION_SHAPE_TYPES.includes(String(shape || "").toLowerCase())
+      ? String(shape || "").toLowerCase()
+      : "rectangle";
+    if (!selectedShapeEditEnabled) {
+      return;
+    }
+    updateElementsByIds(selectedElementIds, (element) =>
+      isPresentationShapeEditable(element) ? { ...element, shape: nextShape } : element
+    , {
+      refreshWorkspace: true,
+      selectedElementId: selectedElement?.id || selectedElementIds[0],
+      selectedElementIds
+    });
+  };
+
+  const insertTextBox = () => insertElement({
+    type: "text",
+    text: "New text box",
+    x: 16,
+    y: 30,
+    w: 38,
+    h: 14,
+    fontSize: 22,
+    fill: "transparent",
+    stroke: "transparent"
+  });
+  const insertTitleBox = () => insertElement({
+    type: "title",
+    text: "New title",
+    x: 10,
+    y: 12,
+    w: 70,
+    h: 14,
+    fontSize: 36,
+    bold: true,
+    fill: "transparent",
+    stroke: "transparent"
+  });
+  const insertBulletsBox = () => insertElement({
+    type: "text",
+    text: "- First point\n- Second point\n- Third point",
+    x: 10,
+    y: 36,
+    w: 48,
+    h: 26,
+    fontSize: 21,
+    fill: "transparent",
+    stroke: "transparent"
+  });
+  const insertImageBox = () => {
+    if (document.querySelector(".workspace-powerpoint-file-picker")) {
+      return;
+    }
+    const picker = document.createElement("input");
+    picker.type = "file";
+    picker.accept = "image/*";
+    picker.className = "workspace-powerpoint-file-picker";
+    picker.style.display = "none";
+    document.body.appendChild(picker);
+    const cleanup = () => picker.remove();
+    picker.addEventListener("change", () => {
+      const file = picker.files?.[0];
+      if (!file) {
+        cleanup();
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        cleanup();
+        insertElement({
+          type: "image",
+          text: file.name,
+          src: event.target.result,
+          x: 20,
+          y: 20,
+          w: 60,
+          h: 45,
+          fill: "#f8fafc",
+          stroke: "transparent"
+        });
+      };
+      reader.onerror = cleanup;
+      reader.onabort = cleanup;
+      reader.readAsDataURL(file);
+    });
+    picker.addEventListener("cancel", cleanup);
+    picker.addEventListener("abort", cleanup);
+    picker.click();
+  };
+  const insertShapeBox = (shape = "rectangle") => insertElement({
+    type: "shape",
+    shape,
+    text: shape === "line" || shape === "ellipse" || shape === "triangle" || shape === "diamond" || shape === "arrow" ? "" : "Shape",
+    x: shape === "line" ? 20 : 55,
+    y: shape === "line" ? 70 : 34,
+    w: shape === "line" ? 48 : shape === "ellipse" ? 18 : shape === "arrow" ? 34 : 28,
+    h: shape === "line" ? 3 : shape === "ellipse" ? 18 : 18,
+    fill: shape === "line" ? "#2563eb" : shape === "ellipse" ? "#f0fdf4" : "#eff6ff",
+    stroke: shape === "line" ? "#2563eb" : shape === "ellipse" ? "#86efac" : "#93c5fd",
+    align: "center"
+  });
+  const insertTableBox = () => insertElement({
+    type: "table",
+    text: "Metric | Value | Owner\nPipeline | 42 | Sales\nForecast | 18k | Finance",
+    x: 12,
+    y: 34,
+    w: 46,
+    h: 28,
+    fontSize: 13,
+    fill: "#ffffff",
+    stroke: "#cbd5e1"
+  });
+  const insertChartBox = () => insertElement({
+    type: "chart",
+    chartType: "bar",
+    text: "North | 42\nSouth | 28\nWest | 18",
+    x: 56,
+    y: 34,
+    w: 34,
+    h: 30,
+    fontSize: 12,
+    fill: "#f0fdf4",
+    stroke: "#86efac",
+    align: "center"
+  });
+  const insertIconBox = () => insertElement({
+    type: "icon",
+    text: "*",
+    x: 58,
+    y: 24,
+    w: 12,
+    h: 12,
+    fontSize: 42,
+    color: "#2563eb",
+    fill: "transparent",
+    stroke: "transparent",
+    align: "center"
+  });
+  const insertVideoBox = () => insertElement({
+    type: "video",
+    text: "Video",
+    src: "",
+    x: 50,
+    y: 28,
+    w: 40,
+    h: 32,
+    fontSize: 18,
+    fill: "#111827",
+    stroke: "#334155",
+    color: "#ffffff",
+    align: "center"
+  });
+  const insertEquationBox = () => insertElement({
+    type: "equation",
+    text: "f(x) = ax + b",
+    x: 18,
+    y: 62,
+    w: 34,
+    h: 12,
+    fontSize: 24,
+    fontFamily: "Georgia, serif",
+    fill: "transparent",
+    stroke: "transparent"
+  });
+  const insertCodeBox = () => insertElement({
+    type: "code",
+    text: "const total = price * quantity;",
+    x: 12,
+    y: 58,
+    w: 46,
+    h: 18,
+    fontSize: 13,
+    fontFamily: "Consolas, monospace",
+    fill: "#0f172a",
+    stroke: "#334155",
+    color: "#e2e8f0"
+  });
+
+  const isPresentationListTextTarget = (element = null) =>
+    Boolean(
+      element &&
+        !element.locked &&
+        element.shape !== "line" &&
+        ["title", "text", "shape"].includes(String(element.type || ""))
+    );
+
+  const getPresentationTextLines = (value = "") => String(value ?? "").replace(/\r\n?/g, "\n").split("\n");
+
+  const stripPresentationListPrefix = (line = "") =>
+    String(line || "").replace(/^(\s*)(?:[-*]\s+|\d+[.)]\s+)/, "$1");
+
+  const hasPresentationListPrefix = (line = "", ordered = false) => {
+    const pattern = ordered ? /^\s*\d+[.)]\s+/ : /^\s*[-*]\s+/;
+    return pattern.test(String(line || ""));
+  };
+
+  const selectedElementHasListStyle = (ordered = false) => {
+    if (!isPresentationListTextTarget(selectedElement)) {
+      return false;
+    }
+    const lines = getPresentationTextLines(selectedElement.text || "").filter((line) => line.trim());
+    return Boolean(lines.length && lines.every((line) => hasPresentationListPrefix(line, ordered)));
+  };
+
+  const formatPresentationListText = (value = "", ordered = false) => {
+    const lines = getPresentationTextLines(value);
+    const nonEmptyLines = lines.filter((line) => line.trim());
+    const shouldRemove =
+      nonEmptyLines.length > 0 && nonEmptyLines.every((line) => hasPresentationListPrefix(line, ordered));
+    let itemNumber = 1;
+    return lines
+      .map((line) => {
+        if (!line.trim()) {
+          return line;
+        }
+        if (shouldRemove) {
+          return stripPresentationListPrefix(line);
+        }
+        const indent = line.match(/^\s*/)?.[0] || "";
+        const content = stripPresentationListPrefix(line).slice(indent.length).trimStart();
+        const marker = ordered ? `${itemNumber++}.` : "-";
+        return `${indent}${marker} ${content}`;
+      })
+      .join("\n");
+  };
+
+  const changePresentationListIndentText = (value = "", direction = "indent") =>
+    getPresentationTextLines(value)
+      .map((line) => {
+        if (!line.trim()) {
+          return line;
+        }
+        if (direction === "outdent") {
+          return line.replace(/^\s{1,2}/, "");
+        }
+        return `  ${line}`;
+      })
+      .join("\n");
+
+  const updateActiveTextEditorValue = (editor, element, nextValue = "", caretOffset = null) => {
+    editor.textContent = nextValue;
+    updateElement(element.id, { text: nextValue }, { refreshWorkspace: false });
+    if (Number.isFinite(caretOffset)) {
+      window.requestAnimationFrame(() => setPresentationTextCaretOffset(editor, caretOffset));
+    }
+  };
+
+  const getPresentationTextCaretOffset = (editor) => {
+    const selection = window.getSelection?.();
+    if (!selection?.rangeCount || !editor.contains(selection.anchorNode)) {
+      return String(editor.textContent || "").length;
+    }
+    const range = document.createRange();
+    range.selectNodeContents(editor);
+    range.setEnd(selection.anchorNode, selection.anchorOffset);
+    return range.toString().length;
+  };
+
+  const setPresentationTextCaretOffset = (editor, offset = 0) => {
+    const safeOffset = Math.max(0, Number(offset || 0));
+    const selection = window.getSelection?.();
+    if (!selection) {
+      return;
+    }
+    const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
+    let remaining = safeOffset;
+    let textNode = walker.nextNode();
+    while (textNode) {
+      const length = textNode.nodeValue.length;
+      if (remaining <= length) {
+        const range = document.createRange();
+        range.setStart(textNode, remaining);
+        range.collapse(true);
+        selection.removeAllRanges();
+        selection.addRange(range);
+        return;
+      }
+      remaining -= length;
+      textNode = walker.nextNode();
+    }
+    if (!editor.firstChild) {
+      editor.appendChild(document.createTextNode(""));
+    }
+    const range = document.createRange();
+    range.selectNodeContents(editor);
+    range.collapse(false);
+    selection.removeAllRanges();
+    selection.addRange(range);
+  };
+
+  const getPresentationLineAtOffset = (value = "", offset = 0) => {
+    const text = String(value ?? "").replace(/\r\n?/g, "\n");
+    const safeOffset = Math.max(0, Math.min(text.length, Number(offset || 0)));
+    const lines = text.split("\n");
+    let start = 0;
+    for (let index = 0; index < lines.length; index += 1) {
+      const line = lines[index];
+      const end = start + line.length;
+      if (safeOffset <= end || index === lines.length - 1) {
+        return { index, line, start, end };
+      }
+      start = end + 1;
+    }
+    return { index: 0, line: text, start: 0, end: text.length };
+  };
+
+  const handlePresentationListKeydown = (event, element, editor) => {
+    if (!isPresentationListTextTarget(element)) {
+      return false;
+    }
+    const value = String(editor.textContent || "").replace(/\r\n?/g, "\n");
+    const caretOffset = getPresentationTextCaretOffset(editor);
+    const lineInfo = getPresentationLineAtOffset(value, caretOffset);
+
+    if (event.key === "Tab") {
+      event.preventDefault();
+      event.stopPropagation();
+      const lineStart = lineInfo.start;
+      const lineEnd = lineInfo.end;
+      const currentLine = value.slice(lineStart, lineEnd);
+      const nextLine = event.shiftKey ? currentLine.replace(/^\s{1,2}/, "") : `  ${currentLine}`;
+      const nextValue = `${value.slice(0, lineStart)}${nextLine}${value.slice(lineEnd)}`;
+      const delta = nextLine.length - currentLine.length;
+      updateActiveTextEditorValue(editor, element, nextValue, Math.max(lineStart, caretOffset + delta));
+      return true;
+    }
+
+    if (event.key !== "Enter") {
+      return false;
+    }
+
+    const prefixMatch = lineInfo.line.match(/^(\s*)([-*]|\d+[.)])\s*/);
+    if (!prefixMatch) {
+      return false;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    const lineContent = lineInfo.line.slice(prefixMatch[0].length).trim();
+    if (!lineContent) {
+      const nextLine = prefixMatch[1] || "";
+      const nextValue = `${value.slice(0, lineInfo.start)}${nextLine}${value.slice(lineInfo.end)}`;
+      updateActiveTextEditorValue(editor, element, nextValue, lineInfo.start + nextLine.length);
+      return true;
+    }
+
+    const marker = prefixMatch[2];
+    const orderedMatch = marker.match(/^(\d+)([.)])$/);
+    const nextMarker = orderedMatch ? `${Number(orderedMatch[1]) + 1}${orderedMatch[2]}` : marker;
+    const insertion = `\n${prefixMatch[1]}${nextMarker} `;
+    const nextValue = `${value.slice(0, caretOffset)}${insertion}${value.slice(caretOffset)}`;
+    updateActiveTextEditorValue(editor, element, nextValue, caretOffset + insertion.length);
+    return true;
+  };
+
+  const applySelectedElementTextTransform = (transformer = (value) => value) => {
+    if (!isPresentationListTextTarget(selectedElement)) {
+      return;
+    }
+    const activeEditor = document.activeElement?.closest?.(".workspace-powerpoint-element-text[contenteditable='true']");
+    const value = activeEditor && canvas?.contains(activeEditor)
+      ? String(activeEditor.textContent || "")
+      : String(selectedElement.text || "");
+    const nextValue = transformer(value);
+    if (activeEditor && canvas?.contains(activeEditor)) {
+      const caretOffset = Math.min(getPresentationTextCaretOffset(activeEditor), nextValue.length);
+      updateActiveTextEditorValue(activeEditor, selectedElement, nextValue, caretOffset);
+      return;
+    }
+    updateElement(selectedElement.id, { text: nextValue }, { refreshWorkspace: true });
+  };
+
+  const toggleSelectedElementList = (ordered = false) => {
+    applySelectedElementTextTransform((value) => formatPresentationListText(value, ordered));
+  };
+
+  const changeSelectedElementListIndent = (direction = "indent") => {
+    applySelectedElementTextTransform((value) => changePresentationListIndentText(value, direction));
+  };
+
+  const getSlideElements = (slide = {}) =>
+    normalizePresentationElements(slide.elements, {
+      title: slide.title,
+      body: slide.body,
+      layout: slide.layout,
+      image: slide.image,
+      cta: slide.cta
+    });
+
+  const extractPresentationActionLines = (value = "") =>
+    getPresentationTextLines(value)
+      .map((line) => stripPresentationListPrefix(line).trim())
+      .filter(Boolean)
+      .filter((line, index, lines) => lines.indexOf(line) === index);
+
+  const buildDeckAudit = () => {
+    const slides = Array.isArray(deck.slides) ? deck.slides : [];
+    const slideStats = slides.map((slide, index) => {
+      const elements = getSlideElements(slide);
+      const text = [
+        slide.title,
+        stripPresentationInternalMeta(slide.body || ""),
+        ...elements.map((element) => element.text || "")
+      ].join("\n");
+      return {
+        index,
+        title: String(slide.title || "").trim(),
+        body: stripPresentationInternalMeta(slide.body || "").trim(),
+        notes: String(slide.notes || "").trim(),
+        theme: String(slide.theme || "default"),
+        background: String(slide.background || ""),
+        transition: String(slide.transition || "none"),
+        elements,
+        wordCount: countWords(text),
+        visualCount: elements.filter((element) => ["shape", "image", "chart", "table", "icon", "video"].includes(element.type)).length
+      };
+    });
+    const issues = [];
+    const slideCount = slideStats.length;
+    const slidesWithTitles = slideStats.filter((slide) => slide.title).length;
+    const slidesWithNotes = slideStats.filter((slide) => slide.notes).length;
+    const slidesWithVisuals = slideStats.filter((slide) => slide.visualCount > 0).length;
+    const heavySlides = slideStats.filter((slide) => slide.wordCount > 90 || slide.elements.length > 8);
+    const emptySlides = slideStats.filter((slide) => !slide.body && slide.elements.length <= 1);
+    const themeCount = new Set(slideStats.map((slide) => slide.theme)).size;
+    const backgroundCount = new Set(slideStats.map((slide) => slide.background).filter(Boolean)).size;
+    const transitionCount = new Set(slideStats.map((slide) => slide.transition)).size;
+    const titleWords = slideStats.flatMap((slide) => slide.title.toLowerCase().split(/\s+/).filter(Boolean));
+    const repeatedTitleWords = titleWords.length - new Set(titleWords).size;
+    const hasAgenda = slideStats.some((slide) => /\b(agenda|plan|sommaire|outline)\b/i.test(slide.title));
+    const hasClosing = slideStats.some((slide) => /\b(next|suite|action|decision|conclusion|merci|thank)\b/i.test(`${slide.title}\n${slide.body}`));
+
+    if (slideCount < 3) issues.push("Le deck est court : ajoute un agenda, une preuve et une slide de conclusion.");
+    if (slidesWithTitles < slideCount) issues.push("Certaines slides n'ont pas de titre clair.");
+    if (slidesWithNotes < Math.ceil(slideCount * 0.6)) issues.push("Peu de notes presentateur : la presentation sera moins exploitable en mode diaporama.");
+    if (slidesWithVisuals < Math.ceil(slideCount * 0.5)) issues.push("Ajoute plus de formes, tableaux, graphiques ou images natives pour eviter un deck trop textuel.");
+    if (heavySlides.length) issues.push(`${heavySlides.length} slide(s) sont trop denses : split ou reduis le texte.`);
+    if (emptySlides.length) issues.push(`${emptySlides.length} slide(s) semblent vides ou trop legeres.`);
+    if (themeCount > 3 || backgroundCount > 4) issues.push("La direction artistique manque de coherence : applique un template de deck.");
+    if (transitionCount > 4) issues.push("Trop de transitions differentes : stabilise l'experience de presentation.");
+    if (!hasAgenda && slideCount >= 4) issues.push("Ajoute une slide Agenda pour guider l'audience.");
+    if (!hasClosing && slideCount >= 3) issues.push("Ajoute une slide de prochaine action ou decision.");
+
+    const contentScore = clampPresentationNumber(
+      35 +
+        Math.min(25, slideCount * 4) +
+        (slidesWithTitles / Math.max(1, slideCount)) * 20 +
+        (slideStats.filter((slide) => slide.wordCount >= 8).length / Math.max(1, slideCount)) * 15 -
+        heavySlides.length * 8 -
+        emptySlides.length * 12,
+      0,
+      100,
+      55
+    );
+    const designScore = clampPresentationNumber(
+      40 +
+        (slidesWithVisuals / Math.max(1, slideCount)) * 25 +
+        Math.max(0, 20 - Math.max(0, themeCount - 2) * 8) +
+        Math.max(0, 15 - heavySlides.length * 5),
+      0,
+      100,
+      55
+    );
+    const coherenceScore = clampPresentationNumber(
+      35 +
+        (hasAgenda ? 15 : 0) +
+        (hasClosing ? 15 : 0) +
+        Math.max(0, 20 - Math.max(0, transitionCount - 2) * 6) +
+        Math.max(0, 15 - repeatedTitleWords),
+      0,
+      100,
+      55
+    );
+    return {
+      total: Math.round((contentScore + designScore + coherenceScore) / 3),
+      scores: [
+        { label: "Content", value: Math.round(contentScore) },
+        { label: "Design", value: Math.round(designScore) },
+        { label: "Coherence", value: Math.round(coherenceScore) }
+      ],
+      issues,
+      metrics: [
+        `${slideCount} slides`,
+        `${slideStats.reduce((total, slide) => total + slide.elements.length, 0)} objets natifs`,
+        `${slidesWithNotes}/${slideCount} avec notes`,
+        `${slidesWithVisuals}/${slideCount} avec visuels`
+      ]
+    };
+  };
+
+  const buildSpeakerNotesForSlide = (slide = {}, index = 0, total = 1) => {
+    const lines = extractPresentationActionLines(slide.body || "");
+    const lead = lines[0] || slide.title || "Main point";
+    const support = lines.slice(1, 3).join(" / ") || "Use the visible slide objects as proof.";
+    const close = index + 1 < total ? "Transition to the next point." : "Close with the concrete next action.";
+    return `Lead: ${lead}\nSupport: ${support}\nMove: ${close}`;
+  };
+
+  const applyDeckAgentQuickFixes = () => {
+    writePresentationDraft((nextDeck) => {
+      const total = nextDeck.slides.length || 1;
+      nextDeck.slides = nextDeck.slides.map((slide, index) => {
+        const elements = getSlideElements(slide).map((element) => {
+          if (element.type === "title") {
+            return { ...element, text: slide.title || element.text, x: 7, y: index === 0 ? 12 : 10, w: 80, h: 18 };
+          }
+          if (element.id === "body" || element.type === "text") {
+            return {
+              ...element,
+              x: Number(element.x || 0) < 6 ? 7 : element.x,
+              w: Math.min(82, Math.max(42, Number(element.w || 58))),
+              h: Math.min(48, Math.max(18, Number(element.h || 24)))
+            };
+          }
+          return element;
+        });
+        const bodyLines = extractPresentationActionLines(slide.body || "");
+        const layout = bodyLines.length >= 3 ? "bullets" : slide.layout || "content";
+        return {
+          ...slide,
+          layout,
+          theme: slide.theme || inferPresentationSlideTheme(slide.title, slide.body),
+          background: slide.background || presentationDefaultBackground(slide.theme || "default"),
+          transition: slide.transition && slide.transition !== "none" ? slide.transition : "fade",
+          transitionDuration: slide.transitionDuration || 0.8,
+          notes: slide.notes || buildSpeakerNotesForSlide(slide, index, total),
+          elements
+        };
+      });
+    }, { refreshWorkspace: true, selectedElementId: selectedElement?.id || "" });
+    setStatus("Deck agent: structure, notes et transitions rapides appliques.");
+  };
+
+  const addAgendaSlide = () => {
+    const agendaItems = deck.slides
+      .map((slide) => String(slide.title || "").replace(/^agenda$/i, "").trim())
+      .filter(Boolean)
+      .slice(1, 7);
+    if (!agendaItems.length) {
+      setStatus("Agenda non ajoute : il faut au moins deux slides titrees.");
+      return;
+    }
+    const body = agendaItems.map((item, index) => `${index + 1}. ${item}`).join("\n");
+    const agendaSlide = {
+      title: "Agenda",
+      body,
+      layout: "bullets",
+      theme: "roadmap",
+      background: presentationDefaultBackground("roadmap"),
+      transition: "fade",
+      transitionDuration: 0.8,
+      notes: "Set expectations, then move quickly into the first section.",
+      elements: createDefaultPresentationElements({
+        title: "Agenda",
+        body,
+        layout: "bullets"
+      })
+    };
+    writePresentationDraft((nextDeck) => {
+      const insertAt = Math.min(1, nextDeck.slides.length);
+      nextDeck.slides.splice(insertAt, 0, agendaSlide);
+      return insertAt;
+    }, { refreshWorkspace: true, selectIndex: 1, selectedElementId: "title" });
+    setStatus("Slide Agenda ajoutee.");
+  };
+
+  const splitSelectedBulletsToSlides = () => {
+    const selectedLines = extractPresentationActionLines(selectedElement?.text || "");
+    const sourceText = selectedLines.length >= 2 ? selectedElement.text : activeSlide?.body || "";
+    const lines = extractPresentationActionLines(sourceText).slice(0, 10);
+    if (lines.length < 2) {
+      setStatus("Split impossible : selectionne une zone avec au moins deux bullet points.");
+      return;
+    }
+    const newSlides = lines.map((line, index) => {
+      const body = `- Key message\n- Proof point\n- Next step`;
+      return {
+        title: line,
+        body,
+        layout: "bullets",
+        theme: index === lines.length - 1 ? "roadmap" : "insight",
+        background: "#ffffff",
+        transition: "fade",
+        transitionDuration: 0.8,
+        notes: `Explain ${line}. Keep it concrete and move to the next slide.`,
+        elements: createDefaultPresentationElements({ title: line, body, layout: "bullets" })
+      };
+    });
+    writePresentationDraft((nextDeck) => {
+      const insertAt = activeSlideIndex + 1;
+      nextDeck.slides.splice(insertAt, 0, ...newSlides);
+      return insertAt;
+    }, { refreshWorkspace: true, selectIndex: activeSlideIndex + 1, selectedElementId: "title" });
+    setStatus(`${newSlides.length} slides creees depuis les bullet points.`);
+  };
+
+  const applyDeckTemplate = (templateId = "") => {
+    const template = PRESENTATION_DECK_TEMPLATES.find((item) => item.id === templateId) || PRESENTATION_DECK_TEMPLATES[0];
+    writePresentationDraft((nextDeck) => {
+      nextDeck.slides = nextDeck.slides.map((slide, index) => {
+        const elements = getSlideElements(slide).map((element) => {
+          const textElement = ["title", "text", "shape"].includes(element.type);
+          return {
+            ...element,
+            fontFamily: textElement ? template.fontFamily : element.fontFamily,
+            color: element.type === "title" ? template.titleColor : textElement ? template.bodyColor : element.color,
+            stroke: element.type === "shape" && element.stroke === "#cbd5e1" ? template.accent : element.stroke,
+            fill:
+              element.type === "shape" && (element.fill === "#ffffff" || element.fill === "#eff6ff")
+                ? `${template.background}`
+                : element.fill
+          };
+        });
+        return {
+          ...slide,
+          theme: index === 0 ? template.theme : slide.theme || template.theme,
+          background: template.background,
+          transition: template.transition,
+          transitionDuration: template.transition === "none" ? 1 : 0.8,
+          elements
+        };
+      });
+    }, { refreshWorkspace: true, selectedElementId: selectedElement?.id || "" });
+    setStatus(`Template ${template.label} applique au deck.`);
+  };
+
+  const showDeckAudit = () => {
+    const audit = buildDeckAudit();
+    document.querySelectorAll(".workspace-powerpoint-audit-overlay").forEach((node) => node.remove());
+    const overlay = document.createElement("div");
+    overlay.className = "workspace-powerpoint-audit-overlay";
+    const panel = document.createElement("section");
+    panel.className = "workspace-powerpoint-audit-panel";
+    const header = document.createElement("header");
+    const heading = document.createElement("div");
+    const kicker = document.createElement("span");
+    kicker.textContent = "Hydria deck agent";
+    const title = document.createElement("h3");
+    title.textContent = `Score ${audit.total}/100`;
+    const copy = document.createElement("p");
+    copy.textContent = audit.metrics.join(" | ");
+    heading.append(kicker, title, copy);
+    const close = document.createElement("button");
+    close.type = "button";
+    close.textContent = "Close";
+    close.addEventListener("click", () => overlay.remove());
+    header.append(heading, close);
+
+    const scoreGrid = document.createElement("div");
+    scoreGrid.className = "workspace-powerpoint-audit-scores";
+    audit.scores.forEach((score) => {
+      const card = document.createElement("article");
+      card.innerHTML = `<strong>${score.value}</strong><span>${score.label}</span><i style="--score:${score.value}%"></i>`;
+      scoreGrid.appendChild(card);
+    });
+
+    const issueList = document.createElement("div");
+    issueList.className = "workspace-powerpoint-audit-issues";
+    const issueTitle = document.createElement("strong");
+    issueTitle.textContent = audit.issues.length ? "A corriger" : "Aucun blocage majeur";
+    issueList.appendChild(issueTitle);
+    if (audit.issues.length) {
+      const list = document.createElement("ul");
+      audit.issues.slice(0, 8).forEach((issue) => {
+        const item = document.createElement("li");
+        item.textContent = issue;
+        list.appendChild(item);
+      });
+      issueList.appendChild(list);
+    } else {
+      const empty = document.createElement("p");
+      empty.textContent = "Le deck est coherent pour une V1. Tu peux passer a l'export ou a la mise en forme fine.";
+      issueList.appendChild(empty);
+    }
+
+    const actions = document.createElement("footer");
+    [
+      ["Quick fixes", applyDeckAgentQuickFixes],
+      ["Add agenda", addAgendaSlide],
+      ["Split bullets", splitSelectedBulletsToSlides],
+      ["Export PPTX", () => downloadPresentationExport().catch(handleError)]
+    ].forEach(([label, action]) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = label;
+      button.addEventListener("click", () => {
+        overlay.remove();
+        action();
+      });
+      actions.appendChild(button);
+    });
+
+    panel.append(header, scoreGrid, issueList, actions);
+    overlay.appendChild(panel);
+    overlay.addEventListener("click", (event) => {
+      if (event.target === overlay) {
+        overlay.remove();
+      }
+    });
+    document.body.appendChild(overlay);
+  };
+
+  const createAgentTemplateGallery = () => {
+    const gallery = document.createElement("div");
+    gallery.className = "workspace-powerpoint-agent-template-gallery";
+    PRESENTATION_DECK_TEMPLATES.forEach((template) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "workspace-powerpoint-agent-template";
+      button.title = template.label;
+      button.style.setProperty("--template-bg", template.background);
+      button.style.setProperty("--template-accent", template.accent);
+      button.addEventListener("click", () => applyDeckTemplate(template.id));
+      const swatch = document.createElement("i");
+      const label = document.createElement("span");
+      label.textContent = template.label;
+      button.append(swatch, label);
+      gallery.appendChild(button);
+    });
+    return gallery;
+  };
+
+  const ribbonTabs = [
+    { id: "home", label: "Home" },
+    { id: "insert", label: "Insert" },
+    { id: "design", label: "Design" },
+    { id: "agent", label: "Agent" },
+    { id: "transitions", label: "Transitions" },
+    { id: "animations", label: "Animations" },
+    { id: "slideshow", label: "Diaporama" },
+    { id: "review", label: "Review" },
+    { id: "view", label: "View" },
+    { id: "format", label: "Format" }
+  ];
+  if (!ribbonTabs.some((tab) => tab.id === state.presentationRibbonTab)) {
+    state.presentationRibbonTab = "home";
+  }
+  const activeRibbonTab = state.presentationRibbonTab || "home";
+  const listCommandDisabled = !isPresentationListTextTarget(selectedElement);
+  const ribbonGroupsForTab = {
+    home: [
+      createRibbonGroup("Clipboard", [
+        createRibbonStack([
+          createRibbonButton("Undo", "undo", undoPresentationChange, {
+            disabled: !(state.presentationUndoStack || []).length,
+            compact: true
+          }),
+          createRibbonButton("Redo", "redo", redoPresentationChange, {
+            disabled: !(state.presentationRedoStack || []).length,
+            compact: true
+          })
+        ]),
+        createRibbonButton("Paste", "paste", pastePresentationClipboard, {
+          disabled: !state.presentationClipboard,
+          size: "large"
+        }),
+        createRibbonStack([
+          createRibbonButton("Cut", "cut", cutSelectedElement, {
+            disabled: !selectedElements.length || activeElements.length <= selectedElements.length || selectedElements.some((element) => element.locked),
+            compact: true
+          }),
+          createRibbonButton("Copy", "copy", copySelectedElement, { disabled: !selectedElements.length, compact: true }),
+          createRibbonButton("Duplicate", "duplicate", duplicateSelectedElement, { disabled: !selectedElements.length, compact: true }),
+          createRibbonButton("Delete", "delete", removeSelectedElement, {
+            disabled: !selectedElements.length || activeElements.length <= selectedElements.length || selectedElements.some((element) => element.locked),
+            compact: true
+          })
+        ])
+      ]),
+      createRibbonGroup("Slides", [
+        createRibbonButton("New slide", "insert", () => executePresentationCommand("slideAdd"), { size: "large" }),
+        createRibbonStack([
+          createRibbonButton("Duplicate slide", "duplicate", () => executePresentationCommand("slideDuplicate"), { compact: true }),
+          createRibbonButton("Delete slide", "delete", () => executePresentationCommand("slideDelete"), {
+            disabled: deck.slides.length <= 1,
+            compact: true
+          }),
+          createRibbonButton("Move left", "chevronLeft", () => executePresentationCommand("slideMoveLeft"), {
+            disabled: activeSlideIndex <= 0,
+            compact: true
+          }),
+          createRibbonButton("Move right", "chevronRight", () => executePresentationCommand("slideMoveRight"), {
+            disabled: activeSlideIndex >= deck.slides.length - 1,
+            compact: true
+          })
+        ])
+      ]),
+      createRibbonGroup("Font", [
+        createRibbonStack([
+          createSelect("Font", PRESENTATION_FONT_OPTIONS, selectedElement?.fontFamily || "", (value) =>
+            updateSelectedElementStyle({ fontFamily: value })
+          ),
+          createRibbonField(
+            "Size",
+            createTextInput(String(selectedElement?.fontSize || 22), (value) =>
+              updateSelectedElementStyle({ fontSize: Number(value) })
+            , { type: "number", min: "8", max: "96", step: "1" })
+          )
+        ]),
+        createRibbonStack([
+          createRibbonButton("B", "bold", () => updateSelectedElementStyle({ bold: !selectedElement?.bold }), {
+            disabled: !selectedElement,
+            active: Boolean(selectedElement?.bold),
+            compact: true
+          }),
+          createRibbonButton("I", "italic", () => updateSelectedElementStyle({ italic: !selectedElement?.italic }), {
+            disabled: !selectedElement,
+            active: Boolean(selectedElement?.italic),
+            compact: true
+          }),
+          createRibbonButton("U", "underline", () => updateSelectedElementStyle({ underline: !selectedElement?.underline }), {
+            disabled: !selectedElement,
+            active: Boolean(selectedElement?.underline),
+            compact: true
+          }),
+          createRibbonButton("Edit text", "text", focusSelectedTextEditor, {
+            disabled: !selectedElement || selectedElement.shape === "line",
+            compact: true
+          })
+        ]),
+        createRibbonStack([
+          createRibbonField(
+            "Text",
+            createTextInput(selectedElement?.color || "#374151", (value) =>
+              updateSelectedElementStyle({ color: value })
+            , { type: "color" })
+          ),
+          createRibbonField(
+            "Fill",
+            createTextInput(selectedElement?.fill === "transparent" ? "#ffffff" : selectedElement?.fill || "#ffffff", (value) =>
+              updateSelectedElementStyle({ fill: value })
+            , { type: "color" })
+          ),
+          createRibbonField(
+            "Border",
+            createTextInput(selectedElement?.stroke === "transparent" ? "#ffffff" : selectedElement?.stroke || "#cbd5e1", (value) =>
+              updateSelectedElementStyle({ stroke: value })
+            , { type: "color" })
+          )
+        ])
+      ], { wide: true }),
+      createRibbonGroup("Size", [
+        createRibbonStack([
+          createRibbonField("W", createTextInput(String(Math.round(Number(selectedElement?.w || 0))), (value) =>
+            updateSelectedElementStyle({ w: Number(value) })
+          , { type: "number", min: "3", max: "100", step: "1" })),
+          createRibbonField("H", createTextInput(String(Math.round(Number(selectedElement?.h || 0))), (value) =>
+            updateSelectedElementStyle({ h: Number(value) })
+          , { type: "number", min: "1", max: "100", step: "1" }))
+        ]),
+        createRibbonStack([
+          createRibbonField("X", createTextInput(String(Math.round(Number(selectedElement?.x || 0))), (value) =>
+            updateSelectedElementStyle({ x: Number(value) })
+          , { type: "number", min: "0", max: "100", step: "1" })),
+          createRibbonField("Y", createTextInput(String(Math.round(Number(selectedElement?.y || 0))), (value) =>
+            updateSelectedElementStyle({ y: Number(value) })
+          , { type: "number", min: "0", max: "100", step: "1" }))
+        ])
+      ]),
+      createRibbonGroup("Paragraph", [
+        createRibbonStack([
+          createRibbonButton("Bullets", "list", () => toggleSelectedElementList(false), {
+            disabled: listCommandDisabled,
+            active: selectedElementHasListStyle(false),
+            compact: true
+          }),
+          createRibbonButton("Numbering", "number", () => toggleSelectedElementList(true), {
+            disabled: listCommandDisabled,
+            active: selectedElementHasListStyle(true),
+            compact: true
+          }),
+          createRibbonButton("Outdent", "chevronLeft", () => changeSelectedElementListIndent("outdent"), {
+            disabled: listCommandDisabled,
+            compact: true
+          }),
+          createRibbonButton("Indent", "chevronRight", () => changeSelectedElementListIndent("indent"), {
+            disabled: listCommandDisabled,
+            compact: true
+          })
+        ]),
+        createRibbonStack([
+          createRibbonButton("Align left", "alignLeft", () => setSelectedTextAlignment("left"), {
+            disabled: !selectedTextAlignmentEnabled,
+            active: Boolean(selectedElement && selectedElement.align === "left"),
+            compact: true
+          }),
+          createRibbonButton("Align center", "alignCenter", () => setSelectedTextAlignment("center"), {
+            disabled: !selectedTextAlignmentEnabled,
+            active: Boolean(selectedElement && selectedElement.align === "center"),
+            compact: true
+          }),
+          createRibbonButton("Align right", "alignRight", () => setSelectedTextAlignment("right"), {
+            disabled: !selectedTextAlignmentEnabled,
+            active: Boolean(selectedElement && selectedElement.align === "right"),
+            compact: true
+          })
+        ])
+      ]),
+      createRibbonGroup("Arrange", [
+        createRibbonStack([
+          createRibbonMenuButton("Layer", "chevronRight", [
+            { label: "Bring to front", icon: "chevronRight", disabled: !selectedElements.length, action: () => moveSelectedElementDepth(999) },
+            { label: "Send to back", icon: "chevronLeft", disabled: !selectedElements.length, action: () => moveSelectedElementDepth(-999) },
+            { label: "Bring forward", icon: "chevronRight", disabled: !selectedElements.length, action: () => moveSelectedElementDepth(1) },
+            { label: "Send backward", icon: "chevronLeft", disabled: !selectedElements.length, action: () => moveSelectedElementDepth(-1) }
+          ], { disabled: !selectedElements.length, compact: true }),
+          createRibbonMenuButton("Align", "alignCenter", [
+            { label: "Object left", icon: "alignLeft", disabled: !selectedElements.length, action: () => alignSelectedElement("left") },
+            { label: "Object center", icon: "alignCenter", disabled: !selectedElements.length, action: () => alignSelectedElement("center") },
+            { label: "Object right", icon: "alignRight", disabled: !selectedElements.length, action: () => alignSelectedElement("right") },
+            { separator: true },
+            { label: "Object top", icon: "alignTop", disabled: !selectedElements.length, action: () => alignSelectedElement("top") },
+            { label: "Object middle", icon: "alignMiddle", disabled: !selectedElements.length, action: () => alignSelectedElement("middle") },
+            { label: "Object bottom", icon: "alignBottom", disabled: !selectedElements.length, action: () => alignSelectedElement("bottom") },
+            { separator: true },
+            { label: "Distribute horizontal", icon: "alignCenter", disabled: selectedElements.length < 3, action: () => distributeSelectedElements("horizontal") },
+            { label: "Distribute vertical", icon: "alignMiddle", disabled: selectedElements.length < 3, action: () => distributeSelectedElements("vertical") }
+          ], { disabled: !selectedElements.length, compact: true })
+        ]),
+        createRibbonStack([
+          createRibbonButton("Select all", "checkbox", selectAllPresentationElements, {
+            disabled: !activeElements.length,
+            compact: true
+          }),
+          createRibbonButton("Format painter", "palette", copySelectedFormatting, {
+            disabled: !selectedElement,
+            active: Boolean(state.presentationFormatBrush),
+            compact: true
+          }),
+          createRibbonMenuButton("Group", "group", [
+            { label: "Group", icon: "group", disabled: selectedElements.length < 2, action: groupSelectedElements },
+            { label: "Ungroup", icon: "group", disabled: !selectedElements.some((element) => element.groupId), action: ungroupSelectedElements },
+            { label: selectedElements.some((element) => element.locked) ? "Unlock" : "Lock", icon: "lock", disabled: !selectedElements.length, action: toggleSelectedLock }
+          ], { disabled: !selectedElements.length, compact: true })
+        ])
+      ])
+    ],
+    insert: [
+      createRibbonGroup("Slides", [
+        createRibbonButton("New slide", "insert", () => executePresentationCommand("slideAdd"), { size: "large" }),
+        createRibbonStack([
+          createRibbonButton("Duplicate slide", "duplicate", () => executePresentationCommand("slideDuplicate"), { compact: true }),
+          createRibbonButton("Delete slide", "delete", () => executePresentationCommand("slideDelete"), {
+            disabled: deck.slides.length <= 1,
+            compact: true
+          })
+        ])
+      ]),
+      createRibbonGroup("Text", [
+        createRibbonButton("Title", "text", insertTitleBox, { size: "large" }),
+        createRibbonStack([
+          createRibbonButton("Text box", "textColor", insertTextBox, { compact: true }),
+          createRibbonButton("Bullets", "list", insertBulletsBox, { compact: true }),
+          createRibbonButton("Equation", "function", insertEquationBox, { compact: true }),
+          createRibbonButton("Code", "code", insertCodeBox, { compact: true }),
+          createRibbonButton("Speaker notes", "note", () => document.querySelector(".workspace-powerpoint-notes textarea")?.focus(), {
+            compact: true
+          })
+        ])
+      ]),
+      createRibbonGroup("Media", [
+        createRibbonButton("Image", "image", insertImageBox, { size: "large" }),
+        createRibbonStack([
+          createRibbonButton("Table", "table", insertTableBox, { compact: true }),
+          createRibbonButton("Chart", "chart", insertChartBox, { compact: true }),
+          createRibbonButton("Icon", "shape", insertIconBox, { compact: true }),
+          createRibbonButton("Video", "play", insertVideoBox, { compact: true })
+        ])
+      ]),
+      createRibbonGroup("Shapes", [
+        createRibbonButton("Rectangle", "shape", () => insertShapeBox("rectangle"), { size: "large" }),
+        createRibbonStack([
+          createRibbonButton("Rounded", "shape", () => insertShapeBox("round-rect"), { compact: true }),
+          createRibbonButton("Circle", "shape", () => insertShapeBox("ellipse"), { compact: true }),
+          createRibbonButton("Line", "lineChart", () => insertShapeBox("line"), { compact: true }),
+          createRibbonButton("Triangle", "shape", () => insertShapeBox("triangle"), { compact: true }),
+          createRibbonButton("Diamond", "shape", () => insertShapeBox("diamond"), { compact: true }),
+          createRibbonButton("Arrow", "chevronRight", () => insertShapeBox("arrow"), { compact: true }),
+          createRibbonButton("Callout", "shape", () => insertShapeBox("callout"), { compact: true })
+        ])
+      ])
+    ],
+    design: [
+      createRibbonGroup("Theme", [
+        createRibbonButton("Reset theme", "refresh", () =>
+          updateActiveSlide({
+            theme: "default",
+            background: presentationDefaultBackground("default")
+          }, { refreshWorkspace: true })
+        , { size: "large" }),
+        createRibbonStack([
+          createThemeGallery(),
+          createSelect("Theme", PRESENTATION_SLIDE_THEMES, activeSlide?.theme || "default", (value) =>
+            executePresentationCommand("slideTheme", { value })
+          ),
+          createSelect("Background", PRESENTATION_SLIDE_BACKGROUNDS, activeSlide?.background || "#ffffff", (value) =>
+            updateActiveSlide({ background: value }, { refreshWorkspace: true })
+          )
+        ])
+      ], { wide: true }),
+      createRibbonGroup("Layout", [
+        createRibbonButton("Title layout", "text", () => executePresentationCommand("slideLayout", { value: "title" }), {
+          active: activeSlide?.layout === "title",
+          size: "large"
+        }),
+        createRibbonStack([
+          createLayoutGallery(),
+          createSelect("Layout", PRESENTATION_SLIDE_LAYOUTS, activeSlide?.layout || "content", (value) =>
+            executePresentationCommand("slideLayout", { value })
+          ),
+          createRibbonButton("Content", "grid", () => executePresentationCommand("slideLayout", { value: "content" }), {
+            active: activeSlide?.layout === "content",
+            compact: true
+          }),
+          createRibbonButton("Two columns", "split", () => executePresentationCommand("slideLayout", { value: "two-column" }), {
+            active: activeSlide?.layout === "two-column",
+            compact: true
+          })
+        ])
+      ], { wide: true })
+    ],
+    agent: [
+      createRibbonGroup("Deck Intelligence", [
+        createRibbonButton("Audit deck", "check", showDeckAudit, { size: "large" }),
+        createRibbonStack([
+          createRibbonButton("Quick fixes", "refresh", applyDeckAgentQuickFixes, { compact: true }),
+          createRibbonButton("Speaker notes", "note", () => {
+            writePresentationDraft((nextDeck) => {
+              const total = nextDeck.slides.length || 1;
+              nextDeck.slides = nextDeck.slides.map((slide, index) => ({
+                ...slide,
+                notes: buildSpeakerNotesForSlide(slide, index, total)
+              }));
+            }, { refreshWorkspace: true, selectedElementId: selectedElement?.id || "" });
+            setStatus("Notes presentateur regenerees pour le deck.");
+          }, { compact: true }),
+          createRibbonButton("PPTX guard", "check", () => {
+            const audit = buildDeckAudit();
+            const nativeObjects = deck.slides.reduce((total, slide) => total + getSlideElements(slide).length, 0);
+            setStatus(`PPTX natif: ${nativeObjects} objets editables, score ${audit.total}/100.`);
+          }, { compact: true })
+        ])
+      ], { wide: true }),
+      createRibbonGroup("Generate", [
+        createRibbonButton("Add agenda", "insert", addAgendaSlide, { size: "large" }),
+        createRibbonStack([
+          createRibbonButton("Split bullets", "split", splitSelectedBulletsToSlides, { compact: true }),
+          createRibbonButton("Storyboard", "presentation", () => {
+            addAgendaSlide();
+            window.setTimeout(() => applyDeckAgentQuickFixes(), 0);
+          }, { compact: true }),
+          createRibbonButton("Closing slide", "chevronRight", () => {
+            const body = "- Decision needed\n- Owner\n- Next step";
+            const closingSlide = {
+              title: "Next action",
+              body,
+              layout: "bullets",
+              theme: "roadmap",
+              background: presentationDefaultBackground("roadmap"),
+              transition: "fade",
+              transitionDuration: 0.8,
+              notes: "Close by naming the concrete next step and owner.",
+              elements: createDefaultPresentationElements({ title: "Next action", body, layout: "bullets" })
+            };
+            writePresentationDraft((nextDeck) => {
+              nextDeck.slides.push(closingSlide);
+              return nextDeck.slides.length - 1;
+            }, { refreshWorkspace: true, selectIndex: deck.slides.length, selectedElementId: "title" });
+            setStatus("Slide de conclusion ajoutee.");
+          }, { compact: true })
+        ])
+      ], { wide: true }),
+      createRibbonGroup("Templates", [
+        createAgentTemplateGallery(),
+        createRibbonStack(
+          PRESENTATION_DECK_TEMPLATES.slice(0, 3).map((template) =>
+            createRibbonButton(template.label, "palette", () => applyDeckTemplate(template.id), { compact: true })
+          )
+        )
+      ], { wide: true }),
+      createRibbonGroup("Delivery", [
+        createRibbonButton("Presenter view", "presentation", () => openPresentationSlideShow(activeSlideIndex, {
+          fullscreen: true,
+          presenter: true
+        }), { size: "large" }),
+        createRibbonStack([
+          createRibbonButton("Diaporama", "play", () => openPresentationSlideShow(activeSlideIndex, { fullscreen: true }), { compact: true }),
+          createRibbonButton("Export PPTX", "download", () => downloadPresentationExport().catch(handleError), { compact: true })
+        ])
+      ])
+    ],
+    transitions: [
+      createRibbonGroup("Transition", [
+        createRibbonButton("None", "refresh", () => updateActiveSlide({ transition: "none" }, { refreshWorkspace: true }), {
+          active: (activeSlide?.transition || "none") === "none",
+          size: "large"
+        }),
+        createRibbonStack(
+          PRESENTATION_SLIDE_TRANSITIONS
+            .filter((transition) => transition.value !== "none")
+            .map((transition) =>
+              createRibbonButton(transition.label, "chevronRight", () =>
+                updateActiveSlide({ transition: transition.value }, { refreshWorkspace: true })
+              , { active: activeSlide?.transition === transition.value, compact: true })
+            )
+        )
+      ]),
+      createRibbonGroup("Timing", [
+        createSelect(
+          "Current",
+          PRESENTATION_SLIDE_TRANSITIONS,
+          activeSlide?.transition || "none",
+          (value) => updateActiveSlide({ transition: value }, { refreshWorkspace: true })
+        ),
+        createRibbonStack([
+          createRibbonField(
+            "Duration",
+            createTextInput(String(activeSlide?.transitionDuration || 1), (value) =>
+              updateActiveSlide({ transitionDuration: Number(value) }, { refreshWorkspace: true })
+            , { type: "number", min: "0.1", max: "10", step: "0.1" })
+          ),
+          createRibbonButton("Apply to all", "duplicate", () => {
+            const transition = activeSlide?.transition || "none";
+            const transitionDuration = activeSlide?.transitionDuration || 1;
+            writePresentationDraft((nextDeck) => {
+              nextDeck.slides = nextDeck.slides.map((slide) => ({ ...slide, transition, transitionDuration }));
+            }, { refreshWorkspace: true, selectedElementId: selectedElement?.id || "" });
+          }, { compact: true })
+        ])
+      ], { wide: true })
+    ],
+    animations: [
+      createRibbonGroup("Animation", [
+        createRibbonButton("None", "refresh", () => updateSelectedElementStyle({ animation: "none" }), {
+          disabled: !selectedElements.length,
+          active: selectedElement?.animation === "none",
+          size: "large"
+        }),
+        createRibbonStack(
+          PRESENTATION_ELEMENT_ANIMATIONS
+            .filter((animation) => animation.value !== "none")
+            .map((animation) =>
+              createRibbonButton(animation.label, "play", () => updateSelectedElementStyle({ animation: animation.value }), {
+                disabled: !selectedElements.length,
+                active: selectedElement?.animation === animation.value,
+                compact: true
+              })
+            )
+        )
+      ]),
+      createRibbonGroup("Timing", [
+        createSelect("Selected", PRESENTATION_ELEMENT_ANIMATIONS, selectedElement?.animation || "none", (value) =>
+          updateSelectedElementStyle({ animation: value })
+        ),
+        createRibbonStack([
+          createRibbonButton("Apply to slide", "duplicate", () => {
+            const animation = selectedElement?.animation || "fade";
+            updateElementsByIds(activeElements.map((element) => element.id), (element) => ({ ...element, animation }), {
+              refreshWorkspace: true,
+              selectedElementId: selectedElement?.id || selectedElementIds[0],
+              selectedElementIds
+            });
+          }, { disabled: !selectedElement, compact: true })
+        ])
+      ], { wide: true })
+    ],
+    slideshow: [
+      createRibbonGroup("Start Slide Show", [
+        createRibbonButton("Depuis debut", "play", () => openPresentationSlideShow(0, { fullscreen: true }), { size: "large" }),
+        createRibbonStack([
+          createRibbonButton("Depuis slide", "play", () => openPresentationSlideShow(activeSlideIndex, { fullscreen: true }), { compact: true }),
+          createRibbonButton("Vue presentateur", "presentation", () => openPresentationSlideShow(activeSlideIndex, {
+            fullscreen: true,
+            presenter: true
+          }), { compact: true }),
+          createRibbonButton("Fenetre", "presentation", () => openPresentationSlideShow(activeSlideIndex), { compact: true })
+        ])
+      ]),
+      createRibbonGroup("Set Up", [
+        createRibbonButton("Plein ecran", "maximize", () => openPresentationSlideShow(activeSlideIndex, { fullscreen: true }), { size: "large" }),
+        createRibbonStack([
+          createRibbonButton("Notes", "note", () => document.querySelector(".workspace-powerpoint-notes textarea")?.focus(), { compact: true }),
+          createRibbonButton("Masquer miniatures", "eyeOff", () => {
+            state.presentationShowSlideRail = false;
+            renderWorkspace();
+          }, { disabled: !state.presentationShowSlideRail, compact: true }),
+          createRibbonButton("Afficher miniatures", "list", () => {
+            state.presentationShowSlideRail = true;
+            renderWorkspace();
+          }, { disabled: Boolean(state.presentationShowSlideRail), compact: true })
+        ])
+      ]),
+      createRibbonGroup("Navigate", [
+        createRibbonButton("Previous", "chevronLeft", () => setActivePresentationSlide(activeSlideIndex - 1), {
+          disabled: activeSlideIndex <= 0,
+          size: "large"
+        }),
+        createRibbonStack([
+          createRibbonButton("Next", "chevronRight", () => setActivePresentationSlide(activeSlideIndex + 1), {
+            disabled: activeSlideIndex >= deck.slides.length - 1,
+            compact: true
+          }),
+          createRibbonButton("First", "chevronLeft", () => setActivePresentationSlide(0), {
+            disabled: activeSlideIndex <= 0,
+            compact: true
+          }),
+          createRibbonButton("Last", "chevronRight", () => setActivePresentationSlide(deck.slides.length - 1), {
+            disabled: activeSlideIndex >= deck.slides.length - 1,
+            compact: true
+          })
+        ])
+      ]),
+      createRibbonGroup("Export", [
+        createRibbonButton("Export PPTX", "download", () => downloadPresentationExport().catch(handleError), { size: "large" })
+      ])
+    ],
+    review: [
+      createRibbonGroup("Notes", [
+        createRibbonButton("Speaker notes", "note", () => document.querySelector(".workspace-powerpoint-notes textarea")?.focus(), { size: "large" }),
+        createRibbonStack([
+          createRibbonButton("Clear notes", "eraser", () => updateActiveSlide({ notes: "" }, { refreshWorkspace: true }), {
+            disabled: !activeSlide?.notes,
+            compact: true
+          }),
+          createRibbonButton("Copy slide text", "copy", () => {
+            copyElementsToClipboard(activeElements.filter((element) => element.type !== "image"));
+          }, { compact: true })
+        ])
+      ]),
+      createRibbonGroup("Check", [
+        createRibbonButton("Check deck", "check", () => {
+          const emptySlides = deck.slides.filter((slide) => !String(slide.title || "").trim()).length;
+          const objects = deck.slides.reduce((total, slide) => total + normalizePresentationElements(slide.elements, {
+            title: slide.title,
+            body: slide.body,
+            layout: slide.layout,
+            image: slide.image,
+            cta: slide.cta
+          }).length, 0);
+          setStatus(`${deck.slides.length} slides, ${objects} objets, ${emptySlides} titre manquant.`);
+        }, { size: "large" }),
+        createRibbonStack([
+          createRibbonButton("Select all objects", "checkbox", selectAllPresentationElements, { compact: true }),
+          createRibbonButton("Reset selection", "close", () => {
+            setPresentationSelection([], "");
+            renderWorkspace();
+          }, { compact: true })
+        ])
+      ])
+    ],
+    view: [
+      createRibbonGroup("Zoom", [
+        createRibbonButton("Zoom out", "zoom", () => zoomPresentationCanvas(-0.1), {
+          disabled: Number(state.presentationZoom || 1) <= 0.5,
+          size: "large"
+        }),
+        createRibbonStack([
+          createRibbonButton("100%", "zoom", () => {
+            state.presentationZoom = 1;
+            renderWorkspace();
+          }, { compact: true }),
+          createRibbonButton("Zoom in", "zoom", () => zoomPresentationCanvas(0.1), {
+            disabled: Number(state.presentationZoom || 1) >= 2,
+            compact: true
+          })
+        ])
+      ]),
+      createRibbonGroup("Show", [
+        createRibbonButton("Grid", "grid", () => {
+          state.presentationShowGrid = !state.presentationShowGrid;
+          renderWorkspace();
+        }, { size: "large", active: Boolean(state.presentationShowGrid) }),
+        createRibbonStack([
+          createRibbonButton("Miniatures", "list", () => {
+            state.presentationShowSlideRail = !state.presentationShowSlideRail;
+            renderWorkspace();
+          }, { active: Boolean(state.presentationShowSlideRail), compact: true }),
+          createRibbonButton("Inspecteur", "sidebar", () => {
+            state.presentationShowInspector = !state.presentationShowInspector;
+            renderWorkspace();
+          }, { active: Boolean(state.presentationShowInspector), compact: true }),
+          createRibbonButton("Plein ecran", "maximize", togglePresentationEditorFullscreen, { compact: true }),
+          createRibbonButton("Guides", "alignCenter", () => {
+            state.presentationShowGuides = !state.presentationShowGuides;
+            renderWorkspace();
+          }, { active: Boolean(state.presentationShowGuides), compact: true }),
+          createRibbonButton("Snap to grid", "grid", () => {
+            state.presentationSnapToGrid = !state.presentationSnapToGrid;
+            renderWorkspace();
+          }, { active: Boolean(state.presentationSnapToGrid), compact: true }),
+          createRibbonButton("Object list", "list", () => {
+            state.currentStructuredSubItemId = "";
+            renderWorkspace();
+          }, { compact: true }),
+          createRibbonButton("Select first", "shape", () => {
+            setPresentationSelection(activeElements[0]?.id ? [activeElements[0].id] : [], activeElements[0]?.id || "");
+            renderWorkspace();
+          }, { disabled: !activeElements.length, compact: true }),
+          createRibbonButton("Edit text", "text", focusSelectedTextEditor, {
+            disabled: !selectedElement || selectedElement.shape === "line",
+            compact: true
+          })
+        ])
+      ])
+    ]
+    ,
+    format: [
+      createRibbonGroup("Object", [
+        createRibbonButton("Format painter", "palette", copySelectedFormatting, {
+          disabled: !selectedElement,
+          active: Boolean(state.presentationFormatBrush),
+          size: "large"
+        }),
+        createRibbonStack([
+          createRibbonButton(selectedElements.some((element) => element.locked) ? "Unlock" : "Lock", "lock", toggleSelectedLock, {
+            disabled: !selectedElements.length,
+            compact: true
+          }),
+          createRibbonButton("Group", "group", groupSelectedElements, {
+            disabled: selectedElements.length < 2,
+            compact: true
+          }),
+          createRibbonButton("Ungroup", "group", ungroupSelectedElements, {
+            disabled: !selectedElements.some((element) => element.groupId),
+            compact: true
+          })
+        ])
+      ]),
+      createRibbonGroup("Size", [
+        createRibbonStack([
+          createRibbonField("X", createTextInput(String(Math.round(Number(selectedElement?.x || 0))), (value) =>
+            updateSelectedElementStyle({ x: Number(value) })
+          , { type: "number", min: "0", max: "100", step: "1" })),
+          createRibbonField("Y", createTextInput(String(Math.round(Number(selectedElement?.y || 0))), (value) =>
+            updateSelectedElementStyle({ y: Number(value) })
+          , { type: "number", min: "0", max: "100", step: "1" }))
+        ]),
+        createRibbonStack([
+          createRibbonField("W", createTextInput(String(Math.round(Number(selectedElement?.w || 0))), (value) =>
+            updateSelectedElementStyle({ w: Number(value) })
+          , { type: "number", min: "3", max: "100", step: "1" })),
+          createRibbonField("H", createTextInput(String(Math.round(Number(selectedElement?.h || 0))), (value) =>
+            updateSelectedElementStyle({ h: Number(value) })
+          , { type: "number", min: "1", max: "100", step: "1" }))
+        ])
+      ], { wide: true }),
+      createRibbonGroup("Style", [
+        createRibbonStack([
+          createRibbonField("Fill", createTextInput(selectedElement?.fill === "transparent" ? "#ffffff" : selectedElement?.fill || "#ffffff", (value) =>
+            updateSelectedElementStyle({ fill: value })
+          , { type: "color" })),
+          createRibbonField("Line", createTextInput(selectedElement?.stroke === "transparent" ? "#ffffff" : selectedElement?.stroke || "#cbd5e1", (value) =>
+            updateSelectedElementStyle({ stroke: value })
+          , { type: "color" })),
+          createRibbonField("Weight", createTextInput(String(selectedElement?.strokeWidth ?? 1), (value) =>
+            updateSelectedElementStyle({ strokeWidth: Number(value) })
+          , { type: "number", min: "0", max: "8", step: "1" }))
+        ]),
+        createRibbonStack([
+          createRibbonField("Opacity", createTextInput(String(selectedElement?.opacity || 1), (value) =>
+            updateSelectedElementStyle({ opacity: Number(value) })
+          , { type: "number", min: "0.1", max: "1", step: "0.1" })),
+          createRibbonField("Rotate", createTextInput(String(Math.round(Number(selectedElement?.rotation || 0))), (value) =>
+            updateSelectedElementStyle({ rotation: Number(value) })
+          , { type: "number", min: "-180", max: "180", step: "1" }))
+        ])
+      ], { wide: true }),
+      createRibbonGroup("Arrange", [
+        createRibbonButton("Front", "chevronRight", () => moveSelectedElementDepth(999), {
+          disabled: !selectedElements.length,
+          size: "large"
+        }),
+        createRibbonStack([
+          createRibbonButton("Object left", "alignLeft", () => alignSelectedElement("left"), { disabled: !selectedElements.length, compact: true }),
+          createRibbonButton("Object center", "alignCenter", () => alignSelectedElement("center"), { disabled: !selectedElements.length, compact: true }),
+          createRibbonButton("Object right", "alignRight", () => alignSelectedElement("right"), { disabled: !selectedElements.length, compact: true }),
+          createRibbonButton("Forward", "chevronRight", () => moveSelectedElementDepth(1), { disabled: !selectedElements.length, compact: true }),
+          createRibbonButton("Backward", "chevronLeft", () => moveSelectedElementDepth(-1), { disabled: !selectedElements.length, compact: true }),
+          createRibbonButton("Back", "chevronLeft", () => moveSelectedElementDepth(-999), { disabled: !selectedElements.length, compact: true })
+        ])
+      ]),
+      createRibbonGroup("Type", [
+        selectedElement?.type === "chart"
+          ? createSelect(
+              "Chart",
+              PRESENTATION_CHART_TYPES.map((chartType) => ({ value: chartType, label: chartType })),
+              selectedElement.chartType || "bar",
+              (value) => updateSelectedElementStyle({ chartType: value })
+            )
+          : null,
+        selectedShapeEditEnabled
+          ? createSelect(
+              "Shape",
+              PRESENTATION_SHAPE_TYPES.map((shape) => ({ value: shape, label: shape })),
+              selectedElement.shape || "rectangle",
+              (value) => setSelectedShapeType(value)
+            )
+          : null,
+        createRibbonStack([
+          createRibbonButton("Flip H", "transpose", () => updateSelectedElementStyle({ flipX: !selectedElement?.flipX }), {
+            disabled: !selectedElement,
+            compact: true
+          }),
+          createRibbonButton("Flip V", "transpose", () => updateSelectedElementStyle({ flipY: !selectedElement?.flipY }), {
+            disabled: !selectedElement,
+            compact: true
+          })
+        ])
+      ], { wide: true })
+    ]
+  };
+
+  const createPresentationContextStrip = () => {
+    const strip = document.createElement("div");
+    strip.className = "workspace-powerpoint-context-strip";
+    const scope = document.createElement("strong");
+    scope.className = "workspace-powerpoint-context-scope";
+    scope.textContent = hasMultiSelection
+      ? `${selectedElements.length} objects`
+      : selectedElement
+        ? `${selectedElement.type}${selectedElement.type === "shape" ? ` / ${selectedElement.shape}` : ""}`
+        : "Slide";
+    strip.appendChild(scope);
+
+    if (hasMultiSelection) {
+      strip.append(
+        createRibbonButton("Group", "group", groupSelectedElements, { disabled: selectedElements.length < 2, compact: true }),
+        createRibbonButton("Ungroup", "group", ungroupSelectedElements, {
+          disabled: !selectedElements.some((element) => element.groupId),
+          compact: true
+        }),
+        createRibbonButton(selectedElements.some((element) => element.locked) ? "Unlock" : "Lock", "lock", toggleSelectedLock, {
+          compact: true
+        }),
+        createRibbonButton("Align left", "alignLeft", () => alignSelectedElement("left"), { compact: true }),
+        createRibbonButton("Align center", "alignCenter", () => alignSelectedElement("center"), { compact: true }),
+        createRibbonButton("Align top", "alignTop", () => alignSelectedElement("top"), { compact: true }),
+        createRibbonButton("Distribute H", "alignCenter", () => distributeSelectedElements("horizontal"), {
+          disabled: selectedElements.length < 3,
+          compact: true
+        }),
+        createRibbonButton("Distribute V", "alignMiddle", () => distributeSelectedElements("vertical"), {
+          disabled: selectedElements.length < 3,
+          compact: true
+        }),
+        createRibbonField("Fill", createTextInput(selectedElement?.fill === "transparent" ? "#ffffff" : selectedElement?.fill || "#ffffff", (value) =>
+          updateSelectedElementStyle({ fill: value })
+        , { type: "color" })),
+        createRibbonField("Line", createTextInput(selectedElement?.stroke === "transparent" ? "#ffffff" : selectedElement?.stroke || "#cbd5e1", (value) =>
+          updateSelectedElementStyle({ stroke: value })
+        , { type: "color" })),
+        createRibbonButton("Delete", "delete", removeSelectedElement, {
+          disabled: activeElements.length <= selectedElements.length || selectedElements.some((element) => element.locked),
+          compact: true
+        })
+      );
+      return strip;
+    }
+
+    if (!selectedElement) {
+      strip.append(
+        createRibbonField("Title", createTextInput(activeSlide?.title || "", (value) =>
+          updateActiveSlide({ title: value }, { refreshWorkspace: false, selectedElementId: "" })
+        )),
+        createSelect("Layout", PRESENTATION_SLIDE_LAYOUTS, activeSlide?.layout || "content", (value) =>
+          executePresentationCommand("slideLayout", { value })
+        ),
+        createSelect("Theme", PRESENTATION_SLIDE_THEMES, activeSlide?.theme || "default", (value) =>
+          executePresentationCommand("slideTheme", { value })
+        ),
+        createRibbonField("Background", createTextInput(activeSlide?.background || "#ffffff", (value) =>
+          updateActiveSlide({ background: value }, { refreshWorkspace: true, selectedElementId: "" })
+        , { type: "color" })),
+        createSelect("Transition", PRESENTATION_SLIDE_TRANSITIONS, activeSlide?.transition || "none", (value) =>
+          updateActiveSlide({ transition: value }, { refreshWorkspace: true })
+        ),
+        createRibbonField("Duration", createTextInput(String(activeSlide?.transitionDuration || 1), (value) =>
+          updateActiveSlide({ transitionDuration: Number(value) }, { refreshWorkspace: true })
+        , { type: "number", min: "0.1", max: "10", step: "0.1" })),
+        createRibbonButton("Diaporama", "play", () => openPresentationSlideShow(activeSlideIndex, { fullscreen: true }), { compact: true }),
+        createRibbonButton("Miniatures", "list", () => {
+          state.presentationShowSlideRail = !state.presentationShowSlideRail;
+          renderWorkspace();
+        }, { active: Boolean(state.presentationShowSlideRail), compact: true })
+      );
+      return strip;
+    }
+
+    [
+      createRibbonField("Text", createTextInput(selectedElement.text || "", (value) =>
+        updateElement(selectedElement.id, { text: value }, { refreshWorkspace: false })
+      )),
+      createRibbonButton("Bullets", "list", () => toggleSelectedElementList(false), {
+        disabled: listCommandDisabled,
+        active: selectedElementHasListStyle(false),
+        compact: true
+      }),
+      createRibbonButton("Numbering", "number", () => toggleSelectedElementList(true), {
+        disabled: listCommandDisabled,
+        active: selectedElementHasListStyle(true),
+        compact: true
+      }),
+      createRibbonButton("Outdent", "chevronLeft", () => changeSelectedElementListIndent("outdent"), {
+        disabled: listCommandDisabled,
+        compact: true
+      }),
+      createRibbonButton("Indent", "chevronRight", () => changeSelectedElementListIndent("indent"), {
+        disabled: listCommandDisabled,
+        compact: true
+      }),
+      createRibbonField("X", createTextInput(String(Math.round(Number(selectedElement.x || 0))), (value) =>
+        updateElement(selectedElement.id, { x: Number(value) }, { refreshWorkspace: true })
+      , { type: "number", min: "0", max: "100", step: "1" })),
+      createRibbonField("Y", createTextInput(String(Math.round(Number(selectedElement.y || 0))), (value) =>
+        updateElement(selectedElement.id, { y: Number(value) }, { refreshWorkspace: true })
+      , { type: "number", min: "0", max: "100", step: "1" })),
+      createRibbonField("W", createTextInput(String(Math.round(Number(selectedElement.w || 0))), (value) =>
+        updateElement(selectedElement.id, { w: Number(value) }, { refreshWorkspace: true })
+      , { type: "number", min: "3", max: "100", step: "1" })),
+      createRibbonField("H", createTextInput(String(Math.round(Number(selectedElement.h || 0))), (value) =>
+        updateElement(selectedElement.id, { h: Number(value) }, { refreshWorkspace: true })
+      , { type: "number", min: "1", max: "100", step: "1" })),
+      createSelect("Font", PRESENTATION_FONT_OPTIONS, selectedElement.fontFamily || "", (value) =>
+        updateElement(selectedElement.id, { fontFamily: value }, { refreshWorkspace: true })
+      ),
+      createRibbonField("Size", createTextInput(String(selectedElement.fontSize || 20), (value) =>
+        updateElement(selectedElement.id, { fontSize: Number(value) }, { refreshWorkspace: true })
+      , { type: "number", min: "8", max: "96", step: "1" })),
+      createRibbonField("Text", createTextInput(selectedElement.color || "#374151", (value) =>
+        updateElement(selectedElement.id, { color: value }, { refreshWorkspace: true })
+      , { type: "color" })),
+      createRibbonField("Fill", createTextInput(selectedElement.fill === "transparent" ? "#ffffff" : selectedElement.fill || "#ffffff", (value) =>
+        updateElement(selectedElement.id, { fill: value }, { refreshWorkspace: true })
+      , { type: "color" })),
+      createRibbonField("Line", createTextInput(selectedElement.stroke === "transparent" ? "#ffffff" : selectedElement.stroke || "#cbd5e1", (value) =>
+        updateElement(selectedElement.id, { stroke: value }, { refreshWorkspace: true })
+      , { type: "color" })),
+      createRibbonField("Weight", createTextInput(String(selectedElement.strokeWidth ?? 1), (value) =>
+        updateElement(selectedElement.id, { strokeWidth: Number(value) }, { refreshWorkspace: true })
+      , { type: "number", min: "0", max: "8", step: "1" })),
+      createRibbonField("Rotate", createTextInput(String(Math.round(Number(selectedElement.rotation || 0))), (value) =>
+        updateElement(selectedElement.id, { rotation: Number(value) }, { refreshWorkspace: true })
+      , { type: "number", min: "-180", max: "180", step: "1" })),
+      createRibbonField("Opacity", createTextInput(String(selectedElement.opacity || 1), (value) =>
+        updateElement(selectedElement.id, { opacity: Number(value) }, { refreshWorkspace: true })
+      , { type: "number", min: "0.1", max: "1", step: "0.1" })),
+      createSelect("Anim", PRESENTATION_ELEMENT_ANIMATIONS, selectedElement.animation || "none", (value) =>
+        updateElement(selectedElement.id, { animation: value }, { refreshWorkspace: true })
+      ),
+      selectedElement.type === "shape"
+        ? createSelect("Shape", PRESENTATION_SHAPE_TYPES.map((shape) => ({ value: shape, label: shape })), selectedElement.shape || "rectangle", (value) =>
+            updateElement(selectedElement.id, { shape: value }, { refreshWorkspace: true })
+          )
+        : null,
+      selectedElement.type === "chart"
+        ? createSelect("Chart", PRESENTATION_CHART_TYPES.map((chartType) => ({ value: chartType, label: chartType })), selectedElement.chartType || "bar", (value) =>
+            updateElement(selectedElement.id, { chartType: value }, { refreshWorkspace: true })
+          )
+        : null,
+      createRibbonButton(selectedElement.locked ? "Unlock" : "Lock", "lock", () =>
+        updateElement(selectedElement.id, { locked: !selectedElement.locked }, { refreshWorkspace: true })
+      , { compact: true }),
+      createRibbonButton("Duplicate", "duplicate", duplicateSelectedElement, { compact: true }),
+      createRibbonButton("Delete", "delete", removeSelectedElement, {
+        disabled: activeElements.length <= 1 || selectedElement.locked,
+        compact: true
+      })
+    ].filter(Boolean).forEach((child) => strip.appendChild(child));
+    return strip;
+  };
+
+  const ribbon = document.createElement("div");
+  ribbon.className = "workspace-powerpoint-ribbon";
+  const tabs = document.createElement("div");
+  tabs.className = "workspace-powerpoint-tabs";
+  ribbonTabs.forEach((item) => {
+    const tab = document.createElement("button");
+    tab.type = "button";
+    tab.className = `workspace-powerpoint-tab${item.id === activeRibbonTab ? " active" : ""}`;
+    tab.textContent = item.label;
+    tab.addEventListener("click", () => {
+      state.presentationRibbonTab = item.id;
+      renderWorkspace();
+    });
+    tabs.appendChild(tab);
+  });
+  const ribbonBody = document.createElement("div");
+  ribbonBody.className = "workspace-powerpoint-ribbon-body";
+  ribbonBody.append(...(ribbonGroupsForTab[activeRibbonTab] || ribbonGroupsForTab.home));
+  ribbon.append(tabs, ribbonBody);
+
+  const editor = document.createElement("div");
+  editor.className = [
+    "workspace-powerpoint-editor",
+    state.presentationShowSlideRail ? "" : "is-slide-rail-hidden",
+    state.presentationShowInspector ? "" : "is-inspector-hidden"
+  ].filter(Boolean).join(" ");
+
+  const slideRail = document.createElement("aside");
+  slideRail.className = "workspace-powerpoint-slide-rail";
+  deck.slides.forEach((slide, index) => {
+    const thumb = document.createElement("button");
+    thumb.type = "button";
+    thumb.className = `workspace-powerpoint-thumb${index === activeSlideIndex ? " active" : ""}`;
+    thumb.addEventListener("click", () => {
+      state.currentSectionId = slideSections[index]?.id || "";
+      state.currentBlockId = "";
+      state.currentStructuredSubItemId = "";
+      state.presentationSelectedElementIds = [];
+      state.presentationSelectionCleared = true;
+      renderWorkspace();
+    });
+    const number = document.createElement("span");
+    number.className = "workspace-powerpoint-thumb-number";
+    number.textContent = String(index + 1);
+    const miniature = document.createElement("span");
+    miniature.className = "workspace-powerpoint-thumb-canvas";
+    miniature.style.background = slide.background || presentationDefaultBackground(slide.theme || "default");
+    const thumbElements = normalizePresentationElements(slide.elements, {
+      title: slide.title,
+      body: stripPresentationInternalMeta(slide.body || ""),
+      layout: slide.layout,
+      image: slide.image,
+      cta: slide.cta
+    }).sort((left, right) => Number(left.z || 0) - Number(right.z || 0));
+    thumbElements.slice(0, 10).forEach((element) => {
+      const previewElement = document.createElement("span");
+      previewElement.className = [
+        "workspace-powerpoint-thumb-element",
+        `type-${element.type}`,
+        `shape-${element.shape || "rectangle"}`
+      ].join(" ");
+      previewElement.style.left = `${element.x}%`;
+      previewElement.style.top = `${element.y}%`;
+      previewElement.style.width = `${element.w}%`;
+      previewElement.style.height = `${element.h}%`;
+      previewElement.style.zIndex = String(element.z || 0);
+      previewElement.style.color = element.color;
+      previewElement.style.background = element.type === "image" && !element.src ? "#f8fafc" : element.fill;
+      previewElement.style.borderColor = element.stroke;
+      previewElement.style.transform = `rotate(${element.rotation || 0}deg)`;
+      previewElement.textContent =
+        element.shape === "line"
+          ? ""
+          : element.type === "image"
+            ? ""
+            : String(element.text || "").replace(/\s+/g, " ").slice(0, 26);
+      miniature.appendChild(previewElement);
+    });
+    const thumbMeta = document.createElement("small");
+    thumbMeta.className = "workspace-powerpoint-thumb-meta";
+    thumbMeta.textContent = `${slide.layout || "content"} | ${slide.transition || "none"}`;
+    miniature.appendChild(thumbMeta);
+    thumb.append(number, miniature);
+    slideRail.appendChild(thumb);
+  });
+
+  const stage = document.createElement("main");
+  stage.className = "workspace-powerpoint-stage";
+  const stageToolbar = document.createElement("div");
+  stageToolbar.className = "workspace-powerpoint-stage-toolbar";
+  const stageLabel = document.createElement("div");
+  stageLabel.className = "workspace-powerpoint-stage-label";
+  const stageTitle = document.createElement("strong");
+  stageTitle.textContent = activeSlide?.title || "Slide";
+  const stageMeta = document.createElement("span");
+  stageMeta.textContent = `Slide ${activeSlideIndex + 1} of ${deck.slides.length} | 16:9 | ${activeElements.length} objects`;
+  stageLabel.append(stageTitle, stageMeta);
+  const stageView = document.createElement("div");
+  stageView.className = "workspace-powerpoint-view-controls";
+  [
+    ["Guides", "presentationShowGuides"],
+    ["Grid", "presentationShowGrid"],
+    ["Snap", "presentationSnapToGrid"]
+  ].forEach(([label, key]) => {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = `workspace-powerpoint-view-chip${state[key] ? " active" : ""}`;
+    chip.textContent = label;
+    chip.addEventListener("click", () => {
+      state[key] = !state[key];
+      renderWorkspace();
+    });
+    stageView.appendChild(chip);
+  });
+  const createZoomChip = (label, action, disabled = false) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = label;
+    btn.className = "workspace-powerpoint-view-chip workspace-powerpoint-zoom-btn";
+    btn.disabled = disabled;
+    if (!disabled) {
+      btn.addEventListener("click", action);
+    }
+    return btn;
+  };
+  const zoomOutButton = createZoomChip("−", () => zoomPresentationCanvas(-0.1), Number(state.presentationZoom || 1) <= 0.5);
+  const zoomValue = document.createElement("button");
+  zoomValue.type = "button";
+  zoomValue.className = "workspace-powerpoint-view-chip active workspace-powerpoint-zoom-value";
+  zoomValue.textContent = `${Math.round(Number(state.presentationZoom || 1) * 100)}%`;
+  zoomValue.title = "Reset zoom to 100%";
+  zoomValue.addEventListener("click", () => { state.presentationZoom = 1; renderWorkspace(); });
+  const zoomInButton = createZoomChip("+", () => zoomPresentationCanvas(0.1), Number(state.presentationZoom || 1) >= 2);
+  stageView.append(zoomOutButton, zoomValue, zoomInButton);
+  stageToolbar.append(stageLabel, stageView);
+
+  const slideWrap = document.createElement("div");
+  slideWrap.className = `workspace-powerpoint-canvas-wrap${state.presentationShowGrid ? "" : " hide-grid"}`;
+  const canvas = document.createElement("section");
+  canvas.className = [
+    "workspace-powerpoint-slide",
+    `theme-${activeSlide?.theme || "default"}`,
+    state.presentationShowGuides ? "show-guides" : ""
+  ].filter(Boolean).join(" ");
+  canvas.style.background = activeSlide?.background || presentationDefaultBackground(activeSlide?.theme || "default");
+  canvas.style.transform = `scale(${Number(state.presentationZoom || 1)})`;
+  canvas.setAttribute("aria-label", activeSlide?.title || "Slide canvas");
+
+  const snapPresentationValue = (value, step = 1) => {
+    const number = Number(value);
+    if (!Number.isFinite(number)) {
+      return value;
+    }
+    if (!state.presentationSnapToGrid) {
+      return number;
+    }
+    return Math.round(number / step) * step;
+  };
+
+  const clampElementBox = (box = {}, source = {}) => {
+    const minW = source.shape === "line" ? 3 : 4;
+    const minH = source.shape === "line" ? 1 : 4;
+    const w = clampPresentationNumber(snapPresentationValue(box.w), minW, 100, source.w || 10);
+    const h = clampPresentationNumber(snapPresentationValue(box.h), minH, 100, source.h || 8);
+    return {
+      x: clampPresentationNumber(snapPresentationValue(box.x), 0, 100 - w, source.x || 0),
+      y: clampPresentationNumber(snapPresentationValue(box.y), 0, 100 - h, source.y || 0),
+      w,
+      h
+    };
+  };
+
+  const applyElementBoxStyles = (node, box = {}) => {
+    node.style.left = `${box.x}%`;
+    node.style.top = `${box.y}%`;
+    node.style.width = `${box.w}%`;
+    node.style.height = `${box.h}%`;
+  };
+
+  const startElementPointerInteraction = (event, element, node) => {
+    if (event.button !== 0) {
+      return;
+    }
+    if (node.dataset.editing === "true") {
+      return;
+    }
+    const rotateNode = event.target?.closest?.(".workspace-powerpoint-rotate-handle");
+    const handleNode = event.target?.closest?.(".workspace-powerpoint-resize-handle");
+    if ((event.shiftKey || event.ctrlKey || event.metaKey) && !rotateNode && !handleNode) {
+      event.preventDefault();
+      event.stopPropagation();
+      const nextIds = selectedElementSet.has(element.id)
+        ? selectedElementIds.filter((id) => id !== element.id)
+        : [...selectedElementIds, element.id];
+      setPresentationSelection(nextIds.length ? nextIds : [element.id], element.id);
+      node.dataset.selectionHandled = "true";
+      window.setTimeout(() => {
+        delete node.dataset.selectionHandled;
+      }, 0);
+      renderWorkspace();
+      return;
+    }
+    if (
+      !rotateNode &&
+      !handleNode &&
+      state.currentStructuredSubItemId === element.id &&
+      event.target?.closest?.(".workspace-powerpoint-element-text")
+    ) {
+      return;
+    }
+    const handle = handleNode
+      ? ["nw", "ne", "sw", "se"].find((name) => handleNode.classList.contains(name)) || "se"
+      : "";
+    event.preventDefault();
+    event.stopPropagation();
+    const pointerTarget = handleNode || rotateNode || node;
+    try {
+      pointerTarget?.setPointerCapture?.(event.pointerId);
+    } catch {
+      // Pointer capture can fail if the browser has already released the pointer.
+    }
+    if (!selectedElementSet.has(element.id)) {
+      selectPresentationElementOrGroup(element);
+    } else {
+      state.currentStructuredSubItemId = element.id;
+    }
+    node.focus({ preventScroll: true });
+    if (element.locked && !rotateNode && !handleNode) {
+      renderWorkspace();
+      return;
+    }
+    if (element.locked && (rotateNode || handleNode)) {
+      renderWorkspace();
+      return;
+    }
+
+    const canvasRect = canvas.getBoundingClientRect();
+    const nodeRect = node.getBoundingClientRect();
+    const center = {
+      x: nodeRect.left + nodeRect.width / 2,
+      y: nodeRect.top + nodeRect.height / 2
+    };
+    const groupMoveElements = !rotateNode && !handle && selectedElementSet.has(element.id) && selectedElements.length > 1
+      ? selectedElements
+      : [element];
+    const groupStartBoxes = new Map(groupMoveElements.map((item) => [
+      item.id,
+      {
+        x: Number(item.x || 0),
+        y: Number(item.y || 0),
+        w: Number(item.w || 10),
+        h: Number(item.h || 10)
+      }
+    ]));
+    const start = {
+      x: Number(element.x || 0),
+      y: Number(element.y || 0),
+      w: Number(element.w || 10),
+      h: Number(element.h || 10),
+      rotation: Number(element.rotation || 0),
+      pointerX: event.clientX,
+      pointerY: event.clientY
+    };
+    let latestBox = clampElementBox(start, element);
+    let latestGroupBoxes = new Map(groupStartBoxes);
+    let latestRotation = start.rotation;
+    node.classList.add(rotateNode ? "is-rotating" : handle ? "is-resizing" : "is-dragging");
+
+    const onPointerMove = (moveEvent) => {
+      moveEvent.preventDefault();
+      moveEvent.stopPropagation();
+      if (rotateNode) {
+        const angle = Math.atan2(moveEvent.clientY - center.y, moveEvent.clientX - center.x) * (180 / Math.PI) + 90;
+        latestRotation = Math.round(angle);
+        node.style.transform = `rotate(${latestRotation}deg) scale(${element.flipX ? -1 : 1}, ${element.flipY ? -1 : 1})`;
+        return;
+      }
+      const dx = ((moveEvent.clientX - start.pointerX) / Math.max(1, canvasRect.width)) * 100;
+      const dy = ((moveEvent.clientY - start.pointerY) / Math.max(1, canvasRect.height)) * 100;
+      let next = { x: start.x, y: start.y, w: start.w, h: start.h };
+      if (!handle) {
+        next = {
+          ...next,
+          x: start.x + dx,
+          y: start.y + dy
+        };
+        if (groupMoveElements.length > 1) {
+          latestGroupBoxes = new Map();
+          groupMoveElements.forEach((groupElement) => {
+            const groupStart = groupStartBoxes.get(groupElement.id);
+            const groupBox = clampElementBox({
+              ...groupStart,
+              x: Number(groupStart?.x || 0) + dx,
+              y: Number(groupStart?.y || 0) + dy
+            }, groupElement);
+            latestGroupBoxes.set(groupElement.id, groupBox);
+            const groupNode = canvas.querySelector(`[data-element-id="${CSS.escape(groupElement.id)}"]`);
+            if (groupNode) {
+              applyElementBoxStyles(groupNode, groupBox);
+            }
+          });
+          return;
+        }
+      } else {
+        const minW = element.shape === "line" ? 3 : 4;
+        const minH = element.shape === "line" ? 1 : 4;
+        if (handle.includes("e")) {
+          next.w = Math.max(minW, start.w + dx);
+        }
+        if (handle.includes("s")) {
+          next.h = Math.max(minH, start.h + dy);
+        }
+        if (handle.includes("w")) {
+          const maxX = start.x + start.w - minW;
+          next.x = Math.max(0, Math.min(maxX, start.x + dx));
+          next.w = start.w + start.x - next.x;
+        }
+        if (handle.includes("n")) {
+          const maxY = start.y + start.h - minH;
+          next.y = Math.max(0, Math.min(maxY, start.y + dy));
+          next.h = start.h + start.y - next.y;
+        }
+      }
+      latestBox = clampElementBox(next, element);
+      applyElementBoxStyles(node, latestBox);
+    };
+
+    const onPointerUp = (upEvent) => {
+      upEvent?.preventDefault?.();
+      upEvent?.stopPropagation?.();
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+      try {
+        pointerTarget?.releasePointerCapture?.(event.pointerId);
+      } catch {
+        // No-op: the pointer may already be released after a cancelled interaction.
+      }
+      node.classList.remove("is-dragging", "is-resizing", "is-rotating");
+      if (groupMoveElements.length > 1 && !rotateNode && !handle) {
+        updateElementsByIds(
+          groupMoveElements.map((item) => item.id),
+          (item) => ({ ...item, ...(latestGroupBoxes.get(item.id) || {}) }),
+          {
+            refreshWorkspace: true,
+            selectedElementId: element.id,
+            selectedElementIds: groupMoveElements.map((item) => item.id)
+          }
+        );
+        return;
+      }
+      updateElement(element.id, rotateNode ? { rotation: latestRotation } : latestBox, {
+        refreshWorkspace: true,
+        selectedElementIds: [element.id]
+      });
+    };
+
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp, { once: true });
+  };
+
+  const canvasPointToPercent = (event) => {
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: clampPresentationNumber(((event.clientX - rect.left) / Math.max(1, rect.width)) * 100, 0, 100, 10),
+      y: clampPresentationNumber(((event.clientY - rect.top) / Math.max(1, rect.height)) * 100, 0, 100, 10)
+    };
+  };
+
+  const insertElementAtPoint = (point = {}, partial = {}) => {
+    const width = Number(partial.w || 32);
+    const height = Number(partial.h || 16);
+    insertElement({
+      ...partial,
+      x: clampPresentationNumber(point.x, 0, 100 - width, partial.x || 10),
+      y: clampPresentationNumber(point.y, 0, 100 - height, partial.y || 10)
+    });
+  };
+
+  const createCanvasInsertItems = (point = {}) => [
+    {
+      label: "Text box",
+      icon: "textColor",
+      action: () => insertElementAtPoint(point, {
+        type: "text",
+        text: "New text box",
+        w: 36,
+        h: 14,
+        fontSize: 22,
+        fill: "transparent",
+        stroke: "transparent"
+      })
+    },
+    {
+      label: "Title",
+      icon: "text",
+      action: () => insertElementAtPoint(point, {
+        type: "title",
+        text: "New title",
+        w: 58,
+        h: 14,
+        fontSize: 36,
+        bold: true,
+        fill: "transparent",
+        stroke: "transparent"
+      })
+    },
+    {
+      label: "Rectangle",
+      icon: "shape",
+      action: () => insertElementAtPoint(point, {
+        type: "shape",
+        shape: "rectangle",
+        text: "Shape",
+        w: 28,
+        h: 18,
+        fill: "#eff6ff",
+        stroke: "#93c5fd",
+        align: "center"
+      })
+    },
+    {
+      label: "Circle",
+      icon: "shape",
+      action: () => insertElementAtPoint(point, {
+        type: "shape",
+        shape: "ellipse",
+        text: "",
+        w: 18,
+        h: 18,
+        fill: "#f0fdf4",
+        stroke: "#86efac"
+      })
+    },
+    {
+      label: "Image",
+      icon: "image",
+      action: () => insertElementAtPoint(point, {
+        type: "image",
+        text: "Image",
+        src: "",
+        w: 34,
+        h: 36,
+        fill: "#f8fafc",
+        stroke: "#cbd5e1"
+      })
+    },
+    {
+      label: "Table",
+      icon: "table",
+      action: () => insertElementAtPoint(point, {
+        type: "table",
+        text: "Metric | Value\nPipeline | 42\nForecast | 18k",
+        w: 42,
+        h: 24,
+        fontSize: 13,
+        fill: "#ffffff",
+        stroke: "#cbd5e1"
+      })
+    },
+    {
+      label: "Chart",
+      icon: "chart",
+      action: () => insertElementAtPoint(point, {
+        type: "chart",
+        chartType: "bar",
+        text: "North | 42\nSouth | 28\nWest | 18",
+        w: 34,
+        h: 28,
+        fill: "#f0fdf4",
+        stroke: "#86efac"
+      })
+    },
+    {
+      label: "Equation",
+      icon: "function",
+      action: () => insertElementAtPoint(point, {
+        type: "equation",
+        text: "f(x) = ax + b",
+        w: 34,
+        h: 12,
+        fontSize: 24,
+        fontFamily: "Georgia, serif",
+        fill: "transparent",
+        stroke: "transparent"
+      })
+    }
+  ];
+
+  const renderTableElement = (element, node) => {
+    const tableData = parsePresentationTableText(element.text || "");
+    const table = document.createElement("table");
+    table.className = "workspace-powerpoint-table";
+    const thead = document.createElement("thead");
+    const headerRow = document.createElement("tr");
+    tableData.headers.forEach((header) => {
+      const cell = document.createElement("th");
+      cell.textContent = header;
+      headerRow.appendChild(cell);
+    });
+    thead.appendChild(headerRow);
+    const tbody = document.createElement("tbody");
+    tableData.rows.forEach((row) => {
+      const tr = document.createElement("tr");
+      row.forEach((value) => {
+        const cell = document.createElement("td");
+        cell.textContent = value;
+        tr.appendChild(cell);
+      });
+      tbody.appendChild(tr);
+    });
+    table.append(thead, tbody);
+    node.appendChild(table);
+  };
+
+  const renderChartElement = (element, node) => {
+    const data = parsePresentationChartText(element.text || "");
+    const maxValue = Math.max(1, ...data.map((item) => Math.abs(Number(item.value || 0))));
+    const chart = document.createElement("div");
+    chart.className = `workspace-powerpoint-chart chart-${element.chartType || "bar"}`;
+    data.slice(0, 8).forEach((item, index) => {
+      const bar = document.createElement("span");
+      bar.className = "workspace-powerpoint-chart-bar";
+      bar.style.setProperty("--value", `${Math.max(4, Math.abs(item.value) / maxValue * 100)}%`);
+      bar.style.setProperty("--bar-index", String(index));
+      const label = document.createElement("em");
+      label.textContent = item.label;
+      const value = document.createElement("strong");
+      value.textContent = String(item.value);
+      bar.append(label, value);
+      chart.appendChild(bar);
+    });
+    node.appendChild(chart);
+  };
+
+  const renderIconElement = (element, node) => {
+    const icon = document.createElement("span");
+    icon.className = "workspace-powerpoint-icon-object";
+    icon.textContent = element.text || "*";
+    node.appendChild(icon);
+  };
+
+  const renderVideoElement = (element, node) => {
+    const shell = document.createElement("span");
+    shell.className = "workspace-powerpoint-video-object";
+    shell.appendChild(createWorkspaceIconNode("play", {
+      className: "workspace-powerpoint-video-play",
+      label: "Play"
+    }));
+    const label = document.createElement("strong");
+    label.textContent = element.text || "Video";
+    shell.appendChild(label);
+    node.appendChild(shell);
+  };
+
+  const renderCodeElement = (element, node) => {
+    const code = document.createElement("code");
+    code.className = "workspace-powerpoint-code-object";
+    code.textContent = element.text || "";
+    node.appendChild(code);
+  };
+
+  const appendCanvasResizeHandles = (element, node) => {
+    if (!element || !node) {
+      return;
+    }
+    const x = Number(element.x || 0);
+    const y = Number(element.y || 0);
+    const w = Number(element.w || 0);
+    const h = Number(element.h || 0);
+    [
+      ["nw", x, y],
+      ["ne", x + w, y],
+      ["sw", x, y + h],
+      ["se", x + w, y + h]
+    ].forEach(([handle, left, top]) => {
+      const dot = document.createElement("i");
+      dot.className = `workspace-powerpoint-resize-handle workspace-powerpoint-canvas-resize-handle ${handle}`;
+      dot.dataset.elementId = element.id;
+      dot.title = `Resize ${String(handle).toUpperCase()}`;
+      dot.style.left = `${left}%`;
+      dot.style.top = `${top}%`;
+      dot.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      });
+      dot.addEventListener("pointerdown", (event) => startElementPointerInteraction(event, element, node));
+      canvas.appendChild(dot);
+    });
+  };
+
+  activeElements.forEach((element) => {
+    const node = document.createElement("div");
+    node.className = [
+      "workspace-powerpoint-element",
+      `type-${element.type}`,
+      `shape-${element.shape || "rectangle"}`,
+      selectedElementSet.has(element.id) ? "selected" : "",
+      hasMultiSelection && selectedElementSet.has(element.id) ? "multi-selected" : "",
+      element.locked ? "is-locked" : "",
+      element.groupId ? "is-grouped" : ""
+    ].join(" ");
+    node.dataset.elementId = element.id;
+    node.tabIndex = 0;
+    node.style.left = `${element.x}%`;
+    node.style.top = `${element.y}%`;
+    node.style.width = `${element.w}%`;
+    node.style.height = `${element.h}%`;
+    node.style.zIndex = String(element.z || 0);
+    node.style.color = element.color;
+    node.style.background = element.fill;
+    node.style.borderColor = element.stroke;
+    node.style.borderWidth = `${Number(element.strokeWidth || 0)}px`;
+    node.style.opacity = String(element.opacity);
+    node.style.transform = `rotate(${element.rotation || 0}deg) scale(${element.flipX ? -1 : 1}, ${element.flipY ? -1 : 1})`;
+    node.style.textAlign = element.align || "left";
+    node.style.fontSize = `${element.fontSize}px`;
+    node.style.fontFamily = element.fontFamily || "";
+    node.style.fontWeight = element.bold ? "700" : "400";
+    node.style.fontStyle = element.italic ? "italic" : "normal";
+    node.style.textDecoration = element.underline ? "underline" : "none";
+    node.addEventListener("pointerdown", (event) => startElementPointerInteraction(event, element, node));
+    node.addEventListener("click", (event) => {
+      event.stopPropagation();
+      if (node.dataset.selectionHandled === "true") {
+        return;
+      }
+      if (state.presentationFormatBrush) {
+        applyPresentationFormatBrush(element.id);
+        return;
+      }
+      const additive = event.shiftKey || event.ctrlKey || event.metaKey;
+      if (additive) {
+        const nextIds = selectedElementSet.has(element.id)
+          ? selectedElementIds.filter((id) => id !== element.id)
+          : [...selectedElementIds, element.id];
+        setPresentationSelection(nextIds.length ? nextIds : [element.id], element.id);
+        renderWorkspace();
+        return;
+      }
+      if (selectedElementIds.length === 1 && selectedElementIds[0] === element.id) {
+        return;
+      }
+      selectPresentationElementOrGroup(element);
+      renderWorkspace();
+    });
+    node.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        selectPresentationElementOrGroup(element);
+        renderWorkspace();
+      }
+    });
+    node.addEventListener("contextmenu", (event) => {
+      if (!selectedElementSet.has(element.id)) {
+        selectPresentationElementOrGroup(element);
+      } else {
+        state.currentStructuredSubItemId = element.id;
+      }
+      canvas.querySelectorAll(".workspace-powerpoint-element.selected").forEach((selectedNode) => {
+        selectedNode.classList.remove("selected");
+      });
+      node.classList.add("selected");
+      const contextElements = selectedElementSet.has(element.id)
+        ? selectedElements
+        : element.groupId
+          ? activeElements.filter((item) => item.groupId === element.groupId)
+          : [element];
+      const contextElementIds = contextElements.map((item) => item.id);
+      const textContextItems = [
+        {
+          label: "Bullets",
+          icon: "list",
+          disabled: contextElements.length > 1 || !isPresentationListTextTarget(element),
+          action: () => updateElement(element.id, {
+            text: formatPresentationListText(element.text || "", false)
+          }, { refreshWorkspace: true })
+        },
+        {
+          label: "Numbering",
+          icon: "number",
+          disabled: contextElements.length > 1 || !isPresentationListTextTarget(element),
+          action: () => updateElement(element.id, {
+            text: formatPresentationListText(element.text || "", true)
+          }, { refreshWorkspace: true })
+        },
+        { separator: true },
+        {
+          label: "Increase indent",
+          icon: "chevronRight",
+          disabled: contextElements.length > 1 || !isPresentationListTextTarget(element),
+          action: () => updateElement(element.id, {
+            text: changePresentationListIndentText(element.text || "", "indent")
+          }, { refreshWorkspace: true })
+        },
+        {
+          label: "Decrease indent",
+          icon: "chevronLeft",
+          disabled: contextElements.length > 1 || !isPresentationListTextTarget(element),
+          action: () => updateElement(element.id, {
+            text: changePresentationListIndentText(element.text || "", "outdent")
+          }, { refreshWorkspace: true })
+        },
+        { separator: true },
+        {
+          label: "Text align left",
+          icon: "alignLeft",
+          disabled: contextElements.length > 1 || !isPresentationTextAlignmentTarget(element),
+          action: () => updateElement(element.id, { align: "left" }, { refreshWorkspace: true })
+        },
+        {
+          label: "Text align center",
+          icon: "alignCenter",
+          disabled: contextElements.length > 1 || !isPresentationTextAlignmentTarget(element),
+          action: () => updateElement(element.id, { align: "center" }, { refreshWorkspace: true })
+        },
+        {
+          label: "Text align right",
+          icon: "alignRight",
+          disabled: contextElements.length > 1 || !isPresentationTextAlignmentTarget(element),
+          action: () => updateElement(element.id, { align: "right" }, { refreshWorkspace: true })
+        }
+      ];
+      const shapeContextItems = [
+        {
+          label: "Change to rectangle",
+          icon: "shape",
+          disabled: contextElements.length > 1 || !isPresentationShapeEditable(element),
+          action: () => updateElement(element.id, { shape: "rectangle" }, { refreshWorkspace: true })
+        },
+        {
+          label: "Change to circle",
+          icon: "shape",
+          disabled: contextElements.length > 1 || !isPresentationShapeEditable(element),
+          action: () => updateElement(element.id, { shape: "ellipse" }, { refreshWorkspace: true })
+        },
+        { separator: true },
+        { label: "Reset rotation", icon: "refresh", action: () => updateElement(element.id, { rotation: 0 }, { refreshWorkspace: true }) },
+        element.type === "image"
+          ? {
+              label: "Reset crop",
+              icon: "image",
+              action: () => updateElement(element.id, { cropX: 50, cropY: 50, zoom: 1 }, { refreshWorkspace: true })
+            }
+          : null
+      ].filter(Boolean);
+      const arrangeContextItems = [
+        {
+          label: "Bring forward",
+          icon: "chevronRight",
+          action: () => contextElements.length > 1 ? moveSelectedElementDepth(1) : moveElementDepth(element.id, 1)
+        },
+        {
+          label: "Send backward",
+          icon: "chevronLeft",
+          action: () => contextElements.length > 1 ? moveSelectedElementDepth(-1) : moveElementDepth(element.id, -1)
+        },
+        { separator: true },
+        { label: "Object left", icon: "alignLeft", action: () => contextElements.length > 1 ? alignSelectedElement("left") : alignElement(element, "left") },
+        { label: "Object center", icon: "alignCenter", action: () => contextElements.length > 1 ? alignSelectedElement("center") : alignElement(element, "center") },
+        { label: "Object right", icon: "alignRight", action: () => contextElements.length > 1 ? alignSelectedElement("right") : alignElement(element, "right") },
+        { separator: true },
+        { label: "Object top", icon: "alignTop", action: () => contextElements.length > 1 ? alignSelectedElement("top") : alignElement(element, "top") },
+        { label: "Object middle", icon: "alignMiddle", action: () => contextElements.length > 1 ? alignSelectedElement("middle") : alignElement(element, "middle") },
+        { label: "Object bottom", icon: "alignBottom", action: () => contextElements.length > 1 ? alignSelectedElement("bottom") : alignElement(element, "bottom") },
+        { separator: true },
+        {
+          label: "Distribute horizontal",
+          icon: "alignCenter",
+          disabled: contextElements.length < 3,
+          action: () => distributeSelectedElements("horizontal")
+        },
+        {
+          label: "Distribute vertical",
+          icon: "alignMiddle",
+          disabled: contextElements.length < 3,
+          action: () => distributeSelectedElements("vertical")
+        }
+      ];
+      const selectionContextItems = [
+        {
+          label: contextElements.some((item) => item.locked) ? "Unlock" : "Lock",
+          icon: "lock",
+          action: () => updateElementsByIds(contextElementIds, (item) => ({ ...item, locked: !contextElements.some((source) => source.locked) }), {
+            refreshWorkspace: true,
+            selectedElementId: element.id,
+            selectedElementIds: contextElementIds
+          })
+        },
+        {
+          label: "Group",
+          icon: "group",
+          disabled: contextElements.length < 2,
+          action: () => {
+            const groupId = createPresentationElementId("group");
+            updateElementsByIds(contextElementIds, (item) => ({ ...item, groupId }), {
+              refreshWorkspace: true,
+              selectedElementId: element.id,
+              selectedElementIds: contextElementIds
+            });
+          }
+        },
+        {
+          label: "Ungroup",
+          icon: "group",
+          disabled: !contextElements.some((item) => item.groupId),
+          action: () => updateElementsByIds(contextElementIds, (item) => ({ ...item, groupId: "" }), {
+            refreshWorkspace: true,
+            selectedElementId: element.id,
+            selectedElementIds: contextElementIds
+          })
+        }
+      ];
+      const clipboardContextItems = [
+        { label: "Copy", icon: "copy", action: () => copyElementsToClipboard(contextElements) },
+        {
+          label: "Cut",
+          icon: "cut",
+          disabled: activeElements.length <= contextElements.length || contextElements.some((item) => item.locked),
+          action: () => {
+            copyElementsToClipboard(contextElements);
+            removeElementsByIds(contextElementIds);
+          }
+        },
+        { label: "Paste", icon: "paste", disabled: !state.presentationClipboard, action: pastePresentationClipboard },
+        { separator: true },
+        { label: "Duplicate", icon: "duplicate", action: () => duplicateElementsFrom(contextElements) }
+      ];
+      const formattingContextItems = [
+        {
+          label: state.presentationFormatBrush ? "Paste formatting" : "Copy formatting",
+          icon: "palette",
+          action: () => state.presentationFormatBrush ? applyPresentationFormatBrush(element.id) : copySelectedFormatting()
+        },
+        { label: "Reset rotation", icon: "refresh", action: () => updateElement(element.id, { rotation: 0 }, { refreshWorkspace: true }) }
+      ];
+      showPresentationContextMenu(event, [
+        {
+          label: contextElements.length > 1 ? `${contextElements.length} objects selected` : "Edit text",
+          icon: "text",
+          disabled: contextElements.length > 1 || element.shape === "line" || element.locked,
+          action: () => {
+            state.currentStructuredSubItemId = element.id;
+            renderWorkspace();
+            focusSelectedTextEditor();
+          }
+        },
+        { label: "Text", icon: "text", children: textContextItems },
+        { label: "Shape", icon: "shape", children: shapeContextItems },
+        { label: "Clipboard", icon: "copy", children: clipboardContextItems },
+        { label: "Formatting", icon: "palette", children: formattingContextItems },
+        { label: "Arrange", icon: "alignCenter", children: arrangeContextItems },
+        { label: "Selection", icon: "group", children: selectionContextItems },
+        {
+          label: "Delete",
+          icon: "delete",
+          danger: true,
+          disabled: activeElements.length <= contextElements.length || contextElements.some((item) => item.locked),
+          action: () => removeElementsByIds(contextElementIds)
+        }
+      ].filter(Boolean));
+    });
+    if (element.type === "image") {
+      if (element.src) {
+        const image = document.createElement("img");
+        image.src = element.src;
+        image.alt = element.text || activeSlide?.title || "Slide image";
+        image.style.objectPosition = `${element.cropX || 50}% ${element.cropY || 50}%`;
+        image.style.transform = `scale(${element.zoom || 1})`;
+        image.style.transformOrigin = `${element.cropX || 50}% ${element.cropY || 50}%`;
+        node.appendChild(image);
+      } else {
+        const placeholder = document.createElement("span");
+        placeholder.textContent = "Image";
+        node.appendChild(placeholder);
+      }
+    } else if (element.type === "table") {
+      renderTableElement(element, node);
+    } else if (element.type === "chart") {
+      renderChartElement(element, node);
+    } else if (element.type === "icon") {
+      renderIconElement(element, node);
+    } else if (element.type === "video") {
+      renderVideoElement(element, node);
+    } else if (element.type === "code") {
+      renderCodeElement(element, node);
+    } else if (element.type === "equation") {
+      const equation = document.createElement("span");
+      equation.className = "workspace-powerpoint-equation-object";
+      equation.textContent = element.text || "f(x) = ax + b";
+      node.appendChild(equation);
+    } else if (element.shape === "line") {
+      node.textContent = "";
+    } else {
+      const text = document.createElement("span");
+      text.className = "workspace-powerpoint-element-text";
+      text.textContent = element.text || (element.type === "title" ? activeSlide?.title || "Title" : "");
+      text.title = "Double-click to edit text";
+      const activateTextEditing = (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        node.dataset.editing = "true";
+        text.setAttribute("contenteditable", "true");
+        window.setTimeout(() => {
+          text.focus({ preventScroll: true });
+          const selection = window.getSelection?.();
+          const range = document.createRange();
+          range.selectNodeContents(text);
+          selection?.removeAllRanges();
+          selection?.addRange(range);
+        }, 0);
+      };
+      text.addEventListener("dblclick", activateTextEditing);
+      node.addEventListener("dblclick", (event) => {
+        if (event.target?.closest?.(".workspace-powerpoint-resize-handle,.workspace-powerpoint-rotate-handle")) {
+          return;
+        }
+        activateTextEditing(event);
+      });
+      text.addEventListener("blur", () => {
+        text.setAttribute("contenteditable", "false");
+        node.dataset.editing = "false";
+        updateElement(element.id, { text: text.textContent || "" }, { refreshWorkspace: true });
+      });
+      text.addEventListener("keydown", (event) => {
+        if (handlePresentationListKeydown(event, element, text)) {
+          return;
+        }
+        if (event.key === "Escape") {
+          event.preventDefault();
+          text.blur();
+        }
+      });
+      node.appendChild(text);
+    }
+    if (element.id === selectedElement?.id && !element.locked) {
+      const rotateHandle = document.createElement("i");
+      rotateHandle.className = "workspace-powerpoint-rotate-handle";
+      rotateHandle.title = "Rotate";
+      rotateHandle.addEventListener("pointerdown", (event) => startElementPointerInteraction(event, element, node));
+      node.appendChild(rotateHandle);
+    }
+    canvas.appendChild(node);
+    if (element.id === selectedElement?.id && !element.locked) {
+      appendCanvasResizeHandles(element, node);
+    }
+  });
+  canvas.addEventListener("contextmenu", (event) => {
+    if (event.target?.closest?.(".workspace-powerpoint-element")) {
+      return;
+    }
+    const point = canvasPointToPercent(event);
+    showPresentationContextMenu(event, [
+      { label: "Paste", icon: "paste", disabled: !state.presentationClipboard, action: pastePresentationClipboard },
+      { separator: true },
+      { label: "Insert", icon: "insert", children: createCanvasInsertItems(point) },
+      {
+        label: "Slide",
+        icon: "presentation",
+        children: [
+          { label: "New slide", icon: "insert", action: () => executePresentationCommand("slideAdd") },
+          { label: "Diaporama", icon: "play", action: () => openPresentationSlideShow(activeSlideIndex, { fullscreen: true }) },
+          { label: "Export PPTX", icon: "download", action: () => downloadPresentationExport().catch(handleError) }
+        ]
+      }
+    ]);
+  });
+  canvas.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0 || event.target !== canvas) {
+      return;
+    }
+    const start = canvasPointToPercent(event);
+    const marquee = document.createElement("div");
+    marquee.className = "workspace-powerpoint-marquee";
+    marquee.style.left = `${start.x}%`;
+    marquee.style.top = `${start.y}%`;
+    marquee.style.width = "0%";
+    marquee.style.height = "0%";
+    canvas.appendChild(marquee);
+    let latest = start;
+    const updateMarquee = (point) => {
+      latest = point;
+      const left = Math.min(start.x, point.x);
+      const top = Math.min(start.y, point.y);
+      const right = Math.max(start.x, point.x);
+      const bottom = Math.max(start.y, point.y);
+      marquee.style.left = `${left}%`;
+      marquee.style.top = `${top}%`;
+      marquee.style.width = `${right - left}%`;
+      marquee.style.height = `${bottom - top}%`;
+    };
+    const onMove = (moveEvent) => {
+      updateMarquee(canvasPointToPercent(moveEvent));
+    };
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      marquee.remove();
+      const left = Math.min(start.x, latest.x);
+      const top = Math.min(start.y, latest.y);
+      const right = Math.max(start.x, latest.x);
+      const bottom = Math.max(start.y, latest.y);
+      const dragged = Math.abs(right - left) > 1 || Math.abs(bottom - top) > 1;
+      if (dragged) {
+        const ids = activeElements
+          .filter((element) => {
+            const elementRight = Number(element.x || 0) + Number(element.w || 0);
+            const elementBottom = Number(element.y || 0) + Number(element.h || 0);
+            return Number(element.x || 0) <= right && elementRight >= left && Number(element.y || 0) <= bottom && elementBottom >= top;
+          })
+          .map((element) => element.id);
+        setPresentationSelection(ids, ids[0] || "");
+        canvas.dataset.marqueeHandled = "true";
+        window.setTimeout(() => {
+          delete canvas.dataset.marqueeHandled;
+          renderWorkspace();
+        }, 0);
+      }
+    };
+    event.preventDefault();
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp, { once: true });
+  });
+  canvas.addEventListener("click", () => {
+    if (canvas.dataset.marqueeHandled === "true") {
+      return;
+    }
+    setPresentationSelection([], "");
+    renderWorkspace();
+  });
+  slideWrap.appendChild(canvas);
+
+  slideWrap.addEventListener("wheel", (event) => {
+    event.preventDefault();
+    const delta = event.deltaY < 0 ? 0.08 : -0.08;
+    zoomPresentationCanvas(delta);
+  }, { passive: false });
+
+  const notes = document.createElement("div");
+  notes.className = "workspace-powerpoint-notes";
+  const notesLabel = document.createElement("span");
+  notesLabel.textContent = "Speaker notes";
+  const notesInput = document.createElement("textarea");
+  notesInput.value = activeSlide?.notes || "";
+  notesInput.placeholder = "Notes for the presenter...";
+  notesInput.addEventListener("input", (event) => {
+    updateActiveSlide({ notes: event.target.value }, { refreshWorkspace: false });
+  });
+  notes.append(notesLabel, notesInput);
+  stage.append(stageToolbar, slideWrap, notes);
+
+  const inspector = document.createElement("aside");
+  inspector.className = "workspace-powerpoint-inspector";
+  const inspectorHeader = document.createElement("div");
+  inspectorHeader.className = "workspace-powerpoint-inspector-header";
+  const inspectorTitle = document.createElement("strong");
+  inspectorTitle.textContent = hasMultiSelection ? "Selection inspector" : selectedElement ? "Object inspector" : "Slide inspector";
+  const inspectorMeta = document.createElement("span");
+  inspectorMeta.textContent = hasMultiSelection
+    ? `${selectedElements.length} objects selected`
+    : selectedElement
+    ? `${selectedElement.type}${selectedElement.type === "shape" ? ` | ${selectedElement.shape}` : ""}${selectedElement.locked ? " | locked" : ""}${selectedElement.groupId ? " | grouped" : ""}`
+    : `${activeSlide?.layout || "content"} | ${activeSlide?.theme || "default"}`;
+  inspectorHeader.append(inspectorTitle, inspectorMeta);
+  inspector.appendChild(inspectorHeader);
+
+  const slideInspectorSection = document.createElement("section");
+  slideInspectorSection.className = "workspace-powerpoint-inspector-section";
+  const slideInspectorTitle = document.createElement("h4");
+  slideInspectorTitle.textContent = "Slide";
+  slideInspectorSection.append(
+    slideInspectorTitle,
+    createInspectorField(
+      "Title",
+      createTextInput(activeSlide?.title || "", (value) =>
+        updateActiveSlide({ title: value }, { refreshWorkspace: false, selectedElementId: selectedElement?.id || "" })
+      )
+    ),
+    createInspectorField(
+      "Background",
+      createTextInput(activeSlide?.background || "#ffffff", (value) =>
+        updateActiveSlide({ background: value }, { refreshWorkspace: true, selectedElementId: selectedElement?.id || "" })
+      , { type: "color" })
+    )
+  );
+  inspector.appendChild(slideInspectorSection);
+
+  const objectSection = document.createElement("section");
+  objectSection.className = "workspace-powerpoint-inspector-section";
+  const objectTitle = document.createElement("h4");
+  objectTitle.textContent = hasMultiSelection ? "Selected objects" : selectedElement ? "Selected object" : "Objects";
+  objectSection.appendChild(objectTitle);
+
+  if (hasMultiSelection) {
+    const multiSummary = document.createElement("p");
+    multiSummary.className = "workspace-powerpoint-selection-summary";
+    multiSummary.textContent = `${selectedElements.length} objects selected. Use Home > Paragraph/Arrange to align, distribute, duplicate or style them together.`;
+    const multiActions = document.createElement("div");
+    multiActions.className = "workspace-powerpoint-toggle-row";
+    [
+      ["Align left", () => alignSelectedElement("left")],
+      ["Align center", () => alignSelectedElement("center")],
+      ["Align right", () => alignSelectedElement("right")],
+      ["Distribute H", () => distributeSelectedElements("horizontal")],
+      ["Distribute V", () => distributeSelectedElements("vertical")]
+    ].forEach(([label, action]) => {
+      multiActions.appendChild(
+        createRibbonButton(label, getWorkspaceCommandIcon(label), action, {
+          disabled: String(label).startsWith("Distribute") && selectedElements.length < 3
+        })
+      );
+    });
+    objectSection.append(multiSummary, multiActions);
+  } else if (selectedElement) {
+    const textArea = document.createElement("textarea");
+    textArea.className = "workspace-powerpoint-textarea";
+    textArea.value = selectedElement.text || "";
+    textArea.placeholder = selectedElement.type === "image" ? "Alt text" : "Object text";
+    textArea.addEventListener("input", (event) => {
+      updateElement(selectedElement.id, { text: event.target.value }, { refreshWorkspace: false });
+      const liveText = canvas.querySelector(`[data-element-id="${CSS.escape(selectedElement.id)}"] .workspace-powerpoint-element-text`);
+      if (liveText) {
+        liveText.textContent = event.target.value;
+      }
+    });
+
+    objectSection.append(createInspectorField("Text", textArea));
+    if (selectedElement.type === "image" || selectedElement.type === "video") {
+      objectSection.append(
+        createInspectorField(
+          selectedElement.type === "video" ? "Video URL" : "Image URL",
+          createTextInput(selectedElement.src || "", (value) => updateElement(selectedElement.id, { src: value }, { refreshWorkspace: true }))
+        )
+      );
+    }
+    if (selectedElement.type === "image") {
+      const cropGrid = document.createElement("div");
+      cropGrid.className = "workspace-powerpoint-field-grid";
+      [
+        ["Crop X", "cropX", selectedElement.cropX || 50, "0", "100", "1"],
+        ["Crop Y", "cropY", selectedElement.cropY || 50, "0", "100", "1"],
+        ["Zoom", "zoom", selectedElement.zoom || 1, "1", "4", "0.1"]
+      ].forEach(([label, key, value, min, max, step]) => {
+        cropGrid.appendChild(
+          createInspectorField(
+            label,
+            createTextInput(String(value), (nextValue) =>
+              updateElement(selectedElement.id, { [key]: Number(nextValue) }, { refreshWorkspace: true })
+            , { type: "number", min, max, step })
+          )
+        );
+      });
+      objectSection.append(
+        createInspectorField("Crop", cropGrid)
+      );
+    }
+
+    const geometry = document.createElement("div");
+    geometry.className = "workspace-powerpoint-field-grid";
+    [
+      ["X", "x", selectedElement.x],
+      ["Y", "y", selectedElement.y],
+      ["W", "w", selectedElement.w],
+      ["H", "h", selectedElement.h]
+    ].forEach(([label, key, value]) => {
+      geometry.appendChild(
+        createInspectorField(
+          label,
+          createTextInput(String(Math.round(Number(value || 0))), (nextValue) =>
+            updateElement(selectedElement.id, { [key]: Number(nextValue) }, { refreshWorkspace: true })
+          , { type: "number", min: "0", max: "100", step: "1" })
+        )
+      );
+    });
+    objectSection.appendChild(geometry);
+
+    const objectOptions = document.createElement("div");
+    objectOptions.className = "workspace-powerpoint-field-grid";
+    objectOptions.appendChild(
+      createSelect("Font", PRESENTATION_FONT_OPTIONS, selectedElement.fontFamily || "", (value) =>
+        updateElement(selectedElement.id, { fontFamily: value }, { refreshWorkspace: true })
+      )
+    );
+    if (selectedElement.type === "shape") {
+      objectOptions.appendChild(
+        createSelect(
+          "Shape",
+          PRESENTATION_SHAPE_TYPES.map((shape) => ({ value: shape, label: shape })),
+          selectedElement.shape || "rectangle",
+          (value) => updateElement(selectedElement.id, { shape: value }, { refreshWorkspace: true })
+        )
+      );
+    }
+    if (selectedElement.type === "chart") {
+      objectOptions.appendChild(
+        createSelect(
+          "Chart",
+          PRESENTATION_CHART_TYPES.map((chartType) => ({ value: chartType, label: chartType })),
+          selectedElement.chartType || "bar",
+          (value) => updateElement(selectedElement.id, { chartType: value }, { refreshWorkspace: true })
+        )
+      );
+    }
+    objectOptions.appendChild(
+      createSelect(
+        "Animation",
+        PRESENTATION_ELEMENT_ANIMATIONS,
+        selectedElement.animation || "none",
+        (value) => updateElement(selectedElement.id, { animation: value }, { refreshWorkspace: true })
+      )
+    );
+    objectSection.appendChild(objectOptions);
+
+    const styleGrid = document.createElement("div");
+    styleGrid.className = "workspace-powerpoint-field-grid";
+    styleGrid.append(
+      createInspectorField(
+        "Font",
+        createTextInput(String(selectedElement.fontSize || 20), (value) =>
+          updateElement(selectedElement.id, { fontSize: Number(value) }, { refreshWorkspace: true })
+        , { type: "number", min: "8", max: "96", step: "1" })
+      ),
+      createInspectorField(
+        "Text",
+        createTextInput(selectedElement.color || "#374151", (value) =>
+          updateElement(selectedElement.id, { color: value }, { refreshWorkspace: true })
+        , { type: "color" })
+      ),
+      createInspectorField(
+        "Fill",
+        createTextInput(selectedElement.fill === "transparent" ? "#ffffff" : selectedElement.fill || "#ffffff", (value) =>
+          updateElement(selectedElement.id, { fill: value }, { refreshWorkspace: true })
+        , { type: "color" })
+      ),
+      createInspectorField(
+        "Stroke",
+        createTextInput(selectedElement.stroke === "transparent" ? "#ffffff" : selectedElement.stroke || "#cbd5e1", (value) =>
+          updateElement(selectedElement.id, { stroke: value }, { refreshWorkspace: true })
+        , { type: "color" })
+      ),
+      createInspectorField(
+        "Weight",
+        createTextInput(String(selectedElement.strokeWidth ?? 1), (value) =>
+          updateElement(selectedElement.id, { strokeWidth: Number(value) }, { refreshWorkspace: true })
+        , { type: "number", min: "0", max: "8", step: "1" })
+      ),
+      createInspectorField(
+        "Rotation",
+        createTextInput(String(Math.round(Number(selectedElement.rotation || 0))), (value) =>
+          updateElement(selectedElement.id, { rotation: Number(value) }, { refreshWorkspace: true })
+        , { type: "number", min: "-180", max: "180", step: "1" })
+      ),
+      createInspectorField(
+        "Opacity",
+        createTextInput(String(selectedElement.opacity || 1), (value) =>
+          updateElement(selectedElement.id, { opacity: Number(value) }, { refreshWorkspace: true })
+        , { type: "number", min: "0.1", max: "1", step: "0.1" })
+      )
+    );
+    objectSection.appendChild(styleGrid);
+
+    const alignRow = document.createElement("div");
+    alignRow.className = "workspace-powerpoint-toggle-row";
+    PRESENTATION_TEXT_ALIGNMENTS.forEach((alignment) => {
+      alignRow.appendChild(
+        createRibbonButton(alignment, getWorkspaceCommandIcon(alignment), () =>
+          updateElement(selectedElement.id, { align: alignment }, { refreshWorkspace: true })
+        , { active: selectedElement.align === alignment })
+      );
+    });
+    objectSection.append(createInspectorField("Alignment", alignRow));
+
+    const toggles = document.createElement("div");
+    toggles.className = "workspace-powerpoint-toggle-row";
+    [
+      ["B", "bold", "bold"],
+      ["I", "italic", "italic"],
+      ["U", "underline", "underline"],
+      ["Lock", "locked", "lock"],
+      ["Flip H", "flipX", "transpose"],
+      ["Flip V", "flipY", "transpose"]
+    ].forEach(([label, key, icon]) => {
+      toggles.appendChild(
+        createRibbonButton(label, icon, () =>
+          updateElement(selectedElement.id, { [key]: !selectedElement[key] }, { refreshWorkspace: true })
+        , { active: Boolean(selectedElement[key]) })
+      );
+    });
+    objectSection.append(createInspectorField("Style", toggles));
+  } else {
+    const list = document.createElement("div");
+    list.className = "workspace-powerpoint-object-list";
+    activeElements.forEach((element) => {
+      const item = document.createElement("button");
+      item.type = "button";
+      item.textContent = `${element.type}${element.text ? ` | ${element.text.slice(0, 26)}` : ""}`;
+      item.addEventListener("click", () => {
+        selectPresentationElementOrGroup(element);
+        renderWorkspace();
+      });
+      list.appendChild(item);
+    });
+    objectSection.appendChild(list);
+  }
+  inspector.appendChild(objectSection);
+
+  const layersSection = document.createElement("section");
+  layersSection.className = "workspace-powerpoint-inspector-section";
+  const layersTitle = document.createElement("h4");
+  layersTitle.textContent = "Layers";
+  const layersList = document.createElement("div");
+  layersList.className = "workspace-powerpoint-layer-list";
+  [...activeElements].reverse().forEach((element) => {
+    const row = document.createElement("div");
+    row.className = `workspace-powerpoint-layer-row${selectedElementSet.has(element.id) ? " active" : ""}`;
+    const selectButton = document.createElement("button");
+    selectButton.type = "button";
+    selectButton.className = "workspace-powerpoint-layer-select";
+    selectButton.appendChild(
+      createWorkspaceIconNode(presentationElementIconName(element), {
+        className: "workspace-powerpoint-layer-icon",
+        label: element.type
+      })
+    );
+    const label = document.createElement("span");
+    label.textContent = `${element.locked ? "Locked | " : ""}${element.groupId ? "Group | " : ""}${element.type}${element.text ? ` | ${String(element.text).replace(/\s+/g, " ").slice(0, 28)}` : ""}`;
+    selectButton.appendChild(label);
+    selectButton.addEventListener("click", (event) => {
+      if (event.shiftKey || event.ctrlKey || event.metaKey) {
+        const nextIds = selectedElementSet.has(element.id)
+          ? selectedElementIds.filter((id) => id !== element.id)
+          : [...selectedElementIds, element.id];
+        setPresentationSelection(nextIds.length ? nextIds : [element.id], element.id);
+      } else {
+        selectPresentationElementOrGroup(element);
+      }
+      renderWorkspace();
+    });
+
+    const actions = document.createElement("div");
+    actions.className = "workspace-powerpoint-layer-actions";
+    [
+      ["Front", "chevronRight", () => moveElementDepth(element.id, 999)],
+      ["Back", "chevronLeft", () => moveElementDepth(element.id, -999)],
+      ["Duplicate", "duplicate", () => duplicateElementFrom(element)],
+      ["Lock", "lock", () => updateElement(element.id, { locked: !element.locked }, { refreshWorkspace: true })],
+      ["Delete", "delete", () => removeElementById(element.id), activeElements.length <= 1 || element.locked]
+    ].forEach(([labelText, icon, action, disabled]) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "workspace-powerpoint-layer-action";
+      button.title = labelText;
+      button.disabled = Boolean(disabled);
+      button.appendChild(
+        createWorkspaceIconNode(icon, {
+          className: "workspace-powerpoint-layer-icon",
+          label: labelText
+        })
+      );
+      button.addEventListener("click", (event) => {
+        event.stopPropagation();
+        action();
+      });
+      actions.appendChild(button);
+    });
+    row.append(selectButton, actions);
+    layersList.appendChild(row);
+  });
+  layersSection.append(layersTitle, layersList);
+  inspector.appendChild(layersSection);
+
+  if (state.presentationShowSlideRail) {
+    editor.appendChild(slideRail);
+  }
+  editor.appendChild(stage);
+  if (state.presentationShowInspector) {
+    editor.appendChild(inspector);
+  }
+  shell.append(titleBar, ribbon, editor);
   container.appendChild(shell);
 }
 
@@ -8283,12 +15386,16 @@ function renderWorkspaceLauncher(hasVisibleWorkspace = false) {
 
   container.innerHTML = "";
   const activePage = currentWorkspacePage();
+  container.classList.remove("workspace-launcher-crm", "workspace-launcher-core-chat");
+  if (activePage?.slug === "chat") {
+    renderCoreChatWorkspace(container);
+    return;
+  }
   if (activePage?.slug === "crm") {
     container.classList.add("workspace-launcher-crm");
     renderCrmWorkspaceEmbed(container, { userId: state.currentUserId });
     return;
   }
-  container.classList.remove("workspace-launcher-crm");
   const header = document.createElement("div");
   header.className = "workspace-launcher-header";
   const title = document.createElement("div");
@@ -8340,7 +15447,7 @@ function renderWorkspace() {
       : state.currentWorkObject;
   const project = state.currentWorkspace?.project || null;
   const hasVisibleWorkspace = Boolean(workObject);
-  const hasEmbeddedCrm = activePage?.slug === "crm";
+  const hasEmbeddedPage = activePage?.slug === "crm" || activePage?.slug === "chat";
   const workspaceLens = currentWorkspaceLens();
   const workspaceFamilyId = currentWorkspaceFamilyId();
   const isDocumentCloneWorkspace = workspaceFamilyId === "document_knowledge";
@@ -8354,7 +15461,7 @@ function renderWorkspace() {
   const surfaceModel = currentSurfaceModel();
   const dimensions = project?.dimensions || workObject?.projectDimensions || [];
 
-  el["work-object-empty"].classList.toggle("hidden", Boolean(workObject) || hasEmbeddedCrm);
+  el["work-object-empty"].classList.toggle("hidden", Boolean(workObject) || hasEmbeddedPage);
   el["work-object-empty"].textContent = activePage
     ? `No ${activePage.label} object is open on this page yet.`
     : "Choose a workspace page to begin.";
@@ -8428,7 +15535,19 @@ function renderWorkspace() {
   }
   applyWorkspaceLabels();
   if (el["workspace-view-status"]) {
-    el["workspace-view-status"].textContent = currentPreviewSummary();
+    const collaborators = state.workspacePresence
+      .filter((presence) => Number(presence.userId) !== Number(state.currentUserId))
+      .map((presence) => presence.name)
+      .filter(Boolean);
+    el["workspace-view-status"].textContent = [
+      currentPreviewSummary(),
+      state.offline ? "Hors ligne, brouillon local" : "",
+      collaborators.length
+        ? `${collaborators.length} collaborateur${collaborators.length > 1 ? "s" : ""} : ${collaborators.join(", ")}`
+        : ""
+    ]
+      .filter(Boolean)
+      .join(" | ");
   }
   if (el["workspace-project-context-toggle"]) {
     el["workspace-project-context-toggle"].classList.toggle("hidden", !isDocumentCloneWorkspace || !hasVisibleWorkspace);
@@ -8755,7 +15874,7 @@ async function loadWorkObjects() {
     return;
   }
 
-  const payload = await apiClient.listWorkObjects(state.currentUserId, state.currentConversationId);
+  const payload = await apiClient.listWorkObjects(state.currentUserId);
   state.workObjects = payload.workObjects || [];
   renderWorkObjects();
 }
@@ -8790,7 +15909,10 @@ async function ensureConversation() {
   }
 
   const title = `Workspace ${new Date().toLocaleString()}`;
-  const payload = await apiClient.createConversation(state.currentUserId, title);
+  const payload = await apiClient.createConversation(state.currentUserId, title, {
+    projectId: state.currentChatProjectId,
+    folder: state.currentConversationFolder
+  });
   const conversation = payload.conversation;
   state.conversations.unshift(conversation);
   renderConversations();
@@ -8872,6 +15994,7 @@ async function selectUser(userId) {
 
   const conversationsPayload = await apiClient.listConversations(state.currentUserId);
   state.conversations = conversationsPayload.conversations || [];
+  await loadChatWorkspaceData();
   renderConversations();
 
   await loadProjects();
@@ -8892,8 +16015,14 @@ async function selectUser(userId) {
 
 async function selectConversation(conversationId, options = {}) {
   const preserveProject = Boolean(options.preserveProject);
-  if (Number(conversationId) !== Number(state.currentConversationId || 0)) {
+  const conversationChanged =
+    Number(conversationId) !== Number(state.currentConversationId || 0);
+  if (conversationChanged) {
     await flushPendingWorkObjectChanges();
+    state.coreChatAttachments = [];
+    if (!state.coreChatLoading) {
+      state.coreChatPendingMessages = [];
+    }
   }
   state.currentConversationId = Number(conversationId);
   if (!preserveProject) {
@@ -8936,7 +16065,11 @@ async function selectConversation(conversationId, options = {}) {
   }
 
   const latestProject = state.projects[0] || null;
-  const latestWorkObject = state.workObjects[0] || null;
+  const latestWorkObject =
+    state.workObjects.find(
+      (workObject) =>
+        Number(workObject.conversationId || 0) === Number(state.currentConversationId || 0)
+    ) || null;
 
   if (latestProject) {
     await selectProject(latestProject.id, {
@@ -9018,6 +16151,250 @@ async function selectProject(projectId, options = {}) {
   }
 }
 
+function stopWorkObjectCollaboration() {
+  if (workspacePresenceHandle) {
+    window.clearInterval(workspacePresenceHandle);
+    workspacePresenceHandle = null;
+  }
+  workspaceEventSource?.close();
+  workspaceEventSource = null;
+  state.workspacePresence = [];
+  if (collaborationSyncHandle) {
+    window.clearTimeout(collaborationSyncHandle);
+    collaborationSyncHandle = null;
+  }
+  collaborationPendingChange = null;
+}
+
+function currentUserDisplayName() {
+  const user = state.users.find((item) => Number(item.id) === Number(state.currentUserId));
+  return user?.username || `User ${state.currentUserId || ""}`.trim();
+}
+
+function captureWorkspaceCursor() {
+  const activeElement = document.activeElement;
+  const cell = activeElement?.closest?.("[data-sheet-grid-cell]");
+  if (cell) {
+    return {
+      type: "cell",
+      cell: cell.getAttribute("data-sheet-grid-cell") || "",
+      label: cell.getAttribute("aria-label") || ""
+    };
+  }
+  const selection = window.getSelection?.();
+  const anchorElement =
+    selection?.anchorNode?.nodeType === Node.ELEMENT_NODE
+      ? selection.anchorNode
+      : selection?.anchorNode?.parentElement;
+  const block = anchorElement?.closest?.("[contenteditable='true']");
+  const preview = el["workspace-preview"];
+  if (block && preview?.contains(block)) {
+    const blocks = Array.from(
+      preview.querySelectorAll(".workspace-document-page-sheet [contenteditable='true']")
+    );
+    return {
+      type: "text",
+      blockIndex: blocks.indexOf(block),
+      startOffset: Number(selection?.anchorOffset || 0),
+      endOffset: Number(selection?.focusOffset || selection?.anchorOffset || 0),
+      quote: String(selection?.toString?.() || "").slice(0, 240)
+    };
+  }
+  return null;
+}
+
+function renderRemoteWorkspacePresence() {
+  const preview = el["workspace-preview"];
+  if (!preview) return;
+  preview
+    .querySelectorAll(".workspace-remote-presence")
+    .forEach((node) => node.remove());
+  preview
+    .querySelectorAll(".has-remote-collaborator")
+    .forEach((node) => node.classList.remove("has-remote-collaborator"));
+  preview
+    .querySelectorAll(".workspace-remote-presence-host")
+    .forEach((node) => node.classList.remove("workspace-remote-presence-host"));
+  state.workspacePresence
+    .filter(
+      (presence) =>
+        Number(presence.userId) !== Number(state.currentUserId) &&
+        (!presence.entryPath || presence.entryPath === state.currentWorkObjectFile)
+    )
+    .forEach((presence, index) => {
+      const cursor = presence.cursor || {};
+      let target = null;
+      let badgeHost = null;
+      if (cursor.type === "cell" && cursor.cell) {
+        target = preview.querySelector(
+          `[data-sheet-grid-cell="${CSS.escape(String(cursor.cell))}"]`
+        );
+        badgeHost = target?.closest?.("td") || target?.parentElement || target;
+      } else if (cursor.type === "text" && Number(cursor.blockIndex) >= 0) {
+        target = Array.from(
+          preview.querySelectorAll(
+            ".workspace-document-page-sheet [contenteditable='true']"
+          )
+        )[Number(cursor.blockIndex)] || null;
+        badgeHost = target?.parentElement || target;
+      }
+      if (!target || !badgeHost) return;
+      target.classList.add("has-remote-collaborator");
+      badgeHost.classList.add("workspace-remote-presence-host");
+      const badge = document.createElement("span");
+      badge.className = "workspace-remote-presence";
+      badge.style.setProperty("--presence-index", String(index));
+      badge.textContent = presence.name || `User ${presence.userId || ""}`;
+      badgeHost.appendChild(badge);
+    });
+}
+
+function scheduleWorkspaceCursorPresence() {
+  if (!state.currentWorkObjectId || state.offline) return;
+  if (workspaceCursorHandle) window.clearTimeout(workspaceCursorHandle);
+  workspaceCursorHandle = window.setTimeout(() => {
+    workspaceCursorHandle = null;
+    sendWorkObjectPresence().catch(() => {});
+  }, 240);
+}
+
+async function sendWorkObjectPresence() {
+  if (!state.currentWorkObjectId || !state.currentUserId || state.offline) {
+    return;
+  }
+  const payload = await apiClient.touchWorkObjectPresence(state.currentWorkObjectId, {
+    userId: state.currentUserId,
+    name: currentUserDisplayName(),
+    entryPath: state.currentWorkObjectFile,
+    cursor: captureWorkspaceCursor()
+  });
+  state.workspacePresence = payload.presence || [];
+  renderRemoteWorkspacePresence();
+}
+
+function startWorkObjectCollaboration(workObject = {}) {
+  stopWorkObjectCollaboration();
+  if (!workObject.id || !state.currentUserId) {
+    return;
+  }
+
+  const selectedId = String(workObject.id);
+  sendWorkObjectPresence().catch(() => {});
+  workspacePresenceHandle = window.setInterval(() => {
+    if (String(state.currentWorkObjectId) === selectedId) {
+      sendWorkObjectPresence().catch(() => {});
+    }
+  }, 10_000);
+
+  workspaceEventSource = new EventSource(`/api/work-objects/${encodeURIComponent(selectedId)}/events`);
+  workspaceEventSource.onmessage = (event) => {
+    try {
+      const payload = JSON.parse(event.data || "{}");
+      if (payload.type === "presence") {
+        state.workspacePresence = payload.presence || [];
+        renderRemoteWorkspacePresence();
+        return;
+      }
+      if (
+        payload.type === "operation" &&
+        payload.entryPath === state.currentWorkObjectFile
+      ) {
+        state.collaborationVersion = Math.max(
+          state.collaborationVersion,
+          Number(payload.version || 0)
+        );
+        state.collaborationServerContent = String(
+          payload.content ?? state.collaborationServerContent
+        );
+        if (
+          String(payload.operation?.clientId || "") ===
+          String(state.collaborationClientId)
+        ) {
+          return;
+        }
+        state.collaborationApplyingRemote = true;
+        try {
+          const currentDraft = currentDraftContent();
+          const nextDraft = applyCollaborationOperation(
+            currentDraft,
+            payload.operation || {}
+          );
+          const nextBaseline = applyCollaborationOperation(
+            currentContent(),
+            payload.operation || {}
+          );
+          updateCollaborativeWorkObjectContent(nextBaseline);
+          state.editorDraft = nextDraft;
+          state.editorDraftKey = currentEditorKey();
+          state.editorDirty = nextDraft !== nextBaseline;
+          if (el["work-object-editor"]) {
+            el["work-object-editor"].value = nextDraft;
+          }
+          syncWorkspaceSlices();
+          refreshPreviewPane();
+          setStatus(`${payload.operation?.actorUserId ? "Un collaborateur" : "Hydria"} a modifie le document.`);
+        } finally {
+          state.collaborationApplyingRemote = false;
+        }
+        return;
+      }
+      if (payload.type === "collaboration_conflict") {
+        state.workspaceRemoteRevision = Number(payload.revision || 0) || null;
+        persistLocalWorkspaceDraft();
+        setStatus("Conflit de synchronisation : le brouillon local est conserve.");
+        return;
+      }
+      if (
+        payload.type === "content" &&
+        payload.source === "collaboration" &&
+        payload.entryPath === state.currentWorkObjectFile
+      ) {
+        state.collaborationPersistedRevision = Number(
+          payload.revision || state.collaborationPersistedRevision
+        );
+        updateCollaborativeWorkObjectContent(
+          state.collaborationServerContent || currentDraftContent(),
+          state.collaborationPersistedRevision
+        );
+        if (
+          state.editorDirty &&
+          currentDraftContent() === state.collaborationServerContent &&
+          !collaborationPendingChange
+        ) {
+          state.editorDirty = false;
+          state.editorDraft = "";
+          state.editorDraftKey = "";
+          localStorage.removeItem(localDraftStorageKey());
+        }
+        renderWorkObjects();
+        renderRemoteWorkspacePresence();
+        return;
+      }
+      if (
+        payload.type !== "content" ||
+        Number(payload.actorUserId) === Number(state.currentUserId) ||
+        Number(payload.revision || 0) <= Number(state.currentWorkObject?.revision || 0)
+      ) {
+        return;
+      }
+      state.workspaceRemoteRevision = Number(payload.revision);
+      if (state.editorDirty) {
+        persistLocalWorkspaceDraft();
+        setStatus("Une version distante plus recente existe. Votre brouillon local est conserve.");
+        return;
+      }
+      selectWorkObject(selectedId, state.currentWorkObjectFile, {
+        preserveMode: true,
+        preserveSurface: true,
+        preserveDimension: true,
+        syncRoute: false
+      }).catch(handleError);
+    } catch {
+      // Ignore malformed collaboration events.
+    }
+  };
+}
+
 async function selectWorkObject(workObjectId, filePath = "", options = {}) {
   if (
     state.currentWorkObjectId &&
@@ -9050,7 +16427,7 @@ async function selectWorkObject(workObjectId, filePath = "", options = {}) {
   state.editorDraft = "";
   state.editorDraftKey = "";
   if (!options.preserveMode) {
-    setWorkspaceMode("view");
+    setWorkspaceMode((workObject?.objectKind || workObject?.kind) === "presentation" ? "edit" : "view");
   }
   state.currentWorkObjectFile =
     workObject?.file?.path ||
@@ -9066,7 +16443,21 @@ async function selectWorkObject(workObjectId, filePath = "", options = {}) {
     state.currentStructuredSubItemId = "";
   }
   state.currentPreviewFilter = "";
+  state.collaborationVersion = 0;
+  state.collaborationPersistedRevision = Number(workObject.revision || 1);
+  state.collaborationServerContent = String(
+    workObject?.file?.content || workObject?.content || ""
+  );
+  state.sheetCalculation = null;
+  state.sheetCalculationEngineId = "";
+  await hydrateWorkObjectCollaboration().catch((error) => {
+    if (Number(error?.status || 0) !== 403) throw error;
+  });
   syncWorkspaceSlices();
+  restoreLocalWorkspaceDraft();
+  if (isSheetWorkObject(workObject)) {
+    scheduleSheetCalculation(deriveSpreadsheetDraft(currentDraftContent()));
+  }
 
   if (
     options.syncProject !== false &&
@@ -9096,6 +16487,7 @@ async function selectWorkObject(workObjectId, filePath = "", options = {}) {
   }
 
   mergeWorkObject(workObject);
+  startWorkObjectCollaboration(workObject);
   renderWorkObjects();
   renderWorkspace();
 }
@@ -9160,6 +16552,69 @@ async function saveWorkObjectChanges(options = {}) {
     nextContent = editorValue;
   }
 
+  if (usesCollaborativeEditing()) {
+    state.autoSaving = true;
+    if (el["workspace-save-button"]) {
+      el["workspace-save-button"].disabled = true;
+      el["workspace-save-button"].textContent = "Saving...";
+    }
+    try {
+      await flushCollaborativeOperation();
+      if (state.offline || !navigator.onLine) {
+        persistLocalWorkspaceDraft();
+        setStatus(
+          `Mode hors ligne : ${state.collaborationQueueSize} modification(s) en attente.`
+        );
+        return;
+      }
+      const payload = await apiClient.flushWorkObjectCollaboration(
+        state.currentWorkObjectId,
+        { entryPath: state.currentWorkObjectFile }
+      );
+      const collaboration = payload.collaboration || {};
+      state.collaborationVersion = Number(
+        collaboration.version || state.collaborationVersion
+      );
+      state.collaborationPersistedRevision = Number(
+        collaboration.persistedRevision ||
+          collaboration.workObject?.revision ||
+          state.collaborationPersistedRevision
+      );
+      const serverContent = String(
+        state.collaborationServerContent || nextContent
+      );
+      const draftChangedSinceSaveStarted =
+        state.editorDraftKey === editorKeyAtStart &&
+        normalizeEditorText(state.editorDraft) !== normalizedEditorValue;
+      updateCollaborativeWorkObjectContent(
+        serverContent,
+        state.collaborationPersistedRevision
+      );
+      if (!draftChangedSinceSaveStarted) {
+        state.editorDirty = false;
+        state.editorDraft = "";
+        state.editorDraftKey = "";
+        localStorage.removeItem(localDraftStorageKey());
+        if (el["work-object-editor"]) {
+          el["work-object-editor"].value = serverContent;
+        }
+      }
+      syncWorkspaceSlices();
+      renderWorkObjects();
+      if (!keepInlinePreviewSession) renderWorkspace();
+      if (!silent) {
+        setStatus(`Saved ${currentScopeLabel().toLowerCase()} in ${state.currentWorkObject.title}.`);
+      }
+      return;
+    } finally {
+      state.autoSaving = false;
+      if (el["workspace-save-button"]) {
+        el["workspace-save-button"].disabled = !state.editorDirty;
+        el["workspace-save-button"].textContent = state.editorDirty ? "Save" : "Saved";
+      }
+    }
+  }
+
   state.autoSaving = true;
   if (el["workspace-view-status"]) {
     el["workspace-view-status"].textContent = currentPreviewSummary();
@@ -9172,7 +16627,11 @@ async function saveWorkObjectChanges(options = {}) {
     const payload = await apiClient.updateWorkObjectContent(
       state.currentWorkObjectId,
       state.currentWorkObjectFile,
-      nextContent
+      nextContent,
+      {
+        userId: state.currentUserId,
+        expectedRevision: state.currentWorkObject?.revision
+      }
     );
 
     state.currentWorkObject = payload.workObject;
@@ -9185,6 +16644,7 @@ async function saveWorkObjectChanges(options = {}) {
       state.editorDirty = false;
       state.editorDraft = "";
       state.editorDraftKey = "";
+      localStorage.removeItem(localDraftStorageKey());
     }
     syncWorkspaceSlices();
     mergeWorkObject(payload.workObject);
@@ -9220,6 +16680,32 @@ async function saveWorkObjectChanges(options = {}) {
     if (draftChangedSinceSaveStarted) {
       scheduleAutoSave();
     }
+  } catch (error) {
+    if (error?.status === 409) {
+      persistLocalWorkspaceDraft();
+      state.workspaceRemoteRevision = error.details?.currentRevision || null;
+      setStatus("Conflit detecte : le brouillon local est conserve. Rechargez le document pour comparer.");
+      if (
+        window.confirm(
+          "Ce document a ete modifie ailleurs. Recharger la version distante ? Votre brouillon local restera stocke."
+        )
+      ) {
+        await selectWorkObject(state.currentWorkObjectId, state.currentWorkObjectFile, {
+          preserveMode: true,
+          preserveSurface: true,
+          preserveDimension: true,
+          syncRoute: false
+        });
+      }
+      return;
+    }
+    if (!navigator.onLine) {
+      state.offline = true;
+      persistLocalWorkspaceDraft();
+      setStatus("Connexion indisponible. Le brouillon est conserve localement.");
+      return;
+    }
+    throw error;
   } finally {
     state.autoSaving = false;
     if (!keepInlinePreviewSession) {
@@ -9591,8 +17077,12 @@ async function createConversation() {
   }
 
   const title = `Workspace ${new Date().toLocaleString()}`;
-  const payload = await apiClient.createConversation(state.currentUserId, title);
+  const payload = await apiClient.createConversation(state.currentUserId, title, {
+    projectId: state.currentChatProjectId,
+    folder: state.currentConversationFolder
+  });
   state.conversations.unshift(payload.conversation);
+  await loadChatWorkspaceData();
   renderConversations();
   if (state.currentProjectId) {
     sessionStore.linkConversationToProject(state.currentProjectId, payload.conversation.id);
@@ -9613,6 +17103,8 @@ async function clearConversation() {
   }
 
   await apiClient.clearConversation(state.currentConversationId);
+  state.coreChatAttachments = [];
+  state.coreChatPendingMessages = [];
   await loadMessages();
   setStatus("Conversation cleared.");
 }
@@ -9623,6 +17115,10 @@ function handleError(error) {
 }
 
 function bindEvents() {
+  window.addEventListener("pagehide", () => {
+    clearAutoSaveTimer();
+  });
+
   window.addEventListener("popstate", () => {
     const page = parseWorkspacePagePath();
     activateWorkspacePage(page, { historyMode: "none" }).catch(handleError);
@@ -9714,6 +17210,8 @@ function bindEvents() {
   el["work-object-editor"].addEventListener("input", () => {
     syncEditorDraft(el["work-object-editor"].value);
   });
+  document.addEventListener("selectionchange", scheduleWorkspaceCursorPresence);
+  el["workspace-preview"]?.addEventListener("focusin", scheduleWorkspaceCursorPresence);
 
   el["work-object-file-select"].addEventListener("change", (event) => {
     if (!state.currentWorkObjectId) {
@@ -9813,6 +17311,54 @@ async function init() {
     historyMode: "replace"
   });
 }
+
+window.addEventListener("offline", () => {
+  state.offline = true;
+  persistLocalWorkspaceDraft();
+  renderWorkspace();
+  setStatus("Mode hors ligne : les changements restent dans ce navigateur.");
+});
+
+window.addEventListener("online", async () => {
+  state.offline = false;
+  renderWorkspace();
+  try {
+    const replay = await replayCollaborationOperations(
+      sendQueuedCollaborationOperation
+    );
+    state.collaborationQueueSize = replay.remaining;
+    await sendWorkObjectPresence();
+    if (state.editorDirty) {
+      await saveWorkObjectChanges({ silent: true, source: "reconnect" });
+    } else {
+      setStatus(
+        replay.sent
+          ? `Connexion retablie. ${replay.sent} modification(s) synchronisee(s).`
+          : "Connexion retablie."
+      );
+    }
+  } catch (error) {
+    handleError(error);
+  }
+});
+
+window.addEventListener("beforeunload", () => {
+  clearAutoSaveTimer();
+  clearRuntimeSyncTimer();
+  if (state.liveDraftRefreshHandle) {
+    window.clearTimeout(state.liveDraftRefreshHandle);
+    state.liveDraftRefreshHandle = null;
+  }
+  persistLocalWorkspaceDraft();
+  if (state.currentWorkObjectId && state.currentUserId) {
+    fetch(`/api/work-objects/${encodeURIComponent(state.currentWorkObjectId)}/presence`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId: state.currentUserId }),
+      keepalive: true
+    }).catch(() => {});
+  }
+});
 
 state.bootPromise = init();
 state.bootPromise

@@ -1,11 +1,3 @@
-function splitParagraphs(text) {
-  return String(text || "")
-    .replace(/\r\n/g, "\n")
-    .split(/\n{2,}/)
-    .map((chunk) => chunk.trim())
-    .filter(Boolean);
-}
-
 function isBulletBlock(lines = []) {
   return lines.length > 0 && lines.every((line) => /^[-*]\s+/.test(line));
 }
@@ -16,7 +8,8 @@ function isNumberedBlock(lines = []) {
 
 function createTextFragment(text = "") {
   const fragment = document.createDocumentFragment();
-  const pattern = /(\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)|`([^`]+)`|\*\*([^*]+)\*\*)/g;
+  const pattern =
+    /(\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)|`([^`]+)`|\*\*([^*]+)\*\*|~~([^~]+)~~|\*([^*\n]+)\*)/g;
   let lastIndex = 0;
   let match;
 
@@ -42,6 +35,14 @@ function createTextFragment(text = "") {
       const strong = document.createElement("strong");
       strong.textContent = match[5];
       fragment.appendChild(strong);
+    } else if (match[6]) {
+      const deleted = document.createElement("del");
+      deleted.textContent = match[6];
+      fragment.appendChild(deleted);
+    } else if (match[7]) {
+      const emphasis = document.createElement("em");
+      emphasis.textContent = match[7];
+      fragment.appendChild(emphasis);
     }
 
     lastIndex = pattern.lastIndex;
@@ -56,6 +57,22 @@ function createTextFragment(text = "") {
 
 function appendInlineContent(element, text = "") {
   element.appendChild(createTextFragment(text));
+}
+
+async function copyText(text = "") {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(String(text || ""));
+    return;
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = String(text || "");
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand("copy");
+  textarea.remove();
 }
 
 function renderList(bubble, lines, ordered = false) {
@@ -87,6 +104,199 @@ function renderParagraphWithLineBreaks(bubble, block = "") {
   bubble.appendChild(paragraph);
 }
 
+function isTableDivider(line = "") {
+  const cells = String(line)
+    .trim()
+    .replace(/^\||\|$/g, "")
+    .split("|")
+    .map((cell) => cell.trim());
+  return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell));
+}
+
+function splitTableRow(line = "") {
+  return String(line)
+    .trim()
+    .replace(/^\||\|$/g, "")
+    .split("|")
+    .map((cell) => cell.trim());
+}
+
+function renderTable(bubble, lines = []) {
+  const wrapper = document.createElement("div");
+  wrapper.className = "message-table-wrap";
+  const table = document.createElement("table");
+  const [headerLine, , ...bodyLines] = lines;
+  const head = document.createElement("thead");
+  const headRow = document.createElement("tr");
+  splitTableRow(headerLine).forEach((cell) => {
+    const th = document.createElement("th");
+    appendInlineContent(th, cell);
+    headRow.appendChild(th);
+  });
+  head.appendChild(headRow);
+  table.appendChild(head);
+
+  if (bodyLines.length) {
+    const body = document.createElement("tbody");
+    bodyLines.forEach((line) => {
+      const row = document.createElement("tr");
+      splitTableRow(line).forEach((cell) => {
+        const td = document.createElement("td");
+        appendInlineContent(td, cell);
+        row.appendChild(td);
+      });
+      body.appendChild(row);
+    });
+    table.appendChild(body);
+  }
+
+  wrapper.appendChild(table);
+  bubble.appendChild(wrapper);
+}
+
+function renderCodeBlock(bubble, code = "", language = "") {
+  const wrapper = document.createElement("div");
+  wrapper.className = "message-code-block";
+  const header = document.createElement("div");
+  const label = document.createElement("span");
+  label.textContent = language || "code";
+  const copyButton = document.createElement("button");
+  copyButton.type = "button";
+  copyButton.textContent = "Copier";
+  copyButton.addEventListener("click", () => {
+    copyText(code)
+      .then(() => {
+        copyButton.textContent = "Copie";
+        window.setTimeout(() => {
+          copyButton.textContent = "Copier";
+        }, 1200);
+      })
+      .catch(() => {});
+  });
+  header.append(label, copyButton);
+  const pre = document.createElement("pre");
+  const codeNode = document.createElement("code");
+  codeNode.textContent = code;
+  if (language) {
+    codeNode.dataset.language = language;
+  }
+  pre.appendChild(codeNode);
+  wrapper.append(header, pre);
+  bubble.appendChild(wrapper);
+}
+
+function renderMarkdownMessage(bubble, content = "") {
+  const lines = String(content || "").replace(/\r\n/g, "\n").split("\n");
+  let index = 0;
+
+  while (index < lines.length) {
+    const line = lines[index];
+    if (!line.trim()) {
+      index += 1;
+      continue;
+    }
+
+    const fence = line.match(/^```([\w+-]*)\s*$/);
+    if (fence) {
+      const codeLines = [];
+      index += 1;
+      while (index < lines.length && !/^```\s*$/.test(lines[index])) {
+        codeLines.push(lines[index]);
+        index += 1;
+      }
+      if (index < lines.length) {
+        index += 1;
+      }
+      renderCodeBlock(bubble, codeLines.join("\n"), fence[1] || "");
+      continue;
+    }
+
+    const heading = line.match(/^(#{1,6})\s+(.+)$/);
+    if (heading) {
+      const node = document.createElement(`h${heading[1].length}`);
+      appendInlineContent(node, heading[2]);
+      bubble.appendChild(node);
+      index += 1;
+      continue;
+    }
+
+    if (/^\s*(?:---+|\*\*\*+)\s*$/.test(line)) {
+      bubble.appendChild(document.createElement("hr"));
+      index += 1;
+      continue;
+    }
+
+    if (/^>\s?/.test(line)) {
+      const quote = document.createElement("blockquote");
+      const quoteLines = [];
+      while (index < lines.length && /^>\s?/.test(lines[index])) {
+        quoteLines.push(lines[index].replace(/^>\s?/, ""));
+        index += 1;
+      }
+      renderParagraphWithLineBreaks(quote, quoteLines.join("\n"));
+      bubble.appendChild(quote);
+      continue;
+    }
+
+    if (
+      index + 1 < lines.length &&
+      line.includes("|") &&
+      isTableDivider(lines[index + 1])
+    ) {
+      const tableLines = [line, lines[index + 1]];
+      index += 2;
+      while (index < lines.length && lines[index].includes("|") && lines[index].trim()) {
+        tableLines.push(lines[index]);
+        index += 1;
+      }
+      renderTable(bubble, tableLines);
+      continue;
+    }
+
+    if (/^[-*]\s+/.test(line)) {
+      const listLines = [];
+      while (index < lines.length && /^[-*]\s+/.test(lines[index])) {
+        listLines.push(lines[index]);
+        index += 1;
+      }
+      renderList(bubble, listLines, false);
+      continue;
+    }
+
+    if (/^\d+\.\s+/.test(line)) {
+      const listLines = [];
+      while (index < lines.length && /^\d+\.\s+/.test(lines[index])) {
+        listLines.push(lines[index]);
+        index += 1;
+      }
+      renderList(bubble, listLines, true);
+      continue;
+    }
+
+    const paragraphLines = [line];
+    index += 1;
+    while (
+      index < lines.length &&
+      lines[index].trim() &&
+      !/^```/.test(lines[index]) &&
+      !/^(#{1,6})\s+/.test(lines[index]) &&
+      !/^>\s?/.test(lines[index]) &&
+      !/^[-*]\s+/.test(lines[index]) &&
+      !/^\d+\.\s+/.test(lines[index]) &&
+      !/^\s*(?:---+|\*\*\*+)\s*$/.test(lines[index]) &&
+      !(
+        index + 1 < lines.length &&
+        lines[index].includes("|") &&
+        isTableDivider(lines[index + 1])
+      )
+    ) {
+      paragraphLines.push(lines[index]);
+      index += 1;
+    }
+    renderParagraphWithLineBreaks(bubble, paragraphLines.join("\n"));
+  }
+}
+
 function parseGeneratedFileMessage(content = "") {
   const match = String(content || "").match(
     /^Generated file:\s+(.+?)\s+(?:\((.+?)\)|\[(.+?)\])\s+->\s+(\S+)\s*$/i
@@ -104,33 +314,13 @@ function parseGeneratedFileMessage(content = "") {
 }
 
 function renderTextMessageBubble(bubble, content) {
-  const blocks = splitParagraphs(content);
-
-  if (!blocks.length) {
+  if (!String(content || "").trim()) {
     const paragraph = document.createElement("p");
     paragraph.textContent = "";
     bubble.appendChild(paragraph);
     return;
   }
-
-  for (const block of blocks) {
-    const lines = block
-      .split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean);
-
-    if (isBulletBlock(lines)) {
-      renderList(bubble, lines, false);
-      continue;
-    }
-
-    if (isNumberedBlock(lines)) {
-      renderList(bubble, lines, true);
-      continue;
-    }
-
-    renderParagraphWithLineBreaks(bubble, block);
-  }
+  renderMarkdownMessage(bubble, content);
 }
 
 function renderGeneratedFileBubble(bubble, artifact) {
@@ -252,7 +442,9 @@ function renderWorkObjectCard(container, workObject, options = {}) {
 
 export function renderChatMessage(message, options = {}) {
   const wrapper = document.createElement("article");
-  wrapper.className = `message ${message.role}`;
+  wrapper.className = `message ${message.role}${message.pending ? " is-pending" : ""}${
+    message.status && message.status !== "complete" ? ` is-${message.status}` : ""
+  }`;
 
   const meta = document.createElement("div");
   meta.className = "message-meta";
@@ -286,6 +478,43 @@ export function renderChatMessage(message, options = {}) {
     bubble.appendChild(attachmentList);
   }
 
+  if (Array.isArray(message.citations) && message.citations.length) {
+    const citations = document.createElement("div");
+    citations.className = "message-citations";
+    message.citations.forEach((citation, index) => {
+      const source = document.createElement("button");
+      source.type = "button";
+      source.textContent = `[${index + 1}] ${citation.label || citation.name || "Source"}${
+        citation.locator || citation.section ? ` · ${citation.locator || citation.section}` : ""
+      }`;
+      source.title = citation.excerpt || citation.section || "";
+      source.addEventListener("click", () => {
+        if (citation.excerpt) {
+          window.alert(
+            [citation.label || citation.name, citation.section || citation.locator, citation.excerpt]
+              .filter(Boolean)
+              .join("\n\n")
+          );
+        }
+      });
+      citations.appendChild(source);
+    });
+    bubble.appendChild(citations);
+  }
+
+  if (message.status === "failed" || message.error) {
+    const error = document.createElement("p");
+    error.className = "message-generation-error";
+    error.textContent = message.error || "La génération a échoué. Vous pouvez la relancer.";
+    bubble.appendChild(error);
+  }
+
+  if (message.streaming) {
+    const cursor = document.createElement("span");
+    cursor.className = "message-streaming-cursor";
+    bubble.appendChild(cursor);
+  }
+
   if (message.workObject) {
     renderWorkObjectCard(bubble, message.workObject, options);
   }
@@ -300,5 +529,47 @@ export function renderChatMessage(message, options = {}) {
   }
 
   wrapper.append(meta, bubble);
+
+  if (options.showActions && !message.pending) {
+    const actions = document.createElement("div");
+    actions.className = "message-actions";
+    const copyButton = document.createElement("button");
+    copyButton.type = "button";
+    copyButton.textContent = "Copier";
+    copyButton.addEventListener("click", () => {
+      copyText(String(message.content || ""))
+        .then(() => {
+          copyButton.textContent = "Copie";
+          window.setTimeout(() => {
+            copyButton.textContent = "Copier";
+          }, 1200);
+        })
+        .catch(() => {});
+    });
+    actions.appendChild(copyButton);
+
+    if (message.role === "user" && options.onEditMessage) {
+      const editButton = document.createElement("button");
+      editButton.type = "button";
+      editButton.textContent = "Modifier";
+      editButton.addEventListener("click", () => {
+        Promise.resolve(options.onEditMessage(message)).catch(() => {});
+      });
+      actions.appendChild(editButton);
+    }
+
+    if (
+      ["assistant", "tool"].includes(message.role) &&
+      options.onRegenerateMessage
+    ) {
+      const regenerateButton = document.createElement("button");
+      regenerateButton.type = "button";
+      regenerateButton.textContent = "Regenerer";
+      regenerateButton.addEventListener("click", () => options.onRegenerateMessage(message));
+      actions.appendChild(regenerateButton);
+    }
+
+    wrapper.appendChild(actions);
+  }
   return wrapper;
 }

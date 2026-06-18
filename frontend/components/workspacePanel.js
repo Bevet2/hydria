@@ -1490,7 +1490,7 @@ function getDatasetWorkspacePreviewProfile(workObject = null) {
       ribbonPrefix: "Budget"
     },
     crm_sales: {
-      workspaceLabel: "CRM workspace",
+      workspaceLabel: "Hydria CRM workspace",
       primaryTab: "Pipeline",
       secondaryTab: "Summary",
       formulaLabel: "Pipeline fields",
@@ -2116,6 +2116,7 @@ function renderMarkdownPreview(
   let docsToolbar = null;
   let docsToolbarStatus = null;
   let shell = null;
+  let refreshDocsTableOfContents = () => {};
   let previewLayout = null;
   let outline = null;
   let docsCanvas = null;
@@ -2152,6 +2153,14 @@ function renderMarkdownPreview(
   let docsSearchUndoStack = [];
   let docsSearchRedoStack = [];
   let docsOutlineVisible = false;
+  let docsReviewPane = null;
+  let docsReviewVisible = false;
+  let docsTrackChangesEnabled = false;
+  let docsStatusBar = null;
+  let docsStatusPages = null;
+  let docsStatusWords = null;
+  let docsZoomSelect = null;
+  let docsZoomLevel = 1;
   let docsHeaderPageButton = null;
   let docsHeaderOutlineButton = null;
   const docsSearchMatchClassName = "workspace-docs-search-match";
@@ -2323,6 +2332,7 @@ function renderMarkdownPreview(
 
   const commitDocumentShell = () => {
     if (shell) {
+      refreshDocsTableOfContents();
       onInlineEdit?.(serializeDocumentPreviewShell(shell));
     }
   };
@@ -3689,6 +3699,12 @@ function renderMarkdownPreview(
       showHeaderFooter: node?.dataset?.showHeaderFooter === "true",
       showPageNumbers: node?.dataset?.showPageNumbers === "true",
       orientation: node?.dataset?.pageOrientation === "landscape" ? "landscape" : "portrait",
+      pageSize: node?.dataset?.pageSize === "letter" ? "letter" : "a4",
+      pageMargins: ["narrow", "wide"].includes(node?.dataset?.pageMargins)
+        ? node.dataset.pageMargins
+        : "normal",
+      headerText: String(node?.dataset?.headerText || ""),
+      footerText: String(node?.dataset?.footerText || ""),
       pageNumberPosition: node?.dataset?.pageNumberPosition === "header" ? "header" : "footer",
       pageNumberShowOnFirstPage: node?.dataset?.pageNumberShowOnFirstPage !== "false",
       pageNumberMode: node?.dataset?.pageNumberMode === "continue" ? "continue" : "start",
@@ -3709,6 +3725,12 @@ function renderMarkdownPreview(
     node.dataset.showHeaderFooter = mergedState.showHeaderFooter ? "true" : "false";
     node.dataset.showPageNumbers = mergedState.showPageNumbers ? "true" : "false";
     node.dataset.pageOrientation = mergedState.orientation === "landscape" ? "landscape" : "portrait";
+    node.dataset.pageSize = mergedState.pageSize === "letter" ? "letter" : "a4";
+    node.dataset.pageMargins = ["narrow", "wide"].includes(mergedState.pageMargins)
+      ? mergedState.pageMargins
+      : "normal";
+    node.dataset.headerText = String(mergedState.headerText || "");
+    node.dataset.footerText = String(mergedState.footerText || "");
     node.dataset.pageNumberPosition = mergedState.pageNumberPosition === "header" ? "header" : "footer";
     node.dataset.pageNumberShowOnFirstPage = mergedState.pageNumberShowOnFirstPage === false ? "false" : "true";
     node.dataset.pageNumberMode = mergedState.pageNumberMode === "continue" ? "continue" : "start";
@@ -3716,11 +3738,37 @@ function renderMarkdownPreview(
     commitDocsLayoutChange(statusLabel, null, { rebuildPageShell: true });
   };
 
+  const updateDocsHeaderFooterText = (kind = "header", value = "", source = null) => {
+    const node = getDocsPageSettingsNode();
+    if (!node) {
+      return;
+    }
+    const normalizedKind = kind === "footer" ? "footer" : "header";
+    node.dataset[normalizedKind === "header" ? "headerText" : "footerText"] = String(value || "");
+    shell
+      .querySelectorAll(
+        normalizedKind === "header"
+          ? ".workspace-docs-page-header-text"
+          : ".workspace-docs-page-footer-text"
+      )
+      .forEach((field) => {
+        if (field !== source && field.textContent !== value) {
+          field.textContent = value;
+        }
+      });
+    commitDocumentShell();
+    updateDocsToolbarStatus(normalizedKind === "header" ? "Header saved" : "Footer saved");
+  };
+
   const applyDocsPageChrome = (page, pageIndex = 0, formatState = getDocsPageFormatState()) => {
     if (!page) {
       return;
     }
     page.dataset.orientation = formatState.orientation === "landscape" ? "landscape" : "portrait";
+    page.dataset.pageSize = formatState.pageSize === "letter" ? "letter" : "a4";
+    page.dataset.pageMargins = ["narrow", "wide"].includes(formatState.pageMargins)
+      ? formatState.pageMargins
+      : "normal";
     page.querySelectorAll(":scope > .workspace-docs-page-header, :scope > .workspace-docs-page-footer").forEach((node) => node.remove());
     if (!formatState.showHeaderFooter && !formatState.showPageNumbers) {
       return;
@@ -3736,10 +3784,17 @@ function renderMarkdownPreview(
       header.className = "workspace-docs-page-header";
       header.contentEditable = "false";
       if (formatState.showHeaderFooter) {
-        const headerLabel = document.createElement("span");
-        headerLabel.className = "workspace-docs-page-header-label";
-        headerLabel.textContent = "En-tete";
-        header.appendChild(headerLabel);
+        const headerText = document.createElement("span");
+        headerText.className = "workspace-docs-page-header-text";
+        headerText.contentEditable = "true";
+        headerText.spellcheck = true;
+        headerText.dataset.placeholder = "Saisir l'en-tete";
+        headerText.textContent = formatState.headerText;
+        headerText.addEventListener("input", () => {
+          updateDocsHeaderFooterText("header", headerText.textContent || "", headerText);
+        });
+        headerText.addEventListener("click", (event) => event.stopPropagation());
+        header.appendChild(headerText);
       }
       if (shouldShowNumber && formatState.pageNumberPosition === "header") {
         const pageNumber = document.createElement("span");
@@ -3755,10 +3810,17 @@ function renderMarkdownPreview(
       footer.className = "workspace-docs-page-footer";
       footer.contentEditable = "false";
       if (formatState.showHeaderFooter) {
-        const footerLabel = document.createElement("span");
-        footerLabel.className = "workspace-docs-page-footer-label";
-        footerLabel.textContent = "Pied de page";
-        footer.appendChild(footerLabel);
+        const footerText = document.createElement("span");
+        footerText.className = "workspace-docs-page-footer-text";
+        footerText.contentEditable = "true";
+        footerText.spellcheck = true;
+        footerText.dataset.placeholder = "Saisir le pied de page";
+        footerText.textContent = formatState.footerText;
+        footerText.addEventListener("input", () => {
+          updateDocsHeaderFooterText("footer", footerText.textContent || "", footerText);
+        });
+        footerText.addEventListener("click", (event) => event.stopPropagation());
+        footer.appendChild(footerText);
       }
       if (shouldShowNumber && formatState.pageNumberPosition === "footer") {
         const pageNumber = document.createElement("span");
@@ -3798,6 +3860,26 @@ function renderMarkdownPreview(
         orientation: nextOrientation
       },
       nextOrientation === "landscape" ? "Landscape page enabled" : "Portrait page enabled"
+    );
+  };
+
+  const setDocsPageSize = (pageSize = "a4") => {
+    const nextPageSize = pageSize === "letter" ? "letter" : "a4";
+    updateDocsPageFormatState(
+      { pageSize: nextPageSize },
+      nextPageSize === "letter" ? "Letter page size enabled" : "A4 page size enabled"
+    );
+  };
+
+  const setDocsPageMargins = (pageMargins = "normal") => {
+    const nextMargins = ["narrow", "wide"].includes(pageMargins) ? pageMargins : "normal";
+    updateDocsPageFormatState(
+      { pageMargins: nextMargins },
+      nextMargins === "narrow"
+        ? "Narrow margins enabled"
+        : nextMargins === "wide"
+          ? "Wide margins enabled"
+          : "Normal margins enabled"
     );
   };
 
@@ -4971,6 +5053,58 @@ function renderMarkdownPreview(
     updateDocsToolbarStatus(value ? "Font updated" : "Saved automatically");
   };
 
+  const applyBlockLineHeight = (value = "1.15") => {
+    const target = getActiveBlockTarget();
+    if (!target) {
+      updateDocsToolbarStatus("Click a paragraph first.");
+      return;
+    }
+    target.style.lineHeight = String(value || "1.15");
+    commitDocsVisualChange("Line spacing updated");
+  };
+
+  const adjustBlockIndent = (direction = 1) => {
+    const target = getActiveBlockTarget();
+    if (!target) {
+      updateDocsToolbarStatus("Click a paragraph first.");
+      return;
+    }
+    const currentIndent = Number.parseFloat(target.style.marginLeft || "0") || 0;
+    const nextIndent = Math.max(0, Math.min(240, currentIndent + (direction < 0 ? -24 : 24)));
+    if (nextIndent) {
+      target.style.marginLeft = `${nextIndent}px`;
+    } else {
+      target.style.removeProperty("margin-left");
+    }
+    commitDocsVisualChange(direction < 0 ? "Indent reduced" : "Indent increased");
+  };
+
+  const insertDocsHyperlink = () => {
+    const range = getDocsSelectionRangeSnapshot();
+    if (!range || range.collapsed || !shell?.contains(range.commonAncestorContainer)) {
+      updateDocsToolbarStatus("Select text before adding a link.");
+      return;
+    }
+    const selectedText = String(range.toString() || "").trim();
+    const rawUrl = window.prompt("Adresse du lien", "https://");
+    if (!rawUrl?.trim()) {
+      return;
+    }
+    const normalizedUrl = /^(?:https?:|mailto:|tel:)/i.test(rawUrl.trim())
+      ? rawUrl.trim()
+      : `https://${rawUrl.trim()}`;
+    const link = document.createElement("a");
+    link.href = normalizedUrl;
+    link.target = "_blank";
+    link.rel = "noreferrer noopener";
+    link.textContent = selectedText || normalizedUrl;
+    range.deleteContents();
+    range.insertNode(link);
+    placeDocsCaretAfterNode(link);
+    saveDocsSelectionRange();
+    commitDocsVisualChange("Link inserted");
+  };
+
   const resetActiveBlockFormatting = () => {
     const target = getActiveBlockTarget();
     if (!target) {
@@ -4995,6 +5129,390 @@ function renderMarkdownPreview(
     commitDocumentShell();
     window.requestAnimationFrame(() => updateDocsTableControls(null, true));
     updateDocsToolbarStatus(statusLabel);
+  };
+
+  const createDocsReviewId = (prefix = "review") =>
+    `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
+  const unwrapDocsReviewNode = (node) => {
+    if (node?.parentNode) {
+      node.replaceWith(...Array.from(node.childNodes));
+    }
+  };
+
+  const getDocsReviewComments = () =>
+    Array.from(shell?.querySelectorAll?.(".workspace-docs-comment-anchor[data-docs-comment-id]") || []);
+
+  const getDocsReviewSuggestionGroups = () => {
+    const groups = new Map();
+    Array.from(shell?.querySelectorAll?.("[data-docs-suggestion-id]") || []).forEach((node) => {
+      const id = node.dataset.docsSuggestionId;
+      if (!id) {
+        return;
+      }
+      const nodes = groups.get(id) || [];
+      nodes.push(node);
+      groups.set(id, nodes);
+    });
+    return Array.from(groups.entries()).map(([id, nodes]) => ({ id, nodes }));
+  };
+
+  const syncDocsReviewChanges = (statusLabel = "Review updated") => {
+    commitDocumentShell();
+    scheduleDocsPageReflow({ delay: 40, preserveSelection: false });
+    renderDocsReviewPane();
+    updateDocsToolbarStatus(statusLabel);
+  };
+
+  const focusDocsReviewNode = (node) => {
+    if (!node?.isConnected) {
+      return;
+    }
+    node.scrollIntoView({ behavior: "smooth", block: "center" });
+    node.classList.add("is-review-focused");
+    window.setTimeout(() => node.classList.remove("is-review-focused"), 1200);
+  };
+
+  const addDocsComment = () => {
+    const range = getDocsSelectionRangeSnapshot();
+    if (!range || range.collapsed || !shell?.contains(range.commonAncestorContainer)) {
+      updateDocsToolbarStatus("Select text before adding a comment.");
+      return;
+    }
+    const text = window.prompt("Commentaire");
+    if (!text?.trim()) {
+      return;
+    }
+    const anchor = document.createElement("mark");
+    anchor.className = "workspace-docs-comment-anchor";
+    anchor.dataset.docsCommentId = createDocsReviewId("comment");
+    anchor.dataset.docsCommentText = text.trim();
+    anchor.dataset.docsCommentAuthor = "Vous";
+    anchor.dataset.docsCommentStatus = "open";
+    anchor.dataset.docsCommentReplies = "[]";
+    try {
+      range.surroundContents(anchor);
+    } catch {
+      anchor.appendChild(range.extractContents());
+      range.insertNode(anchor);
+    }
+    const selection = window.getSelection();
+    if (selection) {
+      const nextRange = document.createRange();
+      nextRange.selectNodeContents(anchor);
+      selection.removeAllRanges();
+      selection.addRange(nextRange);
+    }
+    saveDocsSelectionRange();
+    setDocsReviewVisible(true);
+    syncDocsReviewChanges("Comment added");
+  };
+
+  const addDocsSuggestion = () => {
+    const range = getDocsSelectionRangeSnapshot();
+    if (!range || range.collapsed || !shell?.contains(range.commonAncestorContainer)) {
+      updateDocsToolbarStatus("Select text before proposing a change.");
+      return;
+    }
+    const currentText = String(range.toString() || "");
+    const replacement = window.prompt("Texte propose", currentText);
+    if (replacement === null || replacement === currentText) {
+      return;
+    }
+    const suggestionId = createDocsReviewId("suggestion");
+    const removed = document.createElement("del");
+    removed.className = "workspace-docs-suggestion-delete";
+    removed.dataset.docsSuggestionId = suggestionId;
+    removed.dataset.docsSuggestionAuthor = "Vous";
+    removed.appendChild(range.extractContents());
+    const inserted = document.createElement("ins");
+    inserted.className = "workspace-docs-suggestion-insert";
+    inserted.dataset.docsSuggestionId = suggestionId;
+    inserted.dataset.docsSuggestionAuthor = "Vous";
+    inserted.textContent = replacement;
+    const fragment = document.createDocumentFragment();
+    fragment.append(removed, inserted);
+    range.insertNode(fragment);
+    placeDocsCaretAfterNode(inserted);
+    saveDocsSelectionRange();
+    setDocsReviewVisible(true);
+    syncDocsReviewChanges("Suggestion added");
+  };
+
+  const replyToDocsComment = (anchor) => {
+    const reply = window.prompt("Reponse");
+    if (!anchor || !reply?.trim()) {
+      return;
+    }
+    let replies = [];
+    try {
+      replies = JSON.parse(anchor.dataset.docsCommentReplies || "[]");
+    } catch {
+      replies = [];
+    }
+    replies.push({ author: "Vous", text: reply.trim(), createdAt: new Date().toISOString() });
+    anchor.dataset.docsCommentReplies = JSON.stringify(replies);
+    syncDocsReviewChanges("Reply added");
+  };
+
+  const resolveDocsSuggestion = (suggestionId, resolution = "accept", refresh = true) => {
+    Array.from(
+      shell?.querySelectorAll?.(`[data-docs-suggestion-id="${CSS.escape(suggestionId)}"]`) || []
+    ).forEach((node) => {
+      if (resolution === "accept") {
+        if (node.tagName === "INS") {
+          unwrapDocsReviewNode(node);
+        } else {
+          node.remove();
+        }
+      } else if (node.tagName === "DEL") {
+        unwrapDocsReviewNode(node);
+      } else {
+        node.remove();
+      }
+    });
+    if (refresh) {
+      syncDocsReviewChanges(resolution === "accept" ? "Suggestion accepted" : "Suggestion rejected");
+    }
+  };
+
+  const resolveAllDocsSuggestions = (resolution = "accept") => {
+    getDocsReviewSuggestionGroups().forEach(({ id }) => resolveDocsSuggestion(id, resolution, false));
+    syncDocsReviewChanges(
+      resolution === "accept" ? "All suggestions accepted" : "All suggestions rejected"
+    );
+  };
+
+  const setDocsReviewVisible = (visible = true) => {
+    docsReviewVisible = Boolean(visible);
+    previewLayout?.classList?.toggle("is-review-open", docsReviewVisible);
+    if (docsReviewPane) {
+      docsReviewPane.hidden = !docsReviewVisible;
+    }
+    if (docsReviewVisible) {
+      renderDocsReviewPane();
+    }
+  };
+
+  const renderDocsReviewPane = () => {
+    if (!previewLayout || !shell) {
+      return;
+    }
+    if (!docsReviewPane) {
+      docsReviewPane = document.createElement("aside");
+      docsReviewPane.className = "workspace-docs-review-pane";
+      previewLayout.appendChild(docsReviewPane);
+    }
+    docsReviewPane.hidden = !docsReviewVisible;
+    docsReviewPane.replaceChildren();
+
+    const header = document.createElement("div");
+    header.className = "workspace-docs-review-header";
+    const title = document.createElement("strong");
+    title.textContent = "Commentaires et suggestions";
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "workspace-docs-review-icon-button";
+    close.textContent = "×";
+    close.setAttribute("aria-label", "Fermer le panneau de revision");
+    close.addEventListener("click", () => setDocsReviewVisible(false));
+    header.append(title, close);
+    docsReviewPane.appendChild(header);
+
+    const suggestions = getDocsReviewSuggestionGroups();
+    const comments = getDocsReviewComments();
+    if (!suggestions.length && !comments.length) {
+      const empty = document.createElement("p");
+      empty.className = "workspace-docs-review-empty";
+      empty.textContent = "Aucun commentaire ni changement propose.";
+      docsReviewPane.appendChild(empty);
+      return;
+    }
+
+    if (suggestions.length) {
+      const section = document.createElement("section");
+      section.className = "workspace-docs-review-section";
+      const sectionHeader = document.createElement("div");
+      sectionHeader.className = "workspace-docs-review-section-header";
+      const label = document.createElement("strong");
+      label.textContent = `Suggestions (${suggestions.length})`;
+      const allActions = document.createElement("div");
+      const acceptAll = document.createElement("button");
+      acceptAll.type = "button";
+      acceptAll.textContent = "Tout accepter";
+      acceptAll.addEventListener("click", () => resolveAllDocsSuggestions("accept"));
+      const rejectAll = document.createElement("button");
+      rejectAll.type = "button";
+      rejectAll.textContent = "Tout refuser";
+      rejectAll.addEventListener("click", () => resolveAllDocsSuggestions("reject"));
+      allActions.append(acceptAll, rejectAll);
+      sectionHeader.append(label, allActions);
+      section.appendChild(sectionHeader);
+      suggestions.forEach(({ id, nodes }) => {
+        const card = document.createElement("article");
+        card.className = "workspace-docs-review-card";
+        const deletedText = nodes.filter((node) => node.tagName === "DEL").map((node) => node.textContent || "").join(" ");
+        const insertedText = nodes.filter((node) => node.tagName === "INS").map((node) => node.textContent || "").join(" ");
+        const summary = document.createElement("p");
+        summary.textContent = deletedText
+          ? `${deletedText} → ${insertedText || "suppression"}`
+          : `Ajout : ${insertedText}`;
+        const actions = document.createElement("div");
+        actions.className = "workspace-docs-review-actions";
+        [
+          ["Voir", () => focusDocsReviewNode(nodes[0])],
+          ["Accepter", () => resolveDocsSuggestion(id, "accept")],
+          ["Refuser", () => resolveDocsSuggestion(id, "reject")]
+        ].forEach(([actionLabel, onClick]) => {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.textContent = actionLabel;
+          button.addEventListener("click", onClick);
+          actions.appendChild(button);
+        });
+        card.append(summary, actions);
+        section.appendChild(card);
+      });
+      docsReviewPane.appendChild(section);
+    }
+
+    if (comments.length) {
+      const section = document.createElement("section");
+      section.className = "workspace-docs-review-section";
+      const label = document.createElement("strong");
+      label.textContent = `Commentaires (${comments.length})`;
+      section.appendChild(label);
+      comments.forEach((anchor) => {
+        const card = document.createElement("article");
+        card.className = "workspace-docs-review-card";
+        const isResolved = anchor.dataset.docsCommentStatus === "resolved";
+        card.classList.toggle("is-resolved", isResolved);
+        const quote = document.createElement("span");
+        quote.className = "workspace-docs-review-quote";
+        quote.textContent = String(anchor.textContent || "").trim();
+        const comment = document.createElement("p");
+        comment.textContent = anchor.dataset.docsCommentText || "Commentaire";
+        const meta = document.createElement("small");
+        meta.textContent = `${anchor.dataset.docsCommentAuthor || "Vous"} · ${isResolved ? "resolu" : "ouvert"}`;
+        card.append(quote, comment, meta);
+        try {
+          JSON.parse(anchor.dataset.docsCommentReplies || "[]").forEach((reply) => {
+            const replyNode = document.createElement("p");
+            replyNode.className = "workspace-docs-review-reply";
+            replyNode.textContent = `${reply.author || "Vous"} : ${reply.text || ""}`;
+            card.appendChild(replyNode);
+          });
+        } catch {
+          anchor.dataset.docsCommentReplies = "[]";
+        }
+        const actions = document.createElement("div");
+        actions.className = "workspace-docs-review-actions";
+        [
+          ["Voir", () => focusDocsReviewNode(anchor)],
+          ["Repondre", () => replyToDocsComment(anchor)],
+          [isResolved ? "Rouvrir" : "Resoudre", () => {
+            anchor.dataset.docsCommentStatus = isResolved ? "open" : "resolved";
+            syncDocsReviewChanges(isResolved ? "Comment reopened" : "Comment resolved");
+          }],
+          ["Supprimer", () => {
+            unwrapDocsReviewNode(anchor);
+            syncDocsReviewChanges("Comment deleted");
+          }]
+        ].forEach(([actionLabel, onClick]) => {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.textContent = actionLabel;
+          button.addEventListener("click", onClick);
+          actions.appendChild(button);
+        });
+        card.appendChild(actions);
+        section.appendChild(card);
+      });
+      docsReviewPane.appendChild(section);
+    }
+  };
+
+  const setDocsCaretInsideNode = (node, atEnd = true) => {
+    const selection = window.getSelection();
+    if (!selection || !node) {
+      return;
+    }
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    range.collapse(!atEnd);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    saveDocsSelectionRange();
+  };
+
+  const handleDocsTrackedBeforeInput = (event) => {
+    if (!docsTrackChangesEnabled || event.isComposing) {
+      return false;
+    }
+    const inputType = String(event.inputType || "");
+    if (!["insertText", "deleteContentBackward", "deleteContentForward"].includes(inputType)) {
+      return false;
+    }
+    const selection = window.getSelection();
+    if (!selection?.rangeCount) {
+      return false;
+    }
+    const liveRange = selection.getRangeAt(0);
+    if (!shell?.contains(liveRange.commonAncestorContainer)) {
+      return false;
+    }
+    const activeElement =
+      liveRange.startContainer.nodeType === Node.TEXT_NODE
+        ? liveRange.startContainer.parentElement
+        : liveRange.startContainer;
+    if (activeElement?.closest?.(".workspace-docs-suggestion-insert")) {
+      return false;
+    }
+
+    const range = liveRange.cloneRange();
+    const isInsertion = inputType === "insertText";
+    if (!isInsertion && range.collapsed && range.startContainer.nodeType === Node.TEXT_NODE) {
+      const textLength = range.startContainer.nodeValue?.length || 0;
+      if (inputType === "deleteContentBackward" && range.startOffset > 0) {
+        range.setStart(range.startContainer, range.startOffset - 1);
+      } else if (inputType === "deleteContentForward" && range.startOffset < textLength) {
+        range.setEnd(range.startContainer, range.startOffset + 1);
+      }
+    }
+    if (!isInsertion && range.collapsed) {
+      return false;
+    }
+
+    event.preventDefault();
+    const suggestionId = createDocsReviewId("suggestion");
+    const fragment = document.createDocumentFragment();
+    let removed = null;
+    if (!range.collapsed) {
+      removed = document.createElement("del");
+      removed.className = "workspace-docs-suggestion-delete";
+      removed.dataset.docsSuggestionId = suggestionId;
+      removed.dataset.docsSuggestionAuthor = "Vous";
+      removed.appendChild(range.extractContents());
+      fragment.appendChild(removed);
+    }
+    let inserted = null;
+    if (isInsertion && event.data) {
+      inserted = document.createElement("ins");
+      inserted.className = "workspace-docs-suggestion-insert";
+      inserted.dataset.docsSuggestionId = suggestionId;
+      inserted.dataset.docsSuggestionAuthor = "Vous";
+      inserted.textContent = event.data;
+      fragment.appendChild(inserted);
+    }
+    range.insertNode(fragment);
+    if (inserted) {
+      setDocsCaretInsideNode(inserted, true);
+    } else if (removed) {
+      placeDocsCaretAfterNode(removed);
+    }
+    setDocsReviewVisible(true);
+    syncDocsReviewChanges(isInsertion ? "Change tracked" : "Deletion tracked");
+    return true;
   };
 
   const toggleActiveBlockStyle = (property, activeValue, inactiveValue = "") => {
@@ -5131,24 +5649,24 @@ function renderMarkdownPreview(
 
   const getDocsRemovalActionLabel = (target = null) => {
     if (!target) {
-      return "Delete";
+      return "Supprimer";
     }
     if (target.closest?.("table")) {
-      return "Delete table";
+      return "Supprimer le tableau";
     }
     if (isDocsMediaTarget(target)) {
-      return "Delete media";
+      return "Supprimer le média";
     }
     if (target.matches?.("li")) {
-      return "Delete list item";
+      return "Supprimer l’élément de liste";
     }
     if (target.matches?.("hr")) {
-      return "Delete divider";
+      return "Supprimer le séparateur";
     }
     if (target.matches?.(".workspace-docs-page-break")) {
-      return "Delete page break";
+      return "Supprimer le saut de page";
     }
-    return "Delete block";
+    return "Supprimer le bloc";
   };
 
   const createDocsSharedActionMap = ({
@@ -5184,6 +5702,8 @@ function renderMarkdownPreview(
     insertImageUrl: insertImageFromUrl,
     insertNewSection,
     insertPageBreak,
+    insertTableOfContents,
+    insertFootnote,
     tableInsertRowBelow: () => table && addTableRow(table, rowIndex === null ? getTableBodyRows(table).length : rowIndex + 1),
     tableInsertColumnRight: () => table && addTableColumn(table, columnIndex === null ? getTableColumnCount(table) : columnIndex + 1),
     tableDeleteRow: () => table && rowIndex !== null && removeTableRow(table, rowIndex),
@@ -5199,6 +5719,36 @@ function renderMarkdownPreview(
     actionMap,
     { restoreSelectionCommandIds = new Set(["bold", "italic", "underline", "strikethrough"]) } = {}
   ) => {
+    const localizedLabels = {
+      bold: "Gras",
+      italic: "Italique",
+      underline: "Souligné",
+      strikethrough: "Barré",
+      clearFormatting: "Effacer la mise en forme",
+      blockText: "Texte",
+      blockTitle: "Titre",
+      blockHeading: "Titre 1",
+      blockSubhead: "Titre 2",
+      blockBullets: "Puces",
+      blockNumbered: "Numérotation",
+      alignLeft: "Aligner à gauche",
+      alignCenter: "Centrer",
+      alignRight: "Aligner à droite",
+      alignJustify: "Justifier",
+      insertChecklist: "Liste de tâches",
+      insertQuote: "Citation",
+      insertDivider: "Séparateur",
+      insertTable: "Tableau",
+      insertImage: "Importer une image",
+      insertImageUrl: "Image depuis une URL",
+      insertNewSection: "Nouvelle section",
+      insertPageBreak: "Saut de page",
+      tableInsertRowBelow: "Insérer une ligne dessous",
+      tableInsertColumnRight: "Insérer une colonne à droite",
+      tableDeleteRow: "Supprimer la ligne",
+      tableDeleteColumn: "Supprimer la colonne",
+      tableDelete: "Supprimer le tableau"
+    };
     const convertBoundItem = (item) => {
       if (item.separator || item.heading) {
         return { ...item };
@@ -5210,7 +5760,10 @@ function renderMarkdownPreview(
         return null;
       }
       return {
-        label: item.label,
+        label:
+          item.commandId === "fontSize" && item.value === ""
+            ? "Taille automatique"
+            : localizedLabels[item.commandId] || item.label,
         icon: item.icon,
         commandId: item.commandId,
         danger: item.danger,
@@ -5238,6 +5791,95 @@ function renderMarkdownPreview(
     actions.push({ label, icon, items: nestedItems });
   };
 
+  const renderDocsContextMenuCustomItem = (item, host) => {
+    if (item?.customType !== "docsQuickFormat") {
+      return false;
+    }
+    const toolbar = document.createElement("div");
+    toolbar.className = "workspace-docs-context-quickbar";
+
+    const familySelect = document.createElement("select");
+    familySelect.className = "workspace-docs-context-font-family";
+    familySelect.setAttribute("aria-label", "Police");
+    familySelect.title = "Police";
+    DOCS_FONT_FAMILY_OPTIONS.forEach((option) => {
+      const entry = document.createElement("option");
+      entry.value = option.value;
+      entry.textContent = option.label;
+      familySelect.appendChild(entry);
+    });
+
+    const sizeSelect = document.createElement("select");
+    sizeSelect.className = "workspace-docs-context-font-size";
+    sizeSelect.setAttribute("aria-label", "Taille de police");
+    sizeSelect.title = "Taille de police";
+    DOCS_FONT_SIZE_OPTIONS.forEach((option) => {
+      const entry = document.createElement("option");
+      entry.value = option.value;
+      entry.textContent = option.label;
+      sizeSelect.appendChild(entry);
+    });
+
+    const formattingState = getDocsCurrentFormattingState();
+    const currentFamily = DOCS_FONT_FAMILY_OPTIONS.find(
+      (option) =>
+        normalizeDocsFontFamilyKey(option.value || option.label) ===
+        normalizeDocsFontFamilyKey(formattingState.fontFamilyValue)
+    );
+    familySelect.value = currentFamily?.value || "";
+    sizeSelect.value =
+      Array.from(sizeSelect.options).find((option) => option.value === formattingState.fontSizeValue)?.value ||
+      "";
+
+    [familySelect, sizeSelect].forEach((select) => {
+      select.addEventListener("pointerdown", () => saveDocsSelectionRange());
+      select.addEventListener("click", (event) => event.stopPropagation());
+    });
+    familySelect.addEventListener("change", () => {
+      restoreDocsSelection();
+      applyBlockFontFamily(familySelect.value);
+      docsTableContextMenuApi?.close?.();
+    });
+    sizeSelect.addEventListener("change", () => {
+      restoreDocsSelection();
+      applyBlockFontSize(sizeSelect.value);
+      docsTableContextMenuApi?.close?.();
+    });
+
+    const controls = document.createElement("div");
+    controls.className = "workspace-docs-context-format-buttons";
+    [
+      ["bold", "Gras"],
+      ["italic", "Italique"],
+      ["underline", "Souligné"],
+      ["strikethrough", "Barré"]
+    ].forEach(([commandId, label]) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "workspace-docs-context-format-button";
+      button.title = label;
+      button.setAttribute("aria-label", label);
+      button.appendChild(
+        createWorkspaceIconNode(getWorkspaceCommandIcon(commandId), {
+          className: "workspace-docs-context-format-icon",
+          label
+        })
+      );
+      preserveDocsSelectionOnPointerDown(button);
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        executeDocsWorkspaceCommand(commandId, { fromContextMenu: true });
+        docsTableContextMenuApi?.close?.();
+      });
+      controls.appendChild(button);
+    });
+
+    toolbar.append(familySelect, sizeSelect, controls);
+    host.appendChild(toolbar);
+    return true;
+  };
+
   const buildDocsContextMenuActions = (target = null) => {
     const resolvedTarget = target || getDocsActionTargetFromNode(activeEditable) || shell;
     const figureTarget = getDocsFigureTargetFromNode(resolvedTarget);
@@ -5262,7 +5904,8 @@ function renderMarkdownPreview(
 
     if (editableTarget || selectionActive) {
       const textActionMap = createDocsSharedActionMap({ fromContextMenu: true });
-      addLabel("Text");
+      actions.push({ customType: "docsQuickFormat" });
+      addLabel("Texte");
       appendDocsContextMenuItems(
         actions,
         createWorkspaceDocumentFormatMenuItems({ includeHistory: false, includeClearFormatting: false }),
@@ -5290,6 +5933,12 @@ function renderMarkdownPreview(
           restoreSelectionCommandIds: new Set(["fontSize"])
         })
       );
+      if (selectionActive) {
+        addLabel("Révision");
+        addAction("Ajouter un commentaire", addDocsComment, { icon: "note", restoreSelection: true });
+        addAction("Proposer une modification", addDocsSuggestion, { icon: "text", restoreSelection: true });
+        addAction("Ajouter un lien", insertDocsHyperlink, { icon: "link", restoreSelection: true });
+      }
     }
 
     if (table) {
@@ -5314,7 +5963,7 @@ function renderMarkdownPreview(
     } else if (!mediaTarget) {
       appendDocsContextSubmenu(
         actions,
-        "Inserer",
+        "Insérer",
         "insert",
         createDocsBoundContextMenuItems(createWorkspaceDocumentInsertMenuItems(), createDocsSharedActionMap(), {
           restoreSelectionCommandIds: new Set()
@@ -5334,11 +5983,11 @@ function renderMarkdownPreview(
       }
     }
 
-    addLabel("View");
-    addAction(isDocsCanvasFullscreen() ? "Exit fullscreen" : "Open fullscreen", toggleDocsFullscreen);
+    addLabel("Affichage");
+    addAction(isDocsCanvasFullscreen() ? "Quitter le plein écran" : "Ouvrir en plein écran", toggleDocsFullscreen);
 
     if (resolvedTarget && resolvedTarget !== shell && !mediaTarget) {
-      addLabel("Remove");
+      addLabel("Supprimer");
       addAction(getDocsRemovalActionLabel(resolvedTarget), () => removeDocsActionTarget(resolvedTarget), { danger: true });
     }
 
@@ -5455,6 +6104,20 @@ function renderMarkdownPreview(
     const settingsNode =
       rawNodes.find((node) => node.nodeType === Node.ELEMENT_NODE && node.classList?.contains("workspace-docs-page-meta")) || null;
     const contentNodes = rawNodes.filter((node) => node !== settingsNode);
+    if (!contentNodes.length) {
+      const paragraph = document.createElement("p");
+      paragraph.innerHTML = "<br>";
+      contentNodes.push(paragraph);
+    }
+    contentNodes.forEach((node) => {
+      if (
+        node.nodeType === Node.ELEMENT_NODE &&
+        node.matches?.("h1, h2, h3, h4, p, blockquote, li, figcaption, th, td") &&
+        !node.innerHTML.trim()
+      ) {
+        node.innerHTML = "<br>";
+      }
+    });
     const formatState = getDocsPageFormatState();
     shell.innerHTML = "";
     if (settingsNode) {
@@ -5477,6 +6140,10 @@ function renderMarkdownPreview(
       page.className = "workspace-document-page-sheet";
       page.dataset.page = String(pageIndex + 1);
       page.dataset.orientation = formatState.orientation === "landscape" ? "landscape" : "portrait";
+      page.dataset.pageSize = formatState.pageSize === "letter" ? "letter" : "a4";
+      page.dataset.pageMargins = ["narrow", "wide"].includes(formatState.pageMargins)
+        ? formatState.pageMargins
+        : "normal";
       shell.appendChild(page);
       return page;
     };
@@ -5501,7 +6168,9 @@ function renderMarkdownPreview(
     const isDocsSplittableTextBlock = (node) =>
       node?.nodeType === Node.ELEMENT_NODE &&
       node.matches?.("p, blockquote, h1, h2, h3, h4, figcaption") &&
-      !node.querySelector?.("table, img, video, figure, ul, ol, input, button, .workspace-docs-page-break");
+      !node.querySelector?.(
+        "table, img, video, figure, ul, ol, input, button, .workspace-docs-page-break, .workspace-docs-comment-anchor, [data-docs-suggestion-id]"
+      );
     const splitPlainDocsBlockToFit = (page, block) => {
       if (!isDocsSplittableTextBlock(block)) {
         return null;
@@ -5586,6 +6255,9 @@ function renderMarkdownPreview(
     };
     for (const node of contentNodes) {
       if (node.nodeType === Node.ELEMENT_NODE && node.classList?.contains("workspace-docs-page-break")) {
+        node.contentEditable = "false";
+        node.setAttribute("role", "separator");
+        node.setAttribute("aria-label", "Saut de page");
         finalizePage(currentPage);
         shell.appendChild(node);
         pageIndex += 1;
@@ -5666,10 +6338,81 @@ function renderMarkdownPreview(
     commitDocsLayoutChange(`${assetWorkObject.title || "Asset"} inserted`);
   };
 
+  const updateDocsStatusBar = () => {
+    if (!shell) {
+      return;
+    }
+    if (docsStatusPages) {
+      const pageCount = shell.querySelectorAll(".workspace-document-page-sheet").length || 1;
+      docsStatusPages.textContent = pageCount === 1 ? "1 page" : `${pageCount} pages`;
+    }
+    if (docsStatusWords) {
+      const clone = shell.cloneNode(true);
+      clone
+        .querySelectorAll(
+          ".workspace-docs-page-meta, .workspace-docs-page-control-bar, .workspace-docs-page-header, .workspace-docs-page-footer, .workspace-docs-vertical-ruler"
+        )
+        .forEach((node) => node.remove());
+      clone.querySelectorAll(".workspace-docs-page-break").forEach((node) => node.remove());
+      docsStatusWords.textContent = `${previewWordCount(clone.textContent || "")} mots`;
+    }
+    if (docsZoomSelect) {
+      docsZoomSelect.value = String(Math.round(docsZoomLevel * 100));
+    }
+  };
+
+  const setDocsZoomLevel = (value = 1) => {
+    docsZoomLevel = Math.max(0.5, Math.min(1.75, Number(value) || 1));
+    docsCanvas?.style?.setProperty("--docs-zoom", String(docsZoomLevel));
+    updateDocsStatusBar();
+  };
+
+  const createDocsStatusBar = () => {
+    docsStatusBar = document.createElement("div");
+    docsStatusBar.className = "workspace-docs-statusbar";
+    const metrics = document.createElement("div");
+    metrics.className = "workspace-docs-status-metrics";
+    docsStatusPages = document.createElement("span");
+    docsStatusWords = document.createElement("span");
+    const language = document.createElement("span");
+    language.textContent = "Francais";
+    metrics.append(docsStatusPages, docsStatusWords, language);
+
+    const zoom = document.createElement("div");
+    zoom.className = "workspace-docs-zoom-controls";
+    const zoomOut = document.createElement("button");
+    zoomOut.type = "button";
+    zoomOut.textContent = "−";
+    zoomOut.title = "Reduire le zoom";
+    zoomOut.setAttribute("aria-label", "Reduire le zoom");
+    zoomOut.addEventListener("click", () => setDocsZoomLevel(docsZoomLevel - 0.1));
+    docsZoomSelect = document.createElement("select");
+    docsZoomSelect.title = "Zoom";
+    docsZoomSelect.setAttribute("aria-label", "Zoom du document");
+    [50, 75, 90, 100, 110, 125, 150, 175].forEach((percent) => {
+      const option = document.createElement("option");
+      option.value = String(percent);
+      option.textContent = `${percent}%`;
+      docsZoomSelect.appendChild(option);
+    });
+    docsZoomSelect.addEventListener("change", () => setDocsZoomLevel(Number(docsZoomSelect.value) / 100));
+    const zoomIn = document.createElement("button");
+    zoomIn.type = "button";
+    zoomIn.textContent = "+";
+    zoomIn.title = "Augmenter le zoom";
+    zoomIn.setAttribute("aria-label", "Augmenter le zoom");
+    zoomIn.addEventListener("click", () => setDocsZoomLevel(docsZoomLevel + 0.1));
+    zoom.append(zoomOut, docsZoomSelect, zoomIn);
+    docsStatusBar.append(metrics, zoom);
+    updateDocsStatusBar();
+    return docsStatusBar;
+  };
+
   const updateDocsToolbarStatus = (label = "Click in the page, then use the tools above.") => {
     if (docsToolbarStatus) {
       docsToolbarStatus.textContent = label;
     }
+    updateDocsStatusBar();
   };
 
   const isDocsChecklistList = (list) =>
@@ -6183,24 +6926,211 @@ function renderMarkdownPreview(
     if (!shell) {
       return;
     }
+    const selectionRange = getDocsSelectionRangeSnapshot();
+    let marker = null;
+    if (selectionRange && shell.contains(selectionRange.commonAncestorContainer)) {
+      restoreDocsSelection();
+      const selection = window.getSelection();
+      const liveRange = selection?.rangeCount ? selection.getRangeAt(0) : selectionRange;
+      liveRange.deleteContents();
+      liveRange.collapse(true);
+      marker = document.createElement("span");
+      marker.dataset.docsPageBreakMarker = "true";
+      marker.contentEditable = "false";
+      marker.hidden = true;
+      liveRange.insertNode(marker);
+    }
     unwrapDocsPageShell();
+
     const breakNode = document.createElement("div");
     breakNode.className = "workspace-docs-page-break";
-    breakNode.textContent = "Page break";
-    const heading = document.createElement("h1");
-    heading.textContent = "New page";
-    const paragraph = document.createElement("p");
-    paragraph.textContent = "Start writing on the next page here.";
-    bindEditable(heading);
-    bindEditable(paragraph, { multiline: true });
-    insertDocsNodes(breakNode, heading, paragraph);
-    activeEditable = paragraph;
-    paragraph.focus();
+    breakNode.contentEditable = "false";
+    breakNode.setAttribute("role", "separator");
+    breakNode.setAttribute("aria-label", "Saut de page");
+    breakNode.dataset.docsPageBreak = "true";
+
+    const createBlankParagraph = () => {
+      const paragraph = document.createElement("p");
+      paragraph.innerHTML = "<br>";
+      return paragraph;
+    };
+    const fragmentHasContent = (fragment) =>
+      Boolean(
+        String(fragment?.textContent || "").trim() ||
+          fragment?.querySelector?.("img, video, table, figure, hr, ul, ol, blockquote")
+      );
+    const blockHasContent = (block) =>
+      Boolean(
+        String(block?.textContent || "").trim() ||
+          block?.querySelector?.("img, video, table, figure, hr, ul, ol, blockquote")
+      );
+
+    let nextEditable = null;
+    const markerBlock = marker ? getDocsEditableTargetFromNode(marker) : null;
+    if (marker && markerBlock && markerBlock.parentElement === shell) {
+      const tailRange = document.createRange();
+      tailRange.setStartAfter(marker);
+      tailRange.setEnd(markerBlock, markerBlock.childNodes.length);
+      const trailingContent = tailRange.extractContents();
+      marker.remove();
+
+      const continuation = fragmentHasContent(trailingContent)
+        ? markerBlock.cloneNode(false)
+        : createBlankParagraph();
+      continuation.removeAttribute?.("id");
+      if (fragmentHasContent(trailingContent)) {
+        continuation.appendChild(trailingContent);
+      }
+
+      if (blockHasContent(markerBlock)) {
+        markerBlock.after(breakNode, continuation);
+      } else {
+        markerBlock.replaceWith(breakNode, continuation);
+      }
+      nextEditable = continuation;
+    } else {
+      marker?.remove();
+      const anchor = getActiveInsertionAnchor();
+      const topLevelAnchor = getDocsTopLevelContentNode(anchor) || anchor;
+      nextEditable = createBlankParagraph();
+      if (topLevelAnchor?.parentElement === shell) {
+        topLevelAnchor.after(breakNode, nextEditable);
+      } else {
+        shell.append(breakNode, nextEditable);
+      }
+    }
+
+    activeEditable = nextEditable;
     if (isDocsClone) {
       rebuildDocsPageShell();
     }
     commitDocumentShell();
-    updateDocsToolbarStatus("New page added");
+    window.requestAnimationFrame(() => {
+      shell.focus({ preventScroll: true });
+      const selection = window.getSelection();
+      if (!selection || !activeEditable?.isConnected) {
+        return;
+      }
+      const range = document.createRange();
+      range.selectNodeContents(activeEditable);
+      range.collapse(true);
+      selection.removeAllRanges();
+      selection.addRange(range);
+      saveDocsSelectionRange();
+      activeEditable.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    updateDocsToolbarStatus("Saut de page ajouté");
+  };
+
+  const insertTableOfContents = () => {
+    if (!shell) return;
+    unwrapDocsPageShell();
+    let tableOfContents = shell.querySelector(
+      "[data-docs-table-of-contents='true']"
+    );
+    if (!tableOfContents) {
+      tableOfContents = document.createElement("nav");
+      tableOfContents.className = "workspace-docs-table-of-contents";
+      tableOfContents.dataset.docsTableOfContents = "true";
+      tableOfContents.contentEditable = "false";
+      insertDocsNodes(tableOfContents);
+    }
+    refreshDocsTableOfContents();
+    commitDocsLayoutChange("Table des matieres synchronisee", null, {
+      rebuildPageShell: true
+    });
+  };
+
+  refreshDocsTableOfContents = () => {
+    if (!shell) return;
+    const tables = Array.from(
+      shell.querySelectorAll("[data-docs-table-of-contents='true']")
+    );
+    if (!tables.length) return;
+    const headings = Array.from(shell.querySelectorAll("h1, h2, h3")).filter(
+      (heading) => !heading.closest("[data-docs-table-of-contents='true']")
+    );
+    const usedIds = new Set();
+    headings.forEach((heading, index) => {
+      const base =
+        String(heading.textContent || `section-${index + 1}`)
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-|-$/g, "") || `section-${index + 1}`;
+      let id = heading.id || base;
+      let suffix = 2;
+      while (usedIds.has(id)) {
+        id = `${base}-${suffix}`;
+        suffix += 1;
+      }
+      usedIds.add(id);
+      heading.id = id;
+    });
+    tables.forEach((tableOfContents) => {
+      const title = document.createElement("h2");
+      title.textContent = "Table des matieres";
+      const list = document.createElement("ol");
+      headings.forEach((heading) => {
+        const item = document.createElement("li");
+        item.className = `workspace-docs-toc-level-${heading.tagName.slice(1)}`;
+        const link = document.createElement("a");
+        link.href = `#${heading.id}`;
+        link.textContent = String(heading.textContent || "Section");
+        link.addEventListener("click", (event) => {
+          event.preventDefault();
+          heading.scrollIntoView({ behavior: "smooth", block: "center" });
+          heading.focus?.({ preventScroll: true });
+        });
+        item.appendChild(link);
+        list.appendChild(item);
+      });
+      tableOfContents.replaceChildren(title, list);
+    });
+  };
+
+  const insertFootnote = () => {
+    if (!shell) return;
+    unwrapDocsPageShell();
+    const noteText = window.prompt("Texte de la note de bas de page");
+    if (!noteText?.trim()) return;
+    const noteNumber = shell.querySelectorAll("[data-docs-footnote]").length + 1;
+    const reference = document.createElement("sup");
+    reference.dataset.docsFootnoteRef = String(noteNumber);
+    const referenceLink = document.createElement("a");
+    referenceLink.href = `#docs-footnote-${noteNumber}`;
+    referenceLink.textContent = String(noteNumber);
+    reference.appendChild(referenceLink);
+    const range = restoreDocsSelection();
+    if (range && shell.contains(range.commonAncestorContainer)) {
+      range.collapse(false);
+      range.insertNode(reference);
+      placeDocsCaretAfterNode(reference);
+    } else if (activeEditable) {
+      activeEditable.appendChild(reference);
+    }
+
+    let footnotes = shell.querySelector("[data-docs-footnotes='true']");
+    if (!footnotes) {
+      footnotes = document.createElement("section");
+      footnotes.className = "workspace-docs-footnotes";
+      footnotes.dataset.docsFootnotes = "true";
+      const heading = document.createElement("h2");
+      heading.textContent = "Notes";
+      const list = document.createElement("ol");
+      footnotes.append(heading, list);
+      shell.appendChild(footnotes);
+    }
+    const item = document.createElement("li");
+    item.id = `docs-footnote-${noteNumber}`;
+    item.dataset.docsFootnote = String(noteNumber);
+    item.textContent = noteText.trim();
+    bindEditable(item, { multiline: true });
+    footnotes.querySelector("ol")?.appendChild(item);
+    commitDocsLayoutChange("Note de bas de page ajoutee", null, {
+      rebuildPageShell: true
+    });
   };
 
   const insertNewSection = () => {
@@ -6869,6 +7799,17 @@ function renderMarkdownPreview(
         });
         addMenuGroup("Paragraphe", () => {
           addDocsFormatFields(["alignment"]);
+          addMenuDropdownField(
+            "Interligne",
+            [
+              { label: "1,0", value: "1" },
+              { label: "1,15", value: "1.15" },
+              { label: "1,5", value: "1.5" },
+              { label: "2,0", value: "2" }
+            ],
+            (item) => applyBlockLineHeight(item?.value || "1.15"),
+            { placeholder: "Interligne", initialValue: "1,15" }
+          );
           addBoundMenuActions(
             [
               { label: "Normal", icon: "text", commandId: "blockText", value: "p" },
@@ -6880,6 +7821,8 @@ function renderMarkdownPreview(
             ],
             sharedDocsActions
           );
+          addMenuAction({ label: "Diminuer le retrait", icon: "alignLeft" }, () => adjustBlockIndent(-1));
+          addMenuAction({ label: "Augmenter le retrait", icon: "alignRight" }, () => adjustBlockIndent(1));
         });
         syncDocsRibbonFields();
         return;
@@ -6917,6 +7860,24 @@ function renderMarkdownPreview(
             ],
             sharedDocsActions
           );
+          addMenuAction({ label: "Lien", icon: "link" }, insertDocsHyperlink);
+        });
+        addMenuGroup("References", () => {
+          addBoundMenuActions(
+            [
+              {
+                label: "Table des matieres",
+                icon: "list",
+                commandId: "insertTableOfContents"
+              },
+              {
+                label: "Note de bas de page",
+                icon: "text",
+                commandId: "insertFootnote"
+              }
+            ],
+            sharedDocsActions
+          );
         });
         return;
       }
@@ -6929,6 +7890,31 @@ function renderMarkdownPreview(
               toggleHeaderFooter: toggleDocsHeaderFooter,
               pageNumbers: () => renderDocsPageNumberSettingsView(),
               pageOrientation: toggleDocsPageOrientation
+            }
+          );
+          addMenuDropdownField(
+            "Marges",
+            [
+              { label: "Normales", value: "normal" },
+              { label: "Etroites", value: "narrow" },
+              { label: "Larges", value: "wide" }
+            ],
+            (item) => setDocsPageMargins(item?.value || "normal"),
+            {
+              placeholder: "Marges",
+              initialValue: getDocsPageFormatState().pageMargins
+            }
+          );
+          addMenuDropdownField(
+            "Format",
+            [
+              { label: "A4", value: "a4" },
+              { label: "Letter", value: "letter" }
+            ],
+            (item) => setDocsPageSize(item?.value || "a4"),
+            {
+              placeholder: "Format",
+              initialValue: getDocsPageFormatState().pageSize === "letter" ? "Letter" : "A4"
             }
           );
         });
@@ -6947,6 +7933,14 @@ function renderMarkdownPreview(
       if (activeMenuId === "Références") {
         addMenuGroup("Plan", () => {
           addMenuAction({ label: "Afficher le plan", icon: "list" }, focusDocsOutline);
+          addMenuAction(
+            { label: "Inserer une table des matieres", icon: "list" },
+            insertTableOfContents
+          );
+          addMenuAction(
+            { label: "Inserer une note de bas de page", icon: "text" },
+            insertFootnote
+          );
           addMenuAction({ label: "Nouvelle section", icon: "insert", commandId: "insertNewSection" }, () => sharedDocsActions.insertNewSection?.());
         });
         if (projectDocs.length) {
@@ -6963,13 +7957,35 @@ function renderMarkdownPreview(
       }
 
       if (activeMenuId === "Révision") {
-        addMenuGroup("Verification", () => {
-          addMenuAction({ label: "Rechercher", icon: "search", commandId: "findDocument" }, openDocumentSearch, true);
-          addMenuAction({ label: "Polish", icon: "sparkle" }, prepareShareReadyPrompt, true);
+        addMenuGroup("Commentaires", () => {
+          addMenuAction({ label: "Nouveau commentaire", icon: "note" }, addDocsComment, true);
+          addMenuAction({ label: "Afficher les commentaires", icon: "note" }, () => setDocsReviewVisible(true));
+        });
+        addMenuGroup("Suivi", () => {
+          addMenuAction(
+            {
+              label: docsTrackChangesEnabled ? "Arreter le suivi" : "Suivre les modifications",
+              icon: "text"
+            },
+            () => {
+              docsTrackChangesEnabled = !docsTrackChangesEnabled;
+              shell?.classList?.toggle("is-tracking-changes", docsTrackChangesEnabled);
+              updateDocsToolbarStatus(
+                docsTrackChangesEnabled ? "Track changes enabled" : "Track changes disabled"
+              );
+              renderDocsMenu("Révision");
+            },
+            docsTrackChangesEnabled
+          );
+          addMenuAction({ label: "Proposer une modification", icon: "text" }, addDocsSuggestion, true);
+        });
+        addMenuGroup("Accepter ou refuser", () => {
+          addMenuAction({ label: "Tout accepter", icon: "checkbox" }, () => resolveAllDocsSuggestions("accept"));
+          addMenuAction({ label: "Tout refuser", icon: "delete" }, () => resolveAllDocsSuggestions("reject"));
         });
         addMenuGroup("Hydria", () => {
+          addMenuAction({ label: "Polish", icon: "sparkle" }, prepareShareReadyPrompt, true);
           addMenuAction({ label: "Demander a Hydria", icon: "sparkle" }, focusPromptForDocs, true);
-          addMenuAction({ label: "Nouveau document", icon: "insert" }, createNewProjectDoc);
         });
         return;
       }
@@ -7396,6 +8412,7 @@ function renderMarkdownPreview(
         separatorClassName: "workspace-docs-table-menu-separator",
         headingClassName: "workspace-docs-table-menu-label",
         submenuClassName: "workspace-docs-table-submenu",
+        renderCustomItem: renderDocsContextMenuCustomItem,
         actionOptions: (item) => ({
           actionClassName: `workspace-docs-table-menu-item${item.danger ? " is-danger" : ""}`,
           iconClassName: "workspace-docs-table-menu-icon",
@@ -7428,6 +8445,9 @@ function renderMarkdownPreview(
     shell.spellcheck = true;
     shell.classList.add("workspace-inline-editable");
     shell.dataset.placeholder = "Start typing here";
+    shell.addEventListener("beforeinput", (event) => {
+      handleDocsTrackedBeforeInput(event);
+    });
     shell.addEventListener("input", (event) => {
       const isPasteInput = ["insertFromPaste", "insertFromPasteAsQuotation", "insertFromDrop"].includes(event.inputType);
       if (shouldLinkifyOnBreak(event)) {
@@ -7448,7 +8468,7 @@ function renderMarkdownPreview(
         commitDocumentShell();
         scheduleDocsPageReflow({
           delay: 600,
-          preserveSelection: false
+          preserveSelection: true
         });
         updateDocsTableControls(null, true);
         updateDocsToolbarStatus("Saved automatically");
@@ -7474,7 +8494,7 @@ function renderMarkdownPreview(
       }
       linkifyPlainUrlsInNode(shell);
       docsPendingPageReflow = true;
-      reflowDocsPages({ preserveSelection: false });
+      reflowDocsPages({ preserveSelection: true });
       commitDocumentShell();
       updateDocsTableControls(null, true);
       updateDocsToolbarStatus("Pasted and paginated");
@@ -7498,6 +8518,44 @@ function renderMarkdownPreview(
       }
       updateDocsActivePageRuler(window.getSelection()?.anchorNode || null);
       updateDocsToolbarStatus("Editing page");
+    });
+    shell.addEventListener("mousedown", (event) => {
+      const page = event.target.closest?.(".workspace-document-page-sheet");
+      if (
+        !page ||
+        event.target !== page ||
+        event.button !== 0 ||
+        event.target.closest?.(
+          ".workspace-docs-page-control-bar, .workspace-docs-page-header, .workspace-docs-page-footer, .workspace-docs-vertical-ruler"
+        )
+      ) {
+        return;
+      }
+      let target = Array.from(
+        page.querySelectorAll("p, h1, h2, h3, h4, blockquote, li, figcaption, th, td")
+      ).filter((node) => !node.closest(".workspace-docs-page-header, .workspace-docs-page-footer")).at(-1);
+      if (!target) {
+        target = document.createElement("p");
+        target.innerHTML = "<br>";
+        const firstChromeNode = Array.from(page.children).find((node) =>
+          node.matches?.(
+            ".workspace-docs-page-control-bar, .workspace-docs-page-header, .workspace-docs-page-footer, .workspace-docs-vertical-ruler"
+          )
+        );
+        page.insertBefore(target, firstChromeNode || null);
+      }
+      event.preventDefault();
+      activeEditable = target;
+      shell.focus({ preventScroll: true });
+      const selection = window.getSelection();
+      if (selection) {
+        const range = document.createRange();
+        range.selectNodeContents(target);
+        range.collapse(false);
+        selection.removeAllRanges();
+        selection.addRange(range);
+        saveDocsSelectionRange();
+      }
     });
     shell.addEventListener("keydown", (event) => {
       if (event.key !== "Tab") {
@@ -7547,6 +8605,7 @@ function renderMarkdownPreview(
         hideDocsTableContextMenu();
       }
     });
+    refreshDocsTableOfContents();
     window.requestAnimationFrame(() => {
       reflowDocsPages();
       updateDocsActivePageRuler(activeEditable);
@@ -7557,6 +8616,12 @@ function renderMarkdownPreview(
   }
   setDocsOutlineVisible(false);
   previewShell.appendChild(previewLayout);
+  if (isDocsClone) {
+    previewShell.appendChild(createDocsStatusBar());
+    if (getDocsReviewComments().length || getDocsReviewSuggestionGroups().length) {
+      renderDocsReviewPane();
+    }
+  }
   if (isDocsClone) {
     renderWorkspaceApplicationPreviewShell(container, {
       previewKey: workObject?.id || workObject?.title || "docs-preview",
@@ -8253,7 +9318,8 @@ function renderSpreadsheetClonePreview(
     profile = null,
     workObject = null,
     filePath = "",
-    onGridEdit = null
+    onGridEdit = null,
+    formulaResults = null
   } = {}
 ) {
   let workbookModel = normalizeSpreadsheetPreviewModel(model, {
@@ -10361,7 +11427,8 @@ function renderSpreadsheetClonePreview(
         profile,
         workObject,
         filePath,
-        onGridEdit
+        onGridEdit,
+        formulaResults
       });
       onGridEdit?.(workbookModel, { refreshWorkspace: false });
     } finally {
@@ -10606,7 +11673,8 @@ function renderSpreadsheetClonePreview(
       profile,
       workObject,
       filePath,
-      onGridEdit
+      onGridEdit,
+      formulaResults
     });
     restoreGridScrollState(scrollState);
   };
@@ -11957,12 +13025,22 @@ function renderSpreadsheetClonePreview(
     if (isSpreadsheetFormulaIncomplete(rawValue)) {
       return { rawValue, isFormula: true, hasIssue: true, result: rawValue };
     }
-    const result = evaluateCellValue(rowIndex, columnIndex);
+    const externalValues =
+      formulaResults?.formulaValues?.[activeSheet.id] || {};
+    const externalKey = `${rowIndex}:${columnIndex}`;
+    const hasExternalResult = Object.prototype.hasOwnProperty.call(
+      externalValues,
+      externalKey
+    );
+    const result = hasExternalResult
+      ? externalValues[externalKey]
+      : evaluateCellValue(rowIndex, columnIndex);
     return {
       rawValue,
       isFormula: true,
       hasIssue: isUnexpectedSpreadsheetFormulaResult(result),
-      result
+      result,
+      external: hasExternalResult
     };
   };
 
@@ -11972,7 +13050,9 @@ function renderSpreadsheetClonePreview(
       return formatCellDisplayValue(formulaState.rawValue, rowIndex, columnIndex);
     }
     if (formulaState.hasIssue) {
-      return formulaState.rawValue;
+      return formulaState.external
+        ? String(formulaState.result || "#ERROR!")
+        : formulaState.rawValue;
     }
     return formatCellDisplayValue(formatFormulaResult(formulaState.result, formulaState.rawValue), rowIndex, columnIndex);
   };
@@ -18743,7 +19823,8 @@ function renderSpreadsheetClonePreview(
           profile,
           workObject,
           filePath,
-          onGridEdit
+          onGridEdit,
+          formulaResults
         });
         onGridEdit?.(workbookModel, { refreshWorkspace: false });
       } finally {
@@ -24208,7 +25289,8 @@ function renderDataPreview(
   content = "",
   {
     workObject = null,
-    onGridEdit = null
+    onGridEdit = null,
+    formulaResults = null
   } = {}
 ) {
   const profile = getDatasetWorkspacePreviewProfile(workObject);
@@ -24343,7 +25425,8 @@ function renderDataPreview(
       profile,
       workObject,
       filePath,
-      onGridEdit
+      onGridEdit,
+      formulaResults
     });
     return;
   }
@@ -24353,6 +25436,34 @@ function renderDataPreview(
 
 function stripPresentationSlideTitle(value = "") {
   return String(value || "").replace(/^slide\s+\d+\s*-\s*/i, "").trim();
+}
+
+const PRESENTATION_SLIDE_META_PATTERN = /^<!--\s*hydria-slide:\s*(\{[\s\S]*\})\s*-->\s*$/i;
+
+function normalizePresentationSourceText(value = "") {
+  const text = normalizeText(value);
+  const actualLineBreaks = (text.match(/\n/g) || []).length;
+  if (actualLineBreaks < 2 && /\\n/.test(text)) {
+    return text.replace(/\\n/g, "\n");
+  }
+  return text;
+}
+
+function parsePresentationSlideMeta(block = "") {
+  const metaLine = normalizePresentationSourceText(block)
+    .split("\n")
+    .map((line) => line.trim())
+    .find((line) => PRESENTATION_SLIDE_META_PATTERN.test(line));
+  if (!metaLine) {
+    return {};
+  }
+  const match = metaLine.match(PRESENTATION_SLIDE_META_PATTERN);
+  try {
+    const parsed = JSON.parse(match?.[1] || "{}");
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
 }
 
 function extractPresentationCallouts(values = []) {
@@ -24377,10 +25488,10 @@ function extractPresentationCallouts(values = []) {
 }
 
 function parsePresentationBlock(block = "") {
-  const lines = normalizeText(block)
+  const lines = normalizePresentationSourceText(block)
     .split("\n")
     .map((line) => line.trim())
-    .filter((line) => line && !/^##\s+/i.test(line));
+    .filter((line) => line && !/^##\s+/i.test(line) && !PRESENTATION_SLIDE_META_PATTERN.test(line));
 
   const bullets = [];
   const paragraphs = [];
@@ -24435,16 +25546,22 @@ function renderPresentationPreview(
     meta = ""
   } = {}
 ) {
+  const presentationContent = normalizePresentationSourceText(content);
   const usableSections = (sections || []).filter(
     (section) => section.id !== "whole-file" && section.level >= 2
   );
-
-  const slides = usableSections.length
+  const derivedSections = usableSections.length
     ? usableSections
+    : deriveWorkspaceSections(presentationContent, "slides.md").filter(
+        (section) => section.id !== "whole-file" && section.level >= 2
+      );
+
+  const slides = derivedSections.length
+    ? derivedSections
     : [{
         id: "slide-1",
         title: "Slide 1",
-        block: content
+        block: presentationContent
       }];
 
   const activeSlide =
@@ -24452,7 +25569,9 @@ function renderPresentationPreview(
     slides[0];
   const activeIndex = Math.max(0, slides.findIndex((slide) => slide.id === activeSlide.id));
   const parsed = parsePresentationBlock(activeSlide.block || "");
-  const stageTheme = inferPresentationSlideTheme(activeSlide.title, parsed);
+  const slideMeta = parsePresentationSlideMeta(activeSlide.block || "");
+  const stageTheme = String(slideMeta.theme || inferPresentationSlideTheme(activeSlide.title, parsed) || "default");
+  const stageLayout = String(slideMeta.layout || "content");
 
   const deckShell = document.createElement("section");
   deckShell.className = "workspace-deck-shell";
@@ -24512,7 +25631,7 @@ function renderPresentationPreview(
   deckWorkbench.className = "workspace-deck-preview-workbench";
 
   const stage = document.createElement("article");
-  stage.className = `workspace-slide-stage workspace-slide-stage-${stageTheme}`;
+  stage.className = `workspace-slide-stage workspace-slide-stage-${stageTheme} workspace-slide-stage-layout-${stageLayout}`;
 
   const stageHeader = document.createElement("div");
   stageHeader.className = "workspace-slide-stage-header";
@@ -27194,6 +28313,8 @@ function renderWorkspaceApplicationPreviewShell(
     title = "Hydria workspace",
     meta = "",
     tabs = ["Preview"],
+    showTabs = true,
+    showSearch = true,
     activeTab = 0,
     searchPlaceholder = "Rechercher dans cet espace ou les commandes",
     cardClassName = "",
@@ -27329,7 +28450,14 @@ function renderWorkspaceApplicationPreviewShell(
   expandButton.type = "button";
   expandButton.className = "workspace-sheet-tab workspace-application-expand-button";
   expandButton.addEventListener("click", () => setExpandedMode(!isExpanded));
-  previewTopbar.append(titleGroup, search, tabStrip, expandButton);
+  previewTopbar.appendChild(titleGroup);
+  if (showSearch) {
+    previewTopbar.appendChild(search);
+  }
+  if (showTabs) {
+    previewTopbar.appendChild(tabStrip);
+  }
+  previewTopbar.appendChild(expandButton);
 
   const viewport = document.createElement("div");
   viewport.className = `workspace-application-preview-viewport${viewportClassName ? ` ${viewportClassName}` : ""}`;
@@ -27427,9 +28555,9 @@ function renderAppPreview(container, assetUrl = "", options = {}) {
 function crmApplicationUrl() {
   const configured = String(window.HYDRIA_CRM_URL || "").trim();
   if (configured) {
-    return configured.replace(/\/+$/, "");
+    return configured;
   }
-  return `${window.location.protocol}//${window.location.hostname}:5174`;
+  return "/crm/";
 }
 
 export function renderCrmWorkspaceEmbed(container, { userId = null } = {}) {
@@ -27449,7 +28577,7 @@ export function renderCrmWorkspaceEmbed(container, { userId = null } = {}) {
   frame.setAttribute("allow", "clipboard-read; clipboard-write");
 
   async function sendHydriaSession() {
-    if (!userId || !frame.contentWindow) {
+    if (!userId || !frame.contentWindow || !frame.isConnected) {
       return;
     }
     try {
@@ -27471,13 +28599,26 @@ export function renderCrmWorkspaceEmbed(container, { userId = null } = {}) {
         new URL(frame.src).origin
       );
     } catch (error) {
-      console.error("Hydria CRM SSO failed", error);
+      if (frame.isConnected) {
+        console.warn("Hydria CRM SSO unavailable", error);
+      }
     }
   }
 
   frame.addEventListener("load", sendHydriaSession);
   shell.appendChild(frame);
-  container.appendChild(shell);
+  renderWorkspaceApplicationPreviewShell(container, {
+    previewKey: `crm-live:${userId || "anonymous"}`,
+    title: "Hydria CRM",
+    meta: "CRM live | Hydria OS",
+    showTabs: false,
+    showSearch: false,
+    cardClassName: "workspace-crm-preview-card",
+    viewportClassName: "workspace-crm-preview-viewport",
+    contentClassName: "workspace-crm-preview-content",
+    expandedBodyClassName: "workspace-crm-expanded",
+    buildContent: () => shell
+  });
 }
 
 function classifyRuntimePatch(runtimePatch = {}, runtimeSession = null, surfaceModel = null) {
@@ -27667,6 +28808,7 @@ export function renderWorkspacePreview(
     onPresentationSlideFocus = null,
     onPresentationSlideEdit = null,
     onDataGridEdit = null,
+    sheetCalculation = null,
     onDashboardFilterToggle = null,
     onDashboardWidgetMove = null,
     onDashboardWidgetDrop = null,
@@ -27701,7 +28843,6 @@ export function renderWorkspacePreview(
       ? sections.find((item) => item.id === selectedSectionId)
       : null;
   const block = currentBlockId ? blocks.find((item) => item.id === currentBlockId) : null;
-  const contentToRender = block?.block || section?.block || content;
   const objectKind = workObject.objectKind || workObject.kind || "document";
   const workspaceFamilyId = String(
     workObject.workspaceFamilyId ||
@@ -27709,6 +28850,10 @@ export function renderWorkspacePreview(
       workObject.environmentPlan?.workspaceFamilyId ||
       ""
   ).toLowerCase();
+  const contentToRender =
+    workspaceFamilyId === "document_knowledge"
+      ? content
+      : block?.block || section?.block || content;
   const resolvedSurfaceId = currentSurfaceId || surfaceModel?.defaultSurface || "preview";
   const assetUrl = surfaceModel?.assetUrl || "";
   const mediaPreviewPath = surfaceModel?.previewAssetPath || normalizedPath;
@@ -27880,7 +29025,8 @@ export function renderWorkspacePreview(
   if (resolvedSurfaceId === "data") {
     renderDataPreview(container, normalizedPath, contentToRender, {
       workObject,
-      onGridEdit: onDataGridEdit
+      onGridEdit: onDataGridEdit,
+      formulaResults: sheetCalculation
     });
     return;
   }
@@ -28096,7 +29242,8 @@ export function renderWorkspacePreview(
     }
     renderDataPreview(container, normalizedPath, contentToRender, {
       workObject,
-      onGridEdit: onDataGridEdit
+      onGridEdit: onDataGridEdit,
+      formulaResults: sheetCalculation
     });
     return;
   }

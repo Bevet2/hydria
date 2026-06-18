@@ -86,6 +86,13 @@ export const WORKSPACE_COMMON_COMMANDS = {
   dashboardMoveWidgetLeft: { id: "dashboardMoveWidgetLeft", label: "Move widget left", frLabel: "Widget a gauche", icon: "chevronLeft" },
   dashboardMoveWidgetRight: { id: "dashboardMoveWidgetRight", label: "Move widget right", frLabel: "Widget a droite", icon: "chevronRight" },
   dashboardRefresh: { id: "dashboardRefresh", label: "Refresh dashboard", frLabel: "Actualiser", icon: "refresh" },
+  slideAdd: { id: "slideAdd", label: "Add slide", frLabel: "Ajouter une slide", icon: "insert" },
+  slideDuplicate: { id: "slideDuplicate", label: "Duplicate slide", frLabel: "Dupliquer", icon: "duplicate" },
+  slideDelete: { id: "slideDelete", label: "Delete slide", frLabel: "Supprimer", icon: "delete" },
+  slideMoveLeft: { id: "slideMoveLeft", label: "Move left", frLabel: "Deplacer a gauche", icon: "chevronLeft" },
+  slideMoveRight: { id: "slideMoveRight", label: "Move right", frLabel: "Deplacer a droite", icon: "chevronRight" },
+  slideLayout: { id: "slideLayout", label: "Slide layout", frLabel: "Disposition", icon: "grid" },
+  slideTheme: { id: "slideTheme", label: "Slide theme", frLabel: "Theme", icon: "palette" },
   downloadDocx: { id: "downloadDocx", label: "Download DOCX", frLabel: "Telecharger DOCX", icon: "docx" },
   exportPdf: { id: "exportPdf", label: "Export PDF", frLabel: "Exporter PDF", icon: "pdf" },
   printDocument: { id: "printDocument", label: "Print", frLabel: "Imprimer", icon: "print", shortcut: "Ctrl+P" }
@@ -176,8 +183,13 @@ export function getWorkspaceCommandIcon(label = "") {
   if (text === "redo" || text.includes("retablir")) return "redo";
   if (text.includes("refresh") || text.includes("actualiser")) return "refresh";
   if (text.includes("paste") || text.includes("coller")) return "paste";
+  if (text.includes("fullscreen") || text.includes("plein ecran")) return "maximize";
+  if (text.includes("presentateur") || text.includes("presenter") || text.includes("presentation")) return "presentation";
+  if (text.includes("play") || text.includes("present") || text.includes("slideshow") || text.includes("diaporama")) return "play";
   if (text.includes("cut") || text.includes("couper")) return "cut";
   if (text.includes("copy") || text.includes("copier")) return "copy";
+  if (text.includes("group") || text.includes("groupe")) return "group";
+  if (text.includes("code")) return "code";
   if (text.includes("fill") || text.includes("remplissage")) return "fill";
   if (text === "b" || text.includes("bold") || text.includes("gras")) return "bold";
   if (text === "i" || text.includes("italic") || text.includes("italique")) return "italic";
@@ -220,7 +232,7 @@ export function getWorkspaceCommandIcon(label = "") {
   if (text.includes("print") || text.includes("imprimer")) return "print";
   if (text.includes("docx") || text.includes("word")) return "docx";
   if (text.includes("pdf")) return "pdf";
-  if (text.includes("xlsx") || text.includes("csv") || text.includes("import") || text.includes("export") || text.includes("download")) return text.includes("csv") ? "csv" : "fileSpreadsheet";
+  if (text.includes("xlsx") || text.includes("csv") || text.includes("import") || text.includes("export") || text.includes("download")) return text.includes("csv") ? "csv" : text.includes("download") ? "download" : "fileSpreadsheet";
   if (text.includes("zoom")) return "zoom";
   if (text.includes("grid") || text.includes("quadrillage")) return "grid";
   if (text.includes("freeze") || text.includes("figer")) return "freeze";

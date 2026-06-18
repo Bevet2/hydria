@@ -17,7 +17,10 @@ async function request(path, options = {}) {
   }));
 
   if (!response.ok || payload.success === false) {
-    throw new Error(payload.error || `Request failed for ${path}`);
+    const error = new Error(payload.error || `Request failed for ${path}`);
+    error.status = response.status;
+    error.details = payload.details || null;
+    throw error;
   }
 
   return payload;
@@ -47,6 +50,9 @@ export const apiClient = {
   getHydriaCapabilities() {
     return request("/api/hydria/capabilities");
   },
+  getHydriaChatCatalog() {
+    return request("/api/hydria/chat/catalog");
+  },
   getHydriaControlSchema() {
     return request("/api/hydria/control/schema");
   },
@@ -68,6 +74,96 @@ export const apiClient = {
       body: JSON.stringify(payload)
     });
   },
+  chatHydriaCore(payload = {}) {
+    if (payload.attachments?.length) {
+      const formData = new FormData();
+      formData.append("userId", String(payload.userId));
+      formData.append("conversationId", String(payload.conversationId));
+      formData.append("prompt", payload.prompt || "");
+
+      if (payload.projectId) {
+        formData.append("projectId", String(payload.projectId));
+      }
+
+      if (payload.sessionId) {
+        formData.append("sessionId", String(payload.sessionId));
+      }
+
+      for (const attachment of payload.attachments) {
+        formData.append("attachments", attachment);
+      }
+
+      return request("/api/hydria/chat", {
+        method: "POST",
+        body: formData
+      });
+    }
+
+    return request("/api/hydria/chat", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+  },
+  async streamHydriaCore(payload = {}, onEvent = () => {}) {
+    const formData = new FormData();
+    [
+      "userId",
+      "conversationId",
+      "projectId",
+      "sessionId",
+      "generationId",
+      "model",
+      "toolMode"
+    ].forEach((key) => {
+      if (payload[key] !== undefined && payload[key] !== null && payload[key] !== "") {
+        formData.append(key, String(payload[key]));
+      }
+    });
+    formData.append("prompt", payload.prompt || "");
+    for (const attachment of payload.attachments || []) {
+      formData.append("attachments", attachment);
+    }
+    const response = await fetch("/api/hydria/chat/stream", {
+      method: "POST",
+      body: formData
+    });
+    if (!response.ok || !response.body) {
+      const errorPayload = await response.json().catch(() => ({}));
+      throw new Error(errorPayload.error || "Hydria Core streaming failed");
+    }
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    while (true) {
+      const { value, done } = await reader.read();
+      buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+      const blocks = buffer.split("\n\n");
+      buffer = blocks.pop() || "";
+      for (const block of blocks) {
+        let event = "message";
+        let data = {};
+        block.split("\n").forEach((line) => {
+          if (line.startsWith("event:")) event = line.slice(6).trim();
+          if (line.startsWith("data:")) {
+            try {
+              data = JSON.parse(line.slice(5).trim());
+            } catch {
+              data = { text: line.slice(5).trim() };
+            }
+          }
+        });
+        onEvent(event, data);
+        if (event === "error") throw new Error(data.error || "Hydria Core streaming failed");
+      }
+      if (done) break;
+    }
+  },
+  stopHydriaCore(generationId) {
+    return request(`/api/hydria/chat/stop/${encodeURIComponent(generationId)}`, {
+      method: "POST",
+      body: JSON.stringify({})
+    });
+  },
   listUsers() {
     return request("/api/users");
   },
@@ -77,13 +173,40 @@ export const apiClient = {
       body: JSON.stringify({ username })
     });
   },
-  listConversations(userId) {
-    return request(`/api/users/${userId}/conversations`);
+  listConversations(userId, params = {}) {
+    return request(`/api/users/${userId}/conversations${buildQuery(params)}`);
   },
-  createConversation(userId, title) {
+  createConversation(userId, title, options = {}) {
     return request("/api/conversations", {
       method: "POST",
-      body: JSON.stringify({ userId, title })
+      body: JSON.stringify({
+        userId,
+        title,
+        projectId: options.projectId || "",
+        folder: options.folder || ""
+      })
+    });
+  },
+  getConversationTree(userId) {
+    return request(`/api/conversations/tree/${encodeURIComponent(userId)}`);
+  },
+  listChatProjects(userId, archived = false) {
+    return request(
+      `/api/conversations/projects/${encodeURIComponent(userId)}${buildQuery({
+        archived: archived ? 1 : ""
+      })}`
+    );
+  },
+  createChatProject(payload = {}) {
+    return request("/api/conversations/projects", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+  },
+  updateChatProject(projectId, payload = {}) {
+    return request(`/api/conversations/projects/${encodeURIComponent(projectId)}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload)
     });
   },
   getMessages(conversationId) {
@@ -142,6 +265,38 @@ export const apiClient = {
   listWorkObjects(userId, conversationId) {
     return request(`/api/work-objects${buildQuery({ userId, conversationId })}`);
   },
+  updateConversation(conversationId, payload = {}) {
+    return request(`/api/conversations/${conversationId}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload)
+    });
+  },
+  shareConversation(conversationId, userId) {
+    return request(`/api/conversations/${conversationId}/share`, {
+      method: "POST",
+      body: JSON.stringify({ userId })
+    });
+  },
+  branchConversation(conversationId, payload = {}) {
+    return request(`/api/conversations/${conversationId}/branch`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+  },
+  searchWorkObjects(userId, query, kind = "") {
+    return request(`/api/work-objects/search${buildQuery({ userId, q: query, kind })}`);
+  },
+  getWorkObjectHistory(workObjectId) {
+    return request(`/api/work-objects/${workObjectId}/history`);
+  },
+  getWorkObjectHistorySnapshot(workObjectId, historyId) {
+    return request(`/api/work-objects/${workObjectId}/history/${historyId}`);
+  },
+  restoreWorkObjectHistory(workObjectId, historyId) {
+    return request(`/api/work-objects/${workObjectId}/history/${historyId}/restore`, {
+      method: "POST"
+    });
+  },
   createWorkObject(payload = {}) {
     return request("/api/work-objects/new", {
       method: "POST",
@@ -160,6 +315,29 @@ export const apiClient = {
         filePath ? { content: 1, entryPath: filePath } : {}
       )}`
     );
+  },
+  calculateSheet(model = {}, engineId = "") {
+    return request("/api/sheets/calculate", {
+      method: "POST",
+      body: JSON.stringify({ model, engineId })
+    });
+  },
+  getWorkObjectCollaboration(workObjectId, params = {}) {
+    return request(
+      `/api/work-objects/${workObjectId}/collaboration${buildQuery(params)}`
+    );
+  },
+  applyWorkObjectOperation(workObjectId, payload = {}) {
+    return request(`/api/work-objects/${workObjectId}/collaboration/operations`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+  },
+  flushWorkObjectCollaboration(workObjectId, payload = {}) {
+    return request(`/api/work-objects/${workObjectId}/collaboration/flush`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
   },
   ensureRuntimeSession(workObjectId, payload = {}) {
     return request(`/api/work-objects/${workObjectId}/runtime/session`, {
@@ -184,13 +362,57 @@ export const apiClient = {
       body: JSON.stringify(payload)
     });
   },
-  updateWorkObjectContent(workObjectId, path, content) {
+  updateWorkObjectContent(workObjectId, path, content, options = {}) {
     return request(`/api/work-objects/${workObjectId}/content`, {
       method: "PATCH",
       body: JSON.stringify({
         entryPath: path,
-        content
+        content,
+        userId: options.userId,
+        expectedRevision: options.expectedRevision
       })
+    });
+  },
+  updateWorkObjectSharing(workObjectId, payload = {}) {
+    return request(`/api/work-objects/${workObjectId}/share`, {
+      method: "PUT",
+      body: JSON.stringify(payload)
+    });
+  },
+  updateWorkObjectAnnotations(workObjectId, payload = {}) {
+    return request(`/api/work-objects/${workObjectId}/annotations`, {
+      method: "PUT",
+      body: JSON.stringify(payload)
+    });
+  },
+  trashWorkObject(workObjectId, userId) {
+    return request(`/api/work-objects/${workObjectId}/trash`, {
+      method: "POST",
+      body: JSON.stringify({ userId })
+    });
+  },
+  restoreTrashedWorkObject(workObjectId, userId) {
+    return request(`/api/work-objects/${workObjectId}/restore`, {
+      method: "POST",
+      body: JSON.stringify({ userId })
+    });
+  },
+  deleteWorkObjectPermanently(workObjectId, userId) {
+    return request(`/api/work-objects/${workObjectId}`, {
+      method: "DELETE",
+      body: JSON.stringify({ userId, confirmation: "DELETE" })
+    });
+  },
+  touchWorkObjectPresence(workObjectId, payload = {}) {
+    return request(`/api/work-objects/${workObjectId}/presence`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+  },
+  leaveWorkObjectPresence(workObjectId, userId) {
+    return request(`/api/work-objects/${workObjectId}/presence`, {
+      method: "DELETE",
+      body: JSON.stringify({ userId })
     });
   },
   improveWorkObject(workObjectId, path, prompt) {
