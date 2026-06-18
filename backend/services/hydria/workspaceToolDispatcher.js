@@ -681,7 +681,8 @@ function normalizeSheet(sheet = {}, index = 0) {
     ? sheet.columns.map((value) => String(value ?? ""))
     : ["Column 1", "Column 2", "Column 3"];
   const width = Math.max(columns.length, 1);
-  const rows = (Array.isArray(sheet.rows) && sheet.rows.length ? sheet.rows : [["", "", ""]]).map((row) =>
+  // Preserve rows:[] (sheet emptied of all rows) — only insert the default when rows is missing entirely
+  const rows = (Array.isArray(sheet.rows) ? sheet.rows : [["", "", ""]]).map((row) =>
     Array.from({ length: width }, (_, columnIndex) => String(row?.[columnIndex] ?? ""))
   );
 
@@ -713,7 +714,7 @@ function normalizeSheet(sheet = {}, index = 0) {
       : {},
     slicers: Array.isArray(sheet.slicers) ? sheet.slicers : [],
     filterQuery: String(sheet.filterQuery || ""),
-    filterColumnIndex: Number.isInteger(sheet.filterColumnIndex) ? Number(sheet.filterColumnIndex) : -1,
+    filterColumnIndex: ((v) => (typeof v === "number" || (typeof v === "string" && v !== "")) && Number.isInteger(Number(v)) ? Number(v) : -1)(sheet.filterColumnIndex),
     tableFilters: sheet.tableFilters && typeof sheet.tableFilters === "object" && !Array.isArray(sheet.tableFilters)
       ? { ...sheet.tableFilters }
       : {},
@@ -2383,7 +2384,8 @@ function tableRowsFromOperation(operation = {}) {
     .map((line) => line.trim())
     .filter((line) => line.includes("|"))
     .map((line) => line.split("|").map((cell) => cell.trim()).filter(Boolean))
-    .filter((row) => row.length);
+    // Skip markdown separator rows like | --- | --- | or | :--- | ---: |
+    .filter((row) => row.length && !row.every((cell) => /^[-: ]+$/.test(cell)));
   if (pipeRows.length) {
     return pipeRows;
   }
@@ -2408,12 +2410,16 @@ function renderDocumentTable(operation = {}, html = false) {
   const rows = tableRowsFromOperation(operation);
   const [header = ["Element", "Details"], ...bodyRows] = rows.length ? rows : [["Element", "Details"], ["", ""]];
   const safeBodyRows = bodyRows.length ? bodyRows : [["", ""]];
+  // Pad each body row to header.length so HTML/Markdown tables have consistent column counts
+  const paddedBodyRows = safeBodyRows.map((row) =>
+    Array.from({ length: header.length }, (_, i) => row[i] ?? "")
+  );
 
   if (html) {
     return [
       "<table>",
       `<thead><tr>${header.map((cell) => `<th>${escapeHtml(cell)}</th>`).join("")}</tr></thead>`,
-      `<tbody>${safeBodyRows
+      `<tbody>${paddedBodyRows
         .map((row) => `<tr>${row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join("")}</tr>`)
         .join("")}</tbody>`,
       "</table>"
@@ -2423,7 +2429,7 @@ function renderDocumentTable(operation = {}, html = false) {
   return [
     `| ${header.join(" | ")} |`,
     `| ${header.map(() => "---").join(" | ")} |`,
-    ...safeBodyRows.map((row) => `| ${row.join(" | ")} |`)
+    ...paddedBodyRows.map((row) => `| ${row.join(" | ")} |`)
   ].join("\n");
 }
 
@@ -3109,9 +3115,12 @@ function applyDocumentOperation(content = "", operation = {}) {
     const searchText = String(operation.raw?.searchText || operation.raw?.text || operation.value || "").trim();
     if (!searchText) return { content, applied: "", issue: "doc.highlight_text requires searchText." };
     const escaped = searchText.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    // Use replacer function to prevent $ sequences in searchText from being interpreted
+    const htmlMark = `<mark>${escapeHtml(searchText)}</mark>`;
+    const mdMark = `==${searchText}==`;
     const highlighted = html
-      ? content.replace(new RegExp(escaped, "g"), `<mark>${searchText}</mark>`)
-      : content.replace(new RegExp(escaped, "g"), `==${searchText}==`);
+      ? content.replace(new RegExp(escaped, "g"), () => htmlMark)
+      : content.replace(new RegExp(escaped, "g"), () => mdMark);
     if (highlighted === content) return { content, applied: "", issue: `doc.highlight_text: text not found "${searchText}".` };
     return { content: highlighted, applied: operation.type, issue: "" };
   }
@@ -3212,11 +3221,11 @@ function applyDocumentOperation(content = "", operation = {}) {
 
   if (operation.type === "doc.number_headings") {
     let counter = 0;
-    const numbered = content.replace(/^(## )(?:\d+\.\s*)?(.+)$/gm, (_m, hashes, title) => {
+    const numbered = content.replace(/^(#{1,6} )(?:\d+\.\s*)?(.+)$/gm, (_m, hashes, title) => {
       counter++;
       return `${hashes}${counter}. ${title.trim()}`;
     });
-    return { content: numbered, applied: operation.type, issue: counter === 0 ? "No ## headings found to number." : "" };
+    return { content: numbered, applied: operation.type, issue: counter === 0 ? "No headings found to number." : "" };
   }
 
   if (operation.type === "doc.insert_mention") {
@@ -3237,7 +3246,7 @@ function applyDocumentOperation(content = "", operation = {}) {
     else if (format === "underline") formatted = `<u>${searchText}</u>`;
     else if (format === "strikethrough") formatted = html ? `<s>${searchText}</s>` : `~~${searchText}~~`;
     else if (format === "code") formatted = html ? `<code>${escapeHtml(searchText)}</code>` : `\`${searchText}\``;
-    const next = content.replace(new RegExp(escaped, "g"), formatted);
+    const next = content.replace(new RegExp(escaped, "g"), () => formatted);
     if (next === content) return { content, applied: "", issue: `doc.format_text: text not found "${searchText}".` };
     return { content: next, applied: operation.type, issue: "" };
   }
@@ -3247,8 +3256,8 @@ function applyDocumentOperation(content = "", operation = {}) {
     const color = String(operation.raw?.color || operation.value || "#000000").trim();
     if (!searchText) return { content, applied: "", issue: "doc.set_text_color requires raw.text and raw.color." };
     const escaped = searchText.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const colored = `<span style="color:${color}">${searchText}</span>`;
-    const next = content.replace(new RegExp(escaped, "g"), colored);
+    const colored = `<span style="color:${color}">${escapeHtml(searchText)}</span>`;
+    const next = content.replace(new RegExp(escaped, "g"), () => colored);
     if (next === content) return { content, applied: "", issue: `doc.set_text_color: text not found "${searchText}".` };
     return { content: next, applied: operation.type, issue: "" };
   }
