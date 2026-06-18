@@ -21,6 +21,37 @@ import {
   inferEntrySurfaceType
 } from "../workspace/universalSurfaceService.js";
 import { resolveWorkspaceFamily } from "../workspaces/workspaceRegistry.js";
+import { AppError } from "../../utils/errors.js";
+
+const WORK_OBJECT_ROLES = new Set(["viewer", "commenter", "editor"]);
+
+function normalizeWorkObjectSharing(workObject = {}) {
+  const sharing =
+    workObject.metadata?.sharing && typeof workObject.metadata.sharing === "object"
+      ? workObject.metadata.sharing
+      : {};
+  return {
+    ownerUserId: Number(sharing.ownerUserId || workObject.userId || 0),
+    visibility: sharing.visibility === "link" ? "link" : "private",
+    defaultRole: WORK_OBJECT_ROLES.has(sharing.defaultRole)
+      ? sharing.defaultRole
+      : "viewer",
+    shareToken: String(sharing.shareToken || ""),
+    shares: Array.isArray(sharing.shares)
+      ? sharing.shares
+          .map((share) => ({
+            userId: Number(share?.userId || 0),
+            role: WORK_OBJECT_ROLES.has(share?.role) ? share.role : "viewer"
+          }))
+          .filter((share) => share.userId)
+      : []
+  };
+}
+
+function roleAllows(actualRole = "", requiredRole = "viewer") {
+  const rank = { viewer: 1, commenter: 2, editor: 3, owner: 4 };
+  return Number(rank[actualRole] || 0) >= Number(rank[requiredRole] || 0);
+}
 
 function ensureDirectory(dirPath) {
   fs.mkdirSync(dirPath, { recursive: true });
@@ -275,13 +306,73 @@ function buildBlankWorkspaceFiles(kind = "document", title = "Hydria Workspace",
   }
 
   if (kind === "presentation") {
+    const slideMeta = JSON.stringify({
+      layout: "title",
+      theme: "product",
+      background: "#ffffff",
+      transition: "none",
+      notes: "Open with the main promise, then let Hydria refine the deck.",
+      image: "",
+      cta: "Clarify the next action",
+      elements: [
+        {
+          id: "title",
+          type: "title",
+          text: headline,
+          x: 7,
+          y: 10,
+          w: 80,
+          h: 22,
+          fontSize: 34,
+          bold: true,
+          color: "#111827",
+          fill: "transparent",
+          stroke: "transparent",
+          align: "left"
+        },
+        {
+          id: "body",
+          type: "text",
+          text: "- Main point\n- Key message\n- Next action",
+          x: 7,
+          y: 40,
+          w: 58,
+          h: 28,
+          fontSize: 22,
+          color: "#374151",
+          fill: "transparent",
+          stroke: "transparent",
+          align: "left"
+        },
+        {
+          id: "cta",
+          type: "shape",
+          shape: "callout",
+          text: "Clarify the next action",
+          x: 62,
+          y: 74,
+          w: 30,
+          h: 12,
+          fontSize: 14,
+          bold: true,
+          color: "#0f172a",
+          fill: "#dbeafe",
+          stroke: "#93c5fd",
+          align: "center"
+        }
+      ]
+    });
     return {
       sourceFormat: "md",
       primaryPath: "slides.md",
       files: [
         {
           path: "slides.md",
-          content: `# ${headline}\\n\\n## Slide 1 - ${headline}\\n\\n- Main point\\n- Key message\\n`
+          content:
+            `# ${headline}\n\n` +
+            `## Slide 1 - ${headline}\n` +
+            `<!-- hydria-slide: ${slideMeta} -->\n\n` +
+            `- Main point\n- Key message\n- Next action\n`
         }
       ]
     };
@@ -409,7 +500,7 @@ function buildBlankWorkspaceFiles(kind = "document", title = "Hydria Workspace",
       theme: "light",
       navigation: ["Dashboard", "Leads", "Contacts", "Companies", "Pipeline", "Products & Quotes", "Tasks", "Reports"],
       api: {
-        baseUrl: "http://localhost:4010/api",
+        baseUrl: "/crm-api",
         authentication: "JWT",
         capabilities: ["lead-conversion", "forecasting", "product-catalog", "quotes", "global-search", "reports"]
       },
@@ -807,6 +898,7 @@ export class WorkObjectService {
     this.brainProvider = brainProvider;
     this.artifactExporter = artifactExporter;
     this.projectStore = projectStore;
+    this.presence = new Map();
     ensureDirectory(rootDir);
   }
 
@@ -816,8 +908,57 @@ export class WorkObjectService {
 
   listForConversation({ userId = null, conversationId = null, limit = 30 } = {}) {
     return this.store
-      .list({ userId, conversationId, limit })
+      .readState()
+      .items
+      .filter((item) => {
+        if (!userId) {
+          return true;
+        }
+        const access = this.resolveAccess(item, { actorUserId: userId });
+        return access.allowed;
+      })
+      .filter((item) =>
+        conversationId ? Number(item.conversationId) === Number(conversationId) : true
+      )
+      .sort((left, right) => new Date(right.updatedAt) - new Date(left.updatedAt))
+      .slice(0, limit)
       .map((item) => compactWorkObject(item));
+  }
+
+  resolveAccess(workObject, { actorUserId = null, shareToken = "" } = {}) {
+    if (!workObject) {
+      return { allowed: false, role: "" };
+    }
+    const sharing = normalizeWorkObjectSharing(workObject);
+    if (actorUserId && Number(sharing.ownerUserId) === Number(actorUserId)) {
+      return { allowed: true, role: "owner" };
+    }
+    const directShare = sharing.shares.find(
+      (share) => actorUserId && Number(share.userId) === Number(actorUserId)
+    );
+    if (directShare) {
+      return { allowed: true, role: directShare.role };
+    }
+    if (
+      sharing.visibility === "link" &&
+      shareToken &&
+      sharing.shareToken &&
+      sharing.shareToken === String(shareToken)
+    ) {
+      return { allowed: true, role: sharing.defaultRole };
+    }
+    return { allowed: !actorUserId && !shareToken, role: "owner" };
+  }
+
+  assertAccess(workObject, access = {}, requiredRole = "viewer") {
+    const resolved = this.resolveAccess(workObject, access);
+    if (!resolved.allowed || !roleAllows(resolved.role, requiredRole)) {
+      throw new AppError("You do not have permission for this work object", 403, {
+        requiredRole,
+        actualRole: resolved.role || null
+      });
+    }
+    return resolved;
   }
 
   listForProject({ projectId = "", userId = null, limit = 50 } = {}) {
@@ -841,7 +982,8 @@ export class WorkObjectService {
     userId = null,
     conversationId = null,
     projectId = "",
-    workspaceFamilyId = ""
+    workspaceFamilyId = "",
+    metadata = {}
   } = {}) {
     const objectId = this.store.createId();
     const safeTitle = title || `New ${kind}`;
@@ -884,7 +1026,18 @@ export class WorkObjectService {
       entries: normalizedEntries,
       activeEntryPath: primaryEntryPath || primaryPath || "",
       metadata: {
-        workspaceFamilyId
+        ...(metadata && typeof metadata === "object" ? metadata : {}),
+        sharing: {
+          ownerUserId: Number(userId || 0),
+          visibility: "private",
+          defaultRole: "viewer",
+          shareToken: "",
+          shares: []
+        },
+        workspaceFamilyId:
+          workspaceFamilyId ||
+          (metadata && typeof metadata === "object" ? metadata.workspaceFamilyId : "") ||
+          ""
       },
       summary: summarizeGeneratedObject({ title: safeTitle, kind, format: sourceFormat })
     });
@@ -938,10 +1091,256 @@ export class WorkObjectService {
     return compactWorkObject(contentPayload.workObject, contentPayload);
   }
 
+  getSharedByToken(shareToken = "", { includeContent = false, entryPath = "" } = {}) {
+    const token = String(shareToken || "").trim();
+    if (!token) {
+      return null;
+    }
+    const workObject =
+      this.store
+        .readState()
+        .items.find(
+          (item) =>
+            normalizeWorkObjectSharing(item).visibility === "link" &&
+            normalizeWorkObjectSharing(item).shareToken === token
+        ) || null;
+    if (!workObject) {
+      return null;
+    }
+    return this.get(workObject.id, { includeContent, entryPath });
+  }
+
+  searchContent({ userId = null, query = "", kind = "", limit = 30 } = {}) {
+    const needle = String(query || "").trim().toLowerCase();
+    if (!needle) {
+      return [];
+    }
+
+    const results = [];
+    for (const workObject of this.store.readState().items) {
+      if (kind && workObject.kind !== kind) {
+        continue;
+      }
+      if (!this.resolveAccess(workObject, { actorUserId: userId }).allowed) {
+        continue;
+      }
+      if (workObject.status === "trashed") {
+        continue;
+      }
+
+      const titleHaystack = [workObject.title, workObject.summary, ...(workObject.tags || [])]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      if (titleHaystack.includes(needle)) {
+        results.push({
+          ...compactWorkObject(workObject),
+          match: { entryPath: "", snippet: previewContent(workObject.summary || workObject.title, 220) }
+        });
+      }
+
+      for (const entry of workObject.entries || []) {
+        if (results.length >= limit || !entry.editable) {
+          break;
+        }
+        try {
+          const absolutePath = safeResolveWithin(workObject.workspacePath, entry.path);
+          const content = fs.readFileSync(absolutePath, "utf8");
+          const index = content.toLowerCase().indexOf(needle);
+          if (index < 0) {
+            continue;
+          }
+          const start = Math.max(0, index - 80);
+          results.push({
+            ...compactWorkObject(workObject),
+            match: {
+              entryPath: entry.path,
+              snippet: content.slice(start, start + 260).replace(/\s+/g, " ").trim()
+            }
+          });
+        } catch {
+          // Ignore unreadable entries and continue searching the library.
+        }
+      }
+      if (results.length >= limit) {
+        break;
+      }
+    }
+
+    const seen = new Set();
+    return results
+      .filter((result) => {
+        const key = `${result.id}:${result.match.entryPath}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .slice(0, limit);
+  }
+
+  updateSharing({
+    workObjectId = "",
+    actorUserId = null,
+    visibility,
+    defaultRole,
+    shares
+  } = {}) {
+    const current = this.store.get(String(workObjectId || ""));
+    if (!current) {
+      return null;
+    }
+    this.assertAccess(current, { actorUserId }, "owner");
+    const existing = normalizeWorkObjectSharing(current);
+    const nextVisibility = visibility === "link" ? "link" : "private";
+    const nextRole = WORK_OBJECT_ROLES.has(defaultRole) ? defaultRole : existing.defaultRole;
+    const nextShares = Array.isArray(shares)
+      ? shares
+          .map((share) => ({
+            userId: Number(share?.userId || 0),
+            role: WORK_OBJECT_ROLES.has(share?.role) ? share.role : "viewer"
+          }))
+          .filter((share) => share.userId && share.userId !== existing.ownerUserId)
+      : existing.shares;
+    const sharing = {
+      ...existing,
+      visibility: nextVisibility,
+      defaultRole: nextRole,
+      shareToken:
+        nextVisibility === "link" ? existing.shareToken || randomUUID() : existing.shareToken,
+      shares: nextShares
+    };
+    const updated = this.store.update(current.id, (workObject) => ({
+      ...workObject,
+      metadata: { ...(workObject.metadata || {}), sharing },
+      revision: Number(workObject.revision || 1) + 1,
+      history: [
+        ...(workObject.history || []),
+        {
+          type: "sharing_update",
+          at: new Date().toISOString(),
+          actor: `user:${actorUserId || "unknown"}`,
+          visibility: sharing.visibility,
+          defaultRole: sharing.defaultRole
+        }
+      ].slice(-25)
+    }));
+    return compactWorkObject(updated);
+  }
+
+  trash({ workObjectId = "", actorUserId = null } = {}) {
+    const current = this.store.get(String(workObjectId || ""));
+    if (!current) return null;
+    this.assertAccess(current, { actorUserId }, "editor");
+    return this.updateMetadata({
+      workObjectId: current.id,
+      status: "trashed",
+      metadata: { trashedAt: new Date().toISOString(), previousStatus: current.status },
+      actor: `user:${actorUserId || "unknown"}`
+    });
+  }
+
+  restoreFromTrash({ workObjectId = "", actorUserId = null } = {}) {
+    const current = this.store.get(String(workObjectId || ""));
+    if (!current) return null;
+    this.assertAccess(current, { actorUserId }, "editor");
+    return this.updateMetadata({
+      workObjectId: current.id,
+      status: current.metadata?.previousStatus || "ready",
+      metadata: { trashedAt: null },
+      actor: `user:${actorUserId || "unknown"}`
+    });
+  }
+
+  deletePermanently({ workObjectId = "", actorUserId = null } = {}) {
+    const current = this.store.get(String(workObjectId || ""));
+    if (!current) return null;
+    this.assertAccess(current, { actorUserId }, "owner");
+    if (current.status !== "trashed") {
+      throw new AppError("Move the work object to trash before deleting it permanently", 409);
+    }
+    const absoluteRoot = path.resolve(this.rootDir);
+    const absoluteWorkspace = path.resolve(current.workspacePath);
+    const relative = path.relative(absoluteRoot, absoluteWorkspace);
+    if (relative.startsWith("..") || path.isAbsolute(relative) || !relative) {
+      throw new AppError("Invalid work object workspace path", 400);
+    }
+    fs.rmSync(absoluteWorkspace, { recursive: true, force: true });
+    this.presence.delete(current.id);
+    return compactWorkObject(this.store.delete(current.id));
+  }
+
+  updateAnnotations({
+    workObjectId = "",
+    actorUserId = null,
+    shareToken = "",
+    annotations = []
+  } = {}) {
+    const current = this.store.get(String(workObjectId || ""));
+    if (!current) return null;
+    this.assertAccess(current, { actorUserId, shareToken }, "commenter");
+    const normalized = Array.isArray(annotations)
+      ? annotations.slice(-250).map((annotation) => ({
+          ...annotation,
+          id: String(annotation?.id || randomUUID()),
+          type: ["comment", "suggestion"].includes(annotation?.type)
+            ? annotation.type
+            : "comment",
+          authorUserId: Number(annotation?.authorUserId || actorUserId || 0),
+          updatedAt: new Date().toISOString()
+        }))
+      : [];
+    return this.updateMetadata({
+      workObjectId: current.id,
+      metadata: { annotations: normalized },
+      actor: `user:${actorUserId || "unknown"}`
+    });
+  }
+
+  touchPresence({
+    workObjectId = "",
+    actorUserId = null,
+    name = "",
+    entryPath = "",
+    cursor = null
+  } = {}) {
+    const current = this.store.get(String(workObjectId || ""));
+    if (!current) return null;
+    this.assertAccess(current, { actorUserId }, "viewer");
+    const now = Date.now();
+    const entries = this.presence.get(current.id) || new Map();
+    entries.set(String(actorUserId || "anonymous"), {
+      userId: Number(actorUserId || 0),
+      name: String(name || `User ${actorUserId || ""}`).trim(),
+      entryPath: toRelativePath(entryPath),
+      cursor: cursor && typeof cursor === "object" ? cursor : null,
+      lastSeenAt: new Date(now).toISOString()
+    });
+    this.presence.set(current.id, entries);
+    return this.listPresence(current.id);
+  }
+
+  listPresence(workObjectId = "") {
+    const cutoff = Date.now() - 30_000;
+    const entries = this.presence.get(String(workObjectId || "")) || new Map();
+    for (const [key, presence] of entries.entries()) {
+      if (new Date(presence.lastSeenAt).getTime() < cutoff) {
+        entries.delete(key);
+      }
+    }
+    return [...entries.values()];
+  }
+
+  leavePresence({ workObjectId = "", actorUserId = null } = {}) {
+    const entries = this.presence.get(String(workObjectId || ""));
+    entries?.delete(String(actorUserId || "anonymous"));
+    return this.listPresence(workObjectId);
+  }
+
   updateMetadata({
     workObjectId = "",
     title = "",
     status = "",
+    metadata = null,
     actor = "user"
   } = {}) {
     const current = this.store.get(String(workObjectId || ""));
@@ -955,6 +1354,10 @@ export class WorkObjectService {
       ...workObject,
       title: nextTitle,
       status: nextStatus,
+      metadata: {
+        ...(workObject.metadata || {}),
+        ...(metadata && typeof metadata === "object" ? metadata : {})
+      },
       revision: Number(workObject.revision || 1) + 1,
       history: [
         ...(workObject.history || []),
@@ -962,7 +1365,11 @@ export class WorkObjectService {
           type: "metadata_update",
           at: new Date().toISOString(),
           actor,
-          title: nextTitle
+          title: nextTitle,
+          metadata:
+            metadata && typeof metadata === "object"
+              ? metadata
+              : undefined
         }
       ].slice(-25)
     }));
@@ -1640,13 +2047,38 @@ export class WorkObjectService {
     entryPath = "",
     content = "",
     note = "",
-    actor = "user"
+    actor = "user",
+    actorUserId = null,
+    shareToken = "",
+    expectedRevision = null
   } = {}) {
+    const stored = this.store.get(String(workObjectId || ""));
+    if (!stored) {
+      throw new AppError("Work object not found", 404);
+    }
+    this.assertAccess(stored, { actorUserId, shareToken }, "editor");
+    if (
+      expectedRevision !== null &&
+      expectedRevision !== undefined &&
+      Number(expectedRevision) !== Number(stored.revision || 1)
+    ) {
+      throw new AppError("This work object was modified by another collaborator", 409, {
+        expectedRevision: Number(expectedRevision),
+        currentRevision: Number(stored.revision || 1),
+        workObject: compactWorkObject(stored)
+      });
+    }
     const current = this.readContent({
       workObjectId,
       entryPath
     });
     const absolutePath = safeResolveWithin(current.workObject.workspacePath, current.entryPath);
+    const historyId = randomUUID();
+    const historyDirectory = path.join(current.workObject.workspacePath, ".hydria-history");
+    ensureDirectory(historyDirectory);
+    const historyFilename = `${String(current.workObject.revision || 1).padStart(6, "0")}-${historyId}.snapshot`;
+    const historyAbsolutePath = safeResolveWithin(historyDirectory, historyFilename);
+    fs.writeFileSync(historyAbsolutePath, current.content, "utf8");
     fs.writeFileSync(absolutePath, String(content || ""), "utf8");
     const stats = fs.statSync(absolutePath);
 
@@ -1706,11 +2138,14 @@ export class WorkObjectService {
       history: [
         ...(workObject.history || []),
         {
+          id: historyId,
           type: "content_update",
           at: new Date().toISOString(),
           actor,
           entryPath: current.entryPath,
-          note
+          note,
+          previousRevision: Number(workObject.revision || 1),
+          snapshotPath: toRelativePath(path.relative(workObject.workspacePath, historyAbsolutePath))
         }
       ].slice(-25)
     }));
@@ -1718,6 +2153,82 @@ export class WorkObjectService {
     return compactWorkObject(updated, {
       entryPath: current.entryPath,
       content: String(content || "")
+    });
+  }
+
+  listHistory(workObjectId = "") {
+    const workObject = this.store.get(String(workObjectId || ""));
+    if (!workObject) {
+      return null;
+    }
+
+    return [...(workObject.history || [])]
+      .reverse()
+      .map((entry, index) => ({
+        ...entry,
+        id: entry.id || `legacy-${index}`,
+        revision:
+          entry.previousRevision ||
+          Math.max(1, Number(workObject.revision || 1) - index - 1),
+        restorable: Boolean(entry.snapshotPath)
+      }));
+  }
+
+  readHistorySnapshot(workObjectId = "", historyId = "") {
+    const workObject = this.store.get(String(workObjectId || ""));
+    if (!workObject) {
+      return null;
+    }
+    const entry = (workObject.history || []).find(
+      (candidate) => String(candidate.id || "") === String(historyId || "")
+    );
+    if (!entry?.snapshotPath) {
+      return null;
+    }
+    const snapshotPath = safeResolveWithin(workObject.workspacePath, entry.snapshotPath);
+    if (!fs.existsSync(snapshotPath)) {
+      return null;
+    }
+    return {
+      entry: {
+        ...entry,
+        revision: entry.previousRevision || 1
+      },
+      content: fs.readFileSync(snapshotPath, "utf8")
+    };
+  }
+
+  async restoreHistory({
+    workObjectId = "",
+    historyId = "",
+    actor = "user"
+  } = {}) {
+    const workObject = this.store.get(String(workObjectId || ""));
+    if (!workObject) {
+      return null;
+    }
+
+    const historyEntry = (workObject.history || []).find(
+      (entry) => String(entry.id || "") === String(historyId || "")
+    );
+    if (!historyEntry?.snapshotPath || !historyEntry.entryPath) {
+      return null;
+    }
+
+    const snapshotPath = safeResolveWithin(
+      workObject.workspacePath,
+      historyEntry.snapshotPath
+    );
+    if (!fs.existsSync(snapshotPath)) {
+      return null;
+    }
+
+    return this.updateContent({
+      workObjectId: workObject.id,
+      entryPath: historyEntry.entryPath,
+      content: fs.readFileSync(snapshotPath, "utf8"),
+      note: `Restored revision ${historyEntry.previousRevision || ""}`.trim(),
+      actor
     });
   }
 

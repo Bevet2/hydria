@@ -106,6 +106,18 @@ export class WorkObjectStore {
       createdAt: current.createdAt
     });
   }
+
+  delete(workObjectId) {
+    const state = this.readState();
+    const index = state.items.findIndex((item) => item.id === workObjectId);
+    if (index < 0) {
+      return null;
+    }
+
+    const [removed] = state.items.splice(index, 1);
+    this.writeState(state);
+    return removed;
+  }
 }
 
 export default WorkObjectStore;
