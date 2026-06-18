@@ -15,7 +15,7 @@ router.get(
       return;
     }
     const organizationId = req.user!.organizationId;
-    const [contacts, companies, leads, deals, products] = await prisma.$transaction([
+    const [contacts, companies, leads, deals, products, tickets] = await prisma.$transaction([
       prisma.contact.findMany({
         where: {
           organizationId,
@@ -52,6 +52,17 @@ router.get(
           OR: [
             { name: { contains: query, mode: "insensitive" } },
             { sku: { contains: query, mode: "insensitive" } }
+          ]
+        },
+        take: 5
+      }),
+      prisma.ticket.findMany({
+        where: {
+          organizationId,
+          OR: [
+            { number: { contains: query, mode: "insensitive" } },
+            { subject: { contains: query, mode: "insensitive" } },
+            { description: { contains: query, mode: "insensitive" } }
           ]
         },
         take: 5
@@ -93,6 +104,13 @@ router.get(
           label: item.name,
           meta: item.sku,
           path: "/products"
+        })),
+        ...tickets.map((item) => ({
+          id: item.id,
+          type: "ticket",
+          label: item.subject,
+          meta: `${item.number} | ${item.status.toLowerCase().replaceAll("_", " ")}`,
+          path: "/tickets"
         }))
       ]
     });

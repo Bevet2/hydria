@@ -1,9 +1,33 @@
 import crypto from "node:crypto";
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
 import type { OAuthConnection } from "@prisma/client";
 import { env } from "../config/env.js";
 import { HttpError } from "../lib/http.js";
 import { prisma } from "../lib/prisma.js";
 import { decryptSecret, encryptSecret } from "../lib/security.js";
+
+export type OAuthProvider = "GOOGLE" | "MICROSOFT";
+
+export function oauthProviderReadiness(provider: OAuthProvider) {
+  const missing = provider === "GOOGLE"
+    ? [
+        !env.GOOGLE_CLIENT_ID ? "GOOGLE_CLIENT_ID" : null,
+        !env.GOOGLE_CLIENT_SECRET ? "GOOGLE_CLIENT_SECRET" : null
+      ].filter((value): value is string => Boolean(value))
+    : [
+        !env.MICROSOFT_CLIENT_ID ? "MICROSOFT_CLIENT_ID" : null,
+        !env.MICROSOFT_CLIENT_SECRET ? "MICROSOFT_CLIENT_SECRET" : null
+      ].filter((value): value is string => Boolean(value));
+
+  return {
+    configured: missing.length === 0,
+    missing,
+    setupUrl: provider === "GOOGLE"
+      ? "https://console.cloud.google.com/apis/credentials"
+      : "https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade"
+  };
+}
 
 export function createPkcePair() {
   const verifier = crypto.randomBytes(64).toString("base64url");
@@ -11,21 +35,24 @@ export function createPkcePair() {
   return { verifier, challenge };
 }
 
-function config(provider: "GOOGLE" | "MICROSOFT") {
+function config(provider: OAuthProvider) {
+  const readiness = oauthProviderReadiness(provider);
+  if (!readiness.configured) {
+    const label = provider === "GOOGLE" ? "Google" : "Microsoft";
+    throw new HttpError(`${label} OAuth is not configured. Missing: ${readiness.missing.join(", ")}`, 503);
+  }
   if (provider === "GOOGLE") {
-    if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) throw new HttpError("Google OAuth is not configured", 503);
     return {
-      clientId: env.GOOGLE_CLIENT_ID,
-      clientSecret: env.GOOGLE_CLIENT_SECRET,
+      clientId: env.GOOGLE_CLIENT_ID!,
+      clientSecret: env.GOOGLE_CLIENT_SECRET!,
       authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
       tokenUrl: "https://oauth2.googleapis.com/token",
       scopes: ["openid", "email", "profile", "https://www.googleapis.com/auth/gmail.readonly", "https://www.googleapis.com/auth/gmail.send", "https://www.googleapis.com/auth/calendar"]
     };
   }
-  if (!env.MICROSOFT_CLIENT_ID || !env.MICROSOFT_CLIENT_SECRET) throw new HttpError("Microsoft OAuth is not configured", 503);
   return {
-    clientId: env.MICROSOFT_CLIENT_ID,
-    clientSecret: env.MICROSOFT_CLIENT_SECRET,
+    clientId: env.MICROSOFT_CLIENT_ID!,
+    clientSecret: env.MICROSOFT_CLIENT_SECRET!,
     authorizeUrl: "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
     tokenUrl: "https://login.microsoftonline.com/common/oauth2/v2.0/token",
     scopes: [
@@ -42,7 +69,7 @@ function config(provider: "GOOGLE" | "MICROSOFT") {
 }
 
 export function oauthAuthorizationUrl(
-  provider: "GOOGLE" | "MICROSOFT",
+  provider: OAuthProvider,
   state: string,
   redirectUri: string,
   codeChallenge: string
@@ -69,7 +96,7 @@ export function oauthAuthorizationUrl(
 }
 
 export async function exchangeOAuthCode(
-  provider: "GOOGLE" | "MICROSOFT",
+  provider: OAuthProvider,
   code: string,
   redirectUri: string,
   codeVerifier: string
@@ -97,7 +124,7 @@ export async function exchangeOAuthCode(
   };
 }
 
-export async function identifyConnection(provider: "GOOGLE" | "MICROSOFT", token: string) {
+export async function identifyConnection(provider: OAuthProvider, token: string) {
   const response = await fetch(
     provider === "GOOGLE" ? "https://www.googleapis.com/oauth2/v3/userinfo" : "https://graph.microsoft.com/v1.0/me",
     { headers: { authorization: `Bearer ${token}` } }
@@ -275,6 +302,38 @@ function metadataValue(value: unknown, key: string) {
   return String((value as Record<string, unknown>)[key] || "");
 }
 
+async function persistSyncedAttachment(input: {
+  organizationId: string;
+  userId: string;
+  messageId: string;
+  filename: string;
+  mimeType: string;
+  content: Buffer;
+}) {
+  if (!input.content.length || input.content.length > 10 * 1024 * 1024) return null;
+  await mkdir(path.resolve(env.ATTACHMENT_DIR), { recursive: true });
+  const storageKey = crypto.randomUUID();
+  await writeFile(path.join(path.resolve(env.ATTACHMENT_DIR), storageKey), input.content, { flag: "wx" });
+  return prisma.attachment.create({
+    data: {
+      organizationId: input.organizationId,
+      uploadedById: input.userId,
+      entityType: "EMAIL",
+      entityId: input.messageId,
+      originalName: input.filename.slice(0, 255) || "attachment",
+      mimeType: input.mimeType || "application/octet-stream",
+      size: input.content.length,
+      storageKey
+    }
+  });
+}
+
+function gmailAttachmentParts(payload: any): any[] {
+  if (!payload || typeof payload !== "object") return [];
+  const current = payload.filename && (payload.body?.attachmentId || payload.body?.data) ? [payload] : [];
+  return [...current, ...(payload.parts || []).flatMap(gmailAttachmentParts)];
+}
+
 async function markReply(
   organizationId: string,
   provider: "GOOGLE" | "MICROSOFT",
@@ -305,7 +364,7 @@ export async function syncProviderData(connection: OAuthConnection) {
     for (const item of list.messages || []) {
       if (await prisma.emailMessage.findFirst({ where: { organizationId: connection.organizationId, externalMessageId: item.id } })) continue;
       const message = await providerJson(
-        `https://gmail.googleapis.com/gmail/v1/users/me/messages/${item.id}?format=metadata`,
+        `https://gmail.googleapis.com/gmail/v1/users/me/messages/${item.id}?format=full`,
         token,
         "Gmail message"
       );
@@ -313,7 +372,7 @@ export async function syncProviderData(connection: OAuthConnection) {
       const from = String(headers.from || "");
       const inbound = !connection.externalEmail || !from.toLowerCase().includes(connection.externalEmail.toLowerCase());
       if (inbound) await markReply(connection.organizationId, "GOOGLE", "threadId", String(message.threadId || ""));
-      await prisma.emailMessage.create({ data: {
+      const storedMessage = await prisma.emailMessage.create({ data: {
         organizationId: connection.organizationId, senderId: connection.userId, provider: "GOOGLE",
         externalMessageId: item.id, to: String(headers.to || connection.externalEmail || ""),
         subject: String(headers.subject || "(no subject)"), body: message.snippet || "", status: "SENT",
@@ -322,6 +381,24 @@ export async function syncProviderData(connection: OAuthConnection) {
         conversationId: String(message.threadId || "") || null,
         metadata: { direction: inbound ? "INBOUND" : "OUTBOUND", from, threadId: String(message.threadId || "") }
       } });
+      for (const part of gmailAttachmentParts(message.payload)) {
+        const encoded = part.body?.data || (part.body?.attachmentId
+          ? (await providerJson(
+              `https://gmail.googleapis.com/gmail/v1/users/me/messages/${item.id}/attachments/${part.body.attachmentId}`,
+              token,
+              "Gmail attachment"
+            )).data
+          : "");
+        if (!encoded) continue;
+        await persistSyncedAttachment({
+          organizationId: connection.organizationId,
+          userId: connection.userId,
+          messageId: storedMessage.id,
+          filename: String(part.filename || "attachment"),
+          mimeType: String(part.mimeType || "application/octet-stream"),
+          content: Buffer.from(String(encoded), "base64url")
+        });
+      }
       messages += 1;
     }
     const calendar = await providerJson(
@@ -341,7 +418,7 @@ export async function syncProviderData(connection: OAuthConnection) {
     }
   } else if (connection.provider === "MICROSOFT") {
     const inbox = await providerJson(
-      "https://graph.microsoft.com/v1.0/me/messages?$top=20&$select=id,subject,bodyPreview,toRecipients,from,sentDateTime,conversationId,isDraft",
+      "https://graph.microsoft.com/v1.0/me/messages?$top=20&$select=id,subject,bodyPreview,toRecipients,from,sentDateTime,conversationId,isDraft,hasAttachments",
       token,
       "Microsoft Mail",
       { Prefer: 'IdType="ImmutableId"' }
@@ -351,7 +428,7 @@ export async function syncProviderData(connection: OAuthConnection) {
       const from = String(item.from?.emailAddress?.address || "");
       const inbound = !connection.externalEmail || from.toLowerCase() !== connection.externalEmail.toLowerCase();
       if (inbound) await markReply(connection.organizationId, "MICROSOFT", "conversationId", String(item.conversationId || ""));
-      await prisma.emailMessage.create({ data: {
+      const storedMessage = await prisma.emailMessage.create({ data: {
         organizationId: connection.organizationId, senderId: connection.userId, provider: "MICROSOFT",
         externalMessageId: item.id, to: (item.toRecipients || []).map((recipient: any) => recipient.emailAddress?.address).filter(Boolean).join(","),
         subject: item.subject || "(no subject)", body: item.bodyPreview || "", status: "SENT",
@@ -360,6 +437,25 @@ export async function syncProviderData(connection: OAuthConnection) {
         conversationId: String(item.conversationId || "") || null,
         metadata: { direction: inbound ? "INBOUND" : "OUTBOUND", from, conversationId: String(item.conversationId || "") }
       } });
+      if (item.hasAttachments) {
+        const attachmentList = await providerJson(
+          `https://graph.microsoft.com/v1.0/me/messages/${encodeURIComponent(item.id)}/attachments?$select=id,name,contentType,size,contentBytes`,
+          token,
+          "Microsoft Mail attachment",
+          { Prefer: 'IdType="ImmutableId"' }
+        );
+        for (const attachment of attachmentList.value || []) {
+          if (!attachment.contentBytes) continue;
+          await persistSyncedAttachment({
+            organizationId: connection.organizationId,
+            userId: connection.userId,
+            messageId: storedMessage.id,
+            filename: String(attachment.name || "attachment"),
+            mimeType: String(attachment.contentType || "application/octet-stream"),
+            content: Buffer.from(String(attachment.contentBytes), "base64")
+          });
+        }
+      }
       messages += 1;
     }
     const calendar = await providerJson(

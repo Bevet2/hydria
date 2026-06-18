@@ -16,7 +16,9 @@ const widgetSchema = z.enum([
   "wonDeals",
   "dueTasks",
   "pipeline",
-  "recentActivities"
+  "recentActivities",
+  "openTickets",
+  "slaBreaches"
 ]);
 
 router.get("/preferences", asyncRoute(async (req, res) => {
@@ -34,7 +36,8 @@ router.put("/preferences", asyncRoute(async (req, res) => {
     widgets: z.array(widgetSchema).min(1).max(8),
     layout: z.array(z.object({
       id: widgetSchema,
-      position: z.coerce.number().int().min(0).max(20)
+      position: z.coerce.number().int().min(0).max(20),
+      size: z.enum(["compact", "wide"]).default("compact")
     })).max(8).default([])
   }), req.body);
   const preference = await prisma.dashboardPreference.upsert({
@@ -64,7 +67,10 @@ router.get(
       wonDeals,
       dueTasks,
       stages,
-      recentActivities
+      recentActivities,
+      openTickets,
+      slaBreaches,
+      supportQueues
     ] = await prisma.$transaction([
       prisma.contact.count({ where: { organizationId } }),
       prisma.company.count({ where: { organizationId } }),
@@ -106,6 +112,19 @@ router.get(
           contact: { select: { id: true, firstName: true, lastName: true } },
           deal: { select: { id: true, name: true } }
         }
+      }),
+      prisma.ticket.count({
+        where: { organizationId, status: { in: ["OPEN", "IN_PROGRESS", "WAITING"] } }
+      }),
+      prisma.ticket.count({
+        where: {
+          organizationId,
+          status: { in: ["OPEN", "IN_PROGRESS", "WAITING"] },
+          resolutionDueAt: { lt: now }
+        }
+      }),
+      prisma.supportQueue.count({
+        where: { organizationId, active: true }
       })
     ]);
 
@@ -118,7 +137,10 @@ router.get(
         openValue: Number(openDeals._sum.value || 0),
         wonDeals: wonDeals._count,
         wonValue: Number(wonDeals._sum.value || 0),
-        dueTasks
+        dueTasks,
+        openTickets,
+        slaBreaches,
+        supportQueues
       },
       pipeline: stages.map((stage) => ({
         id: stage.id,

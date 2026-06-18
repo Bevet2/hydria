@@ -11,6 +11,7 @@ import {
   exchangeOAuthCode,
   identifyConnection,
   oauthAuthorizationUrl,
+  oauthProviderReadiness,
   publicConnection
 } from "../services/integrations.js";
 import { enqueueBackgroundJob } from "../services/backgroundJobs.js";
@@ -87,8 +88,8 @@ router.get("/oauth/config", asyncRoute(async (_req, res) => {
   res.json({
     redirectUri: oauthRedirectUri(),
     providers: {
-      GOOGLE: { configured: Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET) },
-      MICROSOFT: { configured: Boolean(env.MICROSOFT_CLIENT_ID && env.MICROSOFT_CLIENT_SECRET) }
+      GOOGLE: oauthProviderReadiness("GOOGLE"),
+      MICROSOFT: oauthProviderReadiness("MICROSOFT")
     }
   });
 }));
@@ -100,8 +101,8 @@ router.get("/readiness", asyncRoute(async (req, res) => {
   });
   res.json({
     services: {
-      google: Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET),
-      microsoft: Boolean(env.MICROSOFT_CLIENT_ID && env.MICROSOFT_CLIENT_SECRET),
+      google: oauthProviderReadiness("GOOGLE").configured,
+      microsoft: oauthProviderReadiness("MICROSOFT").configured,
       stripe: Boolean(env.STRIPE_SECRET_KEY && env.STRIPE_WEBHOOK_SECRET),
       transactionalEmail: Boolean(env.TRANSACTIONAL_EMAIL_URL),
       externalAlerts: Boolean(env.ALERT_WEBHOOK_URL),
@@ -124,6 +125,7 @@ router.post("/oauth/:provider/start", asyncRoute(async (req, res) => {
   const redirectUri = oauthRedirectUri();
   const state = randomToken(32);
   const pkce = createPkcePair();
+  const authorizationUrl = oauthAuthorizationUrl(provider, state, redirectUri, pkce.challenge);
   await prisma.$transaction([
     prisma.oAuthAttempt.deleteMany({
       where: { userId: req.user!.id, OR: [{ expiresAt: { lte: new Date() } }, { consumedAt: { not: null } }] }
@@ -141,7 +143,7 @@ router.post("/oauth/:provider/start", asyncRoute(async (req, res) => {
     })
   ]);
   res.json({
-    authorizationUrl: oauthAuthorizationUrl(provider, state, redirectUri, pkce.challenge),
+    authorizationUrl,
     state,
     redirectUri
   });

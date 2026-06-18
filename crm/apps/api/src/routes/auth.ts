@@ -127,7 +127,7 @@ router.post(
     const verificationUrl = `${env.PUBLIC_WEB_URL}/verify-email?token=${encodeURIComponent(verification.token)}`;
     const delivery = await deliverAuthLink({
       to: user.email,
-      subject: "Verify your Northstar CRM email",
+      subject: "Verify your Hydria CRM email",
       introduction: "Use this link to verify your email address.",
       url: verificationUrl
     });
@@ -212,7 +212,7 @@ router.post(
       });
       await deliverAuthLink({
         to: user.email,
-        subject: "Reset your Northstar CRM password",
+        subject: "Reset your Hydria CRM password",
         introduction: "Use this link within one hour to reset your password.",
         url: `${env.PUBLIC_WEB_URL}/reset-password?token=${encodeURIComponent(reset.token)}`
       });
@@ -324,7 +324,7 @@ router.post(
     });
     const delivery = await deliverAuthLink({
       to: user.email,
-      subject: "Verify your Northstar CRM email",
+      subject: "Verify your Hydria CRM email",
       introduction: "Use this link to verify your email address.",
       url: `${env.PUBLIC_WEB_URL}/verify-email?token=${encodeURIComponent(verification.token)}`
     });
@@ -405,8 +405,8 @@ router.post(
         mfaRecoveryCodes: Prisma.JsonNull
       }
     });
-    const issuer = encodeURIComponent("Northstar CRM");
-    const label = encodeURIComponent(`Northstar CRM:${user.email}`);
+    const issuer = encodeURIComponent("Hydria CRM");
+    const label = encodeURIComponent(`Hydria CRM:${user.email}`);
     res.json({ secret, otpauthUrl: `otpauth://totp/${label}?secret=${secret}&issuer=${issuer}` });
   })
 );

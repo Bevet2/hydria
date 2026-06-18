@@ -95,11 +95,36 @@ router.post("/messages", asyncRoute(async (req, res) => {
 }));
 
 router.get("/conversations", asyncRoute(async (req, res) => {
+  const search = String(req.query.search || "").trim().toLowerCase();
+  const direction = String(req.query.direction || "").toUpperCase();
+  const unreadOnly = String(req.query.unread || "") === "true";
   const messages = await prisma.emailMessage.findMany({
-    where: { organizationId: req.user!.organizationId },
+    where: {
+      organizationId: req.user!.organizationId,
+      ...(direction === "INBOUND" || direction === "OUTBOUND" ? { direction: direction as "INBOUND" | "OUTBOUND" } : {}),
+      ...(search ? {
+        OR: [
+          { subject: { contains: search, mode: "insensitive" } },
+          { body: { contains: search, mode: "insensitive" } },
+          { to: { contains: search, mode: "insensitive" } }
+        ]
+      } : {})
+    },
     orderBy: { createdAt: "desc" },
     take: 500
   });
+  const attachments = messages.length ? await prisma.attachment.findMany({
+    where: {
+      organizationId: req.user!.organizationId,
+      entityType: "EMAIL",
+      entityId: { in: messages.map((message) => message.id) }
+    },
+    orderBy: { createdAt: "asc" }
+  }) : [];
+  const attachmentMap = new Map<string, typeof attachments>();
+  for (const attachment of attachments) {
+    attachmentMap.set(attachment.entityId, [...(attachmentMap.get(attachment.entityId) || []), attachment]);
+  }
   const conversations = new Map<string, typeof messages>();
   for (const message of messages) {
     const key = message.conversationId || message.externalMessageId || message.id;
@@ -113,9 +138,92 @@ router.get("/conversations", asyncRoute(async (req, res) => {
       leadId: items.find((item) => item.leadId)?.leadId || null,
       lastMessageAt: items[0]?.createdAt,
       unreadReplies: items.filter((item) => item.direction === "INBOUND" && !item.replyReceivedAt).length,
-      messages: [...items].reverse()
-    }))
+      messages: [...items].reverse().map((message) => ({
+        ...message,
+        attachments: attachmentMap.get(message.id) || []
+      }))
+    })).filter((conversation) => !unreadOnly || conversation.unreadReplies > 0)
   });
+}));
+
+router.post("/conversations/:id/read", asyncRoute(async (req, res) => {
+  const conversationId = String(req.params.id);
+  const result = await prisma.emailMessage.updateMany({
+    where: {
+      organizationId: req.user!.organizationId,
+      OR: [
+        { conversationId },
+        { externalMessageId: conversationId },
+        { id: conversationId }
+      ],
+      direction: "INBOUND",
+      replyReceivedAt: null
+    },
+    data: { replyReceivedAt: new Date() }
+  });
+  res.json({ updated: result.count });
+}));
+
+router.post("/conversations/:id/reply", asyncRoute(async (req, res) => {
+  assertCanWrite(req);
+  const input = parseBody(z.object({
+    connectionId: z.string().uuid(),
+    body: z.string().min(1).max(100_000),
+    cc: z.string().max(1000).optional().nullable()
+  }), req.body);
+  const conversationId = String(req.params.id);
+  const [latest, connection] = await Promise.all([
+    prisma.emailMessage.findFirst({
+      where: {
+        organizationId: req.user!.organizationId,
+        OR: [
+          { conversationId },
+          { externalMessageId: conversationId },
+          { id: conversationId }
+        ]
+      },
+      orderBy: { createdAt: "desc" }
+    }),
+    prisma.oAuthConnection.findFirst({
+      where: {
+        id: input.connectionId,
+        organizationId: req.user!.organizationId,
+        userId: req.user!.id,
+        provider: { in: ["GOOGLE", "MICROSOFT"] },
+        status: "ACTIVE"
+      }
+    })
+  ]);
+  if (!latest) throw new HttpError("Conversation not found", 404);
+  if (!connection) throw new HttpError("Email connection not found", 404);
+  const metadata = latest.metadata && typeof latest.metadata === "object" && !Array.isArray(latest.metadata)
+    ? latest.metadata as Record<string, unknown>
+    : {};
+  const recipient = latest.direction === "INBOUND" ? String(metadata.from || "") : latest.to;
+  if (!recipient) throw new HttpError("Conversation recipient is missing", 409);
+  const subject = /^re:/i.test(latest.subject) ? latest.subject : `Re: ${latest.subject}`;
+  const message = await prisma.emailMessage.create({
+    data: {
+      organizationId: req.user!.organizationId,
+      senderId: req.user!.id,
+      contactId: latest.contactId,
+      leadId: latest.leadId,
+      provider: connection.provider,
+      conversationId,
+      inReplyTo: latest.externalMessageId,
+      to: recipient,
+      cc: input.cc,
+      subject,
+      body: input.body,
+      status: "QUEUED"
+    }
+  });
+  const job = await enqueueBackgroundJob({
+    organizationId: req.user!.organizationId,
+    type: "EMAIL_SEND",
+    payload: { emailMessageId: message.id, connectionId: connection.id }
+  });
+  res.status(202).json({ message, job });
 }));
 
 router.post("/messages/:id/reply-received", asyncRoute(async (req, res) => {

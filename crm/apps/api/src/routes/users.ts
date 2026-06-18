@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { Prisma } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
@@ -24,10 +25,114 @@ router.get(
         firstName: true,
         lastName: true,
         role: true,
+        teamId: true,
+        permissionPolicy: true,
+        team: { select: { id: true, name: true } },
         createdAt: true
       }
     });
     res.json({ users });
+  })
+);
+
+router.get(
+  "/teams",
+  requireRole("ADMIN", "MANAGER"),
+  asyncRoute(async (req, res) => {
+    const teams = await prisma.team.findMany({
+      where: { organizationId: req.user!.organizationId },
+      orderBy: { name: "asc" },
+      include: { _count: { select: { users: true } } }
+    });
+    res.json({ teams });
+  })
+);
+
+router.post(
+  "/teams",
+  requireRole("ADMIN"),
+  asyncRoute(async (req, res) => {
+    const input = parseBody(
+      z.object({
+        name: z.string().min(1).max(100),
+        permissionPolicy: z.record(z.unknown()).default({})
+      }),
+      req.body
+    );
+    const team = await prisma.team.create({
+      data: {
+        organizationId: req.user!.organizationId,
+        name: input.name,
+        permissionPolicy: input.permissionPolicy as Prisma.InputJsonValue
+      }
+    });
+    res.status(201).json({ team });
+  })
+);
+
+router.patch(
+  "/teams/:teamId",
+  requireRole("ADMIN"),
+  asyncRoute(async (req, res) => {
+    const input = parseBody(
+      z.object({
+        name: z.string().min(1).max(100).optional(),
+        permissionPolicy: z.record(z.unknown()).optional()
+      }),
+      req.body
+    );
+    const current = await prisma.team.findFirst({
+      where: { id: String(req.params.teamId), organizationId: req.user!.organizationId }
+    });
+    if (!current) throw new HttpError("Team not found", 404);
+    const team = await prisma.team.update({
+      where: { id: current.id },
+      data: {
+        name: input.name,
+        permissionPolicy: input.permissionPolicy as Prisma.InputJsonValue | undefined
+      }
+    });
+    res.json({ team });
+  })
+);
+
+router.patch(
+  "/:id/permissions",
+  requireRole("ADMIN"),
+  asyncRoute(async (req, res) => {
+    const input = parseBody(
+      z.object({
+        teamId: z.string().uuid().optional().nullable(),
+        permissionPolicy: z.record(z.unknown()).optional().nullable()
+      }),
+      req.body
+    );
+    const target = await prisma.user.findFirst({
+      where: { id: String(req.params.id), organizationId: req.user!.organizationId }
+    });
+    if (!target) throw new HttpError("User not found", 404);
+    if (input.teamId) {
+      const team = await prisma.team.findFirst({
+        where: { id: input.teamId, organizationId: req.user!.organizationId }
+      });
+      if (!team) throw new HttpError("Team not found", 404);
+    }
+    const user = await prisma.user.update({
+      where: { id: target.id },
+      data: {
+        teamId: input.teamId,
+        permissionPolicy:
+          input.permissionPolicy === null
+            ? Prisma.JsonNull
+            : input.permissionPolicy as Prisma.InputJsonValue | undefined
+      },
+      select: {
+        id: true, email: true, firstName: true, lastName: true, role: true,
+        teamId: true, permissionPolicy: true,
+        team: { select: { id: true, name: true } }
+      }
+    });
+    res.json({ user });
   })
 );
 
@@ -118,7 +223,7 @@ router.post(
     const invitationUrl = `${env.PUBLIC_WEB_URL}/accept-invitation?token=${encodeURIComponent(invitation.token)}`;
     const delivery = await deliverAuthLink({
       to: input.email,
-      subject: "You are invited to Northstar CRM",
+      subject: "You are invited to Hydria CRM",
       introduction: "Use this link within seven days to join the CRM workspace.",
       url: invitationUrl
     });

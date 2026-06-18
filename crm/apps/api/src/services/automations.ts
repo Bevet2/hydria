@@ -1,12 +1,19 @@
 import { Prisma, type AutomationTrigger } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
 import { emitWebhook } from "./webhooks.js";
-import { enqueueBackgroundJob } from "./backgroundJobs.js";
+import { enqueueBackgroundJob } from "./jobQueue.js";
 
 type AutomationEntity = {
   entityType: "lead" | "deal" | "contact" | "company" | "quote" | "task";
   entityId: string;
   fields: Record<string, unknown>;
+};
+
+type AutomationStep = {
+  action: string;
+  configuration: Record<string, unknown>;
+  conditions?: Record<string, unknown>;
+  delayMinutes?: number;
 };
 
 function asObject(value: Prisma.JsonValue | null): Record<string, unknown> {
@@ -137,6 +144,52 @@ async function applyRule(
   throw new Error(`Unsupported automation action: ${action}`);
 }
 
+function configuredSteps(rule: {
+  action: string;
+  configuration: Prisma.JsonValue;
+  steps: Prisma.JsonValue | null;
+}): AutomationStep[] {
+  if (Array.isArray(rule.steps) && rule.steps.length) {
+    return rule.steps.flatMap((value) => {
+      if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+      const source = value as Record<string, unknown>;
+      const configuration = source.configuration && typeof source.configuration === "object" && !Array.isArray(source.configuration)
+        ? source.configuration as Record<string, unknown>
+        : {};
+      const conditions = source.conditions && typeof source.conditions === "object" && !Array.isArray(source.conditions)
+        ? source.conditions as Record<string, unknown>
+        : undefined;
+      return [{
+        action: String(source.action || ""),
+        configuration,
+        conditions,
+        delayMinutes: Math.max(0, Number(source.delayMinutes || 0))
+      }];
+    });
+  }
+  return [{
+    action: rule.action,
+    configuration: asObject(rule.configuration),
+    delayMinutes: 0
+  }];
+}
+
+export async function executeQueuedAutomationAction(payload: Record<string, unknown>) {
+  const organizationId = String(payload.organizationId || "");
+  const createdById = String(payload.createdById || "");
+  const action = String(payload.action || "");
+  const configuration = payload.configuration && typeof payload.configuration === "object" && !Array.isArray(payload.configuration)
+    ? payload.configuration as Record<string, unknown>
+    : {};
+  const entity = payload.entity && typeof payload.entity === "object" && !Array.isArray(payload.entity)
+    ? payload.entity as AutomationEntity
+    : null;
+  if (!organizationId || !createdById || !action || !entity?.entityId) {
+    throw new Error("Queued automation action payload is invalid");
+  }
+  return applyRule(organizationId, createdById, action, configuration, entity);
+}
+
 export async function triggerAutomations(
   organizationId: string,
   trigger: AutomationTrigger,
@@ -149,13 +202,41 @@ export async function triggerAutomations(
   for (const rule of rules) {
     if (!conditionsMatch(asObject(rule.conditions), entity.fields)) continue;
     try {
-      const result = await applyRule(
-        organizationId,
-        rule.createdById,
-        rule.action,
-        asObject(rule.configuration),
-        entity
-      );
+      const result = [];
+      for (const [stepIndex, step] of configuredSteps(rule).entries()) {
+        if (step.conditions && !conditionsMatch(step.conditions, entity.fields)) {
+          result.push({ stepIndex, skipped: true });
+          continue;
+        }
+        if (step.delayMinutes) {
+          const job = await enqueueBackgroundJob({
+            organizationId,
+            type: "AUTOMATION_ACTION",
+            payload: {
+              organizationId,
+              createdById: rule.createdById,
+              action: step.action,
+              configuration: step.configuration,
+              entity,
+              ruleId: rule.id,
+              stepIndex
+            },
+            runAt: new Date(Date.now() + step.delayMinutes * 60_000)
+          });
+          result.push({ stepIndex, queued: true, jobId: job.id });
+        } else {
+          result.push({
+            stepIndex,
+            result: await applyRule(
+              organizationId,
+              rule.createdById,
+              step.action,
+              step.configuration,
+              entity
+            )
+          });
+        }
+      }
       await prisma.automationRun.create({
         data: {
           organizationId,

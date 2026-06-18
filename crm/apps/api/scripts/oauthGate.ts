@@ -4,11 +4,11 @@ async function main() {
   process.env.MICROSOFT_CLIENT_ID ||= "oauth-gate-microsoft-client";
   process.env.MICROSOFT_CLIENT_SECRET ||= "oauth-gate-microsoft-secret";
 
-  const [{ randomToken, hashToken }, { createPkcePair, oauthAuthorizationUrl }] = await Promise.all([
+  const [{ randomToken, hashToken }, { createPkcePair, oauthAuthorizationUrl, oauthProviderReadiness }] = await Promise.all([
     import("../src/lib/security.js"),
     import("../src/services/integrations.js")
   ]);
-  const redirectUri = "http://localhost:5174/oauth/callback";
+  const redirectUri = "http://localhost:3001/crm/oauth/callback";
   const state = randomToken(32);
   const { verifier, challenge } = createPkcePair();
   if (!/^[A-Za-z0-9_-]{43,128}$/.test(verifier)) throw new Error("PKCE verifier has an invalid format");
@@ -16,6 +16,8 @@ async function main() {
   if (hashToken(state) === hashToken(`${state}x`)) throw new Error("OAuth state hashing does not distinguish values");
 
   for (const provider of ["GOOGLE", "MICROSOFT"] as const) {
+    const readiness = oauthProviderReadiness(provider);
+    if (!readiness.configured || readiness.missing.length) throw new Error(`${provider} readiness mismatch`);
     const url = new URL(oauthAuthorizationUrl(provider, state, redirectUri, challenge));
     if (url.searchParams.get("redirect_uri") !== redirectUri) throw new Error(`${provider} redirect URI mismatch`);
     if (url.searchParams.get("state") !== state) throw new Error(`${provider} state mismatch`);

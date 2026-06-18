@@ -30,6 +30,66 @@ function parseScopes(value: unknown) {
   return Array.isArray(value) ? value.map(String) : [];
 }
 
+function asPolicy(value: unknown): Record<string, any> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, any>
+    : {};
+}
+
+function mergePolicies(teamPolicy: unknown, userPolicy: unknown) {
+  const team = asPolicy(teamPolicy);
+  const user = asPolicy(userPolicy);
+  return {
+    ...team,
+    ...user,
+    objects: { ...asPolicy(team.objects), ...asPolicy(user.objects) },
+    properties: { ...asPolicy(team.properties), ...asPolicy(user.properties) }
+  };
+}
+
+function requestResource(req: Request) {
+  const segment = req.originalUrl.split("?")[0]?.split("/").filter(Boolean)[1] || "";
+  const aliases: Record<string, string> = {
+    pipeline: "deals",
+    commercial: "quotes",
+    communications: "communications",
+    "custom-objects": "customObjects"
+  };
+  return aliases[segment] || segment;
+}
+
+async function applyPermissionPolicy(req: Request) {
+  if (!req.user || req.user.role === "ADMIN") return;
+  const account = await prisma.user.findFirst({
+    where: { id: req.user.id, organizationId: req.user.organizationId },
+    select: {
+      teamId: true,
+      permissionPolicy: true,
+      team: { select: { permissionPolicy: true } }
+    }
+  });
+  const policy = mergePolicies(account?.team?.permissionPolicy, account?.permissionPolicy);
+  req.user.teamId = account?.teamId || null;
+  req.user.permissionPolicy = policy;
+  const resource = requestResource(req);
+  const objectRule = asPolicy(policy.objects)[resource];
+  const action = ["GET", "HEAD"].includes(req.method) ? "read" : "write";
+  if (objectRule && objectRule[action] === false) {
+    throw new HttpError(`Permission denied for ${action} on ${resource}`, 403);
+  }
+  if (action === "write") {
+    const allowedProperties = asPolicy(policy.properties)[resource];
+    if (Array.isArray(allowedProperties) && req.body && typeof req.body === "object") {
+      const forbidden = Object.keys(req.body).filter(
+        (key) => !allowedProperties.includes(key)
+      );
+      if (forbidden.length) {
+        throw new HttpError(`Property permission denied: ${forbidden.join(", ")}`, 403);
+      }
+    }
+  }
+}
+
 export async function requireAuth(req: Request, _res: Response, next: NextFunction) {
   const token = String(req.headers.authorization || "").match(/^Bearer\s+(.+)$/i)?.[1];
   if (!token) {
@@ -66,6 +126,7 @@ export async function requireAuth(req: Request, _res: Response, next: NextFuncti
         apiKeyScopes: scopes
       };
       void prisma.apiKey.update({ where: { id: apiKey.id }, data: { lastUsedAt: new Date() } }).catch(() => undefined);
+      await applyPermissionPolicy(req);
       next();
       return;
     }
@@ -98,9 +159,10 @@ export async function requireAuth(req: Request, _res: Response, next: NextFuncti
       email: payload.email,
       sessionId: payload.sessionId
     };
+    await applyPermissionPolicy(req);
     next();
-  } catch {
-    next(new HttpError("Invalid or expired token", 401));
+  } catch (error) {
+    next(error instanceof HttpError ? error : new HttpError("Invalid or expired token", 401));
   }
 }
 

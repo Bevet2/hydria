@@ -6,7 +6,7 @@ import { asyncRoute, HttpError, parseBody } from "../lib/http.js";
 import { assertCanWrite, requireAuth } from "../middleware/auth.js";
 
 const router = Router();
-const resourceSchema = z.enum(["CONTACTS", "COMPANIES", "LEADS", "DEALS", "TASKS", "PRODUCTS", "QUOTES", "INVOICES"]);
+const resourceSchema = z.enum(["CONTACTS", "COMPANIES", "LEADS", "DEALS", "TASKS", "PRODUCTS", "QUOTES", "INVOICES", "TICKETS"]);
 const viewSchema = z.object({
   resource: resourceSchema,
   name: z.string().trim().min(1).max(80),

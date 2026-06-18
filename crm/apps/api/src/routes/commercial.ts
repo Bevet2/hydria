@@ -1,12 +1,13 @@
 import crypto from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { Router } from "express";
+import PDFDocument from "pdfkit";
 import { z } from "zod";
 import { env } from "../config/env.js";
 import { asyncRoute, HttpError, parseBody } from "../lib/http.js";
 import { prisma } from "../lib/prisma.js";
 import { decryptSecret, hashToken, randomToken } from "../lib/security.js";
-import { requireAuth, requireRole } from "../middleware/auth.js";
+import { assertCanWrite, requireAuth, requireRole } from "../middleware/auth.js";
 import { deliverAuthLink } from "../services/transactionalEmail.js";
 import { enqueueBackgroundJob } from "../services/backgroundJobs.js";
 
@@ -399,6 +400,128 @@ router.get("/invoices/:id", asyncRoute(async (req, res) => {
   res.json({ invoice });
 }));
 
+router.get("/invoices/:id/pdf", asyncRoute(async (req, res) => {
+  const invoice = await prisma.invoice.findFirst({
+    where: { id: String(req.params.id), organizationId: req.user!.organizationId },
+    include: {
+      organization: true,
+      quote: { include: { company: true, contact: true, lineItems: { orderBy: { createdAt: "asc" } } } },
+      payments: true,
+      creditNotes: true
+    }
+  });
+  if (!invoice) throw new HttpError("Invoice not found", 404);
+  const money = new Intl.NumberFormat(invoice.organization.locale, {
+    style: "currency",
+    currency: invoice.currency,
+    maximumFractionDigits: 2
+  });
+  const document = new PDFDocument({ size: "A4", margin: 48 });
+  res.setHeader("content-type", "application/pdf");
+  res.setHeader("content-disposition", `attachment; filename="${invoice.number.replace(/[^a-z0-9-]/gi, "_")}.pdf"`);
+  document.pipe(res);
+  document.fontSize(10).fillColor(invoice.organization.brandColor).text(invoice.organization.name.toUpperCase());
+  document.moveDown(0.5);
+  document.fontSize(24).fillColor("#202823").text(`Invoice ${invoice.number}`);
+  document.fontSize(10).fillColor("#6f7973").text(`Status: ${invoice.status}`);
+  if (invoice.issuedAt) document.text(`Issued: ${new Intl.DateTimeFormat(invoice.organization.locale).format(invoice.issuedAt)}`);
+  if (invoice.dueAt) document.text(`Due: ${new Intl.DateTimeFormat(invoice.organization.locale).format(invoice.dueAt)}`);
+  document.moveDown();
+  document.fontSize(11).fillColor("#202823").text("Customer", { underline: true });
+  document.fontSize(10).fillColor("#4e5953").text(invoice.quote.company?.name || "No company");
+  if (invoice.quote.contact) {
+    document.text(`${invoice.quote.contact.firstName} ${invoice.quote.contact.lastName}`);
+    if (invoice.quote.contact.email) document.text(invoice.quote.contact.email);
+  }
+  document.moveDown(1.2);
+  for (const line of invoice.quote.lineItems) {
+    document.fillColor("#202823").text(`${line.description} x ${line.quantity}`);
+    document.fillColor("#4e5953").text(money.format(Number(line.lineTotal)), { align: "right" });
+  }
+  document.moveDown();
+  document.fontSize(11).fillColor("#202823").text(`Subtotal: ${money.format(Number(invoice.subtotal))}`, { align: "right" });
+  document.text(`Tax: ${money.format(Number(invoice.tax))}`, { align: "right" });
+  document.fontSize(14).text(`Total: ${money.format(Number(invoice.total))}`, { align: "right" });
+  const paid = invoice.payments.reduce((sum, payment) => sum + Number(payment.amount) - Number(payment.refundedAmount), 0);
+  const credits = invoice.creditNotes.filter((credit) => credit.status === "ISSUED").reduce((sum, credit) => sum + Number(credit.amount), 0);
+  document.fontSize(10).fillColor("#4e5953").text(`Outstanding: ${money.format(Math.max(0, Number(invoice.total) - paid - credits))}`, { align: "right" });
+  document.end();
+}));
+
+router.post("/quotes/:id/send", asyncRoute(async (req, res) => {
+  assertCanWrite(req);
+  const input = parseBody(z.object({
+    connectionId: z.string().uuid().optional().nullable(),
+    recipient: z.string().email().optional(),
+    message: z.string().max(4000).optional()
+  }), req.body);
+  const quote = await prisma.quote.findFirst({
+    where: { id: String(req.params.id), organizationId: req.user!.organizationId },
+    include: { contact: true, company: true, deal: true }
+  });
+  if (!quote) throw new HttpError("Quote not found", 404);
+  const blockingApprovals = await prisma.quoteApproval.count({
+    where: { quoteId: quote.id, status: { not: "APPROVED" } }
+  });
+  if (blockingApprovals) throw new HttpError("All quote approvals must be completed before sending", 409);
+  const recipient = input.recipient || quote.contact?.email;
+  if (!recipient) throw new HttpError("Quote recipient email is missing", 409);
+  const message = await prisma.emailMessage.create({
+    data: {
+      organizationId: req.user!.organizationId,
+      senderId: req.user!.id,
+      contactId: quote.contactId,
+      provider: input.connectionId ? (await prisma.oAuthConnection.findFirst({
+        where: { id: input.connectionId, organizationId: req.user!.organizationId, userId: req.user!.id }
+      }))?.provider : undefined,
+      to: recipient,
+      subject: `Quote ${quote.number} - ${quote.name}`,
+      body: input.message || `Please find quote ${quote.number} for ${quote.total} ${quote.deal.currency}.`,
+      status: "QUEUED"
+    }
+  });
+  const job = await enqueueBackgroundJob({
+    organizationId: req.user!.organizationId,
+    type: "EMAIL_SEND",
+    payload: { emailMessageId: message.id, ...(input.connectionId ? { connectionId: input.connectionId } : {}) }
+  });
+  await prisma.quote.update({ where: { id: quote.id }, data: { status: "SENT" } });
+  res.status(202).json({ message, job });
+}));
+
+router.post("/invoices/:id/send", asyncRoute(async (req, res) => {
+  assertCanWrite(req);
+  const input = parseBody(z.object({
+    connectionId: z.string().uuid().optional().nullable(),
+    recipient: z.string().email().optional(),
+    message: z.string().max(4000).optional()
+  }), req.body);
+  const invoice = await prisma.invoice.findFirst({
+    where: { id: String(req.params.id), organizationId: req.user!.organizationId },
+    include: { quote: { include: { contact: true, company: true } } }
+  });
+  if (!invoice) throw new HttpError("Invoice not found", 404);
+  const recipient = input.recipient || invoice.quote.contact?.email;
+  if (!recipient) throw new HttpError("Invoice recipient email is missing", 409);
+  const message = await prisma.emailMessage.create({
+    data: {
+      organizationId: req.user!.organizationId,
+      senderId: req.user!.id,
+      contactId: invoice.quote.contactId,
+      to: recipient,
+      subject: `Invoice ${invoice.number}`,
+      body: input.message || `Invoice ${invoice.number} for ${invoice.total} ${invoice.currency} is ready.${invoice.dueAt ? ` Due ${invoice.dueAt.toISOString().slice(0, 10)}.` : ""}`,
+      status: "QUEUED"
+    }
+  });
+  const job = await enqueueBackgroundJob({
+    organizationId: req.user!.organizationId,
+    type: "EMAIL_SEND",
+    payload: { emailMessageId: message.id, ...(input.connectionId ? { connectionId: input.connectionId } : {}) }
+  });
+  res.status(202).json({ message, job });
+}));
+
 router.patch("/invoices/:id", asyncRoute(async (req, res) => {
   const input = parseBody(z.object({
     status: z.enum(["DRAFT", "ISSUED", "VOID"]).optional(),
@@ -432,12 +555,15 @@ router.patch("/invoices/:id", asyncRoute(async (req, res) => {
 
 router.post("/quotes/:id/invoices", asyncRoute(async (req, res) => {
   const input = parseBody(z.object({ dueAt: z.string().datetime().optional().nullable() }), req.body);
-  const quote = await prisma.quote.findFirst({ where: { id: String(req.params.id), organizationId: req.user!.organizationId }, include: { deal: true } });
+  const [quote, organization] = await Promise.all([
+    prisma.quote.findFirst({ where: { id: String(req.params.id), organizationId: req.user!.organizationId }, include: { deal: true } }),
+    prisma.organization.findUniqueOrThrow({ where: { id: req.user!.organizationId } })
+  ]);
   if (!quote) throw new HttpError("Quote not found", 404);
   if (quote.status !== "ACCEPTED") throw new HttpError("Only accepted quotes can be invoiced", 409);
   const existing = await prisma.invoice.findFirst({ where: { quoteId: quote.id } });
   if (existing) throw new HttpError("This quote already has an invoice", 409);
-  const serial = `INV-${new Date().getFullYear()}-${String((await prisma.invoice.count({ where: { organizationId: req.user!.organizationId } })) + 1).padStart(5, "0")}`;
+  const serial = `${organization.invoicePrefix}-${new Date().getFullYear()}-${String((await prisma.invoice.count({ where: { organizationId: req.user!.organizationId } })) + 1).padStart(5, "0")}`;
   const invoice = await prisma.invoice.create({
     data: {
       organizationId: req.user!.organizationId,
@@ -448,7 +574,7 @@ router.post("/quotes/:id/invoices", asyncRoute(async (req, res) => {
       subtotal: quote.subtotal,
       tax: Number(quote.total) - Number(quote.subtotal) * (1 - Number(quote.discountPercent) / 100),
       total: quote.total,
-      dueAt: input.dueAt ? new Date(input.dueAt) : null,
+      dueAt: input.dueAt ? new Date(input.dueAt) : new Date(Date.now() + organization.paymentTermsDays * 86_400_000),
       issuedAt: new Date()
     }
   });

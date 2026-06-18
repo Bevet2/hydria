@@ -27,6 +27,7 @@ import searchRouter from "./routes/search.js";
 import tasksRouter from "./routes/tasks.js";
 import timelineRouter from "./routes/timeline.js";
 import usersRouter from "./routes/users.js";
+import hydriaAssistRouter from "./routes/hydriaAssist.js";
 import hydriaIntegrationRouter from "./routes/hydriaIntegration.js";
 import savedViewsRouter from "./routes/savedViews.js";
 import automationsRouter from "./routes/automations.js";
@@ -38,6 +39,10 @@ import communicationsRouter from "./routes/communications.js";
 import commercialRouter from "./routes/commercial.js";
 import complianceRouter from "./routes/compliance.js";
 import monitoringRouter from "./routes/monitoring.js";
+import organizationRouter from "./routes/organization.js";
+import salesOpsRouter from "./routes/salesOps.js";
+import ticketsRouter from "./routes/tickets.js";
+import customObjectsRouter from "./routes/customObjects.js";
 
 export const app = express();
 
@@ -68,21 +73,28 @@ app.use(express.json({
   }
 }));
 app.use(morgan(env.NODE_ENV === "production" ? "combined" : "dev"));
+
+app.get("/api/health", async (_req, res) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    res.json({ status: "ok", service: "northstar-crm-api", database: "connected" });
+  } catch {
+    res.status(503).json({ status: "degraded", service: "northstar-crm-api", database: "unavailable" });
+  }
+});
+
 app.use(rateLimit({
   namespace: "api",
   windowMs: 15 * 60_000,
   limit: env.NODE_ENV === "production" ? 600 : 50_000
 }));
 app.use(auditMutations);
-
-app.get("/api/health", (_req, res) => {
-  res.json({ status: "ok", service: "northstar-crm-api" });
-});
 app.use("/api/auth", rateLimit({
   namespace: "auth",
   windowMs: 15 * 60_000,
   limit: env.NODE_ENV === "production" ? 100 : 1000
 }), authRouter);
+app.use("/api/hydria-assist", hydriaAssistRouter);
 app.use("/api/integrations/hydria", hydriaIntegrationRouter);
 app.use("/api/attachments", attachmentsRouter);
 app.use("/api/audit-logs", auditLogsRouter);
@@ -97,6 +109,8 @@ app.use("/api/communications", communicationsRouter);
 app.use("/api/commercial", commercialRouter);
 app.use("/api/compliance", complianceRouter);
 app.use("/api/monitoring", monitoringRouter);
+app.use("/api/organization", organizationRouter);
+app.use("/api/sales-ops", salesOpsRouter);
 app.use("/api/users", usersRouter);
 app.use("/api/dashboard", dashboardRouter);
 app.use("/api/contacts", contactsRouter);
@@ -108,6 +122,8 @@ app.use("/api/products", productsRouter);
 app.use("/api/reports", reportsRouter);
 app.use("/api/search", searchRouter);
 app.use("/api/tasks", tasksRouter);
+app.use("/api/tickets", ticketsRouter);
+app.use("/api/custom-objects", customObjectsRouter);
 app.use("/api/timeline", timelineRouter);
 app.use("/api/custom-fields", customFieldsRouter);
 
@@ -127,17 +143,23 @@ app.use(
         : undefined;
     if (statusCode >= 500) {
       console.error(error);
-      void prisma.errorEvent.create({
-        data: {
-          organizationId: req.user?.organizationId,
-          requestId: req.requestId || "unknown",
-          method: req.method,
-          path: req.originalUrl,
-          statusCode,
-          message: error.message,
-          stack: env.NODE_ENV === "production" ? null : error.stack
-        }
-      }).catch(() => undefined);
+      void (async () => {
+        const organizationId = req.user?.organizationId;
+        const organizationExists = organizationId
+          ? await prisma.organization.findUnique({ where: { id: organizationId }, select: { id: true } })
+          : null;
+        await prisma.errorEvent.create({
+          data: {
+            organizationId: organizationExists?.id,
+            requestId: req.requestId || "unknown",
+            method: req.method,
+            path: req.originalUrl,
+            statusCode,
+            message: error.message,
+            stack: env.NODE_ENV === "production" ? null : error.stack
+          }
+        });
+      })().catch(() => undefined);
       void sendOperationalAlert({
         title: "CRM API error",
         message: error.message,

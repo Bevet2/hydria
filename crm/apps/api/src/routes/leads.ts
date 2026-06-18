@@ -9,6 +9,7 @@ import { assertUserInOrganization } from "../lib/tenantRelations.js";
 import { assertCanWrite, requireAuth } from "../middleware/auth.js";
 import { recordActivity } from "../services/activity.js";
 import { triggerAutomations } from "../services/automations.js";
+import { calculateLeadScore } from "../services/salesOps.js";
 
 const router = Router();
 const attachmentRoot = path.resolve(env.ATTACHMENT_DIR);
@@ -27,8 +28,19 @@ const leadSchema = z.object({
   annualRevenue: z.coerce.number().nonnegative().optional().nullable(),
   employeeCount: z.coerce.number().int().nonnegative().optional().nullable(),
   description: z.string().max(4000).optional(),
-  ownerId: z.string().uuid().optional().nullable()
+  ownerId: z.string().uuid().optional().nullable(),
+  campaignId: z.string().uuid().optional().nullable(),
+  territoryId: z.string().uuid().optional().nullable()
 });
+
+async function assertLeadRelations(organizationId: string, input: { campaignId?: string | null; territoryId?: string | null }) {
+  const [campaign, territory] = await Promise.all([
+    input.campaignId ? prisma.campaign.findFirst({ where: { id: input.campaignId, organizationId } }) : null,
+    input.territoryId ? prisma.territory.findFirst({ where: { id: input.territoryId, organizationId } }) : null
+  ]);
+  if (input.campaignId && !campaign) throw new HttpError("Campaign not found", 404);
+  if (input.territoryId && !territory) throw new HttpError("Territory not found", 404);
+}
 
 router.use(requireAuth);
 
@@ -66,6 +78,8 @@ router.get(
         orderBy: [{ rating: "asc" }, { updatedAt: "desc" }],
         include: {
           owner: { select: { id: true, firstName: true, lastName: true } },
+          campaign: { select: { id: true, name: true } },
+          territory: { select: { id: true, name: true } },
           _count: { select: { tasks: true, notes: true, activities: true } }
         }
       }),
@@ -82,6 +96,8 @@ router.get(
       where: { id: String(req.params.id), organizationId: req.user!.organizationId },
       include: {
         owner: { select: { id: true, firstName: true, lastName: true } },
+        campaign: true,
+        territory: true,
         convertedCompany: true,
         convertedContact: true,
         convertedDeal: { include: { stage: true } },
@@ -108,13 +124,15 @@ router.post(
     assertCanWrite(req);
     const input = parseBody(leadSchema, req.body);
     await assertUserInOrganization(req.user!.organizationId, input.ownerId);
+    await assertLeadRelations(req.user!.organizationId, input);
     const lead = await prisma.lead.create({
       data: {
         ...input,
         email: input.email || null,
         website: input.website || null,
         organizationId: req.user!.organizationId,
-        ownerId: input.ownerId || req.user!.id
+        ownerId: input.ownerId || req.user!.id,
+        score: calculateLeadScore(input)
       },
       include: { owner: true }
     });
@@ -152,12 +170,15 @@ router.patch(
     if (!current) throw new HttpError("Lead not found", 404);
     if (current.status === "CONVERTED") throw new HttpError("Converted leads are read-only", 409);
     await assertUserInOrganization(req.user!.organizationId, input.ownerId);
+    await assertLeadRelations(req.user!.organizationId, input);
+    const scoringInput = { ...current, ...input };
     const lead = await prisma.lead.update({
       where: { id: current.id },
       data: {
         ...input,
         email: input.email === "" ? null : input.email,
-        website: input.website === "" ? null : input.website
+        website: input.website === "" ? null : input.website,
+        score: calculateLeadScore(scoringInput)
       }
     });
     await recordActivity({

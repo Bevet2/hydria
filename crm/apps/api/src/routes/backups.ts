@@ -14,11 +14,20 @@ const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 150 * 1024 * 1024 } });
 const storageRoot = path.resolve(env.ATTACHMENT_DIR);
 const snapshotSchema = z.object({
-  schemaVersion: z.union([z.literal(1), z.literal(2)]),
+  schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]),
   organization: z.object({
     slug: z.string(),
     name: z.string(),
-    retentionDays: z.number().int().positive().optional()
+    retentionDays: z.number().int().positive().optional(),
+    logoUrl: z.string().nullable().optional(),
+    brandColor: z.string().optional(),
+    defaultCurrency: z.string().optional(),
+    locale: z.string().optional(),
+    timezone: z.string().optional(),
+    defaultTaxPercent: z.coerce.number().optional(),
+    paymentTermsDays: z.number().int().optional(),
+    quotePrefix: z.string().optional(),
+    invoicePrefix: z.string().optional()
   }),
   generatedAt: z.string(),
   data: z.record(z.array(z.record(z.unknown()))),
@@ -26,7 +35,7 @@ const snapshotSchema = z.object({
     z.object({
       id: z.string().uuid(),
       uploadedById: z.string().uuid(),
-      entityType: z.enum(["CONTACT", "COMPANY", "DEAL", "LEAD"]),
+      entityType: z.enum(["CONTACT", "COMPANY", "DEAL", "LEAD", "EMAIL", "TICKET"]),
       entityId: z.string().uuid(),
       originalName: z.string(),
       mimeType: z.string(),
@@ -121,7 +130,20 @@ router.get(
     const organizationId = req.user!.organizationId;
     const organization = await prisma.organization.findUniqueOrThrow({
       where: { id: organizationId },
-      select: { name: true, slug: true }
+      select: {
+        name: true,
+        slug: true,
+        retentionDays: true,
+        logoUrl: true,
+        brandColor: true,
+        defaultCurrency: true,
+        locale: true,
+        timezone: true,
+        defaultTaxPercent: true,
+        paymentTermsDays: true,
+        quotePrefix: true,
+        invoicePrefix: true
+      }
     });
     const [
       companies,
@@ -134,6 +156,10 @@ router.get(
       quotes,
       quoteLineItems,
       tasks,
+      supportQueues,
+      tickets,
+      ticketMessages,
+      ticketEvents,
       notes,
       activities,
       customFieldDefinitions,
@@ -154,6 +180,15 @@ router.get(
       dashboardPreferences,
       consents,
       privacyRequests,
+      territories,
+      campaigns,
+      sequences,
+      sequenceEnrollments,
+      customReports,
+      teams,
+      teamAssignments,
+      customObjectDefinitions,
+      customObjectRecords,
       attachments
     ] = await prisma.$transaction([
       prisma.company.findMany({ where: { organizationId } }),
@@ -166,6 +201,10 @@ router.get(
       prisma.quote.findMany({ where: { organizationId } }),
       prisma.quoteLineItem.findMany({ where: { organizationId } }),
       prisma.task.findMany({ where: { organizationId } }),
+      prisma.supportQueue.findMany({ where: { organizationId } }),
+      prisma.ticket.findMany({ where: { organizationId } }),
+      prisma.ticketMessage.findMany({ where: { organizationId } }),
+      prisma.ticketEvent.findMany({ where: { organizationId } }),
       prisma.note.findMany({ where: { organizationId } }),
       prisma.activity.findMany({ where: { organizationId } }),
       prisma.customFieldDefinition.findMany({ where: { organizationId } }),
@@ -186,6 +225,18 @@ router.get(
       prisma.dashboardPreference.findMany({ where: { organizationId } }),
       prisma.consent.findMany({ where: { organizationId } }),
       prisma.privacyRequest.findMany({ where: { organizationId } }),
+      prisma.territory.findMany({ where: { organizationId } }),
+      prisma.campaign.findMany({ where: { organizationId } }),
+      prisma.sequence.findMany({ where: { organizationId } }),
+      prisma.sequenceEnrollment.findMany({ where: { organizationId } }),
+      prisma.customReport.findMany({ where: { organizationId } }),
+      prisma.team.findMany({ where: { organizationId } }),
+      prisma.user.findMany({
+        where: { organizationId },
+        select: { id: true, teamId: true, permissionPolicy: true }
+      }),
+      prisma.customObjectDefinition.findMany({ where: { organizationId } }),
+      prisma.customObjectRecord.findMany({ where: { organizationId } }),
       prisma.attachment.findMany({ where: { organizationId } })
     ]);
 
@@ -206,9 +257,9 @@ router.get(
     }
 
     const date = new Date().toISOString().slice(0, 10);
-    res.setHeader("Content-Disposition", `attachment; filename="northstar-${organization.slug}-${date}.json"`);
+    res.setHeader("Content-Disposition", `attachment; filename="hydria-crm-${organization.slug}-${date}.json"`);
     res.json({
-      schemaVersion: 2,
+      schemaVersion: 4,
       generatedAt: new Date().toISOString(),
       organization,
       data: {
@@ -222,6 +273,10 @@ router.get(
         quotes,
         quoteLineItems,
         tasks,
+        supportQueues,
+        tickets,
+        ticketMessages,
+        ticketEvents,
         notes,
         activities,
         customFieldDefinitions,
@@ -241,7 +296,16 @@ router.get(
         creditNotes,
         dashboardPreferences,
         consents,
-        privacyRequests
+        privacyRequests,
+        territories,
+        campaigns,
+        sequences,
+        sequenceEnrollments,
+        customReports,
+        teams,
+        teamAssignments,
+        customObjectDefinitions,
+        customObjectRecords
       },
       attachments: attachmentFiles
     });
@@ -299,6 +363,11 @@ router.post(
     const data = snapshot.data;
 
     await prisma.$transaction(async (tx) => {
+      await tx.sequenceEnrollment.deleteMany({ where: { organizationId } });
+      await tx.sequence.deleteMany({ where: { organizationId } });
+      await tx.customReport.deleteMany({ where: { organizationId } });
+      await tx.customObjectRecord.deleteMany({ where: { organizationId } });
+      await tx.customObjectDefinition.deleteMany({ where: { organizationId } });
       await tx.creditNote.deleteMany({ where: { organizationId } });
       await tx.payment.deleteMany({ where: { organizationId } });
       await tx.invoice.deleteMany({ where: { organizationId } });
@@ -317,6 +386,10 @@ router.post(
       await tx.quoteLineItem.deleteMany({ where: { organizationId } });
       await tx.quote.deleteMany({ where: { organizationId } });
       await tx.dealLineItem.deleteMany({ where: { organizationId } });
+      await tx.ticketMessage.deleteMany({ where: { organizationId } });
+      await tx.ticketEvent.deleteMany({ where: { organizationId } });
+      await tx.ticket.deleteMany({ where: { organizationId } });
+      await tx.supportQueue.deleteMany({ where: { organizationId } });
       await tx.task.deleteMany({ where: { organizationId } });
       await tx.note.deleteMany({ where: { organizationId } });
       await tx.activity.deleteMany({ where: { organizationId } });
@@ -327,6 +400,10 @@ router.post(
       await tx.savedView.deleteMany({ where: { organizationId } });
       await tx.lead.deleteMany({ where: { organizationId } });
       await tx.deal.deleteMany({ where: { organizationId } });
+      await tx.user.updateMany({ where: { organizationId }, data: { territoryId: null, teamId: null } });
+      await tx.team.deleteMany({ where: { organizationId } });
+      await tx.campaign.deleteMany({ where: { organizationId } });
+      await tx.territory.deleteMany({ where: { organizationId } });
       await tx.contact.deleteMany({ where: { organizationId } });
       await tx.company.deleteMany({ where: { organizationId } });
       await tx.product.deleteMany({ where: { organizationId } });
@@ -338,6 +415,8 @@ router.post(
         .map((item) => ({ ...item, ownerId: optionalUser(item.ownerId) }));
       const stages = reviveDates(withOrganization(rows(data, "stages"), organizationId), ["createdAt", "updatedAt"]);
       const products = reviveDates(withOrganization(rows(data, "products"), organizationId), ["createdAt", "updatedAt"]);
+      const territories = reviveDates(withOrganization(rows(data, "territories"), organizationId), ["createdAt", "updatedAt"]);
+      const campaigns = reviveDates(withOrganization(rows(data, "campaigns"), organizationId), ["startsAt", "endsAt", "createdAt", "updatedAt"]);
       const sourceLeads = reviveDates(withOrganization(rows(data, "leads"), organizationId), ["createdAt", "updatedAt", "convertedAt"]);
       const leads = sourceLeads.map((item) => ({
         ...item,
@@ -353,6 +432,8 @@ router.post(
       if (contacts.length) await tx.contact.createMany({ data: contacts });
       if (stages.length) await tx.pipelineStage.createMany({ data: stages });
       if (products.length) await tx.product.createMany({ data: products });
+      if (territories.length) await tx.territory.createMany({ data: territories });
+      if (campaigns.length) await tx.campaign.createMany({ data: campaigns });
       if (leads.length) await tx.lead.createMany({ data: leads });
       if (deals.length) await tx.deal.createMany({ data: deals });
 
@@ -379,6 +460,29 @@ router.post(
           createdById: requiredUser(item.createdById),
           assignedToId: optionalUser(item.assignedToId)
         }));
+      const supportQueues = reviveDates(
+        withOrganization(rows(data, "supportQueues"), organizationId),
+        ["createdAt", "updatedAt"]
+      );
+      const tickets = reviveDates(
+        withOrganization(rows(data, "tickets"), organizationId),
+        [
+          "dueAt", "firstResponseDueAt", "resolutionDueAt", "firstRespondedAt",
+          "slaBreachedAt", "escalatedAt", "resolvedAt", "createdAt", "updatedAt"
+        ]
+      ).map((item) => ({
+        ...item,
+        createdById: requiredUser(item.createdById),
+        assignedToId: optionalUser(item.assignedToId)
+      }));
+      const ticketMessages = reviveDates(
+        withOrganization(rows(data, "ticketMessages"), organizationId),
+        ["createdAt"]
+      ).map((item) => ({ ...item, authorId: optionalUser(item.authorId) }));
+      const ticketEvents = reviveDates(
+        withOrganization(rows(data, "ticketEvents"), organizationId),
+        ["createdAt"]
+      ).map((item) => ({ ...item, actorId: optionalUser(item.actorId) }));
       const notes = reviveDates(withOrganization(rows(data, "notes"), organizationId), ["createdAt", "updatedAt"])
         .map((item) => ({ ...item, authorId: requiredUser(item.authorId) }));
       const activities = reviveDates(withOrganization(rows(data, "activities"), organizationId), ["createdAt", "occurredAt"])
@@ -392,6 +496,10 @@ router.post(
       if (quotes.length) await tx.quote.createMany({ data: quotes });
       if (quoteLineItems.length) await tx.quoteLineItem.createMany({ data: quoteLineItems });
       if (tasks.length) await tx.task.createMany({ data: tasks });
+      if (supportQueues.length) await tx.supportQueue.createMany({ data: supportQueues });
+      if (tickets.length) await tx.ticket.createMany({ data: tickets });
+      if (ticketMessages.length) await tx.ticketMessage.createMany({ data: ticketMessages });
+      if (ticketEvents.length) await tx.ticketEvent.createMany({ data: ticketEvents });
       if (notes.length) await tx.note.createMany({ data: notes });
       if (activities.length) await tx.activity.createMany({ data: activities });
       if (definitions.length) await tx.customFieldDefinition.createMany({ data: definitions });
@@ -458,6 +566,31 @@ router.post(
         withOrganization(rows(data, "privacyRequests"), organizationId),
         ["completedAt", "createdAt", "updatedAt"]
       ).map((item) => ({ ...item, requestedById: requiredUser(item.requestedById) }));
+      const sequences = reviveDates(
+        withOrganization(rows(data, "sequences"), organizationId),
+        ["createdAt", "updatedAt"]
+      ).map((item) => ({ ...item, createdById: requiredUser(item.createdById) }));
+      const sequenceEnrollments = reviveDates(
+        withOrganization(rows(data, "sequenceEnrollments"), organizationId),
+        ["nextRunAt", "completedAt", "createdAt", "updatedAt"]
+      );
+      const customReports = reviveDates(
+        withOrganization(rows(data, "customReports"), organizationId),
+        ["createdAt", "updatedAt"]
+      ).map((item) => ({ ...item, createdById: requiredUser(item.createdById) }));
+      const teams = reviveDates(
+        withOrganization(rows(data, "teams"), organizationId),
+        ["createdAt", "updatedAt"]
+      );
+      const teamAssignments = rows(data, "teamAssignments");
+      const customObjectDefinitions = reviveDates(
+        withOrganization(rows(data, "customObjectDefinitions"), organizationId),
+        ["createdAt", "updatedAt"]
+      );
+      const customObjectRecords = reviveDates(
+        withOrganization(rows(data, "customObjectRecords"), organizationId),
+        ["createdAt", "updatedAt"]
+      ).map((item) => ({ ...item, ownerId: optionalUser(item.ownerId) }));
 
       if (automationRules.length) await tx.automationRule.createMany({ data: automationRules });
       if (automationRuns.length) await tx.automationRun.createMany({ data: automationRuns });
@@ -474,13 +607,43 @@ router.post(
       if (dashboardPreferences.length) await tx.dashboardPreference.createMany({ data: dashboardPreferences });
       if (consents.length) await tx.consent.createMany({ data: consents });
       if (privacyRequests.length) await tx.privacyRequest.createMany({ data: privacyRequests });
-
-      if (snapshot.organization.retentionDays) {
-        await tx.organization.update({
-          where: { id: organizationId },
-          data: { retentionDays: snapshot.organization.retentionDays }
+      if (sequences.length) await tx.sequence.createMany({ data: sequences });
+      if (sequenceEnrollments.length) await tx.sequenceEnrollment.createMany({ data: sequenceEnrollments });
+      if (customReports.length) await tx.customReport.createMany({ data: customReports });
+      if (teams.length) await tx.team.createMany({ data: teams });
+      for (const assignment of teamAssignments) {
+        if (!optionalUser(assignment.id)) continue;
+        await tx.user.update({
+          where: { id: assignment.id },
+          data: {
+            teamId: assignment.teamId || null,
+            permissionPolicy: assignment.permissionPolicy ?? undefined
+          }
         });
       }
+      if (customObjectDefinitions.length) {
+        await tx.customObjectDefinition.createMany({ data: customObjectDefinitions });
+      }
+      if (customObjectRecords.length) {
+        await tx.customObjectRecord.createMany({ data: customObjectRecords });
+      }
+
+      await tx.organization.update({
+        where: { id: organizationId },
+        data: {
+          name: snapshot.organization.name,
+          retentionDays: snapshot.organization.retentionDays,
+          logoUrl: snapshot.organization.logoUrl,
+          brandColor: snapshot.organization.brandColor,
+          defaultCurrency: snapshot.organization.defaultCurrency,
+          locale: snapshot.organization.locale,
+          timezone: snapshot.organization.timezone,
+          defaultTaxPercent: snapshot.organization.defaultTaxPercent,
+          paymentTermsDays: snapshot.organization.paymentTermsDays,
+          quotePrefix: snapshot.organization.quotePrefix,
+          invoicePrefix: snapshot.organization.invoicePrefix
+        }
+      });
     }, { timeout: 60_000 });
 
     await mkdir(storageRoot, { recursive: true });

@@ -120,7 +120,7 @@ async function main() {
     attachments: Array<{ originalName: string }>;
   };
   if (
-    ![1, 2].includes(backup.schemaVersion) ||
+    ![1, 2, 3, 4].includes(backup.schemaVersion) ||
     !backup.data.contacts.some((contact) => contact.id === primaryId) ||
     !backup.attachments.some((item) => item.originalName === "gate.txt")
   ) {

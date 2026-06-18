@@ -45,8 +45,21 @@ const dealSchema = z.object({
   companyId: z.string().uuid().optional().nullable(),
   primaryContactId: z.string().uuid().optional().nullable(),
   ownerId: z.string().uuid().optional().nullable(),
-  expectedCloseAt: nullableDate
+  expectedCloseAt: nullableDate,
+  campaignId: z.string().uuid().optional().nullable(),
+  territoryId: z.string().uuid().optional().nullable(),
+  lostReason: z.string().max(500).optional().nullable(),
+  competitor: z.string().max(160).optional().nullable()
 });
+
+async function assertDealOperationsRelations(organizationId: string, input: { campaignId?: string | null; territoryId?: string | null }) {
+  const [campaign, territory] = await Promise.all([
+    input.campaignId ? prisma.campaign.findFirst({ where: { id: input.campaignId, organizationId } }) : null,
+    input.territoryId ? prisma.territory.findFirst({ where: { id: input.territoryId, organizationId } }) : null
+  ]);
+  if (input.campaignId && !campaign) throw new HttpError("Campaign not found", 404);
+  if (input.territoryId && !territory) throw new HttpError("Territory not found", 404);
+}
 
 router.use(requireAuth);
 
@@ -66,6 +79,8 @@ router.get(
           company: { select: { id: true, name: true } },
           primaryContact: { select: { id: true, firstName: true, lastName: true } },
           owner: { select: { id: true, firstName: true, lastName: true } },
+          campaign: { select: { id: true, name: true } },
+          territory: { select: { id: true, name: true } },
           stage: true,
           _count: { select: { tasks: true, notes: true, activities: true } }
         }
@@ -84,6 +99,8 @@ router.get(
         company: true,
         primaryContact: true,
         owner: { select: { id: true, firstName: true, lastName: true, email: true } },
+        campaign: true,
+        territory: true,
         stage: true,
         lineItems: { include: { product: true }, orderBy: { createdAt: "asc" } },
         quotes: {
@@ -186,6 +203,7 @@ router.post(
       companyId: input.companyId,
       contactId: input.primaryContactId
     });
+    await assertDealOperationsRelations(req.user!.organizationId, input);
     const deal = await prisma.deal.create({
       data: {
         ...input,
@@ -237,16 +255,22 @@ router.patch(
       where: { id: stageId, organizationId: req.user!.organizationId }
     });
     if (!stage) throw new HttpError("Pipeline stage not found", 404);
+    if (stage.isLost && !(input.lostReason || current.lostReason)) {
+      throw new HttpError("A lost reason is required when closing an opportunity as lost", 400);
+    }
     await assertCrmRelations(req.user!.organizationId, {
       ownerId: input.ownerId,
       companyId: input.companyId,
       contactId: input.primaryContactId
     });
+    await assertDealOperationsRelations(req.user!.organizationId, input);
     const deal = await prisma.deal.update({
       where: { id: current.id },
       data: {
         ...input,
         stageId,
+        lostReason: stage.isLost ? input.lostReason ?? current.lostReason : null,
+        competitor: stage.isLost ? input.competitor ?? current.competitor : null,
         status: stage.isWon ? "WON" : stage.isLost ? "LOST" : "OPEN",
         forecastCategory: stage.isWon
           ? "CLOSED"

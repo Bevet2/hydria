@@ -126,6 +126,15 @@ export async function assertWorkspaceEntityInOrganization(
     );
     return;
   }
+  if (entityType === "TICKET") {
+    await assertScopedRecord("Ticket", entityId, () =>
+      prisma.ticket.findFirst({
+        where: { id: entityId, organizationId },
+        select: { id: true }
+      })
+    );
+    return;
+  }
   if (entityType === "CONTACT") {
     await assertContactInOrganization(organizationId, entityId);
     return;

@@ -17,13 +17,13 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024, files: 1 }
 });
-const entityTypeSchema = z.enum(["CONTACT", "COMPANY", "DEAL", "LEAD", "EMAIL"]);
+const entityTypeSchema = z.enum(["CONTACT", "COMPANY", "DEAL", "LEAD", "EMAIL", "TICKET"]);
 
 function activityRelation(entityType: z.infer<typeof entityTypeSchema>, entityId: string) {
   if (entityType === "CONTACT") return { contactId: entityId };
   if (entityType === "COMPANY") return { companyId: entityId };
   if (entityType === "DEAL") return { dealId: entityId };
-  if (entityType === "EMAIL") return {};
+  if (entityType === "EMAIL" || entityType === "TICKET") return {};
   return { leadId: entityId };
 }
 

@@ -70,6 +70,15 @@ router.get(
         owner: { select: { id: true, firstName: true, lastName: true } },
         contacts: { orderBy: { updatedAt: "desc" } },
         deals: { include: { stage: true, owner: true }, orderBy: { updatedAt: "desc" } },
+        tickets: {
+          orderBy: { updatedAt: "desc" },
+          take: 10,
+          include: {
+            assignedTo: { select: { id: true, firstName: true, lastName: true } },
+            contact: { select: { id: true, firstName: true, lastName: true } },
+            queue: { select: { id: true, name: true } }
+          }
+        },
         tasks: { orderBy: { createdAt: "desc" } },
         notes: { include: { author: true }, orderBy: { createdAt: "desc" } },
         activities: { orderBy: { occurredAt: "desc" }, take: 30 }
@@ -78,7 +87,97 @@ router.get(
     if (!company) {
       throw new HttpError("Company not found", 404);
     }
-    res.json({ company });
+    const now = new Date();
+    const openDeals = company.deals.filter((deal) => deal.status === "OPEN");
+    const wonDeals = company.deals.filter((deal) => deal.status === "WON");
+    const openTasks = company.tasks.filter((task) => ["TODO", "IN_PROGRESS"].includes(task.status));
+    const overdueTasks = openTasks.filter((task) => task.dueAt && task.dueAt < now);
+    const openTickets = company.tickets.filter((ticket) => ["OPEN", "IN_PROGRESS", "WAITING"].includes(ticket.status));
+    const overdueTickets = openTickets.filter((ticket) => ticket.resolutionDueAt && ticket.resolutionDueAt < now);
+    const lastActivityAt = company.activities[0]?.occurredAt || company.updatedAt;
+    const daysSinceLastActivity = Math.max(
+      0,
+      Math.floor((now.getTime() - new Date(lastActivityAt).getTime()) / 86_400_000)
+    );
+    const openDealsValue = openDeals.reduce((total, deal) => total + Number(deal.value), 0);
+    const wonDealsValue = wonDeals.reduce((total, deal) => total + Number(deal.value), 0);
+    const healthScore = Math.max(
+      0,
+      Math.min(
+        100,
+        100 -
+          overdueTickets.length * 18 -
+          overdueTasks.length * 10 -
+          Math.max(0, openTickets.length - 2) * 4 -
+          (daysSinceLastActivity > 30 ? 12 : 0) -
+          (openDeals.length === 0 ? 8 : 0) -
+          (company.contacts.length === 0 ? 12 : 0)
+      )
+    );
+    const nextBestActions: Array<{ title: string; detail: string; severity: "critical" | "warning" | "opportunity" | "info" }> = [];
+    if (overdueTickets.length) {
+      nextBestActions.push({
+        title: "Resolve overdue support tickets",
+        detail: `${overdueTickets.length} ticket${overdueTickets.length > 1 ? "s are" : " is"} past SLA.`,
+        severity: "critical"
+      });
+    }
+    if (overdueTasks.length) {
+      nextBestActions.push({
+        title: "Close overdue account tasks",
+        detail: `${overdueTasks.length} task${overdueTasks.length > 1 ? "s need" : " needs"} follow-up.`,
+        severity: "warning"
+      });
+    }
+    if (!openDeals.length) {
+      nextBestActions.push({
+        title: "Create or qualify the next opportunity",
+        detail: "There is no open pipeline attached to this account.",
+        severity: "opportunity"
+      });
+    }
+    if (daysSinceLastActivity > 30) {
+      nextBestActions.push({
+        title: "Schedule an account touchpoint",
+        detail: `No activity has been logged for ${daysSinceLastActivity} days.`,
+        severity: "warning"
+      });
+    }
+    if (!company.contacts.length) {
+      nextBestActions.push({
+        title: "Add a buying committee contact",
+        detail: "The account has no known contacts yet.",
+        severity: "info"
+      });
+    }
+    if (!nextBestActions.length) {
+      nextBestActions.push({
+        title: "Keep the account warm",
+        detail: "Review open work and prepare the next customer check-in.",
+        severity: "info"
+      });
+    }
+    res.json({
+      company: {
+        ...company,
+        customer360: {
+          contactsCount: company.contacts.length,
+          openDealsCount: openDeals.length,
+          openDealsValue,
+          wonDealsCount: wonDeals.length,
+          wonDealsValue,
+          openTasksCount: openTasks.length,
+          overdueTasksCount: overdueTasks.length,
+          openTicketsCount: openTickets.length,
+          overdueTicketsCount: overdueTickets.length,
+          lastActivityAt,
+          daysSinceLastActivity,
+          healthScore,
+          healthLabel: healthScore >= 80 ? "Healthy" : healthScore >= 55 ? "Watch" : "At risk",
+          nextBestActions: nextBestActions.slice(0, 4)
+        }
+      }
+    });
   })
 );
 

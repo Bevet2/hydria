@@ -1,4 +1,4 @@
-import { Prisma, type BackgroundJob, type BackgroundJobType } from "@prisma/client";
+import { Prisma, type BackgroundJob } from "@prisma/client";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { env } from "../config/env.js";
@@ -7,29 +7,16 @@ import { deliverWebhook } from "./webhooks.js";
 import { sendOperationalAlert } from "./alerts.js";
 import { sendProviderEmail, syncProviderData } from "./integrations.js";
 import { sendTransactionalEmail } from "./transactionalEmail.js";
+import { executeSequenceStep } from "./salesOps.js";
+import { executeQueuedAutomationAction } from "./automations.js";
+import { enqueueBackgroundJob } from "./jobQueue.js";
+
+export { enqueueBackgroundJob } from "./jobQueue.js";
 
 function objectPayload(value: Prisma.JsonValue): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
     : {};
-}
-
-export async function enqueueBackgroundJob(input: {
-  organizationId: string;
-  type: BackgroundJobType;
-  payload: Record<string, unknown>;
-  runAt?: Date;
-  maxAttempts?: number;
-}) {
-  return prisma.backgroundJob.create({
-    data: {
-      organizationId: input.organizationId,
-      type: input.type,
-      payload: input.payload as Prisma.InputJsonValue,
-      runAt: input.runAt,
-      maxAttempts: input.maxAttempts
-    }
-  });
 }
 
 async function handleEmail(job: BackgroundJob, payload: Record<string, unknown>) {
@@ -140,6 +127,8 @@ async function execute(job: BackgroundJob) {
     if (!connection) throw new Error("Integration connection not found");
     return syncProviderData(connection);
   }
+  if (job.type === "AUTOMATION_ACTION") return executeQueuedAutomationAction(payload);
+  if (job.type === "SEQUENCE_STEP") return executeSequenceStep(String(payload.enrollmentId || ""));
   return handleInvoiceReminder(job, payload);
 }
 

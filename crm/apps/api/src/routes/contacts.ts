@@ -283,7 +283,7 @@ router.get(
       { header: true }
     );
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
-    res.setHeader("Content-Disposition", 'attachment; filename="northstar-contacts.csv"');
+    res.setHeader("Content-Disposition", 'attachment; filename="hydria-crm-contacts.csv"');
     res.send(csv);
   })
 );

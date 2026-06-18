@@ -288,22 +288,26 @@ router.post(
         name: z.string().min(1).max(160),
         validUntil: z.string().optional().nullable(),
         discountPercent: z.coerce.number().min(0).max(100).default(0),
-        taxPercent: z.coerce.number().min(0).max(100).default(0),
+        taxPercent: z.coerce.number().min(0).max(100).optional(),
         notes: z.string().max(4000).optional()
       }),
       req.body
     );
     const organizationId = req.user!.organizationId;
-    const deal = await prisma.deal.findFirst({
-      where: { id: String(req.params.dealId), organizationId },
-      include: { lineItems: { include: { product: true } } }
-    });
+    const [deal, organization] = await Promise.all([
+      prisma.deal.findFirst({
+        where: { id: String(req.params.dealId), organizationId },
+        include: { lineItems: { include: { product: true } } }
+      }),
+      prisma.organization.findUniqueOrThrow({ where: { id: organizationId } })
+    ]);
     if (!deal) throw new HttpError("Deal not found", 404);
     if (!deal.lineItems.length) throw new HttpError("Add at least one product to the deal", 409);
     const subtotal = deal.lineItems.reduce((sum, item) => sum + Number(item.lineTotal), 0);
     const discounted = subtotal * (1 - input.discountPercent / 100);
-    const total = Math.round(discounted * (1 + input.taxPercent / 100) * 100) / 100;
-    const serial = `${new Date().getFullYear()}-${String(
+    const taxPercent = input.taxPercent ?? Number(organization.defaultTaxPercent);
+    const total = Math.round(discounted * (1 + taxPercent / 100) * 100) / 100;
+    const serial = `${organization.quotePrefix}-${new Date().getFullYear()}-${String(
       (await prisma.quote.count({ where: { organizationId } })) + 1
     ).padStart(5, "0")}`;
     const quote = await prisma.quote.create({
@@ -318,7 +322,7 @@ router.post(
         validUntil: input.validUntil ? new Date(input.validUntil) : null,
         subtotal,
         discountPercent: input.discountPercent,
-        taxPercent: input.taxPercent,
+        taxPercent,
         total,
         notes: input.notes,
         lineItems: {

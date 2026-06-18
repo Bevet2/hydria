@@ -1,4 +1,5 @@
 import { rm } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { Router } from "express";
 import multer from "multer";
@@ -13,7 +14,7 @@ import { assertCanWrite } from "../middleware/auth.js";
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
-const resourceSchema = z.enum(["companies", "leads", "deals", "products", "tasks"]);
+const resourceSchema = z.enum(["contacts", "companies", "leads", "deals", "products", "tasks", "tickets"]);
 const attachmentRoot = path.resolve(env.ATTACHMENT_DIR);
 
 router.use(requireAuth);
@@ -27,6 +28,21 @@ function resource(value: string) {
 router.get("/duplicates/:resource", asyncRoute(async (req, res) => {
   const kind = resource(String(req.params.resource));
   const organizationId = req.user!.organizationId;
+  if (kind === "contacts") {
+    const rows = await prisma.contact.findMany({
+      where: { organizationId },
+      orderBy: { updatedAt: "desc" },
+      include: { company: { select: { id: true, name: true } } }
+    });
+    const groups = new Map<string, typeof rows>();
+    for (const contact of rows) {
+      const key = contact.email?.trim().toLowerCase()
+        || `name:${contact.firstName.trim().toLowerCase()}:${contact.lastName.trim().toLowerCase()}:${contact.companyId || ""}`;
+      groups.set(key, [...(groups.get(key) || []), contact]);
+    }
+    res.json({ groups: [...groups.values()].filter((items) => items.length > 1) });
+    return;
+  }
   if (kind === "companies") {
     const rows = await prisma.company.findMany({ where: { organizationId }, orderBy: { updatedAt: "desc" } });
     const groups = new Map<string, typeof rows>();
@@ -48,7 +64,7 @@ router.get("/duplicates/:resource", asyncRoute(async (req, res) => {
     res.json({ groups: [...groups.values()].filter((items) => items.length > 1) });
     return;
   }
-  throw new HttpError("Duplicate detection is available for companies and leads", 400);
+  throw new HttpError("Duplicate detection is available for contacts, companies and leads", 400);
 }));
 
 router.post("/duplicates/companies/merge", asyncRoute(async (req, res) => {
@@ -192,7 +208,7 @@ router.post("/bulk/:resource", asyncRoute(async (req, res) => {
       if (used) throw new HttpError("Products used by deals or quotes cannot be deleted", 409);
       count = (await prisma.product.deleteMany({ where: { organizationId, id: { in: input.ids } } })).count;
     } else throw new HttpError("Unsupported product bulk action", 400);
-  } else {
+  } else if (kind === "tasks") {
     if (input.action === "ASSIGN_OWNER") {
       count = (await prisma.task.updateMany({
         where: { organizationId, id: { in: input.ids } },
@@ -208,11 +224,31 @@ router.post("/bulk/:resource", asyncRoute(async (req, res) => {
     } else if (input.action === "DELETE") {
       count = (await prisma.task.deleteMany({ where: { organizationId, id: { in: input.ids } } })).count;
     } else throw new HttpError("Unsupported task bulk action", 400);
+  } else {
+    if (input.action === "ASSIGN_OWNER") {
+      count = (await prisma.ticket.updateMany({
+        where: { organizationId, id: { in: input.ids } },
+        data: { assignedToId: input.ownerId || null }
+      })).count;
+    } else if (input.action === "UPDATE_STATUS") {
+      const parsed = z.enum(["OPEN", "IN_PROGRESS", "WAITING", "RESOLVED", "CLOSED"]).safeParse(input.status);
+      if (!parsed.success) throw new HttpError("Valid ticket status is required", 400);
+      count = (await prisma.ticket.updateMany({
+        where: { organizationId, id: { in: input.ids } },
+        data: {
+          status: parsed.data,
+          resolvedAt: ["RESOLVED", "CLOSED"].includes(parsed.data) ? new Date() : null
+        }
+      })).count;
+    } else if (input.action === "DELETE") {
+      await deleteAttachments(organizationId, "TICKET", input.ids);
+      count = (await prisma.ticket.deleteMany({ where: { organizationId, id: { in: input.ids } } })).count;
+    } else throw new HttpError("Unsupported ticket bulk action", 400);
   }
   res.json({ updated: count });
 }));
 
-async function deleteAttachments(organizationId: string, entityType: "COMPANY" | "LEAD" | "DEAL", ids: string[]) {
+async function deleteAttachments(organizationId: string, entityType: "CONTACT" | "COMPANY" | "LEAD" | "DEAL" | "TICKET", ids: string[]) {
   const attachments = await prisma.attachment.findMany({
     where: { organizationId, entityType, entityId: { in: ids } },
     select: { storageKey: true }
@@ -225,17 +261,77 @@ router.get("/export/:resource.csv", asyncRoute(async (req, res) => {
   const kind = resource(String(req.params.resource));
   const organizationId = req.user!.organizationId;
   let records: Array<Record<string, unknown>>;
-  if (kind === "companies") records = await prisma.company.findMany({ where: { organizationId }, orderBy: { name: "asc" } });
+  if (kind === "contacts") {
+    const contacts = await prisma.contact.findMany({
+      where: { organizationId },
+      orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
+      include: { company: { select: { name: true } }, owner: { select: { email: true } } }
+    });
+    records = contacts.map((contact) => ({
+      firstName: contact.firstName,
+      lastName: contact.lastName,
+      email: contact.email || "",
+      phone: contact.phone || "",
+      jobTitle: contact.jobTitle || "",
+      status: contact.status,
+      source: contact.source || "",
+      companyName: contact.company?.name || "",
+      ownerEmail: contact.owner?.email || "",
+      createdAt: contact.createdAt,
+      updatedAt: contact.updatedAt
+    }));
+  } else if (kind === "companies") records = await prisma.company.findMany({ where: { organizationId }, orderBy: { name: "asc" } });
   else if (kind === "leads") records = await prisma.lead.findMany({ where: { organizationId }, orderBy: { createdAt: "desc" } });
   else if (kind === "deals") {
     const deals = await prisma.deal.findMany({ where: { organizationId }, include: { stage: true, company: true } });
     records = deals.map((deal) => ({ ...deal, stageName: deal.stage.name, companyName: deal.company?.name || "" }));
   } else if (kind === "products") records = await prisma.product.findMany({ where: { organizationId }, orderBy: { name: "asc" } });
-  else records = await prisma.task.findMany({ where: { organizationId }, orderBy: { createdAt: "desc" } });
+  else if (kind === "tasks") records = await prisma.task.findMany({ where: { organizationId }, orderBy: { createdAt: "desc" } });
+  else {
+    const tickets = await prisma.ticket.findMany({
+      where: { organizationId },
+      orderBy: { updatedAt: "desc" },
+      include: {
+        assignedTo: { select: { email: true, firstName: true, lastName: true } },
+        contact: { select: { firstName: true, lastName: true, email: true } },
+        company: { select: { name: true } },
+        queue: { select: { name: true } }
+      }
+    });
+    records = tickets.map((ticket) => ({
+      number: ticket.number,
+      subject: ticket.subject,
+      description: ticket.description || "",
+      status: ticket.status,
+      priority: ticket.priority,
+      source: ticket.source,
+      customerEmail: ticket.customerEmail || "",
+      assignedToEmail: ticket.assignedTo?.email || "",
+      assignedToName: ticket.assignedTo ? `${ticket.assignedTo.firstName} ${ticket.assignedTo.lastName}` : "",
+      contactEmail: ticket.contact?.email || "",
+      contactName: ticket.contact ? `${ticket.contact.firstName} ${ticket.contact.lastName}` : "",
+      companyName: ticket.company?.name || "",
+      queueName: ticket.queue?.name || "",
+      dueAt: ticket.dueAt || "",
+      createdAt: ticket.createdAt,
+      updatedAt: ticket.updatedAt
+    }));
+  }
   res.setHeader("Content-Type", "text/csv; charset=utf-8");
-  res.setHeader("Content-Disposition", `attachment; filename="northstar-${kind}.csv"`);
+  res.setHeader("Content-Disposition", `attachment; filename="hydria-crm-${kind}.csv"`);
   res.send(stringifyCsv(records, { header: true }));
 }));
+
+async function findCompanyByName(organizationId: string, ownerId: string, name = "") {
+  const cleanName = name.trim();
+  if (!cleanName) return null;
+  const existing = await prisma.company.findFirst({
+    where: { organizationId, name: { equals: cleanName, mode: "insensitive" } }
+  });
+  return existing || prisma.company.create({
+    data: { organizationId, ownerId, name: cleanName }
+  });
+}
 
 router.post("/import/:resource", upload.single("file"), asyncRoute(async (req, res) => {
   assertCanWrite(req);
@@ -250,7 +346,30 @@ router.post("/import/:resource", upload.single("file"), asyncRoute(async (req, r
   const skipped: number[] = [];
   for (const [index, row] of rows.entries()) {
     try {
-      if (kind === "companies") {
+      if (kind === "contacts") {
+        if (!row.firstName || !row.lastName) throw new Error();
+        const company = await findCompanyByName(organizationId, req.user!.id, row.companyName || "");
+        const owner = row.ownerEmail
+          ? await prisma.user.findFirst({
+              where: { organizationId, email: { equals: row.ownerEmail, mode: "insensitive" } },
+              select: { id: true }
+            })
+          : null;
+        await prisma.contact.create({
+          data: {
+            organizationId,
+            ownerId: owner?.id || req.user!.id,
+            companyId: company?.id,
+            firstName: row.firstName,
+            lastName: row.lastName,
+            email: row.email || null,
+            phone: row.phone || null,
+            jobTitle: row.jobTitle || null,
+            status: row.status || "lead",
+            source: row.source || "csv"
+          }
+        });
+      } else if (kind === "companies") {
         if (!row.name) throw new Error();
         await prisma.company.create({
           data: {
@@ -293,7 +412,7 @@ router.post("/import/:resource", upload.single("file"), asyncRoute(async (req, r
             probability: Math.max(0, Math.min(100, Number(row.probability || 20)))
           }
         });
-      } else {
+      } else if (kind === "tasks") {
         if (!row.title) throw new Error();
         await prisma.task.create({
           data: {
@@ -305,6 +424,52 @@ router.post("/import/:resource", upload.single("file"), asyncRoute(async (req, r
             status: z.enum(["TODO", "IN_PROGRESS", "DONE", "CANCELED"]).catch("TODO").parse(row.status),
             priority: z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]).catch("MEDIUM").parse(row.priority),
             dueAt: row.dueAt ? new Date(row.dueAt) : null
+          }
+        });
+      } else {
+        if (!row.subject) throw new Error();
+        const [assignedTo, contact, queue] = await Promise.all([
+          row.assignedToEmail
+            ? prisma.user.findFirst({
+                where: { organizationId, email: { equals: row.assignedToEmail, mode: "insensitive" } },
+                select: { id: true }
+              })
+            : null,
+          row.contactEmail
+            ? prisma.contact.findFirst({
+                where: { organizationId, email: { equals: row.contactEmail, mode: "insensitive" } },
+                select: { id: true, companyId: true, email: true }
+              })
+            : null,
+          row.queueName
+            ? prisma.supportQueue.findFirst({
+                where: { organizationId, name: { equals: row.queueName, mode: "insensitive" } },
+                select: { id: true }
+              })
+            : null
+        ]);
+        const company = contact?.companyId
+          ? null
+          : await findCompanyByName(organizationId, req.user!.id, row.companyName || "");
+        const status = z.enum(["OPEN", "IN_PROGRESS", "WAITING", "RESOLVED", "CLOSED"]).catch("OPEN").parse(row.status);
+        const priority = z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]).catch("MEDIUM").parse(row.priority);
+        await prisma.ticket.create({
+          data: {
+            organizationId,
+            createdById: req.user!.id,
+            assignedToId: assignedTo?.id || req.user!.id,
+            contactId: contact?.id,
+            companyId: contact?.companyId || company?.id,
+            queueId: queue?.id,
+            number: row.number || `T-${randomUUID().slice(0, 8).toUpperCase()}`,
+            subject: row.subject,
+            description: row.description || null,
+            status,
+            priority,
+            source: row.source || "CSV",
+            customerEmail: row.customerEmail || contact?.email || null,
+            dueAt: row.dueAt ? new Date(row.dueAt) : null,
+            resolvedAt: ["RESOLVED", "CLOSED"].includes(status) ? new Date() : null
           }
         });
       }
