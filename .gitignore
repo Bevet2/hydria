@@ -16,6 +16,8 @@ crm/.env
 crm/staging.env
 
 .tools/
+.runtime/
+backend/.runtime/
 backend/backend/
 backend/chart-*.png
 backend/popup-debug.png
