@@ -1937,7 +1937,9 @@ function applySheetOperation(sheet, operation = {}, model = null) {
     if (colIndex >= 0 && !parsed) {
       const colLetter = columnIndexToA1(colIndex);
       const dataEnd = sheet.rows.length;
-      const formula = `=SUM(${colLetter}2:${colLetter}${Math.max(2, dataEnd)})`;
+      // dataEnd is the 0-based index of the new SUM row; spreadsheet row for data index i = i+2.
+      // All data rows are 0..dataEnd-1 → spreadsheet rows 2..dataEnd+1.
+      const formula = `=SUM(${colLetter}2:${colLetter}${Math.max(2, dataEnd + 1)})`;
       ensureSheetRows(sheet, dataEnd);
       ensureSheetWidth(sheet, colIndex + 1);
       sheet.rows[dataEnd][colIndex] = formula;
@@ -1981,10 +1983,10 @@ function applySheetOperation(sheet, operation = {}, model = null) {
     if (colIndex < 0) return { applied: "", issue: "sheet.split_column requires a column target." };
     const delimiter = String(operation.raw?.delimiter || operation.value || ",").trim() || ",";
     const maxParts = Math.min(Math.max(Number(operation.raw?.maxParts || 2), 2), 10);
-    const srcHeader = sheet.columns[colIndex] || { id: `col-${colIndex}`, name: `Column ${colIndex + 1}` };
+    // sheet.columns are plain strings after normalizeSheet — use the string directly as the new column name
+    const srcColName = String(sheet.columns[colIndex] ?? `Column ${colIndex + 1}`);
     for (let i = 1; i < maxParts; i++) {
-      const newCol = { ...srcHeader, id: `${srcHeader.id || `col-${colIndex}`}-split-${i}`, name: `${srcHeader.name || "Col"} ${i + 1}` };
-      sheet.columns.splice(colIndex + i, 0, newCol);
+      sheet.columns.splice(colIndex + i, 0, `${srcColName} ${i + 1}`);
     }
     sheet.rows = sheet.rows.map((row) => {
       const parts = String(row[colIndex] ?? "").split(delimiter).map((p) => p.trim());
@@ -3151,13 +3153,13 @@ function applyDocumentOperation(content = "", operation = {}) {
     const beforeHeading = String(operation.raw?.beforeHeading || "").trim();
     if (!heading) return { content, applied: "", issue: "doc.move_section requires a heading (section to move)." };
     if (!afterHeading && !beforeHeading) return { content, applied: "", issue: "doc.move_section requires raw.afterHeading or raw.beforeHeading." };
-    const parts = content.split(/\n(?=## )/);
+    const parts = content.split(/\n(?=#{1,6} )/);
     const normH = normalizeLabel(heading);
     const normRef = normalizeLabel(afterHeading || beforeHeading);
-    const srcIdx = parts.findIndex((p) => normalizeLabel(p.match(/^## (.+)/m)?.[1] || "") === normH);
+    const srcIdx = parts.findIndex((p) => normalizeLabel(p.match(/^#{1,6} (.+)/m)?.[1] || "") === normH);
     if (srcIdx < 0) return { content, applied: "", issue: `doc.move_section: section "${heading}" not found.` };
     const [srcBlock] = parts.splice(srcIdx, 1);
-    const refIdx = parts.findIndex((p) => normalizeLabel(p.match(/^## (.+)/m)?.[1] || "") === normRef);
+    const refIdx = parts.findIndex((p) => normalizeLabel(p.match(/^#{1,6} (.+)/m)?.[1] || "") === normRef);
     if (refIdx < 0) { parts.splice(srcIdx, 0, srcBlock); return { content, applied: "", issue: `doc.move_section: reference section "${afterHeading || beforeHeading}" not found.` }; }
     parts.splice(afterHeading ? refIdx + 1 : refIdx, 0, srcBlock);
     return { content: parts.join("\n"), applied: operation.type, issue: "" };
@@ -3167,11 +3169,11 @@ function applyDocumentOperation(content = "", operation = {}) {
     const heading = sectionTitle(operation) || String(operation.raw?.heading || "").trim();
     if (!heading) return { content, applied: "", issue: "doc.duplicate_section requires a heading (section to copy)." };
     const newTitle = String(operation.title || operation.raw?.newTitle || `${heading} (copie)`).trim();
-    const parts = content.split(/\n(?=## )/);
+    const parts = content.split(/\n(?=#{1,6} )/);
     const normH = normalizeLabel(heading);
-    const srcIdx = parts.findIndex((p) => normalizeLabel(p.match(/^## (.+)/m)?.[1] || "") === normH);
+    const srcIdx = parts.findIndex((p) => normalizeLabel(p.match(/^#{1,6} (.+)/m)?.[1] || "") === normH);
     if (srcIdx < 0) return { content, applied: "", issue: `doc.duplicate_section: section "${heading}" not found.` };
-    const copy = parts[srcIdx].replace(/^## .+/m, `## ${newTitle}`);
+    const copy = parts[srcIdx].replace(/^#{1,6} .+/m, `## ${newTitle}`);
     parts.splice(srcIdx + 1, 0, copy);
     return { content: parts.join("\n"), applied: operation.type, issue: "" };
   }
@@ -3484,7 +3486,9 @@ function resolveSlideIndex(slides = [], operation = {}) {
   const rawId = compact(target.blockId || operation.raw?.slideId || operation.raw?.id || "", 120);
   const idMatch = rawId.match(/slide-(\d+)/i);
   if (idMatch) {
-    return Math.max(0, Math.min(slides.length - 1, Number(idMatch[1]) - 1));
+    const idx = Number(idMatch[1]) - 1;
+    if (idx < 0 || idx >= slides.length) return -1;
+    return idx;
   }
   const title = normalizeLabel(target.heading || operation.title || operation.raw?.title || "");
   if (title) {
