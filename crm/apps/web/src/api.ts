@@ -1,4 +1,4 @@
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4010/api";
+const API_URL = import.meta.env.VITE_API_URL || "/crm-api";
 const TOKEN_KEY = "northstar_crm_token";
 const REFRESH_TOKEN_KEY = "northstar_crm_refresh_token";
 
@@ -57,6 +57,22 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (!response.ok) {
     throw await parseError(response);
   }
+  if (response.status === 204) return undefined as T;
+  return response.json() as Promise<T>;
+}
+
+export async function publicApi<T>(
+  path: string,
+  init: RequestInit = {},
+  bearerToken = ""
+): Promise<T> {
+  const headers = new Headers(init.headers);
+  if (bearerToken) headers.set("authorization", `Bearer ${bearerToken}`);
+  if (init.body && !(init.body instanceof FormData)) {
+    headers.set("content-type", "application/json");
+  }
+  const response = await fetch(`${API_URL}${path}`, { ...init, headers });
+  if (!response.ok) throw await parseError(response);
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
 }

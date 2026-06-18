@@ -8,6 +8,9 @@ import { DataTransferButtons } from "../components/DataTransferButtons";
 import { ResourceOperationsBar } from "../components/ResourceOperationsBar";
 import type { Lead, User } from "../types";
 
+type Campaign = { id: string; name: string };
+type Territory = { id: string; name: string };
+
 export function LeadsPage() {
   const { user } = useAuth();
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -17,6 +20,8 @@ export function LeadsPage() {
   const [open, setOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [users, setUsers] = useState<User[]>([]);
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [territories, setTerritories] = useState<Territory[]>([]);
   const [error, setError] = useState("");
   const canWrite = user?.role !== "VIEWER";
   const load = useCallback(() => {
@@ -26,7 +31,16 @@ export function LeadsPage() {
     api<{ leads: Lead[] }>(`/leads?${params}`).then((data) => setLeads(data.leads));
   }, [search, status, rating]);
   useEffect(load, [load]);
-  useEffect(() => { void api<{ users: User[] }>("/users").then((data) => setUsers(data.users)); }, []);
+  useEffect(() => {
+    void Promise.all([
+      api<{ users: User[] }>("/users"),
+      api<{ campaigns: Campaign[]; territories: Territory[] }>("/sales-ops")
+    ]).then(([userData, salesData]) => {
+      setUsers(userData.users);
+      setCampaigns(salesData.campaigns);
+      setTerritories(salesData.territories);
+    });
+  }, []);
 
   async function create(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -37,6 +51,8 @@ export function LeadsPage() {
         method: "POST",
         body: JSON.stringify({
           ...data,
+          campaignId: data.campaignId || null,
+          territoryId: data.territoryId || null,
           annualRevenue: data.annualRevenue ? Number(data.annualRevenue) : null,
           employeeCount: data.employeeCount ? Number(data.employeeCount) : null
         })
@@ -87,16 +103,18 @@ export function LeadsPage() {
       />
       <section className="data-table-wrap">
         <table className="data-table">
-          <thead><tr>{canWrite && <th className="selection-column"><input type="checkbox" checked={Boolean(leads.length) && selectedIds.length === leads.length} onChange={(event) => setSelectedIds(event.target.checked ? leads.map((lead) => lead.id) : [])} aria-label="Select all leads" /></th>}<th>Lead</th><th>Company</th><th>Rating</th><th>Status</th><th>Source</th><th>Owner</th></tr></thead>
+          <thead><tr>{canWrite && <th className="selection-column"><input type="checkbox" checked={Boolean(leads.length) && selectedIds.length === leads.length} onChange={(event) => setSelectedIds(event.target.checked ? leads.map((lead) => lead.id) : [])} aria-label="Select all leads" /></th>}<th>Lead</th><th>Company</th><th>Score</th><th>Rating</th><th>Status</th><th>Campaign</th><th>Territory</th><th>Owner</th></tr></thead>
           <tbody>
             {leads.map((lead) => (
               <tr key={lead.id}>
                 {canWrite && <td className="selection-column"><input type="checkbox" checked={selectedIds.includes(lead.id)} onChange={(event) => setSelectedIds((current) => event.target.checked ? [...current, lead.id] : current.filter((id) => id !== lead.id))} aria-label={`Select ${lead.firstName} ${lead.lastName}`} /></td>}
                 <td><Link className="person-cell record-link" to={`/leads/${lead.id}`}><span className="avatar">{lead.firstName[0]}{lead.lastName[0]}</span><span><strong>{lead.firstName} {lead.lastName}</strong><small>{lead.email || lead.jobTitle || "Lead"}</small></span></Link></td>
                 <td>{lead.companyName || "—"}</td>
+                <td><strong>{lead.score}</strong></td>
                 <td><span className={`rating-pill rating-${lead.rating.toLowerCase()}`}><Flame size={13} />{lead.rating.toLowerCase()}</span></td>
                 <td><span className="status-pill">{lead.status.toLowerCase()}</span></td>
-                <td>{lead.source || "—"}</td>
+                <td>{lead.campaign?.name || lead.source || "—"}</td>
+                <td>{lead.territory?.name || "—"}</td>
                 <td>{lead.owner ? `${lead.owner.firstName} ${lead.owner.lastName}` : "Unassigned"}</td>
               </tr>
             ))}
@@ -111,6 +129,10 @@ export function LeadsPage() {
           <div className="form-grid"><label>Email<input name="email" type="email" /></label><label>Phone<input name="phone" /></label></div>
           <div className="form-grid"><label>Job title<input name="jobTitle" /></label><label>Website<input name="website" type="url" /></label></div>
           <div className="form-grid"><label>Source<select name="source"><option>Website</option><option>Referral</option><option>Event</option><option>Outbound</option><option>Partner</option></select></label><label>Rating<select name="rating"><option>HOT</option><option defaultValue="WARM">WARM</option><option>COLD</option></select></label></div>
+          <div className="form-grid">
+            <label>Campaign<select name="campaignId"><option value="">No campaign</option>{campaigns.map((campaign) => <option value={campaign.id} key={campaign.id}>{campaign.name}</option>)}</select></label>
+            <label>Territory<select name="territoryId"><option value="">No territory</option>{territories.map((territory) => <option value={territory.id} key={territory.id}>{territory.name}</option>)}</select></label>
+          </div>
           <div className="form-grid"><label>Annual revenue<input name="annualRevenue" type="number" min="0" /></label><label>Employees<input name="employeeCount" type="number" min="0" /></label></div>
           <label>Description<textarea name="description" rows={3} /></label>
           {error && <p className="form-error">{error}</p>}

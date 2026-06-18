@@ -7,7 +7,7 @@ import "./styles.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <BrowserRouter>
+    <BrowserRouter basename="/crm">
       <AuthProvider><App /></AuthProvider>
     </BrowserRouter>
   </React.StrictMode>

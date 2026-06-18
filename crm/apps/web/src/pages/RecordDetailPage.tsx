@@ -6,6 +6,9 @@ import {
   CircleDollarSign,
   Contact,
   FileText,
+  Gauge,
+  Handshake,
+  LifeBuoy,
   Mail,
   MessageSquareText,
   PackagePlus,
@@ -14,6 +17,7 @@ import {
   Plus,
   Target,
   Trash2,
+  UserPlus,
   UserRoundSearch
 } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
@@ -23,8 +27,9 @@ import { useAuth } from "../auth";
 import { CustomFieldsPanel } from "../components/CustomFieldsPanel";
 import { AttachmentsPanel } from "../components/AttachmentsPanel";
 import { Dialog } from "../components/Dialog";
+import { HydriaAssistPanel } from "../components/HydriaAssistPanel";
 import { TaskDialog } from "../components/TaskDialog";
-import type { DealLineItem, Product, Quote, Stage } from "../types";
+import type { DealLineItem, Product, Quote, Stage, Task } from "../types";
 
 type Kind = "lead" | "contact" | "company" | "deal";
 type RecordData = Record<string, any>;
@@ -40,6 +45,12 @@ const config = {
 
 function text(value: unknown) {
   return value === null || value === undefined || value === "" ? "—" : String(value);
+}
+
+function futureIso(days: number) {
+  const date = new Date(Date.now() + days * 86_400_000);
+  date.setHours(9, 0, 0, 0);
+  return date.toISOString();
 }
 
 function Timeline({ items = [] }: { items?: RecordData[] }) {
@@ -76,6 +87,14 @@ export function RecordDetailPage({ kind }: { kind: Kind }) {
   const [quoteOpen, setQuoteOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [taskOpen, setTaskOpen] = useState(false);
+  const [companyDealOpen, setCompanyDealOpen] = useState(false);
+  const [companyTicketOpen, setCompanyTicketOpen] = useState(false);
+  const [companyContactOpen, setCompanyContactOpen] = useState(false);
+  const [taskDefaults, setTaskDefaults] = useState<Partial<Task>>({});
+  const [companyDealDefaults, setCompanyDealDefaults] = useState<Record<string, string>>({});
+  const [companyTicketDefaults, setCompanyTicketDefaults] = useState<Record<string, string>>({});
+  const [companyContactDefaults, setCompanyContactDefaults] = useState<Record<string, string>>({});
+  const [activityDefaults, setActivityDefaults] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
   const canWrite = user?.role !== "VIEWER";
 
@@ -86,7 +105,7 @@ export function RecordDetailPage({ kind }: { kind: Kind }) {
 
   useEffect(load, [load]);
   useEffect(() => {
-    if (kind === "deal" || kind === "lead") {
+    if (kind === "deal" || kind === "lead" || kind === "company") {
       api<{ stages: Stage[] }>("/pipeline").then((data) => setStages(data.stages));
     }
     if (kind === "deal") {
@@ -112,6 +131,7 @@ export function RecordDetailPage({ kind }: { kind: Kind }) {
   const activities = record?.activities || [];
   const tasks = record?.tasks || [];
   const notes = record?.notes || [];
+  const customer360 = record?.customer360;
 
   async function addNote(event: FormEvent) {
     event.preventDefault();
@@ -193,6 +213,109 @@ export function RecordDetailPage({ kind }: { kind: Kind }) {
     });
     setQuoteOpen(false);
     load();
+  }
+
+  function openTask(defaults: Partial<Task> = {}) {
+    setTaskDefaults(defaults);
+    setTaskOpen(true);
+  }
+
+  function openCompanyAction(action: RecordData) {
+    const title = String(action.title || "Follow up");
+    const detail = String(action.detail || "");
+    if (/ticket|support|sla/i.test(title)) {
+      setCompanyTicketDefaults({ subject: title, description: detail, priority: action.severity === "critical" ? "URGENT" : "HIGH" });
+      setCompanyTicketOpen(true);
+      return;
+    }
+    if (/opportunity|pipeline|deal/i.test(title)) {
+      setCompanyDealDefaults({ name: `${record?.name || "Account"} opportunity`, nextStep: detail, value: "0" });
+      setCompanyDealOpen(true);
+      return;
+    }
+    if (/contact|committee|buyer/i.test(title)) {
+      setCompanyContactDefaults({ jobTitle: "Decision maker", source: "Customer 360" });
+      setCompanyContactOpen(true);
+      return;
+    }
+    openTask({ title, description: detail, priority: action.severity === "critical" ? "URGENT" : "HIGH", dueAt: futureIso(2) });
+  }
+
+  async function createCompanyDeal(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!record) return;
+    setError("");
+    const data = Object.fromEntries(new FormData(event.currentTarget));
+    const stageId = String(data.stageId || stages.find((stage) => !stage.isWon && !stage.isLost)?.id || "");
+    try {
+      await api("/pipeline/deals", {
+        method: "POST",
+        body: JSON.stringify({
+          companyId: record.id,
+          name: data.name,
+          value: Number(data.value || 0),
+          probability: Number(data.probability || 20),
+          stageId,
+          expectedCloseAt: data.expectedCloseAt || null,
+          nextStep: data.nextStep || null
+        })
+      });
+      setCompanyDealOpen(false);
+      load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to create opportunity");
+    }
+  }
+
+  async function createCompanyTicket(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!record) return;
+    setError("");
+    const data = Object.fromEntries(new FormData(event.currentTarget));
+    try {
+      await api("/tickets", {
+        method: "POST",
+        body: JSON.stringify({
+          companyId: record.id,
+          subject: data.subject,
+          description: data.description || null,
+          priority: data.priority || "MEDIUM",
+          status: "OPEN",
+          source: "ACCOUNT_360",
+          customerEmail: data.customerEmail || null
+        })
+      });
+      setCompanyTicketOpen(false);
+      load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to create ticket");
+    }
+  }
+
+  async function createCompanyContact(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!record) return;
+    setError("");
+    const data = Object.fromEntries(new FormData(event.currentTarget));
+    try {
+      await api("/contacts", {
+        method: "POST",
+        body: JSON.stringify({
+          companyId: record.id,
+          firstName: data.firstName,
+          lastName: data.lastName,
+          email: data.email || "",
+          phone: data.phone || "",
+          jobTitle: data.jobTitle || "",
+          source: data.source || "Customer 360",
+          status: "qualified"
+        })
+      });
+      setCompanyContactOpen(false);
+      load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to create contact");
+    }
   }
 
   async function updateDealForecast(value: string) {
@@ -282,7 +405,7 @@ export function RecordDetailPage({ kind }: { kind: Kind }) {
           {canWrite && kind === "lead" && record.status !== "CONVERTED" && <select className="action-select" value={record.status} onChange={(event) => updateLeadStatus(event.target.value)}><option>NEW</option><option>WORKING</option><option>QUALIFIED</option><option>UNQUALIFIED</option></select>}
           {canWrite && kind === "deal" && <select className="action-select" value={record.forecastCategory} onChange={(event) => updateDealForecast(event.target.value)}><option>PIPELINE</option><option>BEST_CASE</option><option>COMMIT</option><option>CLOSED</option><option>OMITTED</option></select>}
           {canWrite && <button className="secondary-button" onClick={() => setEditOpen(true)}><Pencil size={16} />Edit</button>}
-          {canWrite && <button className="secondary-button" onClick={() => setActivityOpen(true)}><Plus size={16} />Activity</button>}
+          {canWrite && <button className="secondary-button" onClick={() => { setActivityDefaults({}); setActivityOpen(true); }}><Plus size={16} />Activity</button>}
           {canWrite && <button className="icon-button danger-icon" title={`Delete ${meta.label.toLowerCase()}`} onClick={deleteRecord}><Trash2 size={17} /></button>}
         </div>
       </header>
@@ -291,6 +414,41 @@ export function RecordDetailPage({ kind }: { kind: Kind }) {
       <section className="record-highlights">
         {fields.slice(0, 4).map(([label, value]) => <div key={label}><span>{label}</span><strong>{text(value)}</strong></div>)}
       </section>
+
+      {kind === "company" && customer360 && (
+        <section className="customer360-panel">
+          <div className="customer360-score">
+            <span><Gauge size={18} />Customer health</span>
+            <strong>{customer360.healthScore}</strong>
+            <small>{customer360.healthLabel} · last touch {customer360.daysSinceLastActivity}d ago</small>
+          </div>
+          <div className="customer360-metrics">
+            <div><span>Open pipeline</span><strong>{money.format(Number(customer360.openDealsValue || 0))}</strong><small>{customer360.openDealsCount} opportunities</small></div>
+            <div><span>Won revenue</span><strong>{money.format(Number(customer360.wonDealsValue || 0))}</strong><small>{customer360.wonDealsCount} wins</small></div>
+            <div><span>Open tickets</span><strong>{customer360.openTicketsCount}</strong><small>{customer360.overdueTicketsCount} overdue</small></div>
+            <div><span>Open tasks</span><strong>{customer360.openTasksCount}</strong><small>{customer360.overdueTasksCount} overdue</small></div>
+          </div>
+          <div className="customer360-actions">
+            <div className="customer360-action-toolbar">
+              <span>Next best actions</span>
+              {canWrite && <div>
+                <button type="button" onClick={() => setCompanyDealOpen(true)}><Handshake size={14} />Deal</button>
+                <button type="button" onClick={() => openTask({ title: `Follow up with ${record.name}`, priority: "HIGH", dueAt: futureIso(2) })}><CheckSquare size={14} />Task</button>
+                <button type="button" onClick={() => setCompanyTicketOpen(true)}><LifeBuoy size={14} />Ticket</button>
+                <button type="button" onClick={() => setCompanyContactOpen(true)}><UserPlus size={14} />Contact</button>
+                <button type="button" onClick={() => { setActivityDefaults({ type: "CALL", subject: `Call ${record.name}`, body: "Account follow-up from Customer 360." }); setActivityOpen(true); }}><MessageSquareText size={14} />Activity</button>
+              </div>}
+            </div>
+            {customer360.nextBestActions?.map((action: RecordData) => (
+              <article key={`${action.title}-${action.severity}`} className={`customer360-action customer360-${action.severity}`}>
+                <strong>{action.title}</strong>
+                <small>{action.detail}</small>
+                {canWrite && <button type="button" onClick={() => openCompanyAction(action)}>Apply action</button>}
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
 
       <div className="record-grid">
         <div className="record-main">
@@ -327,6 +485,7 @@ export function RecordDetailPage({ kind }: { kind: Kind }) {
             <>
               <section className="record-section"><header><h2>Contacts</h2></header><div className="related-list">{record.contacts?.map((contact: RecordData) => <Link to={`/contacts/${contact.id}`} key={contact.id}><Contact size={16} /><p><strong>{contact.firstName} {contact.lastName}</strong><small>{contact.jobTitle || contact.email || "Contact"}</small></p></Link>)}</div></section>
               <section className="record-section"><header><h2>Opportunities</h2></header><div className="related-list">{record.deals?.map((deal: RecordData) => <Link to={`/deals/${deal.id}`} key={deal.id}><Target size={16} /><p><strong>{deal.name}</strong><small>{deal.stage?.name} · {money.format(Number(deal.value))}</small></p></Link>)}</div></section>
+              <section className="record-section"><header><h2>Support tickets</h2></header><div className="related-list">{record.tickets?.map((ticket: RecordData) => <Link to={`/tickets/${ticket.id}`} key={ticket.id}><LifeBuoy size={16} /><p><strong>{ticket.number} · {ticket.subject}</strong><small>{ticket.status.toLowerCase().replace("_", " ")} · {ticket.priority.toLowerCase()}{ticket.queue ? ` · ${ticket.queue.name}` : ""}</small></p></Link>)}{!record.tickets?.length && <p className="empty-state">No support tickets.</p>}</div></section>
             </>
           )}
 
@@ -347,12 +506,13 @@ export function RecordDetailPage({ kind }: { kind: Kind }) {
           )}
 
           <section className="record-section">
-            <header><h2>Tasks</h2>{canWrite && <button className="secondary-button" onClick={() => setTaskOpen(true)}><Plus size={15} />Task</button>}</header>
+            <header><h2>Tasks</h2>{canWrite && <button className="secondary-button" onClick={() => openTask()}><Plus size={15} />Task</button>}</header>
             <div className="related-list">{tasks.map((task: RecordData) => <article key={task.id}><CheckSquare size={16} /><p><strong>{task.title}</strong><small>{task.status.toLowerCase().replace("_", " ")}{task.dueAt ? ` · ${new Intl.DateTimeFormat("en", { dateStyle: "medium" }).format(new Date(task.dueAt))}` : ""}</small></p></article>)}{!tasks.length && <p className="empty-state">No related tasks.</p>}</div>
           </section>
         </div>
 
         <aside className="record-side">
+          <HydriaAssistPanel recordType={kind} recordId={id!} canWrite={canWrite} onExecuted={load} />
           <section className="record-section">
             <header><h2>Activity timeline</h2></header>
             <Timeline items={activities} />
@@ -403,13 +563,52 @@ export function RecordDetailPage({ kind }: { kind: Kind }) {
         </form>
       </Dialog>
 
-      <TaskDialog open={taskOpen} onClose={() => setTaskOpen(false)} onSaved={load} relation={relationBody} />
+      <TaskDialog open={taskOpen} onClose={() => setTaskOpen(false)} onSaved={load} relation={relationBody} defaults={taskDefaults} />
+
+      {kind === "company" && (
+        <>
+          <Dialog title="New account opportunity" open={companyDealOpen} onClose={() => setCompanyDealOpen(false)}>
+            <form className="dialog-form" onSubmit={createCompanyDeal} key={`deal-${companyDealDefaults.name || ""}-${companyDealOpen ? "open" : "closed"}`}>
+              <label>Opportunity name<input name="name" defaultValue={companyDealDefaults.name || `${record.name} opportunity`} required /></label>
+              <div className="form-grid">
+                <label>Amount<input name="value" type="number" min="0" step="0.01" defaultValue={companyDealDefaults.value || "0"} /></label>
+                <label>Probability<input name="probability" type="number" min="0" max="100" defaultValue="20" /></label>
+              </div>
+              <label>Stage<select name="stageId" defaultValue={stages.find((stage) => !stage.isWon && !stage.isLost)?.id || ""}>{stages.filter((stage) => !stage.isLost).map((stage) => <option value={stage.id} key={stage.id}>{stage.name}</option>)}</select></label>
+              <label>Expected close<input name="expectedCloseAt" type="date" /></label>
+              <label>Next step<input name="nextStep" defaultValue={companyDealDefaults.nextStep || ""} /></label>
+              <footer><button type="button" className="secondary-button" onClick={() => setCompanyDealOpen(false)}>Cancel</button><button className="primary-button">Create opportunity</button></footer>
+            </form>
+          </Dialog>
+
+          <Dialog title="New account ticket" open={companyTicketOpen} onClose={() => setCompanyTicketOpen(false)}>
+            <form className="dialog-form" onSubmit={createCompanyTicket} key={`ticket-${companyTicketDefaults.subject || ""}-${companyTicketOpen ? "open" : "closed"}`}>
+              <label>Subject<input name="subject" defaultValue={companyTicketDefaults.subject || `${record.name} support follow-up`} required /></label>
+              <label>Description<textarea name="description" rows={4} defaultValue={companyTicketDefaults.description || ""} /></label>
+              <div className="form-grid">
+                <label>Priority<select name="priority" defaultValue={companyTicketDefaults.priority || "MEDIUM"}><option>LOW</option><option>MEDIUM</option><option>HIGH</option><option>URGENT</option></select></label>
+                <label>Customer email<input name="customerEmail" type="email" /></label>
+              </div>
+              <footer><button type="button" className="secondary-button" onClick={() => setCompanyTicketOpen(false)}>Cancel</button><button className="primary-button">Create ticket</button></footer>
+            </form>
+          </Dialog>
+
+          <Dialog title="New account contact" open={companyContactOpen} onClose={() => setCompanyContactOpen(false)}>
+            <form className="dialog-form" onSubmit={createCompanyContact} key={`contact-${companyContactOpen ? "open" : "closed"}`}>
+              <div className="form-grid"><label>First name<input name="firstName" required /></label><label>Last name<input name="lastName" required /></label></div>
+              <div className="form-grid"><label>Email<input name="email" type="email" /></label><label>Phone<input name="phone" /></label></div>
+              <div className="form-grid"><label>Job title<input name="jobTitle" defaultValue={companyContactDefaults.jobTitle || ""} /></label><label>Source<input name="source" defaultValue={companyContactDefaults.source || "Customer 360"} /></label></div>
+              <footer><button type="button" className="secondary-button" onClick={() => setCompanyContactOpen(false)}>Cancel</button><button className="primary-button">Create contact</button></footer>
+            </form>
+          </Dialog>
+        </>
+      )}
 
       <Dialog title="Log activity" open={activityOpen} onClose={() => setActivityOpen(false)}>
-        <form className="dialog-form" onSubmit={addActivity}>
-          <label>Type<select name="type"><option>CALL</option><option>EMAIL</option><option>MEETING</option></select></label>
-          <label>Subject<input name="subject" required /></label>
-          <label>Details<textarea name="body" rows={4} /></label>
+        <form className="dialog-form" onSubmit={addActivity} key={`activity-${activityDefaults.subject || ""}-${activityOpen ? "open" : "closed"}`}>
+          <label>Type<select name="type" defaultValue={activityDefaults.type || "CALL"}><option>CALL</option><option>EMAIL</option><option>MEETING</option></select></label>
+          <label>Subject<input name="subject" defaultValue={activityDefaults.subject || ""} required /></label>
+          <label>Details<textarea name="body" rows={4} defaultValue={activityDefaults.body || ""} /></label>
           <footer><button type="button" className="secondary-button" onClick={() => setActivityOpen(false)}>Cancel</button><button className="primary-button">Save activity</button></footer>
         </form>
       </Dialog>

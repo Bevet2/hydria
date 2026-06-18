@@ -21,7 +21,7 @@ type DuplicateRecord = {
 
 export function ResourceOperationsBar(props: {
   resource: SavedView["resource"];
-  bulkResource?: "companies" | "leads" | "deals" | "products" | "tasks";
+  bulkResource?: "contacts" | "companies" | "leads" | "deals" | "products" | "tasks" | "tickets";
   filters: Record<string, unknown>;
   onApplyFilters: (filters: Record<string, unknown>) => void;
   selectedIds: string[];
@@ -31,7 +31,7 @@ export function ResourceOperationsBar(props: {
   actions?: BulkAction[];
   users?: User[];
   stages?: Stage[];
-  duplicates?: "companies" | "leads";
+  duplicates?: "contacts" | "companies" | "leads";
 }) {
   const [views, setViews] = useState<SavedView[]>([]);
   const [viewId, setViewId] = useState("");

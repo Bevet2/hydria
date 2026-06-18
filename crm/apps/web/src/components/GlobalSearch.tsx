@@ -1,11 +1,11 @@
-import { Building2, Contact, Package, Search, Target, UserRoundSearch, X } from "lucide-react";
+import { Building2, Contact, LifeBuoy, Package, Search, Target, UserRoundSearch, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api";
 
 type SearchResult = {
   id: string;
-  type: "contact" | "company" | "lead" | "deal" | "product";
+  type: "contact" | "company" | "lead" | "deal" | "product" | "ticket";
   label: string;
   meta: string;
   path: string;
@@ -16,7 +16,8 @@ const icons = {
   company: Building2,
   lead: UserRoundSearch,
   deal: Target,
-  product: Package
+  product: Package,
+  ticket: LifeBuoy
 };
 
 export function GlobalSearch() {

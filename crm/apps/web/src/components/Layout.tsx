@@ -1,12 +1,15 @@
 import {
   Building2,
   CheckSquare,
+  Boxes,
   Gauge,
   ChartNoAxesCombined,
+  Crosshair,
   LogOut,
   Mail,
   Menu,
   Package,
+  LifeBuoy,
   Settings,
   Workflow,
   Target,
@@ -28,7 +31,10 @@ const navigation = [
   { to: "/pipeline", label: "Pipeline", icon: Target },
   { to: "/products", label: "Products & quotes", icon: Package },
   { to: "/tasks", label: "Tasks", icon: CheckSquare },
+  { to: "/tickets", label: "Tickets", icon: LifeBuoy },
+  { to: "/custom-objects", label: "Custom objects", icon: Boxes },
   { to: "/reports", label: "Reports", icon: ChartNoAxesCombined },
+  { to: "/sales-ops", label: "Sales operations", icon: Crosshair },
   { to: "/communications", label: "Email & calendar", icon: Mail },
   { to: "/platform", label: "Automation", icon: Workflow },
   { to: "/settings", label: "Settings", icon: Settings }
@@ -45,9 +51,9 @@ export function Layout() {
       {mobileOpen && <div className="sidebar-scrim" onClick={() => setMobileOpen(false)} />}
       <aside className={`sidebar ${mobileOpen ? "is-open" : ""}`}>
         <div className="brand">
-          <span className="brand-mark">N</span>
+          <span className="brand-mark">H</span>
           <span>
-            <strong>Northstar</strong>
+            <strong>Hydria</strong>
             <small>CRM</small>
           </span>
           <button className="mobile-close icon-button" onClick={() => setMobileOpen(false)} aria-label="Close menu">

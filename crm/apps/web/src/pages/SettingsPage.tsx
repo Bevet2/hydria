@@ -1,4 +1,4 @@
-import { Columns3, DatabaseBackup, Download, History, Plus, Save, ShieldCheck, SlidersHorizontal, Trash2, Upload, UserPlus } from "lucide-react";
+import { Building2, Columns3, DatabaseBackup, Download, History, Plus, Save, ShieldCheck, SlidersHorizontal, Trash2, Upload, UserPlus } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { api, downloadFile } from "../api";
 import { useAuth } from "../auth";
@@ -23,9 +23,30 @@ type Invitation = {
   expiresAt: string;
   metadata?: { firstName?: string; lastName?: string };
 };
+type OrganizationSettings = {
+  id: string;
+  name: string;
+  slug: string;
+  logoUrl?: string | null;
+  brandColor: string;
+  defaultCurrency: string;
+  locale: string;
+  timezone: string;
+  defaultTaxPercent: number | string;
+  paymentTermsDays: number;
+  quotePrefix: string;
+  invoicePrefix: string;
+};
+type Team = {
+  id: string;
+  name: string;
+  permissionPolicy?: Record<string, unknown> | null;
+  _count?: { users: number };
+};
+const permissionResources = ["contacts", "companies", "leads", "deals", "tasks", "tickets", "products", "quotes", "communications", "customObjects"];
 
 export function SettingsPage() {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const [users, setUsers] = useState<User[]>([]);
   const [definitions, setDefinitions] = useState<Definition[]>([]);
   const [stages, setStages] = useState<Stage[]>([]);
@@ -35,6 +56,10 @@ export function SettingsPage() {
   const [stageOpen, setStageOpen] = useState(false);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [invitations, setInvitations] = useState<Invitation[]>([]);
+  const [organization, setOrganization] = useState<OrganizationSettings | null>(null);
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [teamOpen, setTeamOpen] = useState(false);
+  const [permissionMember, setPermissionMember] = useState<User | null>(null);
   const [error, setError] = useState("");
   const restoreRef = useRef<HTMLInputElement>(null);
   const canAdmin = user?.role === "ADMIN";
@@ -44,18 +69,23 @@ export function SettingsPage() {
     Promise.all([
       api<{ users: User[] }>("/users"),
       api<{ definitions: Definition[] }>("/custom-fields"),
-      api<{ stages: Stage[] }>("/pipeline")
-    ]).then(([userData, fieldData, pipelineData]) => {
+      api<{ stages: Stage[] }>("/pipeline"),
+      api<{ organization: OrganizationSettings }>("/organization")
+    ]).then(([userData, fieldData, pipelineData, organizationData]) => {
       setUsers(userData.users);
       setDefinitions(fieldData.definitions);
       setStages(pipelineData.stages);
       setStageDrafts(Object.fromEntries(pipelineData.stages.map((stage) => [stage.id, stage])));
+      setOrganization(organizationData.organization);
     });
     if (canAdmin) {
       api<{ invitations: Invitation[] }>("/users/invitations")
         .then((data) => setInvitations(data.invitations));
     }
-  }, [canAdmin]);
+    if (canConfigure) {
+      api<{ teams: Team[] }>("/users/teams").then((data) => setTeams(data.teams));
+    }
+  }, [canAdmin, canConfigure]);
 
   useEffect(load, [load]);
   useEffect(() => {
@@ -83,6 +113,33 @@ export function SettingsPage() {
     }
   }
 
+  async function saveOrganization(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const data = Object.fromEntries(new FormData(event.currentTarget));
+    try {
+      setError("");
+      const result = await api<{ organization: OrganizationSettings }>("/organization", {
+        method: "PATCH",
+        body: JSON.stringify({
+          name: data.name,
+          logoUrl: data.logoUrl || null,
+          brandColor: data.brandColor,
+          defaultCurrency: data.defaultCurrency,
+          locale: data.locale,
+          timezone: data.timezone,
+          defaultTaxPercent: Number(data.defaultTaxPercent),
+          paymentTermsDays: Number(data.paymentTermsDays),
+          quotePrefix: data.quotePrefix,
+          invoicePrefix: data.invoicePrefix
+        })
+      });
+      setOrganization(result.organization);
+      await refreshUser();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to save organization settings");
+    }
+  }
+
   async function changeRole(member: User, role: Role) {
     setError("");
     try {
@@ -95,6 +152,53 @@ export function SettingsPage() {
       setError(cause instanceof Error ? cause.message : "Unable to update role");
       load();
     }
+  }
+
+  function policyFromForm(form: FormData) {
+    return {
+      objects: Object.fromEntries(permissionResources.map((resource) => [
+        resource,
+        {
+          read: form.get(`${resource}:read`) === "on",
+          write: form.get(`${resource}:write`) === "on"
+        }
+      ])),
+      properties: Object.fromEntries(permissionResources
+        .map((resource) => [
+          resource,
+          String(form.get(`${resource}:properties`) || "").split(",").map((item) => item.trim()).filter(Boolean)
+        ])
+        .filter(([, properties]) => (properties as string[]).length))
+    };
+  }
+
+  async function createTeam(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    await api("/users/teams", {
+      method: "POST",
+      body: JSON.stringify({
+        name: String(form.get("name") || ""),
+        permissionPolicy: policyFromForm(form)
+      })
+    });
+    setTeamOpen(false);
+    load();
+  }
+
+  async function saveMemberPermissions(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!permissionMember) return;
+    const form = new FormData(event.currentTarget);
+    await api(`/users/${permissionMember.id}/permissions`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        teamId: String(form.get("teamId") || "") || null,
+        permissionPolicy: policyFromForm(form)
+      })
+    });
+    setPermissionMember(null);
+    load();
   }
 
   async function createField(event: FormEvent<HTMLFormElement>) {
@@ -205,10 +309,27 @@ export function SettingsPage() {
     }
   }
 
+  function permissionChecked(member: User | null, resource: string, action: "read" | "write") {
+    const objects = member?.permissionPolicy?.objects as Record<string, Record<string, boolean>> | undefined;
+    return objects?.[resource]?.[action] !== false;
+  }
+
   return (
     <div className="page">
       <header className="page-header"><div><p className="eyebrow">Workspace</p><h1>Settings</h1><p>Access, pipeline and data model configuration</p></div></header>
       {error && <p className="settings-error">{error}</p>}
+
+      {canAdmin && organization && <section className="settings-section">
+        <div className="section-title"><div><Building2 size={19} /><span><h2>Organization profile</h2><p>Brand, regional defaults and commercial numbering</p></span></div></div>
+        <form className="organization-settings-form" onSubmit={(event) => void saveOrganization(event)} key={`${organization.id}-${organization.name}-${organization.defaultCurrency}`}>
+          <div className="form-grid"><label>Name<input name="name" defaultValue={organization.name} required /></label><label>Logo URL<input name="logoUrl" type="url" defaultValue={organization.logoUrl || ""} /></label></div>
+          <div className="form-grid"><label>Brand color<input name="brandColor" type="color" defaultValue={organization.brandColor} /></label><label>Default currency<input name="defaultCurrency" defaultValue={organization.defaultCurrency} minLength={3} maxLength={3} required /></label></div>
+          <div className="form-grid"><label>Locale<input name="locale" defaultValue={organization.locale} required /></label><label>Timezone<input name="timezone" defaultValue={organization.timezone} required /></label></div>
+          <div className="form-grid"><label>Default tax (%)<input name="defaultTaxPercent" type="number" min="0" max="100" step="0.01" defaultValue={Number(organization.defaultTaxPercent)} required /></label><label>Payment terms (days)<input name="paymentTermsDays" type="number" min="0" max="365" defaultValue={organization.paymentTermsDays} required /></label></div>
+          <div className="form-grid"><label>Quote prefix<input name="quotePrefix" defaultValue={organization.quotePrefix} required /></label><label>Invoice prefix<input name="invoicePrefix" defaultValue={organization.invoicePrefix} required /></label></div>
+          <footer><button className="primary-button"><Save size={16} />Save organization</button></footer>
+        </form>
+      </section>}
 
       <section className="settings-section">
         <div className="section-title">
@@ -225,6 +346,7 @@ export function SettingsPage() {
                   <option>ADMIN</option><option>MANAGER</option><option>MEMBER</option><option>VIEWER</option>
                 </select>
               ) : <span className="role-pill">{member.role.toLowerCase()}</span>}
+              {canAdmin && <button className="secondary-button" onClick={() => setPermissionMember(member)}>Permissions</button>}
             </div>
           ))}
           {invitations.map((invitation) => (
@@ -238,6 +360,17 @@ export function SettingsPage() {
         </div>
       </section>
 
+      {canConfigure && <section className="settings-section">
+        <div className="section-title">
+          <div><ShieldCheck size={19} /><span><h2>Teams and permission policies</h2><p>Restrict read, write and property access by team or member.</p></span></div>
+          {canAdmin && <button className="secondary-button" onClick={() => setTeamOpen(true)}><Plus size={16} />Team</button>}
+        </div>
+        <div className="field-list">
+          {teams.map((team) => <div key={team.id}><strong>{team.name}</strong><span>{team._count?.users || 0} members</span><code>{Object.keys((team.permissionPolicy?.objects as object) || {}).length} object rules</code></div>)}
+          {!teams.length && <p className="empty-state">No team policy configured.</p>}
+        </div>
+      </section>}
+
       <SecuritySettings />
 
       {canAdmin && (
@@ -245,7 +378,7 @@ export function SettingsPage() {
           <div className="section-title">
             <div><DatabaseBackup size={19} /><span><h2>Backup and restore</h2><p>Export or replace the organization data, including attached files.</p></span></div>
             <div className="header-actions">
-              <button className="secondary-button" onClick={() => downloadFile("/backups/export", `northstar-backup-${new Date().toISOString().slice(0, 10)}.json`)}><Download size={16} />Backup</button>
+              <button className="secondary-button" onClick={() => downloadFile("/backups/export", `hydria-crm-backup-${new Date().toISOString().slice(0, 10)}.json`)}><Download size={16} />Backup</button>
               <input ref={restoreRef} hidden type="file" accept="application/json,.json" onChange={(event) => restoreBackup(event.target.files?.[0])} />
               <button className="secondary-button" onClick={() => restoreRef.current?.click()}><Upload size={16} />Restore</button>
             </div>
@@ -317,6 +450,32 @@ export function SettingsPage() {
           <label>Role<select name="role" defaultValue="MEMBER"><option>ADMIN</option><option>MANAGER</option><option>MEMBER</option><option>VIEWER</option></select></label>
           {error && <p className="form-error">{error}</p>}
           <footer><button type="button" className="secondary-button" onClick={() => setMemberOpen(false)}>Cancel</button><button className="primary-button">Send invitation</button></footer>
+        </form>
+      </Dialog>
+
+      <Dialog title="New permission team" open={teamOpen} onClose={() => setTeamOpen(false)}>
+        <form className="dialog-form" onSubmit={(event) => void createTeam(event)}>
+          <label>Team name<input name="name" required /></label>
+          <div className="permission-grid">{permissionResources.map((resource) => <div key={resource}>
+            <strong>{resource}</strong>
+            <label className="check-label"><input name={`${resource}:read`} type="checkbox" defaultChecked />Read</label>
+            <label className="check-label"><input name={`${resource}:write`} type="checkbox" defaultChecked />Write</label>
+            <input name={`${resource}:properties`} placeholder="Allowed write properties (optional)" />
+          </div>)}</div>
+          <footer><button type="button" className="secondary-button" onClick={() => setTeamOpen(false)}>Cancel</button><button className="primary-button">Create team</button></footer>
+        </form>
+      </Dialog>
+
+      <Dialog title={`Permissions for ${permissionMember?.firstName || "member"}`} open={Boolean(permissionMember)} onClose={() => setPermissionMember(null)}>
+        <form className="dialog-form" onSubmit={(event) => void saveMemberPermissions(event)} key={permissionMember?.id}>
+          <label>Team<select name="teamId" defaultValue={permissionMember?.teamId || ""}><option value="">No team</option>{teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}</select></label>
+          <div className="permission-grid">{permissionResources.map((resource) => <div key={resource}>
+            <strong>{resource}</strong>
+            <label className="check-label"><input name={`${resource}:read`} type="checkbox" defaultChecked={permissionChecked(permissionMember, resource, "read")} />Read</label>
+            <label className="check-label"><input name={`${resource}:write`} type="checkbox" defaultChecked={permissionChecked(permissionMember, resource, "write")} />Write</label>
+            <input name={`${resource}:properties`} placeholder="Allowed write properties (optional)" />
+          </div>)}</div>
+          <footer><button type="button" className="secondary-button" onClick={() => setPermissionMember(null)}>Cancel</button><button className="primary-button">Save permissions</button></footer>
         </form>
       </Dialog>
 

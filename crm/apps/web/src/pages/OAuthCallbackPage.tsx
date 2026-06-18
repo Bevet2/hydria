@@ -51,8 +51,8 @@ export function OAuthCallbackPage() {
   return (
     <main className="auth-page">
       <section className="auth-intro">
-        <span className="brand-mark">N</span>
-        <p className="eyebrow">Northstar CRM</p>
+        <span className="brand-mark">H</span>
+        <p className="eyebrow">Hydria CRM</p>
         <h1>Account connection</h1>
       </section>
       <section className="auth-panel">

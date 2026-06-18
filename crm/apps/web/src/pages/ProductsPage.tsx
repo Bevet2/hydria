@@ -287,12 +287,32 @@ export function ProductsPage() {
     await load();
   }
 
+  async function sendQuote(quote: Quote) {
+    try {
+      await api(`/commercial/quotes/${quote.id}/send`, { method: "POST", body: JSON.stringify({}) });
+      setError(`Quote ${quote.number} queued for delivery.`);
+      await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to send quote");
+    }
+  }
+
+  async function sendInvoice(invoice: Invoice) {
+    try {
+      await api(`/commercial/invoices/${invoice.id}/send`, { method: "POST", body: JSON.stringify({}) });
+      setError(`Invoice ${invoice.number} queued for delivery.`);
+      await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to send invoice");
+    }
+  }
+
   async function checkout(invoice: Invoice) {
     const result = await api<{ payment: { checkoutUrl: string } }>(`/commercial/invoices/${invoice.id}/checkout`, {
       method: "POST",
       body: JSON.stringify({
-        successUrl: `${window.location.origin}/products?payment=success`,
-        cancelUrl: `${window.location.origin}/products?payment=cancel`
+        successUrl: `${window.location.origin}/crm/products?payment=success`,
+        cancelUrl: `${window.location.origin}/crm/products?payment=cancel`
       })
     });
     window.location.assign(result.payment.checkoutUrl);
@@ -380,6 +400,7 @@ export function ProductsPage() {
             <div className="quote-actions">
               <button className="icon-button" title="History" onClick={() => void showHistory(quote)}><History size={15} /></button>
               <button className="icon-button" title="Download PDF" onClick={() => void downloadFile(`/products/quotes/${quote.id}/pdf`, `${quote.number}.pdf`)}><Download size={15} /></button>
+              {canWrite && ["DRAFT", "SENT"].includes(quote.status) && <button className="icon-button" title="Send quote" onClick={() => void sendQuote(quote)}><Send size={15} /></button>}
               {canWrite && quote.status === "DRAFT" && <button className="icon-button" title="Edit quote" onClick={() => void editQuote(quote)}><Pencil size={15} /></button>}
               {canManage && quote.status === "DRAFT" && <button className="icon-button" title="Request approval" onClick={() => { setSelectedQuote(quote); setDialog("approval-request"); }}><BadgeCheck size={15} /></button>}
               {canWrite && quote.status === "SENT" && <button className="icon-button" title="Request signature" onClick={() => { setSelectedQuote(quote); setDialog("signature"); }}><FileSignature size={15} /></button>}
@@ -425,6 +446,8 @@ export function ProductsPage() {
             <b>{money.format(Number(invoice.total))}</b>
             <span className="role-pill">{invoice.status.toLowerCase().replaceAll("_", " ")}</span>
             <div className="quote-actions">
+              <button className="icon-button" title="Download PDF" onClick={() => void downloadFile(`/commercial/invoices/${invoice.id}/pdf`, `${invoice.number}.pdf`)}><Download size={15} /></button>
+              {canWrite && !["VOID", "REFUNDED"].includes(invoice.status) && <button className="icon-button" title="Send invoice" onClick={() => void sendInvoice(invoice)}><Send size={15} /></button>}
               {!["PAID", "REFUNDED", "VOID"].includes(invoice.status) && <button className="icon-button" title="Stripe checkout" onClick={() => void checkout(invoice)}><CircleDollarSign size={15} /></button>}
               {!["PAID", "REFUNDED", "VOID"].includes(invoice.status) && <button className="icon-button" title="Record payment" onClick={() => { setSelectedInvoice(invoice); setDialog("payment"); }}><Plus size={15} /></button>}
               {!["PAID", "REFUNDED", "VOID"].includes(invoice.status) && <button className="icon-button" title="Send reminder" onClick={() => void queueReminder(invoice)}><Send size={15} /></button>}

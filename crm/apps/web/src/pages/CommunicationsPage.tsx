@@ -1,6 +1,6 @@
-import { CalendarPlus, Link2, MailPlus, Pencil, Plug, RefreshCw, Send, Trash2 } from "lucide-react";
+import { AlertTriangle, CalendarPlus, Download, ExternalLink, Link2, MailPlus, Paperclip, Pencil, Plug, RefreshCw, Search, Send, Trash2 } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api } from "../api";
+import { api, downloadFile } from "../api";
 import { useAuth } from "../auth";
 import { Dialog } from "../components/Dialog";
 
@@ -16,11 +16,14 @@ type Message = {
   id: string;
   to: string;
   subject: string;
+  body: string;
   status: string;
+  createdAt: string;
   sentAt?: string | null;
   replyReceivedAt?: string | null;
   metadata?: { direction?: string; from?: string } | null;
   direction?: "INBOUND" | "OUTBOUND";
+  attachments?: Array<{ id: string; originalName: string; mimeType: string; size: number }>;
 };
 type Conversation = { id: string; subject: string; lastMessageAt: string; unreadReplies: number; messages: Message[] };
 type CalendarEvent = {
@@ -32,9 +35,14 @@ type CalendarEvent = {
   status: string;
 };
 type OAuthProvider = "GOOGLE" | "MICROSOFT";
+type OAuthProviderConfig = {
+  configured: boolean;
+  missing: string[];
+  setupUrl: string;
+};
 type OAuthConfig = {
   redirectUri: string;
-  providers: Record<OAuthProvider, { configured: boolean }>;
+  providers: Record<OAuthProvider, OAuthProviderConfig>;
 };
 
 const oauthChannelName = "northstar-crm-oauth";
@@ -54,7 +62,12 @@ export function CommunicationsPage() {
   const [editingTemplate, setEditingTemplate] = useState<Template | null>(null);
   const [selectedTemplate, setSelectedTemplate] = useState("");
   const [oauthBusy, setOauthBusy] = useState(false);
+  const [setupProvider, setSetupProvider] = useState<OAuthProvider | null>(null);
   const [composeFile, setComposeFile] = useState<File | null>(null);
+  const [conversationSearch, setConversationSearch] = useState("");
+  const [selectedConversationId, setSelectedConversationId] = useState("");
+  const [replyBody, setReplyBody] = useState("");
+  const [replyBusy, setReplyBusy] = useState(false);
   const [error, setError] = useState("");
   const canWrite = user?.role !== "VIEWER";
 
@@ -62,16 +75,22 @@ export function CommunicationsPage() {
     const [connectionData, templateData, conversationData, calendarData, providerConfig] = await Promise.all([
       api<{ connections: Connection[] }>("/integrations"),
       api<{ templates: Template[] }>("/communications/templates"),
-      api<{ conversations: Conversation[] }>("/communications/conversations"),
+      api<{ conversations: Conversation[] }>(
+        `/communications/conversations${conversationSearch ? `?search=${encodeURIComponent(conversationSearch)}` : ""}`
+      ),
       api<{ events: CalendarEvent[] }>("/communications/calendar"),
       api<OAuthConfig>("/integrations/oauth/config")
     ]);
     setConnections(connectionData.connections);
     setTemplates(templateData.templates);
     setConversations(conversationData.conversations);
+    setSelectedConversationId((current) => {
+      if (current && conversationData.conversations.some((item) => item.id === current)) return current;
+      return conversationData.conversations[0]?.id || "";
+    });
     setEvents(calendarData.events);
     setOauthConfig(providerConfig);
-  }, []);
+  }, [conversationSearch]);
 
   useEffect(() => {
     void load().catch((cause) => {
@@ -111,8 +130,41 @@ export function CommunicationsPage() {
     () => templates.find((item) => item.id === selectedTemplate),
     [selectedTemplate, templates]
   );
+  const selectedConversation = useMemo(
+    () => conversations.find((item) => item.id === selectedConversationId) || null,
+    [conversations, selectedConversationId]
+  );
+
+  async function selectConversation(conversation: Conversation) {
+    setSelectedConversationId(conversation.id);
+    if (!conversation.unreadReplies) return;
+    await api(`/communications/conversations/${encodeURIComponent(conversation.id)}/read`, { method: "POST" });
+    setConversations((current) => current.map((item) => item.id === conversation.id ? { ...item, unreadReplies: 0 } : item));
+  }
+
+  async function replyToConversation(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedConversation || !replyBody.trim() || !emailConnections.length) return;
+    setReplyBusy(true);
+    try {
+      await api(`/communications/conversations/${encodeURIComponent(selectedConversation.id)}/reply`, {
+        method: "POST",
+        body: JSON.stringify({ connectionId: emailConnections[0].id, body: replyBody.trim() })
+      });
+      setReplyBody("");
+      await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to send reply");
+    } finally {
+      setReplyBusy(false);
+    }
+  }
 
   async function connect(provider: OAuthProvider) {
+    if (!oauthConfig?.providers[provider].configured) {
+      setSetupProvider(provider);
+      return;
+    }
     setError("");
     setOauthBusy(true);
     try {
@@ -234,8 +286,8 @@ export function CommunicationsPage() {
     return (
       <button
         className="secondary-button"
-        disabled={!configured || oauthBusy}
-        title={configured ? `Connect ${label}` : `${label} OAuth is not configured`}
+        disabled={!oauthConfig || oauthBusy}
+        title={configured ? `Connect ${label}` : `Configure ${label} OAuth`}
         onClick={() => connect(provider)}
       >
         {label}
@@ -276,7 +328,14 @@ export function CommunicationsPage() {
           </div>
         </div>
         {oauthConfig && (!oauthConfig.providers.GOOGLE.configured || !oauthConfig.providers.MICROSOFT.configured) && (
-          <p className="integration-config-note">OAuth callback: <code>{oauthConfig.redirectUri}</code></p>
+          <div className="oauth-config-warning">
+            <AlertTriangle size={17} />
+            <div>
+              <strong>OAuth setup required</strong>
+              <p>Google or Microsoft credentials are missing. Select a provider to see the required configuration.</p>
+              <small>Callback URI: <code>{oauthConfig.redirectUri}</code></small>
+            </div>
+          </div>
         )}
         <div className="member-list">
           {connections.map((connection) => (
@@ -320,22 +379,65 @@ export function CommunicationsPage() {
         </div>
       </section>
 
-      <div className="two-column">
-        <section className="panel">
+      <div className="two-column communications-layout">
+        <section className="panel communications-panel">
           <div className="panel-heading">
             <div><p className="eyebrow">Recent</p><h2>Messages</h2></div>
             <Send size={18} />
           </div>
-          <div className="activity-list">
-            {conversations.map((conversation) => {
-              const latest = conversation.messages[conversation.messages.length - 1];
-              return <article key={conversation.id}>
-                <span className={`status-dot ${latest?.status.toLowerCase() || "queued"}`} />
-                <div><strong>{conversation.subject}</strong><p>{conversation.messages.length} message(s) · {latest?.direction === "INBOUND" ? latest.metadata?.from || "Received" : latest?.to}</p></div>
-                <small>{conversation.unreadReplies ? `${conversation.unreadReplies} inbound` : latest?.status.toLowerCase()}</small>
-              </article>
-            })}
-            {!conversations.length && <p className="empty-state">No synchronized conversation.</p>}
+          <label className="search-field conversation-search">
+            <Search size={16} />
+            <input value={conversationSearch} onChange={(event) => setConversationSearch(event.target.value)} placeholder="Search conversations" />
+          </label>
+          <div className="conversation-workspace">
+            <div className="conversation-list">
+              {conversations.map((conversation) => {
+                const latest = conversation.messages[conversation.messages.length - 1];
+                return <button
+                  type="button"
+                  className={selectedConversationId === conversation.id ? "active" : ""}
+                  key={conversation.id}
+                  onClick={() => void selectConversation(conversation)}
+                >
+                  <span className={`status-dot ${latest?.status.toLowerCase() || "queued"}`} />
+                  <div><strong>{conversation.subject}</strong><p>{conversation.messages.length} message(s) · {latest?.direction === "INBOUND" ? latest.metadata?.from || "Received" : latest?.to}</p></div>
+                  <small>{conversation.unreadReplies ? `${conversation.unreadReplies} unread` : latest?.status.toLowerCase()}</small>
+                </button>;
+              })}
+              {!conversations.length && <p className="empty-state">No synchronized conversation.</p>}
+            </div>
+            <div className="conversation-detail">
+              {selectedConversation ? <>
+                <header>
+                  <div><p className="eyebrow">Conversation</p><h3>{selectedConversation.subject}</h3></div>
+                  <small>{selectedConversation.messages.length} message(s)</small>
+                </header>
+                <div className="message-thread">
+                  {selectedConversation.messages.map((message) => (
+                    <article className={message.direction === "INBOUND" ? "inbound" : "outbound"} key={message.id}>
+                      <div>
+                        <strong>{message.direction === "INBOUND" ? message.metadata?.from || "Received" : `To ${message.to}`}</strong>
+                        <small>{new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(new Date(message.sentAt || message.createdAt))}</small>
+                      </div>
+                      <p>{message.body}</p>
+                      {!!message.attachments?.length && <div className="message-attachments">
+                        {message.attachments.map((attachment) => (
+                          <button type="button" key={attachment.id} onClick={() => void downloadFile(`/attachments/${attachment.id}/download`, attachment.originalName)}>
+                            <Paperclip size={14} /><span>{attachment.originalName}</span><Download size={14} />
+                          </button>
+                        ))}
+                      </div>}
+                    </article>
+                  ))}
+                </div>
+                <form className="conversation-reply" onSubmit={(event) => void replyToConversation(event)}>
+                  <textarea value={replyBody} onChange={(event) => setReplyBody(event.target.value)} rows={3} placeholder="Write a reply" disabled={!canWrite || !emailConnections.length} required />
+                  <button className="primary-button" disabled={replyBusy || !replyBody.trim() || !emailConnections.length}>
+                    <Send size={15} />{replyBusy ? "Sending..." : "Reply"}
+                  </button>
+                </form>
+              </> : <p className="empty-state">Select a conversation.</p>}
+            </div>
           </div>
         </section>
         <section className="panel">
@@ -402,6 +504,40 @@ export function CommunicationsPage() {
           <label>Description<textarea name="description" rows={4} /></label>
           <footer><button type="button" className="secondary-button" onClick={() => setEventOpen(false)}>Cancel</button><button className="primary-button">Create meeting</button></footer>
         </form>
+      </Dialog>
+      <Dialog
+        title={`Configure ${setupProvider === "GOOGLE" ? "Google" : "Microsoft"} OAuth`}
+        open={Boolean(setupProvider)}
+        onClose={() => setSetupProvider(null)}
+      >
+        {setupProvider && oauthConfig && <div className="oauth-setup-dialog">
+          <p>
+            Create an OAuth application for the CRM, register the callback URI below, then add the generated
+            credentials to <code>crm/.env</code>.
+          </p>
+          <label>Authorized callback URI<code>{oauthConfig.redirectUri}</code></label>
+          <div>
+            <strong>Missing server variables</strong>
+            <ul>
+              {oauthConfig.providers[setupProvider].missing.map((name) => <li key={name}><code>{name}</code></li>)}
+            </ul>
+          </div>
+          <p>
+            Restart the CRM API after updating the environment file. Secrets stay on the server and must never
+            be entered in the browser.
+          </p>
+          <footer>
+            <button className="secondary-button" onClick={() => setSetupProvider(null)}>Close</button>
+            <a
+              className="primary-button"
+              href={oauthConfig.providers[setupProvider].setupUrl}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Open provider console <ExternalLink size={15} />
+            </a>
+          </footer>
+        </div>}
       </Dialog>
     </div>
   );

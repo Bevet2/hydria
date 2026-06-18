@@ -19,10 +19,15 @@ import { CommunicationsPage } from "./pages/CommunicationsPage";
 import { PlatformPage } from "./pages/PlatformPage";
 import { SignQuotePage } from "./pages/SignQuotePage";
 import { OAuthCallbackPage } from "./pages/OAuthCallbackPage";
+import { SalesOpsPage } from "./pages/SalesOpsPage";
+import { TicketsPage } from "./pages/TicketsPage";
+import { TicketDetailPage } from "./pages/TicketDetailPage";
+import { CustomerPortalPage } from "./pages/CustomerPortalPage";
+import { CustomObjectsPage } from "./pages/CustomObjectsPage";
 
 function ProtectedLayout() {
   const { user, loading } = useAuth();
-  if (loading) return <div className="app-loader">Loading Northstar CRM...</div>;
+  if (loading) return <div className="app-loader">Loading Hydria CRM...</div>;
   return user ? <Layout /> : <Navigate to="/login" replace />;
 }
 
@@ -35,6 +40,7 @@ export default function App() {
       <Route path="/verify-email" element={<VerifyEmailPage />} />
       <Route path="/sign-quote" element={<SignQuotePage />} />
       <Route path="/oauth/callback" element={<OAuthCallbackPage />} />
+      <Route path="/support/:portalToken" element={<CustomerPortalPage />} />
       <Route element={<ProtectedLayout />}>
         <Route index element={<DashboardPage />} />
         <Route path="/leads" element={<LeadsPage />} />
@@ -47,7 +53,11 @@ export default function App() {
         <Route path="/deals/:id" element={<RecordDetailPage kind="deal" />} />
         <Route path="/products" element={<ProductsPage />} />
         <Route path="/tasks" element={<TasksPage />} />
+        <Route path="/tickets" element={<TicketsPage />} />
+        <Route path="/tickets/:id" element={<TicketDetailPage />} />
+        <Route path="/custom-objects" element={<CustomObjectsPage />} />
         <Route path="/reports" element={<ReportsPage />} />
+        <Route path="/sales-ops" element={<SalesOpsPage />} />
         <Route path="/communications" element={<CommunicationsPage />} />
         <Route path="/platform" element={<PlatformPage />} />
         <Route path="/settings" element={<SettingsPage />} />

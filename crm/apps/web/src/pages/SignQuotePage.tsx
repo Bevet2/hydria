@@ -43,8 +43,8 @@ export function SignQuotePage() {
 
   return <main className="auth-page">
     <section className="auth-intro">
-      <span className="brand-mark">N</span>
-      <p className="eyebrow">{signature?.quote.organization.name || "Northstar CRM"}</p>
+      <span className="brand-mark">H</span>
+      <p className="eyebrow">{signature?.quote.organization.name || "Hydria CRM"}</p>
       <h1>{signature?.quote.name || "Commercial proposal"}</h1>
       {signature && <p>{signature.quote.number} · {new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" }).format(Number(signature.quote.total))}</p>}
     </section>

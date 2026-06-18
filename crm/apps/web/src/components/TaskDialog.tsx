@@ -15,13 +15,15 @@ export function TaskDialog({
   onClose,
   onSaved,
   task = null,
-  relation = {}
+  relation = {},
+  defaults = {}
 }: {
   open: boolean;
   onClose: () => void;
   onSaved: () => void;
   task?: Task | null;
   relation?: TaskRelation;
+  defaults?: Partial<Pick<Task, "title" | "description" | "priority" | "status" | "dueAt" | "reminderAt" | "recurrence" | "recurrenceInterval" | "recurrenceEndsAt">>;
 }) {
   const [users, setUsers] = useState<User[]>([]);
   const [error, setError] = useState("");
@@ -30,10 +32,10 @@ export function TaskDialog({
   useEffect(() => {
     if (open) {
       setError("");
-      setRecurrence(task?.recurrence || "NONE");
+      setRecurrence(task?.recurrence || defaults.recurrence || "NONE");
       api<{ users: User[] }>("/users").then((data) => setUsers(data.users)).catch(() => setUsers([]));
     }
-  }, [open, task]);
+  }, [open, task, defaults.recurrence]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -65,25 +67,25 @@ export function TaskDialog({
 
   return (
     <Dialog title={task ? "Edit task" : "New task"} open={open} onClose={onClose}>
-      <form className="dialog-form" onSubmit={submit} key={task?.id || "new-task"}>
-        <label>Title<input name="title" defaultValue={task?.title || ""} required /></label>
-        <label>Description<textarea name="description" rows={3} defaultValue={task?.description || ""} /></label>
+      <form className="dialog-form" onSubmit={submit} key={task?.id || `${defaults.title || "new-task"}-${open ? "open" : "closed"}`}>
+        <label>Title<input name="title" defaultValue={task?.title || defaults.title || ""} required /></label>
+        <label>Description<textarea name="description" rows={3} defaultValue={task?.description || defaults.description || ""} /></label>
         <div className="form-grid">
-          <label>Priority<select name="priority" defaultValue={task?.priority || "MEDIUM"}><option>LOW</option><option>MEDIUM</option><option>HIGH</option><option>URGENT</option></select></label>
-          <label>Status<select name="status" defaultValue={task?.status || "TODO"}><option>TODO</option><option>IN_PROGRESS</option><option>DONE</option><option>CANCELED</option></select></label>
+          <label>Priority<select name="priority" defaultValue={task?.priority || defaults.priority || "MEDIUM"}><option>LOW</option><option>MEDIUM</option><option>HIGH</option><option>URGENT</option></select></label>
+          <label>Status<select name="status" defaultValue={task?.status || defaults.status || "TODO"}><option>TODO</option><option>IN_PROGRESS</option><option>DONE</option><option>CANCELED</option></select></label>
         </div>
         <div className="form-grid">
           <label>Assignee<select name="assignedToId" defaultValue={task?.assignedTo?.id || ""}><option value="">Assign to me</option>{users.map((user) => <option value={user.id} key={user.id}>{user.firstName} {user.lastName}</option>)}</select></label>
-          <label>Due date<input name="dueAt" type="datetime-local" defaultValue={toLocalInput(task?.dueAt)} /></label>
+          <label>Due date<input name="dueAt" type="datetime-local" defaultValue={toLocalInput(task?.dueAt || defaults.dueAt)} /></label>
         </div>
         <div className="form-grid">
-          <label>Reminder<input name="reminderAt" type="datetime-local" defaultValue={toLocalInput(task?.reminderAt)} /></label>
+          <label>Reminder<input name="reminderAt" type="datetime-local" defaultValue={toLocalInput(task?.reminderAt || defaults.reminderAt)} /></label>
           <label>Repeat<select name="recurrence" value={recurrence} onChange={(event) => setRecurrence(event.target.value as Task["recurrence"])}><option value="NONE">Does not repeat</option><option value="DAILY">Daily</option><option value="WEEKLY">Weekly</option><option value="MONTHLY">Monthly</option></select></label>
         </div>
         {recurrence !== "NONE" && (
           <div className="form-grid">
-            <label>Repeat every<input name="recurrenceInterval" type="number" min="1" max="52" defaultValue={task?.recurrenceInterval || 1} /></label>
-            <label>Repeat until<input name="recurrenceEndsAt" type="date" defaultValue={task?.recurrenceEndsAt?.slice(0, 10) || ""} /></label>
+            <label>Repeat every<input name="recurrenceInterval" type="number" min="1" max="52" defaultValue={task?.recurrenceInterval || defaults.recurrenceInterval || 1} /></label>
+            <label>Repeat until<input name="recurrenceEndsAt" type="date" defaultValue={(task?.recurrenceEndsAt || defaults.recurrenceEndsAt)?.slice(0, 10) || ""} /></label>
           </div>
         )}
         {error && <p className="form-error">{error}</p>}

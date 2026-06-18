@@ -11,7 +11,9 @@ import { DataTransferButtons } from "../components/DataTransferButtons";
 import { ResourceOperationsBar } from "../components/ResourceOperationsBar";
 import type { Company, Deal, Stage, User } from "../types";
 
-const money = new Intl.NumberFormat("en", { style: "currency", currency: "EUR", maximumFractionDigits: 0 });
+type Campaign = { id: string; name: string };
+type Territory = { id: string; name: string };
+const money = (value: number, currency: string) => new Intl.NumberFormat("en", { style: "currency", currency, maximumFractionDigits: 0 }).format(value);
 
 function DealCard({ deal, canWrite, selected, onSelect }: { deal: Deal; canWrite: boolean; selected: boolean; onSelect: (checked: boolean) => void }) {
   const sortable = useSortable({ id: deal.id, data: { type: "deal" }, disabled: !canWrite });
@@ -21,7 +23,7 @@ function DealCard({ deal, canWrite, selected, onSelect }: { deal: Deal; canWrite
       <div className="deal-grip"><GripVertical size={15} /><span>{deal.probability}%</span></div>
       <Link to={`/deals/${deal.id}`} onPointerDown={(event) => event.stopPropagation()}><h3>{deal.name}</h3></Link>
       <p><Building2 size={14} />{deal.company?.name || "No company"}</p>
-      <footer><strong>{money.format(Number(deal.value))}</strong>{deal.expectedCloseAt && <span><CalendarDays size={13} />{new Intl.DateTimeFormat("en", { month: "short", day: "numeric" }).format(new Date(deal.expectedCloseAt))}</span>}</footer>
+      <footer><strong>{money(Number(deal.value), deal.currency)}</strong>{deal.expectedCloseAt && <span><CalendarDays size={13} />{new Intl.DateTimeFormat("en", { month: "short", day: "numeric" }).format(new Date(deal.expectedCloseAt))}</span>}</footer>
     </article>
   );
 }
@@ -31,7 +33,7 @@ function StageColumn({ stage, deals, canWrite, selectedIds, onSelect }: { stage:
   return (
     <section ref={setNodeRef} className={`stage-column ${isOver ? "is-over" : ""}`}>
       <header><span className="stage-dot" style={{ background: stage.color }} /><strong>{stage.name}</strong><b>{deals.length}</b></header>
-      <p className="stage-value">{money.format(deals.reduce((sum, deal) => sum + Number(deal.value), 0))}</p>
+      <p className="stage-value">{money(deals.reduce((sum, deal) => sum + Number(deal.value), 0), deals[0]?.currency || "EUR")}</p>
       <div className="stage-deals">{deals.map((deal) => <DealCard deal={deal} canWrite={canWrite} selected={selectedIds.includes(deal.id)} onSelect={(checked) => onSelect(deal.id, checked)} key={deal.id} />)}</div>
     </section>
   );
@@ -43,6 +45,8 @@ export function PipelinePage() {
   const [deals, setDeals] = useState<Deal[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [users, setUsers] = useState<User[]>([]);
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [territories, setTerritories] = useState<Territory[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
@@ -57,8 +61,16 @@ export function PipelinePage() {
   }, []);
   useEffect(load, [load]);
   useEffect(() => {
-    api<{ companies: Company[] }>("/companies?limit=100").then((data) => setCompanies(data.companies));
-    api<{ users: User[] }>("/users").then((data) => setUsers(data.users));
+    void Promise.all([
+      api<{ companies: Company[] }>("/companies?limit=100"),
+      api<{ users: User[] }>("/users"),
+      api<{ campaigns: Campaign[]; territories: Territory[] }>("/sales-ops")
+    ]).then(([companyData, userData, salesData]) => {
+      setCompanies(companyData.companies);
+      setUsers(userData.users);
+      setCampaigns(salesData.campaigns);
+      setTerritories(salesData.territories);
+    });
   }, []);
 
   async function dragEnd(event: DragEndEvent) {
@@ -68,9 +80,16 @@ export function PipelinePage() {
     const overDeal = deals.find((item) => item.id === overId);
     const targetStage = stages.find((stage) => stage.id === overId || stage.id === overDeal?.stageId);
     if (!deal || !targetStage || deal.stageId === targetStage.id) return;
+    let lostReason: string | null = null;
+    let competitor: string | null = null;
+    if (targetStage.isLost) {
+      lostReason = window.prompt("Why was this opportunity lost?");
+      if (!lostReason?.trim()) return;
+      competitor = window.prompt("Competitor (optional)") || null;
+    }
     setDeals((current) => current.map((item) => item.id === deal.id ? { ...item, stageId: targetStage.id } : item));
     try {
-      await api(`/pipeline/deals/${deal.id}`, { method: "PATCH", body: JSON.stringify({ stageId: targetStage.id }) });
+      await api(`/pipeline/deals/${deal.id}`, { method: "PATCH", body: JSON.stringify({ stageId: targetStage.id, lostReason, competitor }) });
     } catch {
       load();
     }
@@ -83,7 +102,15 @@ export function PipelinePage() {
     try {
       await api("/pipeline/deals", {
         method: "POST",
-        body: JSON.stringify({ ...data, value: Number(data.value), probability: Number(data.probability), companyId: data.companyId || null, expectedCloseAt: data.expectedCloseAt || null })
+        body: JSON.stringify({
+          ...data,
+          value: Number(data.value),
+          probability: Number(data.probability),
+          companyId: data.companyId || null,
+          campaignId: data.campaignId || null,
+          territoryId: data.territoryId || null,
+          expectedCloseAt: data.expectedCloseAt || null
+        })
       });
       setOpen(false);
       load();
@@ -131,9 +158,13 @@ export function PipelinePage() {
         <form className="dialog-form" onSubmit={create}>
           <label>Deal name<input name="name" required /></label>
           <div className="form-grid"><label>Value<input name="value" type="number" min="0" defaultValue="0" /></label><label>Probability<input name="probability" type="number" min="0" max="100" defaultValue="20" /></label></div>
-          <div className="form-grid"><label>Stage<select name="stageId">{stages.map((stage) => <option value={stage.id} key={stage.id}>{stage.name}</option>)}</select></label><label>Company<select name="companyId"><option value="">No company</option>{companies.map((company) => <option value={company.id} key={company.id}>{company.name}</option>)}</select></label></div>
+          <div className="form-grid"><label>Stage<select name="stageId">{stages.filter((stage) => !stage.isWon && !stage.isLost).map((stage) => <option value={stage.id} key={stage.id}>{stage.name}</option>)}</select></label><label>Company<select name="companyId"><option value="">No company</option>{companies.map((company) => <option value={company.id} key={company.id}>{company.name}</option>)}</select></label></div>
+          <div className="form-grid">
+            <label>Campaign<select name="campaignId"><option value="">No campaign</option>{campaigns.map((campaign) => <option value={campaign.id} key={campaign.id}>{campaign.name}</option>)}</select></label>
+            <label>Territory<select name="territoryId"><option value="">No territory</option>{territories.map((territory) => <option value={territory.id} key={territory.id}>{territory.name}</option>)}</select></label>
+          </div>
           <label>Expected close<input name="expectedCloseAt" type="date" /></label>
-          <input name="currency" type="hidden" value="EUR" />
+          <input name="currency" type="hidden" value={user?.organization?.defaultCurrency || "EUR"} />
           {error && <p className="form-error">{error}</p>}
           <footer><button type="button" className="secondary-button" onClick={() => setOpen(false)}>Cancel</button><button className="primary-button">Create deal</button></footer>
         </form>

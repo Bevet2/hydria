@@ -1,11 +1,11 @@
-import { Activity, DatabaseBackup, Goal, KeyRound, Plus, ShieldCheck, Trash2, Webhook, Workflow } from "lucide-react";
+import { Activity, DatabaseBackup, Goal, KeyRound, Pencil, Plus, ShieldCheck, Trash2, Webhook, Workflow } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { api } from "../api";
 import { useAuth } from "../auth";
 import { Dialog } from "../components/Dialog";
-import { AutomationBuilder } from "../components/AutomationBuilder";
+import { AutomationBuilder, type EditableAutomationRule } from "../components/AutomationBuilder";
 
-type Rule = { id: string; name: string; trigger: string; action: string; active: boolean; _count?: { runs: number } };
+type Rule = EditableAutomationRule & { active: boolean; _count?: { runs: number } };
 type AutomationRun = { id: string; entityType: string; entityId: string; status: string; error?: string | null; createdAt: string; rule: { name: string; trigger: string; action: string } };
 type ApiKey = { id: string; name: string; prefix: string; revokedAt?: string | null; lastUsedAt?: string | null };
 type Endpoint = { id: string; name: string; url: string; active: boolean; events: string[] };
@@ -34,6 +34,7 @@ export function PlatformPage() {
   const [dialog, setDialog] = useState<"rule" | "key" | "webhook" | "goal" | "privacy" | "consent" | "retention" | "backup" | null>(null);
   const [secret, setSecret] = useState("");
   const [error, setError] = useState("");
+  const [selectedRule, setSelectedRule] = useState<Rule | null>(null);
   const isAdmin = user?.role === "ADMIN";
 
   const load = useCallback(async () => {
@@ -166,8 +167,8 @@ export function PlatformPage() {
     {secret && <section className="settings-section secret-banner"><div><KeyRound size={18} /><p><strong>Secret shown once</strong><code>{secret}</code></p><button className="icon-button" onClick={() => setSecret("")}>×</button></div></section>}
 
     <section className="settings-section">
-      <div className="section-title"><div><Workflow size={19} /><span><h2>Automation rules</h2><p>Assignment, tasks, email and pipeline actions</p></span></div><button className="secondary-button" onClick={() => setDialog("rule")}><Plus size={16} />Rule</button></div>
-      <div className="field-list">{rules.map((rule) => <div key={rule.id}><strong>{rule.name}</strong><span>{rule.trigger.toLowerCase().replaceAll("_", " ")}</span><code>{rule.action.toLowerCase().replaceAll("_", " ")}</code><b>{rule._count?.runs || 0} runs</b><label className="switch-label"><input type="checkbox" checked={rule.active} onChange={() => void toggleRule(rule)} /><span>{rule.active ? "Active" : "Paused"}</span></label><button className="icon-button danger-icon" title="Delete rule" onClick={() => remove(`/automations/${rule.id}`, `Delete ${rule.name}?`)}><Trash2 size={15} /></button></div>)}{!rules.length && <p className="empty-state">No automation rule.</p>}</div>
+      <div className="section-title"><div><Workflow size={19} /><span><h2>Automation rules</h2><p>Assignment, tasks, email and pipeline actions</p></span></div><button className="secondary-button" onClick={() => { setSelectedRule(null); setDialog("rule"); }}><Plus size={16} />Rule</button></div>
+      <div className="field-list">{rules.map((rule) => <div key={rule.id}><strong>{rule.name}</strong><span>{rule.trigger.toLowerCase().replaceAll("_", " ")}</span><code>{rule.steps?.length || 1} step(s)</code><b>{rule._count?.runs || 0} runs</b><label className="switch-label"><input type="checkbox" checked={rule.active} onChange={() => void toggleRule(rule)} /><span>{rule.active ? "Active" : "Paused"}</span></label><button className="icon-button" title="Edit rule" onClick={() => { setSelectedRule(rule); setDialog("rule"); }}><Pencil size={15} /></button><button className="icon-button danger-icon" title="Delete rule" onClick={() => remove(`/automations/${rule.id}`, `Delete ${rule.name}?`)}><Trash2 size={15} /></button></div>)}{!rules.length && <p className="empty-state">No automation rule.</p>}</div>
       <div className="automation-runs">
         <h3>Recent executions</h3>
         {runs.map((run) => <article key={run.id} className={run.status === "FAILED" ? "is-failed" : ""}>
@@ -197,7 +198,7 @@ export function PlatformPage() {
       <section className="settings-section"><div className="section-title"><div><Activity size={19} /><span><h2>Dead-letter queue</h2><p>Jobs that exhausted automatic retries</p></span></div></div><div className="field-list">{jobs.map((job) => <div key={job.id}><strong>{job.type.toLowerCase().replaceAll("_", " ")}</strong><span>{job.attempts}/{job.maxAttempts} attempts</span><code>{job.lastError || "Unknown failure"}</code><button className="secondary-button compact" onClick={() => api(`/monitoring/jobs/${job.id}/retry`, { method: "POST", body: JSON.stringify({ confirmation: "RETRY" }) }).then(load)}>Retry</button></div>)}{!jobs.length && <p className="empty-state">No dead-letter job.</p>}</div></section>
     </>}
 
-    <Dialog title="New automation rule" open={dialog === "rule"} onClose={() => setDialog(null)}><AutomationBuilder onCancel={() => setDialog(null)} onSaved={async () => { setDialog(null); await load(); }} /></Dialog>
+    <Dialog title={selectedRule ? "Edit automation rule" : "New automation rule"} open={dialog === "rule"} onClose={() => { setDialog(null); setSelectedRule(null); }}><AutomationBuilder rule={selectedRule} onCancel={() => { setDialog(null); setSelectedRule(null); }} onSaved={async () => { setDialog(null); setSelectedRule(null); await load(); }} /></Dialog>
     <Dialog title="New API key" open={dialog === "key"} onClose={() => setDialog(null)}><form className="dialog-form" onSubmit={submitKey}><label>Name<input name="name" required /></label><fieldset><legend>Scopes</legend><div className="dashboard-widget-list"><label className="check-label"><input name="scopes" value="crm:read" type="checkbox" defaultChecked />Read CRM</label><label className="check-label"><input name="scopes" value="crm:write" type="checkbox" />Write CRM</label><label className="check-label"><input name="scopes" value="crm:commercial" type="checkbox" />Commercial operations</label><label className="check-label"><input name="scopes" value="crm:communications" type="checkbox" />Email and integrations</label><label className="check-label"><input name="scopes" value="crm:admin" type="checkbox" />Administration</label></div></fieldset><footer><button type="button" className="secondary-button" onClick={() => setDialog(null)}>Cancel</button><button className="primary-button">Create key</button></footer></form></Dialog>
     <Dialog title="New webhook" open={dialog === "webhook"} onClose={() => setDialog(null)}><form className="dialog-form" onSubmit={submitWebhook}><label>Name<input name="name" required /></label><label>HTTPS URL<input name="url" type="url" required /></label><label>Events<input name="events" defaultValue="*" required /></label><footer><button type="button" className="secondary-button" onClick={() => setDialog(null)}>Cancel</button><button className="primary-button">Create endpoint</button></footer></form></Dialog>
     <Dialog title="New sales goal" open={dialog === "goal"} onClose={() => setDialog(null)}><form className="dialog-form" onSubmit={submitGoal}><label>Name<input name="name" required /></label><div className="form-grid"><label>Metric<select name="metric"><option>WON_REVENUE</option><option>WON_DEALS</option><option>ACTIVITIES</option></select></label><label>Target<input name="target" type="number" min="1" required /></label></div><div className="form-grid"><label>Start<input name="periodStart" type="date" required /></label><label>End<input name="periodEnd" type="date" required /></label></div><footer><button type="button" className="secondary-button" onClick={() => setDialog(null)}>Cancel</button><button className="primary-button">Create goal</button></footer></form></Dialog>

@@ -46,8 +46,8 @@ export function LoginPage() {
   return (
     <main className="auth-page">
       <section className="auth-intro">
-        <span className="brand-mark">N</span>
-        <p className="eyebrow">Northstar CRM</p>
+        <span className="brand-mark">H</span>
+        <p className="eyebrow">Hydria CRM</p>
         <h1>Keep every relationship moving.</h1>
         <p>Contacts, companies, deals and follow-ups in one focused workspace.</p>
       </section>
@@ -70,8 +70,8 @@ export function LoginPage() {
               </div>
             </>
           )}
-          <label>Email<input name="email" type="email" required defaultValue={mode === "login" ? "admin@northstar.local" : ""} /></label>
-          {mode !== "forgot" && <label>Password<input name="password" type="password" minLength={8} required defaultValue={mode === "login" ? "Northstar123!" : ""} /></label>}
+          <label>Email<input name="email" type="email" autoComplete="email" required /></label>
+          {mode !== "forgot" && <label>Password<input name="password" type="password" minLength={8} autoComplete={mode === "login" ? "current-password" : "new-password"} required /></label>}
             </>
           )}
           {error && <p className="form-error">{error}</p>}

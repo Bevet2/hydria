@@ -7,7 +7,7 @@ export function DataTransferButtons({
   canImport,
   onImported
 }: {
-  resource: "companies" | "leads" | "deals" | "products" | "tasks";
+  resource: "contacts" | "companies" | "leads" | "deals" | "products" | "tasks" | "tickets";
   canImport: boolean;
   onImported: () => void;
 }) {
@@ -21,7 +21,7 @@ export function DataTransferButtons({
     onImported();
   }
   return <>
-    {canImport && <input ref={inputRef} hidden type="file" accept=".csv,text/csv" onChange={(event) => importCsv(event.target.files?.[0])} />}
+    {canImport && <input ref={inputRef} hidden type="file" accept=".csv,text/csv" aria-label={`Import ${resource} CSV`} onChange={(event) => importCsv(event.target.files?.[0])} />}
     {canImport && <button className="secondary-button" onClick={() => inputRef.current?.click()}><Upload size={16} />Import</button>}
     <button className="secondary-button" onClick={() => downloadCsv(`/data/export/${resource}.csv`, `${resource}.csv`)}><Download size={16} />Export</button>
   </>;

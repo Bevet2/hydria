@@ -13,7 +13,7 @@ test("core CRM workspaces render without browser errors or overflow", async ({ p
   });
   page.on("pageerror", (error) => browserErrors.push(error.message));
 
-  for (const route of ["/products", "/tasks", "/communications", "/platform", "/settings"]) {
+  for (const route of ["/products", "/tasks", "/tickets", "/communications", "/platform", "/settings"]) {
     await page.goto(route);
     await expect(page.locator("h1")).toBeVisible();
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);

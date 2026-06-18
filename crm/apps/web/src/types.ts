@@ -9,7 +9,18 @@ export type User = {
   organizationId: string;
   emailVerifiedAt?: string | null;
   mfaEnabled?: boolean;
-  organization?: { name: string; slug: string };
+  teamId?: string | null;
+  team?: { id: string; name: string } | null;
+  permissionPolicy?: Record<string, unknown> | null;
+  organization?: {
+    name: string;
+    slug: string;
+    logoUrl?: string | null;
+    brandColor?: string;
+    defaultCurrency?: string;
+    locale?: string;
+    timezone?: string;
+  };
 };
 
 export type Company = {
@@ -52,12 +63,17 @@ export type Deal = {
   stageId: string;
   forecastCategory: "PIPELINE" | "BEST_CASE" | "COMMIT" | "CLOSED" | "OMITTED";
   description?: string | null;
+  score: number;
+  campaign?: { id: string; name: string } | null;
+  territory?: { id: string; name: string } | null;
   nextStep?: string | null;
   expectedCloseAt?: string | null;
   company?: Pick<Company, "id" | "name"> | null;
   primaryContact?: Pick<Contact, "id" | "firstName" | "lastName"> | null;
   owner?: Pick<User, "id" | "firstName" | "lastName"> | null;
   stage?: Stage;
+  lostReason?: string | null;
+  competitor?: string | null;
 };
 
 export type Lead = {
@@ -76,6 +92,9 @@ export type Lead = {
   employeeCount?: number | null;
   description?: string | null;
   convertedAt?: string | null;
+  score: number;
+  campaign?: { id: string; name: string } | null;
+  territory?: { id: string; name: string } | null;
   owner?: Pick<User, "id" | "firstName" | "lastName"> | null;
 };
 
@@ -146,9 +165,81 @@ export type Task = {
   lead?: Pick<Lead, "id" | "firstName" | "lastName"> | null;
 };
 
+export type Ticket = {
+  id: string;
+  number: string;
+  subject: string;
+  description?: string | null;
+  status: "OPEN" | "IN_PROGRESS" | "WAITING" | "RESOLVED" | "CLOSED";
+  priority: "LOW" | "MEDIUM" | "HIGH" | "URGENT";
+  source: string;
+  dueAt?: string | null;
+  firstResponseDueAt?: string | null;
+  resolutionDueAt?: string | null;
+  firstRespondedAt?: string | null;
+  slaBreachedAt?: string | null;
+  escalatedAt?: string | null;
+  customerEmail?: string | null;
+  portalToken?: string;
+  resolvedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  assignedTo?: Pick<User, "id" | "firstName" | "lastName"> | null;
+  createdBy?: Pick<User, "id" | "firstName" | "lastName"> | null;
+  company?: Pick<Company, "id" | "name"> | null;
+  contact?: Pick<Contact, "id" | "firstName" | "lastName"> | null;
+  queue?: SupportQueue | null;
+  messages?: TicketMessage[];
+  events?: TicketEvent[];
+  _count?: { messages: number };
+};
+
+export type SupportQueue = {
+  id: string;
+  name: string;
+  description?: string | null;
+  firstResponseMinutes: number;
+  resolutionMinutes: number;
+  escalationAfterMinutes: number;
+  routingStrategy: "ROUND_ROBIN" | "LEAST_OPEN";
+  businessHours?: {
+    timezone?: string;
+    weekdays?: Record<string, Array<[string, string]>>;
+  } | null;
+  holidays?: string[] | null;
+  pauseStatuses?: Array<"OPEN" | "IN_PROGRESS" | "WAITING"> | null;
+  escalationPolicy?: Array<{
+    afterMinutes: number;
+    priority?: "LOW" | "MEDIUM" | "HIGH" | "URGENT";
+    status?: "OPEN" | "IN_PROGRESS" | "WAITING";
+  }> | null;
+  active: boolean;
+  _count?: { tickets: number };
+};
+
+export type TicketMessage = {
+  id: string;
+  body: string;
+  public: boolean;
+  inbound: boolean;
+  authorName?: string | null;
+  authorEmail?: string | null;
+  createdAt: string;
+  author?: Pick<User, "id" | "firstName" | "lastName"> | null;
+};
+
+export type TicketEvent = {
+  id: string;
+  type: string;
+  summary: string;
+  metadata?: Record<string, unknown> | null;
+  createdAt: string;
+  actor?: Pick<User, "id" | "firstName" | "lastName"> | null;
+};
+
 export type SavedView = {
   id: string;
-  resource: "CONTACTS" | "COMPANIES" | "LEADS" | "DEALS" | "TASKS" | "PRODUCTS" | "QUOTES" | "INVOICES";
+  resource: "CONTACTS" | "COMPANIES" | "LEADS" | "DEALS" | "TASKS" | "PRODUCTS" | "QUOTES" | "INVOICES" | "TICKETS";
   name: string;
   filters: Record<string, unknown>;
   isDefault: boolean;
