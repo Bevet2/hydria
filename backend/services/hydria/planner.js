@@ -112,7 +112,7 @@ export function buildExecutionPlan(
       ? null
       : hasRequiredApiInputs(apiNeed)
         ? apiNeed
-        : apiNeed || null;
+        : null;
   const multiAllowed = allowMultipleCandidates();
   const steps = [];
   const hasAttachments = attachments.length > 0;
