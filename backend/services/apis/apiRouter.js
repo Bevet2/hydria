@@ -148,7 +148,8 @@ function extractTicker(prompt) {
 function detectCrypto(prompt) {
   const lower = prompt.toLowerCase();
   for (const [alias, value] of Object.entries(cryptoAliases)) {
-    if (lower.includes(alias)) {
+    const pattern = new RegExp(`\\b${alias}\\b`);
+    if (pattern.test(lower)) {
       return value;
     }
   }
@@ -229,7 +230,7 @@ export function detectApiNeed(prompt) {
   }
 
   if (
-    /(crypto|bitcoin|btc|ethereum|eth|solana|sol|doge|prix du|price of)/i.test(normalizedPrompt)
+    /(crypto|\bbitcoin\b|\bbtc\b|\bethereum\b|\beth\b|\bsolana\b|\bsol\b|\bdoge\b|prix du|price of)/i.test(normalizedPrompt)
   ) {
     const asset = detectCrypto(normalizedPrompt) || cryptoAliases.bitcoin;
     return {

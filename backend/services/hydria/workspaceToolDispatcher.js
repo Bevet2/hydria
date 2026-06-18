@@ -2677,21 +2677,27 @@ function planDocumentOperationsFromPrompt({ prompt = "", content = "" } = {}) {
     const items = quoted
       ? quoted.split(/;|\n/).map((item) => item.trim()).filter(Boolean)
       : [];
+    if (!items.length) {
+      return [];
+    }
     return [
       {
         type: "doc.insert_list",
-        values: items.length ? items : ["A completer"],
+        values: items,
         target: heading ? { heading } : { position: "end" }
       }
     ];
   }
 
   if (/\b(ajoute|add|insert|insere|cree|create)\b/.test(normalized) && /\b(section|partie|heading)\b/.test(normalized)) {
+    if (!quoted) {
+      return [];
+    }
     return [
       {
         type: "doc.insert_section",
         title: heading || extractDocumentTargetName(prompt) || "Nouvelle section",
-        content: quoted || "A completer.",
+        content: quoted,
         target: { position: "end" }
       }
     ];

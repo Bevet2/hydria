@@ -198,7 +198,7 @@ function inferTitle(prompt, documentType) {
   const topic = inferTopic(prompt);
 
   if (topic) {
-    return cleanTitle(`${documentType} - ${topic}`.replace(/^document - /i, ""));
+    return cleanTitle(`${documentType} - ${topic}`.replace(/^\w+ - /i, ""));
   }
 
   if (documentType === "report") {

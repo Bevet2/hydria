@@ -2761,7 +2761,9 @@ export async function generateDocumentArtifact({
     usedFallback = true;
   }
 
-  const draftMaxTokens = multiPage ? 3200 : 1600;
+  // At ~20 tok/sec on Ollama, 3200 tokens ≈ 160s which exceeds the 120s default timeout.
+  // 2000 tokens ≈ 100s fits comfortably. For truly long documents the review pass adds depth.
+  const draftMaxTokens = multiPage ? 2000 : 1600;
 
   const draftStep = findArtifactGenerationStep(plan, "draft", spec.documentType);
   if (draftStep && config.llm.enabled) {

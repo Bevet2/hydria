@@ -70,6 +70,29 @@ function shouldUseArtifactFastPath({ prompt, attachments = [], activeWorkObject 
   );
 }
 
+function isShortConversationalQuestion(prompt) {
+  const p = String(prompt || "").trim();
+  if (p.length === 0 || p.length > 200) return false;
+  if (!/[?!]$/.test(p) && p.split(/\s+/).length > 15) return false;
+  const hasCreationKeyword = /\b(crée|cree|creer|génère|genere|generer|fais|make|create|generate|write|écris|ecris|build|produce|draft)\b/i.test(p);
+  if (hasCreationKeyword) return false;
+  const hasArtifactKeyword = /\b(document|pdf|xlsx|excel|csv|tableur|spreadsheet|slides|présentation|presentation|rapport|report|fichier|file)\b/i.test(p);
+  if (hasArtifactKeyword) return false;
+  const hasCodeKeyword = /\b(code|function|class|import|script|api|endpoint|database|sql|schema|bug|error|debug)\b/i.test(p);
+  if (hasCodeKeyword) return false;
+  return true;
+}
+
+function shouldUseSimpleChatFastPath({ prompt, attachments = [], activeWorkObject = null, workObjectPath = "" }) {
+  if (activeWorkObject || workObjectPath || attachments.length) {
+    return false;
+  }
+  if (classifyAgenticRequest(prompt, attachments) === "simple_chat") {
+    return true;
+  }
+  return isShortConversationalQuestion(prompt);
+}
+
 class HydriaAutonomousBrain {
   constructor() {
     Object.assign(this, buildHydriaAutonomousDependencies());
@@ -189,6 +212,22 @@ class HydriaAutonomousBrain {
 
     if (
       shouldUseArtifactFastPath({
+        prompt: effectivePrompt,
+        attachments,
+        activeWorkObject,
+        workObjectPath
+      })
+    ) {
+      return fallbackToLegacyChat({
+        userId,
+        conversationId,
+        prompt: effectivePrompt,
+        attachments
+      });
+    }
+
+    if (
+      shouldUseSimpleChatFastPath({
         prompt: effectivePrompt,
         attachments,
         activeWorkObject,
