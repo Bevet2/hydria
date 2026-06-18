@@ -329,11 +329,25 @@ function buildFallbackSpec(intent, prompt, attachments) {
     });
   }
 
-  sections.push(
-    { heading: "Overview", goal: "Introduce the requested topic clearly." },
-    { heading: "Key Points", goal: "Develop the most important ideas or findings." },
-    { heading: "Conclusion", goal: "Summarize the result and next steps." }
-  );
+  const normalizedPromptForFallback = normalizePromptText(prompt);
+  if (/\b(biographie|biography|vie de|life of|histoire de|history of|portrait de|portrait of)\b/i.test(normalizedPromptForFallback)) {
+    const subject = intent.topic || intent.title || "the subject";
+    sections.push(
+      { heading: "Introduction", goal: `Briefly introduce ${subject} and why this person matters.` },
+      { heading: "Early Life", goal: `Describe the origins, family, and formative years of ${subject}.` },
+      { heading: "Rise to Prominence", goal: `Explain how ${subject} gained influence, power, or recognition.` },
+      { heading: "Major Achievements", goal: `Outline the most significant accomplishments and contributions of ${subject}.` },
+      { heading: "Key Events and Turning Points", goal: `Describe the decisive moments that shaped the trajectory of ${subject}.` },
+      { heading: "Decline and End", goal: `Recount the fall from power, final years, or death of ${subject} if applicable.` },
+      { heading: "Legacy and Historical Impact", goal: `Assess the lasting influence of ${subject} on history, culture, or society.` }
+    );
+  } else {
+    sections.push(
+      { heading: "Overview", goal: "Introduce the requested topic clearly." },
+      { heading: "Key Points", goal: "Develop the most important ideas or findings." },
+      { heading: "Conclusion", goal: "Summarize the result and next steps." }
+    );
+  }
 
   return normalizeSpec(
     {
@@ -2410,9 +2424,19 @@ function findArtifactGenerationStep(plan, stage = "", documentType = "") {
   );
 }
 
-function buildDraftInstruction(spec, context = {}) {
+function isMultiPageRequest(prompt = "") {
+  const normalized = normalizePromptText(prompt);
+  return /\b(plusieurs\s*pages?|multi.?page|complet|exhaustif|approfondi|long\s*document|biographie|biography|histoire\s+de|history\s+of|rapport\s+complet|full\s+report|complete\s+guide|guide\s+complet|detailed?|comprehensive|extensive)\b/.test(
+    normalized
+  );
+}
+
+function buildDraftInstruction(spec, context = {}, originalPrompt = "") {
   const base = [
     "You are the writing agent for document generation.",
+    originalPrompt
+      ? `User's original request: "${originalPrompt}". Write content specifically about this topic.`
+      : "",
     "Write the requested content in Markdown only.",
     `Title: ${spec.title}`,
     `Format target: ${spec.format}`,
@@ -2420,7 +2444,7 @@ function buildDraftInstruction(spec, context = {}) {
     `Audience: ${spec.audience}`,
     `Tone: ${spec.tone}`,
     `Sections: ${spec.sections.map((section) => `${section.heading} (${section.goal})`).join(" | ")}`
-  ];
+  ].filter(Boolean);
 
   if (["pptx", "image"].includes(spec.format)) {
     base.push(
@@ -2639,6 +2663,8 @@ export async function generateDocumentArtifact({
     };
   }
 
+  const multiPage = isMultiPageRequest(prompt);
+
   const specStep = findArtifactGenerationStep(plan, "spec", spec.documentType);
   if (specStep && config.llm.enabled) {
     const projectContextInstruction = buildArtifactContextInstruction(artifactContext, spec);
@@ -2646,10 +2672,20 @@ export async function generateDocumentArtifact({
       modelContext.messages,
       [
         "You are the specification agent for document generation.",
+        `User's request: "${prompt}"`,
+        intent.title
+          ? `Inferred document title: "${intent.title}". The spec title must describe this content specifically.`
+          : "",
+        intent.documentType !== "document"
+          ? `Inferred document type: ${intent.documentType}.`
+          : "",
         `Return valid JSON only with keys: title, format, documentType, audience, tone, sections.`,
         `Use one of these formats only: ${listSupportedGenerationFormats().join(", ")}.`,
         "Each section must be an object with heading and goal.",
-        "Keep the structure compact and execution-ready.",
+        multiPage
+          ? "The user requested a long multi-page document. Include 6 to 10 detailed sections."
+          : "Keep the structure compact and execution-ready.",
+        "IMPORTANT: The title must describe the requested document content, not the task of generating it.",
         projectContextInstruction
           ? `Ground the spec in the current project and visible source object.\n${projectContextInstruction}`
           : "",
@@ -2657,7 +2693,7 @@ export async function generateDocumentArtifact({
         seedDocument
           ? `You are revising an existing work object. Preserve its intent and improve it according to the request.\nCurrent title: ${seedDocument.title || spec.title}\nCurrent format: ${seedDocument.format || spec.format}`
           : ""
-      ].join("\n"),
+      ].filter(Boolean).join("\n"),
       attachments
     );
 
@@ -2683,6 +2719,12 @@ export async function generateDocumentArtifact({
       if (parsedSpec) {
         spec = normalizeSpec(parsedSpec, intent);
         spec = applyForcedSpec(spec, forcedSpec, intent);
+        // Guard: if the inferred title is specific and non-weak, protect it from LLM corruption.
+        // Local small models often produce a title describing the generation task itself rather
+        // than the requested document subject (e.g. "Creer un artefact" instead of the topic).
+        if (intent.title && !isWeakArtifactTitle(intent.title, intent.documentType)) {
+          spec = { ...spec, title: intent.title };
+        }
         spec = applyProjectContextToSpec(spec, {
           project,
           activeWorkObject,
@@ -2719,12 +2761,14 @@ export async function generateDocumentArtifact({
     usedFallback = true;
   }
 
+  const draftMaxTokens = multiPage ? 3200 : 1600;
+
   const draftStep = findArtifactGenerationStep(plan, "draft", spec.documentType);
   if (draftStep && config.llm.enabled) {
     const draftMessages = attachInstruction(
       modelContext.messages,
       [
-        buildDraftInstruction(spec, artifactContext),
+        buildDraftInstruction(spec, artifactContext, prompt),
         externalAdviceInstruction,
         seedDocument?.content
           ? `You are updating an existing work object.\nStart from the current content below, keep what is useful, and apply the new request instead of rewriting blindly.\n\nCurrent content:\n${seedDocument.content}`
@@ -2738,7 +2782,7 @@ export async function generateDocumentArtifact({
     const draftResponse = await callChatModel(draftMessages, {
       model: draftStep.model,
       modelChain: draftStep.modelChain,
-      maxTokens: 1600
+      maxTokens: draftMaxTokens
     });
 
     if (draftResponse.success) {
@@ -2792,7 +2836,7 @@ export async function generateDocumentArtifact({
     const reviewResponse = await callReasoningModel(reviewMessages, {
       model: reviewStep.model,
       modelChain: reviewStep.modelChain,
-      maxTokens: 1600
+      maxTokens: draftMaxTokens
     });
 
     if (reviewResponse.success) {
