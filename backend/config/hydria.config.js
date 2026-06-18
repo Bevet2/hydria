@@ -39,7 +39,7 @@ function normalizeRoutingMode(value) {
     return normalized;
   }
 
-  return "local-first";
+  return "local-only";
 }
 
 function firstDefined(...values) {
@@ -49,11 +49,12 @@ function firstDefined(...values) {
 const env = process.env;
 
 const models = {
-  defaultFree: firstDefined(env.DEFAULT_FREE_MODEL, "openrouter/free"),
+  defaultFree: firstDefined(env.DEFAULT_FREE_MODEL, env.LOCAL_DEFAULT_MODEL, "qwen2.5:7b"),
   fallback: firstDefined(
     env.FALLBACK_MODEL,
     env.DEFAULT_FREE_MODEL,
-    "openrouter/free"
+    env.LOCAL_DEFAULT_MODEL,
+    "qwen2.5:7b"
   )
 };
 
@@ -197,6 +198,11 @@ const config = {
       env.HYDRIA_CORE_ASK_URL,
       "https://app.hydria.click/api/core/ask"
     ),
+    coreStreamUrl: firstDefined(
+      env.HYDRIA_CORE_STREAM_URL,
+      env.HYDRIA_CORE_ASK_URL,
+      "https://app.hydria.click/api/core/ask"
+    ),
     capabilitiesUrl: firstDefined(
       env.HYDRIA_CAPABILITIES_URL,
       "https://app.hydria.click/api/v1/capabilities"
@@ -226,7 +232,8 @@ const config = {
   },
   crm: {
     apiUrl: firstDefined(env.CRM_API_URL, "http://127.0.0.1:4010/api").replace(/\/+$/, ""),
-    webUrl: firstDefined(env.CRM_WEB_URL, "http://127.0.0.1:5174").replace(/\/+$/, ""),
+    publicApiUrl: firstDefined(env.CRM_PUBLIC_API_URL, "/crm-api").replace(/\/+$/, ""),
+    webUrl: firstDefined(env.CRM_WEB_URL, "/crm/"),
     integrationSecret: firstDefined(
       env.CRM_INTEGRATION_SECRET,
       "hydria-crm-local-integration-secret-change-me"
@@ -244,7 +251,7 @@ const config = {
     maxInputChars: Math.max(2000, parseInteger(env.HYDRIA_CORE_MAX_INPUT_CHARS, 24000))
   },
   localLlm: {
-    enabled: parseBoolean(env.LOCAL_LLM_ENABLED, false),
+    enabled: parseBoolean(env.LOCAL_LLM_ENABLED, true),
     providerType: firstDefined(env.LOCAL_LLM_PROVIDER, "ollama").toLowerCase(),
     baseUrl: firstDefined(env.LOCAL_LLM_BASE_URL, "http://127.0.0.1:11434"),
     apiKey: env.LOCAL_LLM_API_KEY || "",
@@ -260,6 +267,7 @@ const config = {
     rootDir,
     backendDir,
     frontendDir: path.join(rootDir, "frontend"),
+    crmWebDistDir: path.join(rootDir, "crm", "apps", "web", "dist"),
     databaseFile: path.join(rootDir, "data", "hydria.sqlite"),
     generatedArtifactsDir: path.join(rootDir, "data", "generated"),
     generatedArtifactsIndex: path.join(rootDir, "data", "generated", "artifacts.json"),
@@ -306,6 +314,10 @@ const config = {
   }
 };
 
+// OpenRouter is only active when no local or core backend is available.
+if (config.localLlm.enabled || config.hydriaCore.enabled) {
+  config.openrouter.enabled = false;
+}
 config.llm.enabled = config.hydriaCore.enabled || config.localLlm.enabled || config.openrouter.enabled;
 
 export default config;
