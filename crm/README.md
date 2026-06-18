@@ -1,6 +1,6 @@
-# Northstar CRM
+# Hydria CRM
 
-Northstar CRM is an original open source CRM built for this repository. It takes inspiration from the clarity and object-focused workflows of modern CRMs without copying Twenty CRM source code or visual assets.
+Hydria CRM is the sales and customer workspace integrated directly into Hydria OS.
 
 ## V1 features
 
@@ -28,9 +28,11 @@ cp .env.example .env
 docker compose up --build
 ```
 
-The CRM is available at `http://localhost:4174` and the API at `http://localhost:4010/api`.
+The CRM is integrated directly into Hydria OS:
 
-The Hydria workspace entry is available at `http://localhost:3001/workspace/crm`.
+`http://localhost:3001/workspace/crm`
+
+Hydria OS serves the CRM application and relays its API under `/crm-api`.
 
 Default seeded account:
 
@@ -53,9 +55,9 @@ npm run db:seed
 npm run dev
 ```
 
-Web: `http://localhost:5174`
+Open the CRM from Hydria OS:
 
-API: `http://localhost:4010/api`
+`http://localhost:3001/workspace/crm`
 
 Architecture and endpoint references:
 

@@ -11,35 +11,37 @@ on:
       - ".github/workflows/crm-ci.yml"
 
 jobs:
-  validate:
+  verify:
     runs-on: ubuntu-latest
     services:
       postgres:
         image: postgres:16-alpine
         env:
-          POSTGRES_DB: northstar_ci
           POSTGRES_USER: northstar
           POSTGRES_PASSWORD: northstar_ci
+          POSTGRES_DB: northstar_crm
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U northstar -d northstar_ci"
+          --health-cmd "pg_isready -U northstar -d northstar_crm"
           --health-interval 5s
           --health-timeout 5s
-          --health-retries 12
+          --health-retries 10
     defaults:
       run:
         working-directory: crm
     env:
-      DATABASE_URL: postgresql://northstar:northstar_ci@localhost:5432/northstar_ci?schema=public
-      JWT_SECRET: northstar-ci-secret-at-least-32-characters
-      SECRET_ENCRYPTION_KEY: northstar-ci-encryption-key-32-chars
-      API_PORT: 4010
+      NODE_ENV: test
+      DATABASE_URL: postgresql://northstar:northstar_ci@127.0.0.1:5432/northstar_crm?schema=public
+      JWT_SECRET: crm-ci-jwt-secret-at-least-sixteen-characters
+      SECRET_ENCRYPTION_KEY: crm-ci-encryption-key-at-least-sixteen
       WEB_ORIGIN: http://127.0.0.1:5174
       PUBLIC_WEB_URL: http://127.0.0.1:5174
+      OAUTH_REDIRECT_URL: http://127.0.0.1:5174/oauth/callback
+      API_PORT: 4010
       VITE_API_URL: http://127.0.0.1:4010/api
+      PLAYWRIGHT_BASE_URL: http://127.0.0.1:5174
       CRM_API_URL: http://127.0.0.1:4010/api
-
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -50,18 +52,27 @@ jobs:
       - run: npm ci
       - run: npm run db:generate
       - run: npm run db:deploy -w @northstar/api
-      - run: npm run db:seed -w @northstar/api
+      - run: npm run db:seed
       - run: npm run typecheck
       - run: npm run build
-      - name: Start API
+      - run: npx playwright install --with-deps chromium
+      - name: Start CRM
         run: |
-          npm run start -w @northstar/api > api-ci.log 2>&1 &
-          for i in {1..30}; do
-            curl --fail --silent http://127.0.0.1:4010/api/health && exit 0
+          npm run start -w @northstar/api > api.log 2>&1 &
+          npm run start:worker -w @northstar/api > worker.log 2>&1 &
+          npm run preview -w @northstar/web -- --host 127.0.0.1 --port 5174 > web.log 2>&1 &
+          ready=false
+          for i in {1..40}; do
+            if curl --fail --silent http://127.0.0.1:4010/api/health >/dev/null && curl --fail --silent http://127.0.0.1:5174 >/dev/null; then
+              ready=true
+              break
+            fi
             sleep 2
           done
-          cat api-ci.log
-          exit 1
+          if [ "$ready" != "true" ]; then
+            cat api.log worker.log web.log
+            exit 1
+          fi
       - run: npm run gate:operations
       - run: npm run gate:productivity
       - run: npm run gate:platform
@@ -69,6 +80,7 @@ jobs:
       - run: npm run gate:oauth
       - run: npm run gate:communications
       - run: npm run gate:commercial
+      - run: npm run gate:sales-ops
       - name: Multi-organization load gate
         env:
           CRM_LOAD_ORGS: 4
@@ -76,9 +88,12 @@ jobs:
           CRM_LOAD_REQUESTS: 150
           CRM_LOAD_CONCURRENCY: 30
         run: npm run gate:load
-      - name: Upload API log on failure
+      - run: npm run test:e2e -w @northstar/web
+      - name: Upload diagnostics
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: crm-api-log
-          path: crm/api-ci.log
+          name: crm-ci-diagnostics
+          path: |
+            crm/*.log
+            crm/apps/web/test-results
