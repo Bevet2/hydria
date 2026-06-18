@@ -1254,7 +1254,8 @@ function targetCellsForFormat(sheet, operation = {}) {
   const columnIndex = resolveSheetColumnIndex(sheet, operation);
   if (columnIndex >= 0) {
     ensureSheetWidth(sheet, columnIndex + 1);
-    return Array.from({ length: sheet.rows.length + 1 }, (_, rowIndex) => [rowIndex, columnIndex]);
+    // Start at rowIndex=1 to match the single-cell convention (cell.rowIndex+1 = 1-indexed format key)
+    return Array.from({ length: sheet.rows.length }, (_, rowIndex) => [rowIndex + 1, columnIndex]);
   }
 
   return [];
@@ -1848,7 +1849,9 @@ function applySheetOperation(sheet, operation = {}, model = null) {
     if (colIndex < 0) return { applied: "", issue: "sheet.set_column_type requires a column target." };
     const colType = String(operation.raw?.type || operation.raw?.colType || operation.value || "text").trim();
     if (!sheet.columns[colIndex]) return { applied: "", issue: "Column not found." };
-    sheet.columns[colIndex] = { ...sheet.columns[colIndex], type: colType };
+    // columns are plain strings after normalizeSheet — store type separately to avoid spreading a string
+    if (!sheet.columnTypes) sheet.columnTypes = {};
+    sheet.columnTypes[colIndex] = colType;
     return { applied: operation.type, issue: "" };
   }
 
@@ -1919,7 +1922,8 @@ function applySheetOperation(sheet, operation = {}, model = null) {
         ensureSheetWidth(sheet, row.length);
         sheet.rows.push(row.map(String));
       } else if (row && typeof row === "object") {
-        const rowArray = sheet.columns.map((col) => { const k = col.name || col.id || ""; return String(row[k] ?? row[k.toLowerCase()] ?? ""); });
+        // columns are plain strings after normalizeSheet — use the string directly as the object key
+        const rowArray = sheet.columns.map((col) => { const k = typeof col === "object" ? (col.name || col.id || "") : String(col ?? ""); return String(row[k] ?? row[k.toLowerCase()] ?? ""); });
         ensureSheetWidth(sheet, rowArray.length);
         sheet.rows.push(rowArray);
       }
@@ -1941,7 +1945,8 @@ function applySheetOperation(sheet, operation = {}, model = null) {
     }
     if (parsed) {
       const { startRowIndex: sr, endRowIndex: er, startColumnIndex: sc, endColumnIndex: ec } = parsed;
-      const formula = `=SUM(${columnIndexToA1(sc)}${sr + 1}:${columnIndexToA1(ec)}${er + 1})`;
+      // sr/er are 0-based data-row indices (A2=0); spreadsheet row number = data-row index + 2
+      const formula = `=SUM(${columnIndexToA1(sc)}${sr + 2}:${columnIndexToA1(ec)}${er + 2})`;
       const targetRow = er + 1;
       ensureSheetRows(sheet, targetRow);
       ensureSheetWidth(sheet, sc + 1);
@@ -3344,7 +3349,7 @@ function applyDocumentOperation(content = "", operation = {}) {
     const id = String(operation.raw?.id || operation.value || "").trim();
     const pattern = id
       ? new RegExp(`<!--\\s*change:${id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}:[\\s\\S]*?-->`, "g")
-      : /<!--\s*change:[^>]*-->/g;
+      : /<!--\s*change:[\s\S]*?-->/g;
     if (operation.type === "doc.accept_change") {
       const next = content.replace(pattern, (m) => {
         const val = m.match(/value="([^"]*)"/)?.[1];
@@ -5439,7 +5444,7 @@ export async function executeWorkspaceToolCalls({
       }
 
       try {
-        const source = workObjectService.readContent({ workObjectId: sourceId, entryPath: "" });
+        const source = await workObjectService.readContent({ workObjectId: sourceId, entryPath: "" });
         results.push({
           type: "workspace_tool_call",
           status: "completed",
