@@ -2990,7 +2990,11 @@ function applyDocumentOperation(content = "", operation = {}) {
   if (operation.type === "doc.set_metadata") {
     const metadata = JSON.stringify(operationRecord(operation));
     const marker = html ? `<meta name="hydria-metadata" content="${escapeHtml(metadata)}">` : `<!-- hydria-metadata:${metadata} -->`;
-    return { content: appendWithSpacing(content, marker), applied: operation.type, issue: "" };
+    // Strip existing metadata marker so repeated calls don't accumulate stale blocks
+    const stripped = html
+      ? content.replace(/<meta\s+name="hydria-metadata"[^>]*>/gi, "").trim()
+      : content.replace(/<!--\s*hydria-metadata:[^>]*-->\n?/g, "").trim();
+    return { content: appendWithSpacing(stripped, marker), applied: operation.type, issue: "" };
   }
 
   if (operation.type === "doc.add_comment") {
@@ -3173,7 +3177,8 @@ function applyDocumentOperation(content = "", operation = {}) {
     const normH = normalizeLabel(heading);
     const srcIdx = parts.findIndex((p) => normalizeLabel(p.match(/^#{1,6} (.+)/m)?.[1] || "") === normH);
     if (srcIdx < 0) return { content, applied: "", issue: `doc.duplicate_section: section "${heading}" not found.` };
-    const copy = parts[srcIdx].replace(/^#{1,6} .+/m, `## ${newTitle}`);
+    const headingLevel = parts[srcIdx].match(/^(#{1,6}) /m)?.[1] ?? "##";
+    const copy = parts[srcIdx].replace(/^#{1,6} .+/m, `${headingLevel} ${newTitle}`);
     parts.splice(srcIdx + 1, 0, copy);
     return { content: parts.join("\n"), applied: operation.type, issue: "" };
   }
@@ -3513,7 +3518,12 @@ function applySlideOperation(content = "", operation = {}) {
   if (operation.type === "slide.add") {
     const title = operation.title || operation.raw?.title || `Slide ${deck.slides.length + 1}`;
     const body = paragraphText(operation) || "Add the main message here.";
-    const nextSlides = [...deck.slides, { id: `slide-${deck.slides.length + 1}`, title, body }];
+    const newSlide = { id: `slide-${deck.slides.length + 1}`, title, body };
+    // Honour target.slideIndex when provided; default to appending
+    const insertAt = Number.isInteger(operation.target?.slideIndex) && operation.target.slideIndex >= 0
+      ? Math.min(operation.target.slideIndex, deck.slides.length)
+      : deck.slides.length;
+    const nextSlides = [...deck.slides.slice(0, insertAt), newSlide, ...deck.slides.slice(insertAt)];
     return {
       content: buildPresentationContent({ title: deck.title, slides: nextSlides }),
       applied: operation.type,
@@ -5491,7 +5501,7 @@ export async function executeWorkspaceToolCalls({
       }
 
       try {
-        const src = workObjectService.readContent({ workObjectId: targetId, entryPath: readOp.target?.entryPath || "" });
+        const src = await workObjectService.readContent({ workObjectId: targetId, entryPath: readOp.target?.entryPath || "" });
         assertWorkObjectAccess(src.workObject, userId);
         const dataRole = getUserDataRole(userId);
         const srcFields = buildWorkspaceContextFields({ activeWorkObject: src.workObject, contentPreview: src.content || "" });
@@ -5529,7 +5539,7 @@ export async function executeWorkspaceToolCalls({
       continue;
     }
 
-    const current = workObjectService.readContent({
+    const current = await workObjectService.readContent({
       workObjectId,
       entryPath
     });
