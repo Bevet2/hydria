@@ -2460,7 +2460,8 @@ function deleteDocumentSection(content = "", heading = "") {
     return String(content).replace(pattern, "").trimEnd();
   }
 
-  const pattern = new RegExp(`\\n*^#{1,6}\\s+.*${escapedTitle}.*\\n[\\s\\S]*?(?=\\n#{1,6}\\s+|$)`, "im");
+  // $(?![\s\S]) = true end-of-string in multiline mode (plain $ matches end-of-line with m flag)
+  const pattern = new RegExp(`\\n*^#{1,6}\\s+.*${escapedTitle}.*\\n[\\s\\S]*?(?=\\n#{1,6}\\s+|$(?![\\s\\S]))`, "im");
   return String(content).replace(pattern, "").trimEnd();
 }
 
@@ -3472,10 +3473,13 @@ function buildPresentationContent({ title = "Untitled presentation", slides = []
 function resolveSlideIndex(slides = [], operation = {}) {
   const target = operation.target || {};
   if (Number.isInteger(target.slideIndex)) {
-    return Math.max(0, Math.min(slides.length - 1, target.slideIndex));
+    if (target.slideIndex < 0 || target.slideIndex >= slides.length) return -1;
+    return target.slideIndex;
   }
   if (Number.isInteger(target.slideNumber)) {
-    return Math.max(0, Math.min(slides.length - 1, target.slideNumber - 1));
+    const idx = target.slideNumber - 1;
+    if (idx < 0 || idx >= slides.length) return -1;
+    return idx;
   }
   const rawId = compact(target.blockId || operation.raw?.slideId || operation.raw?.id || "", 120);
   const idMatch = rawId.match(/slide-(\d+)/i);
