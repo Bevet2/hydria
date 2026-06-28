@@ -29,6 +29,7 @@ export const WORKSPACE_ICON_SVG = {
   csv: '<path d="M6 3h9l4 4v14H6z"/><path d="M15 3v5h5"/><path d="M8 15h8"/><path d="M8 18h5"/>',
   currency: '<path d="M17 5.5A6.5 6.5 0 1 0 17 18.5"/><path d="M5 10h9"/><path d="M5 14h9"/>',
   cut: '<circle cx="6" cy="6" r="2"/><circle cx="6" cy="18" r="2"/><path d="M8 8l12 12"/><path d="M8 16L20 4"/>',
+  database: '<ellipse cx="12" cy="5" rx="7" ry="3"/><path d="M5 5v6c0 1.7 3.1 3 7 3s7-1.3 7-3V5"/><path d="M5 11v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6"/>',
   delete: '<path d="M5 7h14"/><path d="M9 7V5h6v2"/><path d="M8 7l1 13h6l1-13"/>',
   divider: '<path d="M4 12h16"/>',
   docx: '<path d="M6 3h9l4 4v14H6z"/><path d="M15 3v5h5"/><path d="M8 12h8"/><path d="M8 16h8"/><path d="M8 19h5"/>',

@@ -118,13 +118,29 @@ export function createDashboardWorkspaceCommandAdapter(operations = {}) {
   // shared, but let the dashboard model decide how KPIs, visuals and slicers
   // are stored and refreshed.
   return {
-    dashboardAddMetric: () => call("addMetric"),
-    dashboardAddChart: (_command, { value = "line" } = {}) => call("addChart", value || "line"),
-    dashboardAddFilter: () => call("addFilter"),
+    dashboardAddMetric: (_command, options = {}) => call("addMetric", options.value ?? options),
+    dashboardAddChart: (_command, options = {}) => {
+      const value = options.value ?? options;
+      call("addChart", typeof value === "object" && value !== null ? value : { kind: value || "line" });
+    },
+    dashboardChangeChartType: (_command, options = {}) => call("changeChartType", options.value ?? options),
+    dashboardAddFilter: (_command, options = {}) => call("addFilter", options.value ?? options),
+    dashboardImportData: (_command, { value = null } = {}) => call("importData", value),
+    dashboardUpdateTitle: (_command, options = {}) => call("updateTitle", options.value ?? options),
+    dashboardUpdateMetric: (_command, options = {}) => call("updateMetric", options.value ?? options),
+    dashboardUpdateChart: (_command, options = {}) => call("updateChart", options.value ?? options),
     dashboardAddTableRow: () => call("addTableRow"),
     dashboardAddTableColumn: () => call("addTableColumn"),
-    dashboardRemoveMetric: () => call("removeMetric"),
-    dashboardRemoveChart: () => call("removeChart"),
+    dashboardAddPage: (_command, options = {}) => call("addPage", options.value ?? options),
+    dashboardRenamePage: (_command, options = {}) => call("renamePage", options.value ?? options),
+    dashboardDuplicatePage: (_command, options = {}) => call("duplicatePage", options.value ?? options),
+    dashboardDeletePage: (_command, options = {}) => call("deletePage", options.value ?? options),
+    dashboardLoadSample: () => call("loadSample"),
+    dashboardRemoveMetric: (_command, options = {}) => call("removeMetric", options),
+    dashboardRemoveChart: (_command, options = {}) => call("removeChart", options),
+    dashboardDuplicateItem: (_command, options = {}) => call("duplicateItem", options),
+    dashboardBringToFront: (_command, options = {}) => call("bringToFront", options),
+    dashboardSendToBack: (_command, options = {}) => call("sendToBack", options),
     dashboardMoveWidgetLeft: () => call("moveWidget", -1),
     dashboardMoveWidgetRight: () => call("moveWidget", 1),
     dashboardRefresh: () => call("refresh")

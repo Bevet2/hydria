@@ -72,6 +72,8 @@ const state = {
   editorDraft: "",
   editorDraftKey: "",
   autoSaveHandle: null,
+  autoSavePreserveScroll: false,
+  autoSaveSkipWorkspaceRefresh: false,
   autoSaving: false,
   liveDraftRefreshHandle: null,
   runtimeSyncHandle: null,
@@ -2127,12 +2129,355 @@ function buildAppConfigContent(config = {}) {
   );
 }
 
+const DASHBOARD_LAYOUT_GRID = {
+  cellSize: 24,
+  originX: 24,
+  originY: 24,
+  columnWidth: 264,
+  rowHeight: 120,
+  gap: 0,
+  columns: 4
+};
+
+function normalizeDashboardItemLayout(layout = {}, fallback = {}) {
+  const readLayoutValue = (key = "", defaultValue = 0, min = 0, max = 5000) => {
+    const value = Number(layout?.[key] ?? fallback?.[key] ?? defaultValue);
+    if (!Number.isFinite(value)) {
+      return defaultValue;
+    }
+    return Math.min(Math.max(Math.round(value), min), max);
+  };
+
+  return {
+    x: readLayoutValue("x", 24, 0),
+    y: readLayoutValue("y", 24, 0),
+    w: readLayoutValue("w", 240, 120),
+    h: readLayoutValue("h", 120, 72),
+    z: readLayoutValue("z", 0, -1000, 1000)
+  };
+}
+
+function createDashboardMetricLayout(index = 0) {
+  const safeIndex = Math.max(0, Number(index) || 0);
+  return {
+    x: DASHBOARD_LAYOUT_GRID.originX + (safeIndex % DASHBOARD_LAYOUT_GRID.columns) * (DASHBOARD_LAYOUT_GRID.columnWidth + DASHBOARD_LAYOUT_GRID.gap),
+    y: DASHBOARD_LAYOUT_GRID.originY + Math.floor(safeIndex / DASHBOARD_LAYOUT_GRID.columns) * (DASHBOARD_LAYOUT_GRID.rowHeight + DASHBOARD_LAYOUT_GRID.gap),
+    w: DASHBOARD_LAYOUT_GRID.columnWidth,
+    h: DASHBOARD_LAYOUT_GRID.rowHeight
+  };
+}
+
+function createDashboardChartLayout(index = 0) {
+  const safeIndex = Math.max(0, Number(index) || 0);
+  const chartWidth = DASHBOARD_LAYOUT_GRID.columnWidth * 2 + DASHBOARD_LAYOUT_GRID.gap;
+  const chartHeight = DASHBOARD_LAYOUT_GRID.rowHeight * 2 + DASHBOARD_LAYOUT_GRID.gap;
+  return {
+    x: DASHBOARD_LAYOUT_GRID.originX + (safeIndex % 2) * (chartWidth + DASHBOARD_LAYOUT_GRID.gap),
+    y: DASHBOARD_LAYOUT_GRID.originY + (DASHBOARD_LAYOUT_GRID.rowHeight + DASHBOARD_LAYOUT_GRID.gap) + Math.floor(safeIndex / 2) * (chartHeight + DASHBOARD_LAYOUT_GRID.gap),
+    w: chartWidth,
+    h: chartHeight
+  };
+}
+
+function clampDashboardLayoutValue(value = 0, min = 0, max = 1000) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return min;
+  }
+  return Math.min(Math.max(Math.round(numeric), min), max);
+}
+
+function dashboardGridSizeToPixels(span = 1, unit = 1) {
+  const safeSpan = Math.max(1, Number(span) || 1);
+  return safeSpan * unit + (safeSpan - 1) * DASHBOARD_LAYOUT_GRID.gap;
+}
+
+function closestDashboardGridSize(value = 0, unit = 1, minSpan = 1, maxSpan = 1) {
+  const numeric = Number(value);
+  const safeValue = Number.isFinite(numeric) ? numeric : dashboardGridSizeToPixels(minSpan, unit);
+  let closest = dashboardGridSizeToPixels(minSpan, unit);
+  let closestDistance = Math.abs(safeValue - closest);
+  for (let span = minSpan + 1; span <= maxSpan; span += 1) {
+    const candidate = dashboardGridSizeToPixels(span, unit);
+    const distance = Math.abs(safeValue - candidate);
+    if (distance < closestDistance) {
+      closest = candidate;
+      closestDistance = distance;
+    }
+  }
+  return closest;
+}
+
+function snapDashboardGridSize(value = 0, min = DASHBOARD_LAYOUT_GRID.cellSize, max = 5000) {
+  const numeric = Number(value);
+  const safeValue = Number.isFinite(numeric) ? numeric : min;
+  const snapped = Math.round(safeValue / DASHBOARD_LAYOUT_GRID.cellSize) * DASHBOARD_LAYOUT_GRID.cellSize;
+  return Math.min(Math.max(snapped, min), max);
+}
+
+function snapDashboardGridCoordinate(value = 0, origin = 0) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return origin;
+  }
+  const snapped =
+    origin + Math.round((numeric - origin) / DASHBOARD_LAYOUT_GRID.cellSize) * DASHBOARD_LAYOUT_GRID.cellSize;
+  return Math.max(0, snapped);
+}
+
+function snapDashboardLayoutSize(layout = {}) {
+  return {
+    ...layout,
+    x: snapDashboardGridCoordinate(layout.x, DASHBOARD_LAYOUT_GRID.originX),
+    y: snapDashboardGridCoordinate(layout.y, DASHBOARD_LAYOUT_GRID.originY),
+    w: snapDashboardGridSize(layout.w, DASHBOARD_LAYOUT_GRID.cellSize * 5, DASHBOARD_LAYOUT_GRID.columnWidth * DASHBOARD_LAYOUT_GRID.columns),
+    h: snapDashboardGridSize(layout.h, DASHBOARD_LAYOUT_GRID.cellSize * 3, DASHBOARD_LAYOUT_GRID.rowHeight * 8)
+  };
+}
+
+function dashboardGridUnitToLayout(unit = {}) {
+  const col = clampDashboardLayoutValue(unit.col, 0, DASHBOARD_LAYOUT_GRID.columns - 1);
+  const row = clampDashboardLayoutValue(unit.row, 0, 200);
+  const colSpan = clampDashboardLayoutValue(unit.colSpan, 1, DASHBOARD_LAYOUT_GRID.columns);
+  const rowSpan = clampDashboardLayoutValue(unit.rowSpan, 1, 20);
+  return {
+    x: DASHBOARD_LAYOUT_GRID.originX + col * (DASHBOARD_LAYOUT_GRID.columnWidth + DASHBOARD_LAYOUT_GRID.gap),
+    y: DASHBOARD_LAYOUT_GRID.originY + row * (DASHBOARD_LAYOUT_GRID.rowHeight + DASHBOARD_LAYOUT_GRID.gap),
+    w: dashboardGridSizeToPixels(colSpan, DASHBOARD_LAYOUT_GRID.columnWidth),
+    h: dashboardGridSizeToPixels(rowSpan, DASHBOARD_LAYOUT_GRID.rowHeight)
+  };
+}
+
+function dashboardLayoutToGridUnit(type = "chart", layout = {}, fallback = {}) {
+  const normalized = normalizeDashboardItemLayout(layout, fallback);
+  const stepX = DASHBOARD_LAYOUT_GRID.columnWidth + DASHBOARD_LAYOUT_GRID.gap;
+  const stepY = DASHBOARD_LAYOUT_GRID.rowHeight + DASHBOARD_LAYOUT_GRID.gap;
+  const minColSpan = type === "chart" ? 2 : 1;
+  const minRowSpan = type === "chart" ? 2 : 1;
+  const colSpan = clampDashboardLayoutValue(Math.round((normalized.w + DASHBOARD_LAYOUT_GRID.gap) / stepX), minColSpan, DASHBOARD_LAYOUT_GRID.columns);
+  const rowSpan = clampDashboardLayoutValue(Math.round((normalized.h + DASHBOARD_LAYOUT_GRID.gap) / stepY), minRowSpan, 8);
+  return {
+    col: clampDashboardLayoutValue(Math.round((normalized.x - DASHBOARD_LAYOUT_GRID.originX) / stepX), 0, DASHBOARD_LAYOUT_GRID.columns - colSpan),
+    row: clampDashboardLayoutValue(Math.round((normalized.y - DASHBOARD_LAYOUT_GRID.originY) / stepY), 0, 200),
+    colSpan,
+    rowSpan
+  };
+}
+
+function packDashboardLayoutItems(items = [], activeKey = "") {
+  const occupancy = new Set();
+  const orderedItems = [...items].sort((left, right) => {
+    if (left.key === activeKey) {
+      return -1;
+    }
+    if (right.key === activeKey) {
+      return 1;
+    }
+    return left.unit.row - right.unit.row || left.unit.col - right.unit.col || left.order - right.order;
+  });
+  const canPlace = (unit) => {
+    if (unit.col < 0 || unit.col + unit.colSpan > DASHBOARD_LAYOUT_GRID.columns) {
+      return false;
+    }
+    for (let row = unit.row; row < unit.row + unit.rowSpan; row += 1) {
+      for (let col = unit.col; col < unit.col + unit.colSpan; col += 1) {
+        if (occupancy.has(`${row}:${col}`)) {
+          return false;
+        }
+      }
+    }
+    return true;
+  };
+  const occupy = (unit) => {
+    for (let row = unit.row; row < unit.row + unit.rowSpan; row += 1) {
+      for (let col = unit.col; col < unit.col + unit.colSpan; col += 1) {
+        occupancy.add(`${row}:${col}`);
+      }
+    }
+  };
+  const findSlot = (unit) => {
+    const preferredCol = clampDashboardLayoutValue(unit.col, 0, DASHBOARD_LAYOUT_GRID.columns - unit.colSpan);
+    const preferredRow = Math.max(0, unit.row);
+    for (let row = preferredRow; row < preferredRow + 200; row += 1) {
+      const columns = [];
+      for (let col = preferredCol; col <= DASHBOARD_LAYOUT_GRID.columns - unit.colSpan; col += 1) {
+        columns.push(col);
+      }
+      for (let col = 0; col < preferredCol; col += 1) {
+        columns.push(col);
+      }
+      for (const col of columns) {
+        const candidate = { ...unit, row, col };
+        if (canPlace(candidate)) {
+          return candidate;
+        }
+      }
+    }
+    return { ...unit, row: preferredRow, col: preferredCol };
+  };
+
+  const packed = new Map();
+  orderedItems.forEach((item) => {
+    const slot = findSlot(item.unit);
+    occupy(slot);
+    packed.set(item.key, dashboardGridUnitToLayout(slot));
+  });
+  return packed;
+}
+
+function dashboardLayoutsOverlap(left = {}, right = {}, gap = 0) {
+  return (
+    left.x < right.x + right.w + gap &&
+    left.x + left.w + gap > right.x &&
+    left.y < right.y + right.h + gap &&
+    left.y + left.h + gap > right.y
+  );
+}
+
+function resolveDashboardLayoutItems(items = [], activeKey = "") {
+  const placed = [];
+  const packed = new Map();
+  const shouldCompactLayout = !activeKey;
+  const orderedItems = [...items].sort((left, right) => {
+    if (left.key === activeKey) {
+      return -1;
+    }
+    if (right.key === activeKey) {
+      return 1;
+    }
+    return left.layout.y - right.layout.y || left.layout.x - right.layout.x || left.order - right.order;
+  });
+
+  orderedItems.forEach((item) => {
+    const nextLayout = snapDashboardLayoutSize(item.layout);
+    if (shouldCompactLayout && item.key !== activeKey) {
+      const originalY = Math.max(DASHBOARD_LAYOUT_GRID.originY, nextLayout.y);
+      for (let y = DASHBOARD_LAYOUT_GRID.originY; y <= originalY; y += DASHBOARD_LAYOUT_GRID.cellSize) {
+        const candidate = { ...nextLayout, y };
+        if (!placed.some((layout) => dashboardLayoutsOverlap(candidate, layout))) {
+          nextLayout.y = y;
+          break;
+        }
+      }
+    }
+    let guard = 0;
+    while (placed.some((layout) => dashboardLayoutsOverlap(nextLayout, layout)) && guard < 200) {
+      const blockingLayout = placed.find((layout) => dashboardLayoutsOverlap(nextLayout, layout));
+      nextLayout.y = snapDashboardGridCoordinate(
+        Math.max(
+          nextLayout.y + DASHBOARD_LAYOUT_GRID.cellSize,
+          (blockingLayout?.y || 0) + (blockingLayout?.h || 0) + DASHBOARD_LAYOUT_GRID.gap
+        ),
+        DASHBOARD_LAYOUT_GRID.originY
+      );
+      guard += 1;
+    }
+    placed.push(nextLayout);
+    packed.set(item.key, nextLayout);
+  });
+
+  const minY = placed.reduce((lowest, layout) => Math.min(lowest, layout.y), Number.POSITIVE_INFINITY);
+  if (shouldCompactLayout && Number.isFinite(minY) && minY > DASHBOARD_LAYOUT_GRID.originY) {
+    const offsetY = minY - DASHBOARD_LAYOUT_GRID.originY;
+    packed.forEach((layout, key) => {
+      packed.set(key, {
+        ...layout,
+        y: snapDashboardGridCoordinate(Math.max(DASHBOARD_LAYOUT_GRID.originY, layout.y - offsetY), DASHBOARD_LAYOUT_GRID.originY)
+      });
+    });
+  }
+
+  return packed;
+}
+
+function reflowDashboardModelLayouts(model = {}, activeKey = "", activeLayout = null, options = {}) {
+  const pageKey = dashboardPageLayoutKey(options.pageKey || "");
+  const items = [];
+  (model.metrics || []).forEach((metric, index) => {
+    const key = `metric-${index}`;
+    const fallback = createDashboardMetricLayout(index);
+    const baseLayout = pageKey ? metric.pageLayouts?.[pageKey] || metric.layout : metric.layout;
+    items.push({
+      key,
+      type: "metric",
+      order: index,
+      layout: normalizeDashboardItemLayout(key === activeKey && activeLayout ? activeLayout : baseLayout, fallback)
+    });
+  });
+  (model.charts || []).forEach((chart, index) => {
+    const key = `chart-${index}`;
+    const fallback = createDashboardChartLayout(index);
+    const baseLayout = pageKey ? chart.pageLayouts?.[pageKey] || chart.layout : chart.layout;
+    items.push({
+      key,
+      type: "chart",
+      order: (model.metrics || []).length + index,
+      layout: normalizeDashboardItemLayout(key === activeKey && activeLayout ? activeLayout : baseLayout, fallback)
+    });
+  });
+
+  const packed = resolveDashboardLayoutItems(items, activeKey);
+  (model.metrics || []).forEach((metric, index) => {
+    const nextLayout = packed.get(`metric-${index}`) || createDashboardMetricLayout(index);
+    if (pageKey) {
+      metric.pageLayouts = {
+        ...(metric.pageLayouts || {}),
+        [pageKey]: nextLayout
+      };
+    } else {
+      metric.layout = nextLayout;
+    }
+  });
+  (model.charts || []).forEach((chart, index) => {
+    const nextLayout = packed.get(`chart-${index}`) || createDashboardChartLayout(index);
+    if (pageKey) {
+      chart.pageLayouts = {
+        ...(chart.pageLayouts || {}),
+        [pageKey]: nextLayout
+      };
+    } else {
+      chart.layout = nextLayout;
+    }
+  });
+  return model;
+}
+
+function dashboardPageLayoutKey(filter = "") {
+  const key = String(filter || "").trim().toLowerCase();
+  return key && key !== "overview" ? key : "";
+}
+
+function normalizeDashboardPageLayouts(pageLayouts = {}, fallbackLayout = {}) {
+  if (!pageLayouts || typeof pageLayouts !== "object" || Array.isArray(pageLayouts)) {
+    return {};
+  }
+  return Object.fromEntries(
+    Object.entries(pageLayouts)
+      .map(([key, layout]) => {
+        const pageKey = dashboardPageLayoutKey(key);
+        return pageKey ? [pageKey, normalizeDashboardItemLayout(layout, fallbackLayout)] : null;
+      })
+      .filter(Boolean)
+  );
+}
+
 function deriveDashboardDraft(content = "", fallbackTitle = "Hydria Dashboard") {
   try {
     const parsed = JSON.parse(normalizeEditorText(content) || "{}");
+    const parsedSource = parsed.source && typeof parsed.source === "object"
+      ? {
+          type: String(parsed.source.type || ""),
+          workObjectId: String(parsed.source.workObjectId || ""),
+          filePath: String(parsed.source.filePath || ""),
+          sheetId: String(parsed.source.sheetId || ""),
+          sheetName: String(parsed.source.sheetName || ""),
+          title: String(parsed.source.title || "")
+        }
+      : null;
     return {
       title: String(parsed.title || fallbackTitle),
       summary: String(parsed.summary || ""),
+      source: parsedSource,
       filters: Array.isArray(parsed.filters) ? parsed.filters.map((item) => String(item || "")) : [],
       widgets: Array.isArray(parsed.widgets)
         ? parsed.widgets.map((widget, index) => ({
@@ -2159,14 +2504,16 @@ function deriveDashboardDraft(content = "", fallbackTitle = "Hydria Dashboard") 
             }
           ],
       metrics: Array.isArray(parsed.metrics)
-        ? parsed.metrics.map((metric) => ({
+        ? parsed.metrics.map((metric, index) => ({
             label: String(metric?.label || ""),
             value: String(metric?.value || ""),
-            delta: String(metric?.delta || "")
+            delta: String(metric?.delta || ""),
+            layout: normalizeDashboardItemLayout(metric?.layout, createDashboardMetricLayout(index)),
+            pageLayouts: normalizeDashboardPageLayouts(metric?.pageLayouts, createDashboardMetricLayout(index))
           }))
-        : [{ label: "Main KPI", value: "", delta: "" }],
+        : [{ label: "Main KPI", value: "", delta: "", layout: createDashboardMetricLayout(0) }],
       charts: Array.isArray(parsed.charts)
-        ? parsed.charts.map((chart) => ({
+        ? parsed.charts.map((chart, index) => ({
             title: String(chart?.title || ""),
             kind: String(chart?.kind || "line"),
             points: Array.isArray(chart?.points)
@@ -2174,9 +2521,16 @@ function deriveDashboardDraft(content = "", fallbackTitle = "Hydria Dashboard") 
                   label: String(point?.label || ""),
                   value: String(point?.value || "")
                 }))
-              : []
+              : [],
+            layout: normalizeDashboardItemLayout(chart?.layout, createDashboardChartLayout(index)),
+            pageLayouts: normalizeDashboardPageLayouts(chart?.pageLayouts, createDashboardChartLayout(index))
           }))
-        : [{ title: "Trend", kind: "line", points: [{ label: "P1", value: "" }, { label: "P2", value: "" }] }],
+        : [{
+            title: "Trend",
+            kind: "line",
+            points: [{ label: "P1", value: "" }, { label: "P2", value: "" }],
+            layout: createDashboardChartLayout(0)
+          }],
       table: parsed.table && Array.isArray(parsed.table.columns)
         ? {
             columns: parsed.table.columns.map((item) => String(item || "")),
@@ -2207,47 +2561,457 @@ function deriveDashboardDraft(content = "", fallbackTitle = "Hydria Dashboard") 
           summary: "Show the one thing that needs attention."
         }
       ],
-      metrics: [{ label: "Main KPI", value: "", delta: "" }],
-      charts: [{ title: "Trend", kind: "line", points: [{ label: "P1", value: "" }, { label: "P2", value: "" }] }],
+      metrics: [{ label: "Main KPI", value: "", delta: "", layout: createDashboardMetricLayout(0) }],
+      charts: [{
+        title: "Trend",
+        kind: "line",
+        points: [{ label: "P1", value: "" }, { label: "P2", value: "" }],
+        layout: createDashboardChartLayout(0)
+      }],
+      source: null,
       table: { columns: ["Segment", "Value", "Note"], rows: [["Main", "", ""]] }
     };
   }
 }
 
-function buildDashboardContent(model = {}) {
+function buildDashboardContent(model = {}, options = {}) {
+  const shouldReflowLayout = options.reflowLayout !== false;
+  const normalizedModel = {
+    ...model,
+    source: model.source && typeof model.source === "object" ? { ...model.source } : null,
+    filters: Array.isArray(model.filters) ? [...model.filters] : [],
+    widgets: Array.isArray(model.widgets) ? model.widgets.map((widget) => ({ ...widget })) : [],
+    metrics: Array.isArray(model.metrics) ? model.metrics.map((metric) => ({ ...metric })) : [],
+    charts: Array.isArray(model.charts) ? model.charts.map((chart) => ({ ...chart })) : [],
+    table: model.table
+  };
+  const packedModel = shouldReflowLayout ? reflowDashboardModelLayouts(normalizedModel) : normalizedModel;
   return JSON.stringify(
     {
-      title: String(model.title || "Hydria Dashboard"),
-      summary: String(model.summary || ""),
-      filters: (model.filters || []).map((item) => String(item || "")).filter(Boolean),
-      widgets: (model.widgets || []).map((widget, index) => ({
+      title: String(packedModel.title || "Hydria Dashboard"),
+      summary: String(packedModel.summary || ""),
+      source: packedModel.source && typeof packedModel.source === "object"
+        ? {
+            type: String(packedModel.source.type || ""),
+            workObjectId: String(packedModel.source.workObjectId || ""),
+            filePath: String(packedModel.source.filePath || ""),
+            sheetId: String(packedModel.source.sheetId || ""),
+            sheetName: String(packedModel.source.sheetName || ""),
+            title: String(packedModel.source.title || "")
+          }
+        : null,
+      filters: (packedModel.filters || []).map((item) => String(item || "")).filter(Boolean),
+      widgets: (packedModel.widgets || []).map((widget, index) => ({
         id: String(widget.id || `widget-${index + 1}`),
         title: String(widget.title || `Widget ${index + 1}`),
         type: String(widget.type || "summary"),
         size: String(widget.size || "medium"),
         summary: String(widget.summary || "")
       })),
-      metrics: (model.metrics || []).map((metric) => ({
+      metrics: (packedModel.metrics || []).map((metric, index) => ({
         label: String(metric.label || ""),
         value: String(metric.value || ""),
-        delta: String(metric.delta || "")
+        delta: String(metric.delta || ""),
+        layout: normalizeDashboardItemLayout(metric.layout, createDashboardMetricLayout(index)),
+        pageLayouts: normalizeDashboardPageLayouts(metric.pageLayouts, createDashboardMetricLayout(index))
       })),
-      charts: (model.charts || []).map((chart) => ({
+      charts: (packedModel.charts || []).map((chart, index) => ({
         title: String(chart.title || ""),
         kind: String(chart.kind || "line"),
+        layout: normalizeDashboardItemLayout(chart.layout, createDashboardChartLayout(index)),
+        pageLayouts: normalizeDashboardPageLayouts(chart.pageLayouts, createDashboardChartLayout(index)),
         points: (chart.points || []).map((point) => ({
           label: String(point.label || ""),
           value: String(point.value || "")
         }))
       })),
       table: {
-        columns: (model.table?.columns || []).map((item) => String(item || "")),
-        rows: (model.table?.rows || []).map((row) => (Array.isArray(row) ? row.map((item) => String(item || "")) : []))
+        columns: (packedModel.table?.columns || []).map((item) => String(item || "")),
+        rows: (packedModel.table?.rows || []).map((row) => (Array.isArray(row) ? row.map((item) => String(item || "")) : []))
       }
     },
     null,
     2
   );
+}
+
+function createDashboardTestModel() {
+  const rows = [
+    ["US-SOUTH", "Accessories", "Black cover 7", "$4 485,19K", "$7 035,43K", "131%", "Won"],
+    ["US-WEST", "Accessories", "E-reader pen", "$3 041,07K", "$6 061,89K", "130%", "Pipeline"],
+    ["US-MIDWEST", "Devices", "E-reader Platine", "$2 686,62K", "$4 367,79K", "141%", "Pipeline"],
+    ["US-NORTHEAST", "Devices", "E-reader Dial", "$1 181,36K", "$2 201,09K", "113%", "At risk"],
+    ["US-SOUTH", "Warranties", "1 Year Warranty", "$3 271,66K", "$6 259,23K", "136%", "Won"],
+    ["US-WEST", "Accessories", "Black cover 6", "$1 463,81K", "$2 058,70K", "118%", "Won"]
+  ];
+
+  return {
+    title: "Regional Sales Sample",
+    summary: "Sales Overview",
+    filters: ["Overview", "By Team + User", "By Product", "Accessories", "Devices", "Warranties"],
+    widgets: [
+      {
+        id: "widget-1",
+        title: "Revenue open par sales stage",
+        type: "bar",
+        size: "large",
+        summary: "Montre la progression entre qualification, developpement, proposition et closing."
+      },
+      {
+        id: "widget-2",
+        title: "Forecast by territory",
+        type: "table",
+        size: "medium",
+        summary: "Compare le revenu gagne, le pipeline et le forecast par territoire."
+      },
+      {
+        id: "widget-3",
+        title: "Forecast by location",
+        type: "map",
+        size: "medium",
+        summary: "Carte de couverture regionale pour tester les visuels geographiques."
+      }
+    ],
+    metrics: [
+      { label: "Revenue won", value: "$11,43M", delta: "+8,4%" },
+      { label: "Qualified pipeline", value: "$19,90M", delta: "+12,1%" },
+      { label: "Revenue goal", value: "$23M", delta: "76%" },
+      { label: "Forecast", value: "136%", delta: "+4 pts" }
+    ],
+    charts: [
+      {
+        title: "Revenue Open par Sales Stage",
+        kind: "bar",
+        points: [
+          { label: "1-Qualify", value: "$7 912,02K" },
+          { label: "2-Develop", value: "$8 170,42K" },
+          { label: "3-Propose", value: "$7 264,68K" },
+          { label: "4-Close", value: "$4 465,27K" }
+        ]
+      },
+      {
+        title: "Revenue Won and Revenue in Pipeline by Product LOB",
+        kind: "bar",
+        points: [
+          { label: "Accessories", value: "$11,52M" },
+          { label: "Devices", value: "$10,28M" },
+          { label: "Warranties", value: "$9,53M" }
+        ]
+      },
+      {
+        title: "Revenue trend",
+        kind: "line",
+        points: [
+          { label: "Jan", value: "$6,04M" },
+          { label: "Feb", value: "$12,93M" },
+          { label: "Mar", value: "$11,02M" },
+          { label: "Apr", value: "$8,49M" },
+          { label: "May", value: "$16,07M" },
+          { label: "Jun", value: "$13,19M" }
+        ]
+      },
+      {
+        title: "Revenue share by category",
+        kind: "pie",
+        points: [
+          { label: "Accessories", value: "$4,48M" },
+          { label: "Devices", value: "$3,67M" },
+          { label: "Warranties", value: "$3,27M" }
+        ]
+      }
+    ],
+    table: {
+      columns: ["Territory", "Product category", "Product", "Revenue Won", "In Pipeline", "Forecast %", "Status"],
+      rows
+    }
+  };
+}
+
+function parseDashboardDataNumber(value = "") {
+  const raw = String(value ?? "").trim();
+  if (!raw || !/\d/.test(raw)) {
+    return null;
+  }
+  const multiplier = /\bm\b/i.test(raw) ? 1000000 : /\bk\b/i.test(raw) ? 1000 : 1;
+  const compact = raw
+    .replace(/\u00a0/g, " ")
+    .replace(/\s+/g, "")
+    .replace(/[^\d,.\-]/g, "");
+  if (!compact || !/\d/.test(compact)) {
+    return null;
+  }
+
+  const lastComma = compact.lastIndexOf(",");
+  const lastDot = compact.lastIndexOf(".");
+  const normalized =
+    lastComma > -1 && lastDot > -1
+      ? lastComma > lastDot
+        ? compact.replace(/\./g, "").replace(",", ".")
+        : compact.replace(/,/g, "")
+      : compact.replace(",", ".");
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed * multiplier : null;
+}
+
+function formatDashboardDataValue(value = 0, columnName = "") {
+  const label = String(columnName || "").toLowerCase();
+  const currencyLike = /(revenue|sales|amount|price|cost|budget|montant|prix|vente|ca)/i.test(label);
+  if (currencyLike) {
+    return new Intl.NumberFormat("fr-FR", {
+      style: "currency",
+      currency: "EUR",
+      maximumFractionDigits: 0
+    }).format(value);
+  }
+  return new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 }).format(value);
+}
+
+function normalizeDashboardImportPayload(payload = {}) {
+  const rawColumns = Array.isArray(payload.columns) ? payload.columns : [];
+  const rawRows = Array.isArray(payload.rows) ? payload.rows : [];
+  const rawSource = payload.source && typeof payload.source === "object" ? payload.source : null;
+  const columns = rawColumns.length
+    ? rawColumns.map((column, index) => String(column || `Column ${index + 1}`).trim() || `Column ${index + 1}`)
+    : ["Category", "Value"];
+  const rows = rawRows
+    .map((row) =>
+      Array.from({ length: columns.length }, (_, columnIndex) =>
+        String(Array.isArray(row) ? row[columnIndex] ?? "" : "").trim()
+      )
+    )
+    .filter((row) => row.some((cell) => String(cell || "").trim()));
+  return {
+    fileName: String(payload.fileName || payload.filename || "Imported data"),
+    sourceType: String(payload.sourceType || "file"),
+    source: rawSource
+      ? {
+          type: String(rawSource.type || payload.sourceType || "file"),
+          workObjectId: String(rawSource.workObjectId || ""),
+          filePath: String(rawSource.filePath || ""),
+          sheetId: String(rawSource.sheetId || ""),
+          sheetName: String(rawSource.sheetName || ""),
+          title: String(rawSource.title || payload.fileName || payload.filename || "")
+        }
+      : null,
+    columns,
+    rows
+  };
+}
+
+function findDashboardColumnIndex(columns = [], rows = [], patterns = [], { numeric = false, avoidIndex = -1 } = {}) {
+  const preferredIndex = columns.findIndex((column, index) => {
+    if (index === avoidIndex) {
+      return false;
+    }
+    const text = String(column || "").toLowerCase();
+    return patterns.some((pattern) => text.includes(pattern));
+  });
+  if (preferredIndex >= 0 && (!numeric || rows.some((row) => parseDashboardDataNumber(row[preferredIndex]) !== null))) {
+    return preferredIndex;
+  }
+
+  const scores = columns.map((_, columnIndex) => ({
+    columnIndex,
+    numericCount: rows.reduce(
+      (count, row) => count + (parseDashboardDataNumber(row[columnIndex]) !== null ? 1 : 0),
+      0
+    ),
+    textCount: rows.reduce((count, row) => {
+      const cell = String(row[columnIndex] || "").trim();
+      return count + (cell && parseDashboardDataNumber(cell) === null ? 1 : 0);
+    }, 0)
+  }));
+  const candidates = scores
+    .filter((score) => score.columnIndex !== avoidIndex)
+    .sort((left, right) =>
+      numeric
+        ? right.numericCount - left.numericCount || left.columnIndex - right.columnIndex
+        : right.textCount - left.textCount || left.columnIndex - right.columnIndex
+    );
+  return candidates[0]?.columnIndex ?? 0;
+}
+
+function summarizeDashboardNumbers(values = [], aggregation = "sum") {
+  const numericValues = values
+    .map((value) => parseDashboardDataNumber(value))
+    .filter((value) => value !== null && Number.isFinite(value));
+  const normalizedAggregation = String(aggregation || "sum").toLowerCase();
+  if (normalizedAggregation === "count") {
+    return numericValues.length;
+  }
+  if (!numericValues.length) {
+    return 0;
+  }
+  if (normalizedAggregation === "average" || normalizedAggregation === "avg") {
+    return numericValues.reduce((sum, value) => sum + value, 0) / numericValues.length;
+  }
+  if (normalizedAggregation === "max") {
+    return Math.max(...numericValues);
+  }
+  if (normalizedAggregation === "min") {
+    return Math.min(...numericValues);
+  }
+  return numericValues.reduce((sum, value) => sum + value, 0);
+}
+
+function resolveDashboardColumnIndex(columns = [], columnRef = "", fallbackIndex = 0) {
+  if (Number.isInteger(columnRef) && columnRef >= 0 && columnRef < columns.length) {
+    return columnRef;
+  }
+  const normalizedRef = String(columnRef || "").trim().toLowerCase();
+  if (!normalizedRef) {
+    return Math.max(0, Math.min(columns.length - 1, fallbackIndex));
+  }
+  const exactIndex = columns.findIndex((column) => String(column || "").trim().toLowerCase() === normalizedRef);
+  if (exactIndex >= 0) {
+    return exactIndex;
+  }
+  const partialIndex = columns.findIndex((column) => String(column || "").trim().toLowerCase().includes(normalizedRef));
+  return partialIndex >= 0 ? partialIndex : Math.max(0, Math.min(columns.length - 1, fallbackIndex));
+}
+
+function aggregateDashboardRows(rows = [], labelColumnIndex = 0, valueColumnIndex = 1, aggregation = "sum") {
+  const pointMap = new Map();
+  rows.forEach((row, index) => {
+    const numeric = parseDashboardDataNumber(row[valueColumnIndex]);
+    if (numeric === null) {
+      return;
+    }
+    const label = String(row[labelColumnIndex] || `Row ${index + 1}`).trim() || `Row ${index + 1}`;
+    const current = pointMap.get(label) || { label, values: [] };
+    current.values.push(row[valueColumnIndex]);
+    pointMap.set(label, current);
+  });
+  return Array.from(pointMap.values()).map((point) => ({
+    label: point.label,
+    numeric: summarizeDashboardNumbers(point.values, aggregation)
+  }));
+}
+
+function applyDashboardImportedData(model = {}, payload = {}) {
+  const imported = normalizeDashboardImportPayload(payload);
+  const { columns, rows } = imported;
+  const labelColumnIndex = findDashboardColumnIndex(columns, rows, [
+    "region",
+    "territory",
+    "product",
+    "category",
+    "month",
+    "segment",
+    "name",
+    "label"
+  ]);
+  const valueColumnIndex = findDashboardColumnIndex(
+    columns,
+    rows,
+    ["revenue", "sales", "amount", "value", "total", "units", "price", "budget"],
+    { numeric: true, avoidIndex: labelColumnIndex }
+  );
+  const secondaryLabelIndex = findDashboardColumnIndex(columns, rows, ["product", "category", "status", "team"], {
+    avoidIndex: labelColumnIndex
+  });
+  const valueColumnName = columns[valueColumnIndex] || "Value";
+  const labelColumnName = columns[labelColumnIndex] || "Category";
+  const aggregatedPoints = aggregateDashboardRows(rows, labelColumnIndex, valueColumnIndex);
+  const rowPoints = rows
+    .map((row, index) => {
+      const numeric = parseDashboardDataNumber(row[valueColumnIndex]);
+      return numeric === null
+        ? null
+        : {
+            label: String(row[labelColumnIndex] || `Row ${index + 1}`),
+            numeric
+          };
+    })
+    .filter(Boolean);
+  const sortedPoints = [...aggregatedPoints].sort((left, right) => right.numeric - left.numeric);
+  const total = rowPoints.reduce((sum, point) => sum + point.numeric, 0);
+  const average = rowPoints.length ? total / rowPoints.length : 0;
+  const maxPoint = sortedPoints[0] || null;
+  const filters = [
+    "Overview",
+    "By Team + User",
+    "By Product",
+    ...Array.from(
+      new Set(
+        rows
+          .map((row) => String(row[secondaryLabelIndex >= 0 ? secondaryLabelIndex : labelColumnIndex] || "").trim())
+          .filter(Boolean)
+      )
+    ).slice(0, 6)
+  ];
+
+  model.title = imported.fileName.replace(/\.[^.]+$/, "") || "Imported Dashboard";
+  model.summary = `${rows.length} rows imported from ${imported.sourceType}`;
+  model.source = imported.source || {
+    type: imported.sourceType,
+    title: imported.fileName,
+    workObjectId: "",
+    filePath: "",
+    sheetId: "",
+    sheetName: ""
+  };
+  model.filters = filters;
+  model.table = { columns, rows };
+  model.widgets = [
+    {
+      id: "widget-1",
+      title: `${valueColumnName} by ${labelColumnName}`,
+      type: "bar",
+      size: "large",
+      summary: "Visual built from the imported data table."
+    },
+    {
+      id: "widget-2",
+      title: "Data table",
+      type: "table",
+      size: "medium",
+      summary: "Use this view to inspect the imported dataset."
+    },
+    {
+      id: "widget-3",
+      title: "What-if scenario",
+      type: "scenario",
+      size: "small",
+      summary: "Adjust the forecast slider to test report interactions."
+    }
+  ];
+  model.metrics = [
+    { label: `Total ${valueColumnName}`, value: formatDashboardDataValue(total, valueColumnName), delta: "Imported" },
+    { label: `Average ${valueColumnName}`, value: formatDashboardDataValue(average, valueColumnName), delta: "Mean" },
+    {
+      label: `Best ${labelColumnName}`,
+      value: maxPoint ? formatDashboardDataValue(maxPoint.numeric, valueColumnName) : "-",
+      delta: maxPoint?.label || ""
+    },
+    { label: "Rows", value: String(rows.length), delta: `${columns.length} fields` }
+  ];
+  model.charts = [
+    {
+      title: `${valueColumnName} by ${labelColumnName}`,
+      kind: "bar",
+      points: sortedPoints.slice(0, 8).map((point) => ({
+        label: point.label,
+        value: formatDashboardDataValue(point.numeric, valueColumnName)
+      }))
+    },
+    {
+      title: `${valueColumnName} trend`,
+      kind: "line",
+      points: rowPoints.slice(0, 12).map((point) => ({
+        label: point.label,
+        value: formatDashboardDataValue(point.numeric, valueColumnName)
+      }))
+    },
+    {
+      title: `${valueColumnName} share`,
+      kind: "pie",
+      points: sortedPoints.slice(0, 6).map((point) => ({
+        label: point.label,
+        value: formatDashboardDataValue(point.numeric, valueColumnName)
+      }))
+    }
+  ];
 }
 
 function buildSequentialWorkflowLinks(stages = [], existingLinks = []) {
@@ -2473,16 +3237,26 @@ function focusStructuredEditor(itemId = "", subItemId = "") {
 
 function toggleDashboardPreviewFilter(filter = "") {
   const normalized = String(filter || "").trim();
-  state.currentPreviewFilter = state.currentPreviewFilter === normalized ? "" : normalized;
+  state.currentPreviewFilter = normalized.toLowerCase() === "overview" ? "" : normalized;
   refreshPreviewPane();
 }
 
 function focusDashboardChart(chartKey = "") {
-  focusStructuredEditor(chartKey, state.currentStructuredSubItemId || "");
+  state.currentStructuredItemId = chartKey || "";
+  if (state.workspaceMode !== "edit") {
+    refreshPreviewPane();
+    return;
+  }
+  renderWorkspace();
 }
 
 function focusDashboardWidget(widgetId = "") {
-  focusStructuredEditor(state.currentStructuredItemId || "chart-1", widgetId);
+  state.currentStructuredSubItemId = widgetId || "";
+  if (state.workspaceMode !== "edit") {
+    refreshPreviewPane();
+    return;
+  }
+  renderWorkspace();
 }
 
 function moveDashboardWidget(widgetId = "", direction = 0) {
@@ -2495,7 +3269,10 @@ function moveDashboardWidget(widgetId = "", direction = 0) {
 
   model.widgets = moveItemInArray(model.widgets, currentIndex, nextIndex);
   state.currentStructuredSubItemId = model.widgets[nextIndex]?.id || "";
-  syncEditorDraft(buildDashboardContent(model), { refreshWorkspace: true });
+  syncEditorDraft(buildDashboardContent(model), {
+    refreshWorkspace: true,
+    preserveScroll: true
+  });
 }
 
 function moveDashboardWidgetTo(widgetId = "", targetWidgetId = "") {
@@ -2508,7 +3285,10 @@ function moveDashboardWidgetTo(widgetId = "", targetWidgetId = "") {
 
   model.widgets = moveItemInArray(model.widgets, currentIndex, targetIndex);
   state.currentStructuredSubItemId = model.widgets[targetIndex]?.id || "";
-  syncEditorDraft(buildDashboardContent(model), { refreshWorkspace: true });
+  syncEditorDraft(buildDashboardContent(model), {
+    refreshWorkspace: true,
+    preserveScroll: true
+  });
 }
 
 function resizeDashboardWidget(widgetId = "", direction = 0) {
@@ -2528,7 +3308,588 @@ function resizeDashboardWidget(widgetId = "", direction = 0) {
     size: variants[nextIndex]
   };
   state.currentStructuredSubItemId = widget.id;
-  syncEditorDraft(buildDashboardContent(model), { refreshWorkspace: true });
+  syncEditorDraft(buildDashboardContent(model), {
+    refreshWorkspace: true,
+    preserveScroll: true
+  });
+}
+
+function updateDashboardMetricLayout(metricIndex = 0, layout = {}) {
+  const model = deriveDashboardDraft(currentDraftContent(), state.currentWorkObject?.title || "Hydria Dashboard");
+  const index = Number(metricIndex);
+  if (!Number.isInteger(index) || index < 0 || index >= model.metrics.length) {
+    return;
+  }
+
+  reflowDashboardModelLayouts(model, `metric-${index}`, layout, {
+    pageKey: dashboardPageLayoutKey(state.currentPreviewFilter)
+  });
+  state.currentStructuredSubItemId = `metric-${index + 1}`;
+  syncEditorDraft(buildDashboardContent(model, { reflowLayout: false }), {
+    forceEditMode: false,
+    refreshWorkspace: false,
+    suppressPreviewRefresh: true,
+    preserveScroll: true,
+    skipWorkspaceRefreshOnSave: true
+  });
+}
+
+function updateDashboardChartLayout(chartKey = "", layout = {}) {
+  const model = deriveDashboardDraft(currentDraftContent(), state.currentWorkObject?.title || "Hydria Dashboard");
+  const key = String(chartKey || "");
+  const index = Number.isInteger(chartKey)
+    ? chartKey
+    : Math.max(0, Number.parseInt(key.replace(/^chart-/i, ""), 10) - 1);
+  if (!Number.isInteger(index) || index < 0 || index >= model.charts.length) {
+    return;
+  }
+
+  reflowDashboardModelLayouts(model, `chart-${index}`, layout, {
+    pageKey: dashboardPageLayoutKey(state.currentPreviewFilter)
+  });
+  state.currentStructuredItemId = `chart-${index + 1}`;
+  syncEditorDraft(buildDashboardContent(model, { reflowLayout: false }), {
+    forceEditMode: false,
+    refreshWorkspace: false,
+    suppressPreviewRefresh: true,
+    preserveScroll: true,
+    skipWorkspaceRefreshOnSave: true
+  });
+}
+
+function createDashboardCommandExecutor({ forceEditMode = true, refreshWorkspace = true } = {}) {
+  const writeDashboardDraft = (updater = null, options = {}) => {
+    const next = deriveDashboardDraft(currentDraftContent(), state.currentWorkObject?.title || "Hydria Dashboard");
+    if (typeof updater === "function") {
+      updater(next);
+    }
+    syncEditorDraft(buildDashboardContent(next), {
+      forceEditMode,
+      refreshWorkspace: options.refreshWorkspace ?? refreshWorkspace,
+      preserveScroll: options.preserveScroll ?? true
+    });
+  };
+
+  const currentModel = () =>
+    deriveDashboardDraft(currentDraftContent(), state.currentWorkObject?.title || "Hydria Dashboard");
+  const activeChartIndex = () => {
+    const model = currentModel();
+    const index = model.charts.findIndex((_, chartIndex) => `chart-${chartIndex + 1}` === state.currentStructuredItemId);
+    return Math.max(0, index);
+  };
+  const resolveMetricIndex = (options = {}) => {
+    const model = currentModel();
+    const numericIndex = Number(options.index ?? options.sourceIndex);
+    if (Number.isInteger(numericIndex) && numericIndex >= 0 && numericIndex < model.metrics.length) {
+      return numericIndex;
+    }
+    const selectedIndex = Number.parseInt(String(state.currentStructuredSubItemId || "").replace(/^metric-/i, ""), 10) - 1;
+    return Number.isInteger(selectedIndex) && selectedIndex >= 0 && selectedIndex < model.metrics.length
+      ? selectedIndex
+      : 0;
+  };
+  const resolveChartIndex = (options = {}) => {
+    const model = currentModel();
+    const numericIndex = Number(options.index ?? options.sourceIndex);
+    if (Number.isInteger(numericIndex) && numericIndex >= 0 && numericIndex < model.charts.length) {
+      return numericIndex;
+    }
+    return activeChartIndex();
+  };
+  const activeWidget = () => {
+    const model = currentModel();
+    return (
+      model.widgets.find((widget) => widget.id === state.currentStructuredSubItemId) ||
+      model.widgets[0] ||
+      { id: "widget-1" }
+    );
+  };
+  const uniqueDashboardPageName = (filters = [], requestedName = "Page") => {
+    const baseName = String(requestedName || "Page").trim() || "Page";
+    const existing = new Set((filters || []).map((filter) => String(filter || "").trim().toLowerCase()));
+    if (!existing.has(baseName.toLowerCase())) {
+      return baseName;
+    }
+    let suffix = 2;
+    let candidate = `${baseName} ${suffix}`;
+    while (existing.has(candidate.toLowerCase())) {
+      suffix += 1;
+      candidate = `${baseName} ${suffix}`;
+    }
+    return candidate;
+  };
+  const mapDashboardItemPageLayouts = (model = {}, mapper = null) => {
+    if (typeof mapper !== "function") {
+      return;
+    }
+    [...(model.metrics || []), ...(model.charts || [])].forEach((item) => {
+      item.pageLayouts = mapper(item.pageLayouts || {}, item);
+    });
+  };
+  const renameDashboardPageLayouts = (model = {}, fromPage = "", toPage = "") => {
+    const fromKey = dashboardPageLayoutKey(fromPage);
+    const toKey = dashboardPageLayoutKey(toPage);
+    if (!fromKey || !toKey || fromKey === toKey) {
+      return;
+    }
+    mapDashboardItemPageLayouts(model, (layouts) => {
+      const nextLayouts = { ...layouts };
+      if (nextLayouts[fromKey]) {
+        nextLayouts[toKey] = nextLayouts[fromKey];
+        delete nextLayouts[fromKey];
+      }
+      return nextLayouts;
+    });
+  };
+  const duplicateDashboardPageLayouts = (model = {}, fromPage = "", toPage = "") => {
+    const fromKey = dashboardPageLayoutKey(fromPage);
+    const toKey = dashboardPageLayoutKey(toPage);
+    if (!toKey) {
+      return;
+    }
+    mapDashboardItemPageLayouts(model, (layouts, item) => {
+      const nextLayouts = { ...layouts };
+      const sourceLayout = fromKey ? nextLayouts[fromKey] : item.layout;
+      if (sourceLayout) {
+        nextLayouts[toKey] = normalizeDashboardItemLayout(sourceLayout, item.layout);
+      }
+      return nextLayouts;
+    });
+  };
+  const deleteDashboardPageLayouts = (model = {}, page = "") => {
+    const pageKey = dashboardPageLayoutKey(page);
+    if (!pageKey) {
+      return;
+    }
+    mapDashboardItemPageLayouts(model, (layouts) => {
+      const nextLayouts = { ...layouts };
+      delete nextLayouts[pageKey];
+      return nextLayouts;
+    });
+  };
+
+  return createWorkspaceCommandExecutor(
+    "dashboard",
+    createDashboardWorkspaceCommandAdapter({
+      addMetric: (config = {}) => {
+        writeDashboardDraft((next) => {
+          const columns = next.table?.columns || [];
+          const rows = next.table?.rows || [];
+          const defaultValueColumnIndex = findDashboardColumnIndex(
+            columns,
+            rows,
+            ["revenue", "sales", "amount", "value", "total", "units", "price", "budget"],
+            { numeric: true }
+          );
+          const valueColumnIndex = resolveDashboardColumnIndex(
+            columns,
+            config.valueColumn ?? config.column ?? "",
+            defaultValueColumnIndex
+          );
+          const aggregation = String(config.aggregation || "sum").toLowerCase();
+          const valueColumnName = columns[valueColumnIndex] || "Value";
+          const numericValue = summarizeDashboardNumbers(
+            rows.map((row) => row[valueColumnIndex]),
+            aggregation
+          );
+          const aggregationLabels = {
+            sum: "Total",
+            average: "Average",
+            avg: "Average",
+            count: "Count",
+            max: "Best",
+            min: "Lowest"
+          };
+          const metricLabel =
+            String(config.label || "").trim() ||
+            `${aggregationLabels[aggregation] || "Total"} ${valueColumnName}`;
+          next.metrics.unshift({
+            label: metricLabel,
+            value: aggregation === "count" ? String(numericValue) : formatDashboardDataValue(numericValue, valueColumnName),
+            delta: String(config.meta || `From ${valueColumnName}`).trim(),
+            layout: createDashboardMetricLayout(next.metrics.length)
+          });
+        });
+      },
+      addChart: (config = {}) => {
+        writeDashboardDraft((next) => {
+          const normalizedConfig =
+            config && typeof config === "object" && !Array.isArray(config) ? config : { kind: config || "bar" };
+          const columns = next.table?.columns || [];
+          const rows = next.table?.rows || [];
+          const defaultLabelColumnIndex = findDashboardColumnIndex(
+            columns,
+            rows,
+            ["region", "territory", "product", "category", "month", "segment", "name"]
+          );
+          const defaultValueColumnIndex = findDashboardColumnIndex(
+            columns,
+            rows,
+            ["revenue", "sales", "amount", "value", "total", "units", "price", "budget"],
+            { numeric: true, avoidIndex: defaultLabelColumnIndex }
+          );
+          const labelColumnIndex = resolveDashboardColumnIndex(
+            columns,
+            normalizedConfig.labelColumn ?? normalizedConfig.xAxis ?? "",
+            defaultLabelColumnIndex
+          );
+          const valueColumnIndex = resolveDashboardColumnIndex(
+            columns,
+            normalizedConfig.valueColumn ?? normalizedConfig.yAxis ?? "",
+            defaultValueColumnIndex
+          );
+          const aggregation = String(normalizedConfig.aggregation || "sum").toLowerCase();
+          const chartKind = String(normalizedConfig.kind || normalizedConfig.type || "bar");
+          const valueColumnName = columns[valueColumnIndex] || "Value";
+          const labelColumnName = columns[labelColumnIndex] || "Category";
+          const limit = Number(normalizedConfig.limit) > 0 ? Number(normalizedConfig.limit) : 8;
+          const points = aggregateDashboardRows(rows, labelColumnIndex, valueColumnIndex, aggregation)
+            .slice(0, limit)
+            .map((point) => ({
+              label: point.label,
+              numeric: point.numeric,
+              value: formatDashboardDataValue(point.numeric, valueColumnName)
+            }));
+          next.charts.push({
+            title:
+              String(normalizedConfig.title || "").trim() ||
+              `${valueColumnName} by ${labelColumnName}`,
+            kind: chartKind,
+            layout: createDashboardChartLayout(next.charts.length),
+            points: points.length ? points : [{ label: "P1", value: "10" }, { label: "P2", value: "20" }]
+          });
+          state.currentStructuredItemId = `chart-${next.charts.length}`;
+        });
+      },
+      addFilter: (config = {}) => {
+        writeDashboardDraft((next) => {
+          const columns = next.table?.columns || [];
+          const rows = next.table?.rows || [];
+          const defaultColumnIndex = findDashboardColumnIndex(
+            columns,
+            rows,
+            ["region", "territory", "product", "category", "month", "segment", "status", "name"]
+          );
+          const columnIndex = resolveDashboardColumnIndex(columns, config.column || "", defaultColumnIndex);
+          const explicitLabel = String(config.label || "").trim();
+          const values = rows
+            .map((row) => String(row[columnIndex] || "").trim())
+            .filter(Boolean);
+          const additions = values.length ? Array.from(new Set(values)).slice(0, 8) : [explicitLabel];
+          const existing = new Set((next.filters || []).map((filter) => String(filter || "").toLowerCase()));
+          additions.forEach((filter) => {
+            const label = String(filter || explicitLabel || `Segment ${next.filters.length + 1}`).trim();
+            if (label && !existing.has(label.toLowerCase())) {
+              next.filters.push(label);
+              existing.add(label.toLowerCase());
+            }
+          });
+        });
+      },
+      addPage: (config = {}) => {
+        writeDashboardDraft((next) => {
+          const filters = Array.isArray(next.filters) && next.filters.length ? [...next.filters] : ["Overview"];
+          const pageName = uniqueDashboardPageName(
+            filters,
+            config.name || config.label || `Page ${filters.length + 1}`
+          );
+          next.filters = [...filters, pageName];
+          state.currentPreviewFilter = pageName;
+        }, { refreshWorkspace: true });
+      },
+      renamePage: (config = {}) => {
+        const fromPage = String(config.from || config.page || state.currentPreviewFilter || "").trim();
+        const requestedName = String(config.to || config.name || "").trim();
+        if (!fromPage || !requestedName || !dashboardPageLayoutKey(fromPage)) {
+          return;
+        }
+        writeDashboardDraft((next) => {
+          const filters = Array.isArray(next.filters) && next.filters.length ? [...next.filters] : ["Overview"];
+          const pageIndex = filters.findIndex(
+            (filter) => String(filter || "").trim().toLowerCase() === fromPage.toLowerCase()
+          );
+          if (pageIndex < 0) {
+            return;
+          }
+          const pageName = uniqueDashboardPageName(
+            filters.filter((_, index) => index !== pageIndex),
+            requestedName
+          );
+          filters[pageIndex] = pageName;
+          next.filters = filters;
+          renameDashboardPageLayouts(next, fromPage, pageName);
+          if (String(state.currentPreviewFilter || "").trim().toLowerCase() === fromPage.toLowerCase()) {
+            state.currentPreviewFilter = pageName;
+          }
+        }, { refreshWorkspace: true });
+      },
+      duplicatePage: (config = {}) => {
+        const fromPage = String(config.from || config.page || state.currentPreviewFilter || "Overview").trim() || "Overview";
+        const requestedName = String(config.to || config.name || `${fromPage} copy`).trim() || `${fromPage} copy`;
+        writeDashboardDraft((next) => {
+          const filters = Array.isArray(next.filters) && next.filters.length ? [...next.filters] : ["Overview"];
+          const pageName = uniqueDashboardPageName(filters, requestedName);
+          const sourceIndex = filters.findIndex(
+            (filter) => String(filter || "").trim().toLowerCase() === fromPage.toLowerCase()
+          );
+          filters.splice(sourceIndex >= 0 ? sourceIndex + 1 : filters.length, 0, pageName);
+          next.filters = filters;
+          duplicateDashboardPageLayouts(next, fromPage, pageName);
+          state.currentPreviewFilter = pageName;
+        }, { refreshWorkspace: true });
+      },
+      deletePage: (config = {}) => {
+        const pageName = String(config.page || config.name || state.currentPreviewFilter || "").trim();
+        if (!pageName || !dashboardPageLayoutKey(pageName)) {
+          return;
+        }
+        writeDashboardDraft((next) => {
+          const filters = Array.isArray(next.filters) && next.filters.length ? [...next.filters] : ["Overview"];
+          if (filters.length <= 1) {
+            return;
+          }
+          const pageIndex = filters.findIndex(
+            (filter) => String(filter || "").trim().toLowerCase() === pageName.toLowerCase()
+          );
+          if (pageIndex < 0) {
+            return;
+          }
+          next.filters = filters.filter((_, index) => index !== pageIndex);
+          deleteDashboardPageLayouts(next, pageName);
+          if (String(state.currentPreviewFilter || "").trim().toLowerCase() === pageName.toLowerCase()) {
+            state.currentPreviewFilter = "";
+          }
+        }, { refreshWorkspace: true });
+      },
+      importData: (payload = {}) => {
+        if (!payload || !Array.isArray(payload.rows) || payload.rows.length === 0) {
+          return;
+        }
+        writeDashboardDraft((next) => {
+          applyDashboardImportedData(next, payload);
+          state.currentStructuredItemId = "chart-1";
+          state.currentStructuredSubItemId = "widget-1";
+          state.currentPreviewFilter = "";
+        });
+      },
+      updateTitle: (config = {}) => {
+        writeDashboardDraft((next) => {
+          const title = String(config.title ?? config.value ?? "").trim();
+          const summary = String(config.summary ?? "").trim();
+          if (title) {
+            next.title = title;
+          }
+          if (summary) {
+            next.summary = summary;
+          }
+        }, { refreshWorkspace: true });
+      },
+      updateMetric: (config = {}) => {
+        const indexToUpdate = resolveMetricIndex(config);
+        writeDashboardDraft((next) => {
+          if (!next.metrics[indexToUpdate]) {
+            return;
+          }
+          const currentMetric = next.metrics[indexToUpdate];
+          next.metrics[indexToUpdate] = {
+            ...currentMetric,
+            label: config.label !== undefined ? String(config.label || "").trim() || currentMetric.label : currentMetric.label,
+            value: config.value !== undefined ? String(config.value || "").trim() || currentMetric.value : currentMetric.value,
+            delta: config.delta !== undefined ? String(config.delta || "").trim() || currentMetric.delta : currentMetric.delta
+          };
+          state.currentStructuredSubItemId = `metric-${indexToUpdate + 1}`;
+        }, { refreshWorkspace: true });
+      },
+      updateChart: (config = {}) => {
+        const indexToUpdate = resolveChartIndex(config);
+        writeDashboardDraft((next) => {
+          if (!next.charts[indexToUpdate]) {
+            return;
+          }
+          const currentChart = next.charts[indexToUpdate];
+          next.charts[indexToUpdate] = {
+            ...currentChart,
+            title: config.title !== undefined ? String(config.title || "").trim() || currentChart.title : currentChart.title,
+            kind: config.kind !== undefined ? String(config.kind || "").trim() || currentChart.kind : currentChart.kind
+          };
+          state.currentStructuredItemId = `chart-${indexToUpdate + 1}`;
+        }, { refreshWorkspace: true });
+      },
+      addTableRow: () => {
+        writeDashboardDraft((next) => {
+          next.table.rows.push(Array.from({ length: next.table.columns.length }, () => ""));
+        });
+      },
+      addTableColumn: () => {
+        writeDashboardDraft((next) => {
+          next.table.columns.push(`Column ${next.table.columns.length + 1}`);
+          next.table.rows = next.table.rows.map((row) => [...row, ""]);
+        });
+      },
+      loadSample: () => {
+        writeDashboardDraft((next) => {
+          Object.assign(next, createDashboardTestModel());
+          state.currentStructuredItemId = "chart-1";
+          state.currentStructuredSubItemId = "widget-1";
+          state.currentPreviewFilter = "";
+        });
+      },
+      changeChartType: (config = {}) => {
+        const indexToUpdate = resolveChartIndex(config);
+        const nextKind = String(config.kind || config.value || config || "bar").trim() || "bar";
+        writeDashboardDraft((next) => {
+          if (!next.charts[indexToUpdate]) {
+            return;
+          }
+          next.charts[indexToUpdate] = {
+            ...next.charts[indexToUpdate],
+            kind: nextKind
+          };
+          state.currentStructuredItemId = `chart-${indexToUpdate + 1}`;
+        });
+      },
+      duplicateItem: (config = {}) => {
+        const targetType = String(config.targetType || "").toLowerCase();
+        writeDashboardDraft((next) => {
+          if (targetType === "metric") {
+            const indexToCopy = resolveMetricIndex(config);
+            const source = next.metrics[indexToCopy];
+            if (!source) {
+              return;
+            }
+            const layout = normalizeDashboardItemLayout(source.layout, createDashboardMetricLayout(indexToCopy));
+            next.metrics.splice(indexToCopy + 1, 0, {
+              ...source,
+              label: `${source.label || "KPI"} copy`,
+              layout: normalizeDashboardItemLayout({
+                ...layout,
+                x: layout.x + DASHBOARD_LAYOUT_GRID.cellSize,
+                y: layout.y + DASHBOARD_LAYOUT_GRID.cellSize,
+                z: layout.z + 1
+              }, createDashboardMetricLayout(indexToCopy + 1))
+            });
+            state.currentStructuredSubItemId = `metric-${indexToCopy + 2}`;
+            return;
+          }
+          const indexToCopy = resolveChartIndex(config);
+          const source = next.charts[indexToCopy];
+          if (!source) {
+            return;
+          }
+          const layout = normalizeDashboardItemLayout(source.layout, createDashboardChartLayout(indexToCopy));
+          next.charts.splice(indexToCopy + 1, 0, {
+            ...source,
+            title: `${source.title || "Visual"} copy`,
+            points: (source.points || []).map((point) => ({ ...point })),
+            layout: normalizeDashboardItemLayout({
+              ...layout,
+              x: layout.x + DASHBOARD_LAYOUT_GRID.cellSize,
+              y: layout.y + DASHBOARD_LAYOUT_GRID.cellSize,
+              z: layout.z + 1
+            }, createDashboardChartLayout(indexToCopy + 1))
+          });
+          state.currentStructuredItemId = `chart-${indexToCopy + 2}`;
+        });
+      },
+      bringToFront: (config = {}) => {
+        const targetType = String(config.targetType || "").toLowerCase();
+        writeDashboardDraft((next) => {
+          const allLayouts = [...(next.metrics || []), ...(next.charts || [])].map((item) =>
+            normalizeDashboardItemLayout(item.layout)
+          );
+          const nextZ = Math.max(0, ...allLayouts.map((layout) => layout.z || 0)) + 1;
+          if (targetType === "metric") {
+            const index = resolveMetricIndex(config);
+            if (next.metrics[index]) {
+              next.metrics[index].layout = normalizeDashboardItemLayout({ ...next.metrics[index].layout, z: nextZ }, createDashboardMetricLayout(index));
+            }
+            return;
+          }
+          const index = resolveChartIndex(config);
+          if (next.charts[index]) {
+            next.charts[index].layout = normalizeDashboardItemLayout({ ...next.charts[index].layout, z: nextZ }, createDashboardChartLayout(index));
+          }
+        });
+      },
+      sendToBack: (config = {}) => {
+        const targetType = String(config.targetType || "").toLowerCase();
+        writeDashboardDraft((next) => {
+          const allLayouts = [...(next.metrics || []), ...(next.charts || [])].map((item) =>
+            normalizeDashboardItemLayout(item.layout)
+          );
+          const nextZ = Math.min(0, ...allLayouts.map((layout) => layout.z || 0)) - 1;
+          if (targetType === "metric") {
+            const index = resolveMetricIndex(config);
+            if (next.metrics[index]) {
+              next.metrics[index].layout = normalizeDashboardItemLayout({ ...next.metrics[index].layout, z: nextZ }, createDashboardMetricLayout(index));
+            }
+            return;
+          }
+          const index = resolveChartIndex(config);
+          if (next.charts[index]) {
+            next.charts[index].layout = normalizeDashboardItemLayout({ ...next.charts[index].layout, z: nextZ }, createDashboardChartLayout(index));
+          }
+        });
+      },
+      removeMetric: (config = {}) => {
+        const model = currentModel();
+        if (model.metrics.length <= 1) {
+          return;
+        }
+        const indexToRemove = resolveMetricIndex(config);
+        writeDashboardDraft((next) => {
+          next.metrics = next.metrics.filter((_, index) => index !== indexToRemove);
+          state.currentStructuredSubItemId = next.metrics.length
+            ? `metric-${Math.min(indexToRemove + 1, next.metrics.length)}`
+            : "";
+        });
+      },
+      removeChart: (config = {}) => {
+        const model = currentModel();
+        if (model.charts.length <= 1) {
+          return;
+        }
+        const indexToRemove = resolveChartIndex(config);
+        writeDashboardDraft((next) => {
+          next.charts = next.charts.filter((_, index) => index !== indexToRemove);
+          state.currentStructuredItemId = next.charts.length
+            ? `chart-${Math.min(indexToRemove + 1, next.charts.length)}`
+            : "";
+        });
+      },
+      moveWidget: (direction = 0) => {
+        const widget = activeWidget();
+        const model = currentModel();
+        const currentIndex = model.widgets.findIndex((item) => item.id === widget.id);
+        const nextIndex = currentIndex + Number(direction || 0);
+        if (currentIndex < 0 || nextIndex < 0 || nextIndex >= model.widgets.length) {
+          return;
+        }
+        writeDashboardDraft((next) => {
+          next.widgets = moveItemInArray(next.widgets, currentIndex, nextIndex);
+          state.currentStructuredSubItemId = next.widgets[nextIndex]?.id || "";
+        });
+      },
+      refresh: () => {
+        writeDashboardDraft(null, { refreshWorkspace: false });
+        refreshPreviewPane();
+      }
+    })
+  );
+}
+
+function executeDashboardPreviewCommand(commandId = "", options = {}) {
+  if (commandId === "dashboardImportSheetSource") {
+    return importDashboardSheetSource(options.value || options);
+  }
+  return createDashboardCommandExecutor({ forceEditMode: false, refreshWorkspace: true })(commandId, options);
+}
+
+function openDashboardEditorFromPreview() {
+  if (state.workspaceMode !== "edit") {
+    setWorkspaceMode("edit");
+  }
+  renderWorkspace();
 }
 
 function focusWorkflowStage(stageId = "") {
@@ -3101,8 +4462,10 @@ async function flushPendingWorkObjectChanges() {
   });
 }
 
-function scheduleAutoSave() {
+function scheduleAutoSave(options = {}) {
   clearAutoSaveTimer();
+  state.autoSavePreserveScroll = Boolean(options.preserveScroll);
+  state.autoSaveSkipWorkspaceRefresh = Boolean(options.skipWorkspaceRefresh);
 
   if (
     !state.editorDirty ||
@@ -3116,17 +4479,92 @@ function scheduleAutoSave() {
   state.autoSaveHandle = window.setTimeout(() => {
     saveWorkObjectChanges({
       silent: true,
-      source: "autosave"
+      source: "autosave",
+      preserveScroll: state.autoSavePreserveScroll,
+      skipWorkspaceRefresh: state.autoSaveSkipWorkspaceRefresh
     }).catch(handleError);
   }, 900);
+}
+
+function captureWorkspaceScrollSnapshot() {
+  const selectors = [
+    "html",
+    "body",
+    ".workspace-main",
+    ".workspace-preview",
+    ".workspace-preview-pane",
+    ".workspace-dashboard-preview-viewport",
+    ".workspace-application-preview-viewport",
+    ".workspace-powerbi-main",
+    ".workspace-powerbi-canvas",
+    ".workspace-dashboard-powerbi",
+    ".workspace-dashboard-preview-card",
+    ".workspace-app-main"
+  ];
+  const entries = selectors.flatMap((selector) => {
+    const nodes =
+      selector === "html"
+        ? [document.documentElement]
+        : selector === "body"
+          ? [document.body]
+          : Array.from(document.querySelectorAll(selector));
+    return nodes
+      .map((node, index) => {
+        if (!node) {
+          return null;
+        }
+        return {
+          selector,
+          index,
+          top: Number(node.scrollTop) || 0,
+          left: Number(node.scrollLeft) || 0
+        };
+      })
+      .filter(Boolean);
+  });
+  return {
+    windowX: Number(window.scrollX) || 0,
+    windowY: Number(window.scrollY) || 0,
+    entries
+  };
+}
+
+function restoreWorkspaceScrollSnapshot(snapshot = null) {
+  if (!snapshot) {
+    return;
+  }
+  snapshot.entries?.forEach((entry) => {
+    const node =
+      entry.selector === "html"
+        ? document.documentElement
+        : entry.selector === "body"
+          ? document.body
+          : document.querySelectorAll(entry.selector)?.[entry.index || 0];
+    if (!node) {
+      return;
+    }
+    node.scrollTop = entry.top;
+    node.scrollLeft = entry.left;
+  });
+  window.scrollTo(snapshot.windowX || 0, snapshot.windowY || 0);
 }
 
 function syncEditorDraft(nextValue = "", options = {}) {
   const {
     forceEditMode = true,
     refreshWorkspace = false,
-    suppressPreviewRefresh = false
+    suppressPreviewRefresh = false,
+    preserveScroll = false,
+    skipWorkspaceRefreshOnSave = false
   } = options;
+  const scrollSnapshot = preserveScroll ? captureWorkspaceScrollSnapshot() : null;
+  const restorePreservedScroll = () => {
+    if (!scrollSnapshot) {
+      return;
+    }
+    restoreWorkspaceScrollSnapshot(scrollSnapshot);
+    window.requestAnimationFrame(() => restoreWorkspaceScrollSnapshot(scrollSnapshot));
+  };
 
   const normalized = String(nextValue || "");
   state.editorDirty = normalized !== currentEditorBaseline();
@@ -3153,6 +4591,7 @@ function syncEditorDraft(nextValue = "", options = {}) {
     } else {
       refreshPreviewPane();
     }
+    restorePreservedScroll();
     state.liveDraftRefreshHandle = null;
     if (el["workspace-view-status"]) {
       el["workspace-view-status"].textContent = currentPreviewSummary();
@@ -3163,10 +4602,11 @@ function syncEditorDraft(nextValue = "", options = {}) {
     }
   }, 120);
 
-  scheduleAutoSave();
+  scheduleAutoSave({ preserveScroll, skipWorkspaceRefresh: skipWorkspaceRefreshOnSave });
 
   if (refreshWorkspace) {
     renderWorkspace();
+    restorePreservedScroll();
   } else if (el["workspace-view-status"]) {
     el["workspace-view-status"].textContent = currentPreviewSummary();
   }
@@ -3589,6 +5029,28 @@ function isSheetWorkObject(workObject = null) {
   );
 }
 
+function isDashboardWorkObject(workObject = null) {
+  if (!workObject) {
+    return false;
+  }
+
+  const pageSlug = workspacePageForWorkObject(workObject)?.slug || "";
+  if (pageSlug) {
+    return pageSlug === "dashboard";
+  }
+
+  const kind = String(workObject.objectKind || workObject.kind || "").toLowerCase();
+  const family = String(workObject.workspaceFamilyId || workObject.workspaceFamilyLabel || "").toLowerCase();
+  const fileList = getEditableFiles(workObject).join(" ");
+
+  return (
+    kind === "dashboard" ||
+    family.includes("analytics_dashboard") ||
+    family.includes("dashboard") ||
+    /(^|\/)(dashboard|report)\.json\b/i.test(fileList)
+  );
+}
+
 function isDocumentWorkObject(workObject = null) {
   if (!workObject) {
     return false;
@@ -3621,6 +5083,8 @@ function currentWorkspaceDocumentListConfig() {
       newLabel: "Docs",
       emptyText: "Create a Docs document to start working with multiple files.",
       defaultMeta: "Document workspace",
+      countLabel: "document",
+      newMenuLabel: "Nouveau document",
       renamePrompt: "Nom du document Docs",
       keepOneStatus: "Garde au moins un document Docs ouvert.",
       matches: isDocumentWorkObject
@@ -3635,9 +5099,27 @@ function currentWorkspaceDocumentListConfig() {
       newLabel: "Sheets",
       emptyText: "Create a Sheets document to start working with multiple files.",
       defaultMeta: "Spreadsheet workspace",
+      countLabel: "document",
+      newMenuLabel: "Nouveau document",
       renamePrompt: "Nom du document Sheets",
       keepOneStatus: "Garde au moins un document Sheets ouvert.",
       matches: isSheetWorkObject
+    };
+  }
+  if (page?.slug === "dashboard") {
+    return {
+      title: "Open Dashboards",
+      newTitle: "New Dashboard",
+      newKind: "dashboard",
+      newFamily: "analytics_dashboard",
+      newLabel: "Dashboard",
+      emptyText: "Create a dashboard to start working with multiple reports.",
+      defaultMeta: "Analytics dashboard",
+      countLabel: "dashboard",
+      newMenuLabel: "Nouveau dashboard",
+      renamePrompt: "Nom du dashboard",
+      keepOneStatus: "Garde au moins un dashboard ouvert.",
+      matches: isDashboardWorkObject
     };
   }
   return null;
@@ -3705,6 +5187,146 @@ function workspaceSheetDocuments() {
     matches: isSheetWorkObject,
     defaultMeta: "Spreadsheet workspace"
   });
+}
+
+function dashboardWorkObjectPath(workObject = null, fallbackPath = "") {
+  return (
+    fallbackPath ||
+    workObject?.file?.path ||
+    preferredOpenPath(workObject) ||
+    getEditableFiles(workObject)[0] ||
+    ""
+  );
+}
+
+function dashboardLoadedSheetContent(workObject = null, filePath = "") {
+  if (!workObject) {
+    return "";
+  }
+
+  const normalizedFilePath = String(filePath || "");
+  if (
+    state.currentWorkObjectId &&
+    String(workObject.id || "") === String(state.currentWorkObjectId) &&
+    (!normalizedFilePath || normalizedFilePath === state.currentWorkObjectFile)
+  ) {
+    return currentDraftContent();
+  }
+
+  if (!normalizedFilePath || workObject.file?.path === normalizedFilePath) {
+    return workObject.file?.content || workObject.content || "";
+  }
+
+  return workObject.content || "";
+}
+
+function dashboardPayloadFromSpreadsheetContent(content = "", source = {}) {
+  const workbook = deriveSpreadsheetDraft(content);
+  const sheets = Array.isArray(workbook.sheets) ? workbook.sheets : [];
+  const activeSheet =
+    sheets.find((sheet) => sheet.id === (source.sheetId || workbook.activeSheetId)) ||
+    sheets.find((sheet) => Array.isArray(sheet.rows) && sheet.rows.some((row) => row.some((cell) => String(cell || "").trim()))) ||
+    sheets[0];
+
+  if (!activeSheet) {
+    return null;
+  }
+
+  const columns = Array.isArray(activeSheet.columns) && activeSheet.columns.length
+    ? activeSheet.columns.map((column, index) => String(column || `Column ${index + 1}`))
+    : ["Column 1"];
+  const rows = (Array.isArray(activeSheet.rows) ? activeSheet.rows : [])
+    .map((row) => Array.from({ length: columns.length }, (_, index) => String(row?.[index] ?? "")))
+    .filter((row) => row.some((cell) => String(cell || "").trim()));
+
+  if (!columns.length || !rows.length) {
+    return null;
+  }
+
+  const title = String(source.title || activeSheet.name || "Hydria Sheet").trim() || "Hydria Sheet";
+  const sheetName = String(activeSheet.name || source.sheetName || "Sheet").trim() || "Sheet";
+  return {
+    fileName: `${title} - ${sheetName}`,
+    sourceType: "hydria-sheet",
+    source: {
+      type: "hydria-sheet",
+      workObjectId: String(source.workObjectId || ""),
+      filePath: String(source.filePath || ""),
+      sheetId: String(activeSheet.id || source.sheetId || ""),
+      sheetName,
+      title
+    },
+    columns,
+    rows
+  };
+}
+
+function dashboardSheetSourcesForPreview() {
+  return workspaceSheetDocuments().map((workObject) => {
+    const filePath = dashboardWorkObjectPath(workObject);
+    const content = dashboardLoadedSheetContent(workObject, filePath);
+    const payload = content
+      ? dashboardPayloadFromSpreadsheetContent(content, {
+          workObjectId: workObject.id,
+          filePath,
+          title: workObject.title || "Hydria Sheet"
+        })
+      : null;
+
+    return {
+      id: String(workObject.id || filePath || workObject.title || ""),
+      workObjectId: String(workObject.id || ""),
+      filePath,
+      label: String(workObject.title || "Hydria Sheet"),
+      meta: payload
+        ? `${payload.rows.length} rows | ${payload.columns.length} columns | ${payload.source.sheetName || "Sheet"}`
+        : "Sheet Hydria disponible",
+      payload
+    };
+  });
+}
+
+async function loadDashboardSheetSourcePayload(source = {}) {
+  const workObjectId = String(source.workObjectId || source.id || "");
+  const candidates = [
+    ...workspaceSheetDocuments(),
+    ...allWorkspaceWorkObjects().filter(isSheetWorkObject),
+    ...state.workObjects.filter(isSheetWorkObject)
+  ];
+  const workObject = candidates.find((item) => String(item.id || "") === workObjectId) || null;
+  if (!workObject) {
+    throw new Error("Sheet source not found.");
+  }
+
+  const filePath = dashboardWorkObjectPath(workObject, source.filePath);
+  let content = dashboardLoadedSheetContent(workObject, filePath);
+  if (!content) {
+    const payload = await apiClient.getWorkObject(workObject.id, filePath);
+    const hydratedWorkObject = payload.workObject;
+    mergeWorkObject(hydratedWorkObject);
+    content = dashboardLoadedSheetContent(hydratedWorkObject, filePath);
+  }
+
+  const dashboardPayload = dashboardPayloadFromSpreadsheetContent(content, {
+    workObjectId: workObject.id,
+    filePath,
+    sheetId: source.sheetId,
+    title: workObject.title || source.label || "Hydria Sheet"
+  });
+  if (!dashboardPayload) {
+    throw new Error("This Sheet does not contain a usable data table.");
+  }
+  return dashboardPayload;
+}
+
+async function importDashboardSheetSource(source = {}) {
+  const payload = source?.payload || await loadDashboardSheetSourcePayload(source);
+  createDashboardCommandExecutor({ forceEditMode: false, refreshWorkspace: true })(
+    "dashboardImportData",
+    { value: payload }
+  );
+  setStatus(`Dashboard linked to ${payload.fileName}.`);
+  return true;
 }
 
 function hideWorkspaceSheetDocumentMenu() {
@@ -3861,7 +5483,7 @@ function showWorkspaceSheetDocumentMenu(event, workObject = {}) {
   });
   appendSheetDocumentMenuSeparator(menu);
   appendSheetDocumentMenuAction(menu, {
-    label: "Nouveau document",
+    label: config?.newMenuLabel || "Nouveau document",
     action: () =>
       createBlankWorkspace(
         config?.newKind || "dataset",
@@ -3901,7 +5523,8 @@ function renderWorkspaceSheetDocuments() {
   const title = document.createElement("strong");
   title.textContent = config.title;
   const count = document.createElement("span");
-  count.textContent = `${sheetObjects.length || 0} document${sheetObjects.length === 1 ? "" : "s"}`;
+  const countLabel = config.countLabel || "document";
+  count.textContent = `${sheetObjects.length || 0} ${countLabel}${sheetObjects.length === 1 ? "" : "s"}`;
   titleWrap.append(title, count);
 
   const newButton = document.createElement("button");
@@ -4045,8 +5668,13 @@ function refreshPreviewPane() {
     onDashboardWidgetMove: moveDashboardWidget,
     onDashboardWidgetDrop: moveDashboardWidgetTo,
     onDashboardWidgetResize: resizeDashboardWidget,
+    onDashboardMetricLayoutChange: updateDashboardMetricLayout,
+    onDashboardChartLayoutChange: updateDashboardChartLayout,
     onDashboardWidgetFocus: focusDashboardWidget,
     onDashboardChartFocus: focusDashboardChart,
+    onDashboardCommand: executeDashboardPreviewCommand,
+    onDashboardEdit: openDashboardEditorFromPreview,
+    dashboardSheetSources: dashboardSheetSourcesForPreview(),
     onWorkflowStageFocus: focusWorkflowStage,
     onWorkflowStageMove: moveWorkflowStage,
     onWorkflowStagePositionChange: updateWorkflowStagePosition,
@@ -4059,6 +5687,9 @@ function refreshPreviewPane() {
     onDesignBlockPositionChange: updateDesignBlockPosition,
     onDesignBlockResize: resizeDesignBlock
   });
+  // Some Dashboard interactions refresh only the preview pane, so the page-level
+  // controls must be restored here as well as during the full workspace render.
+  enhanceWorkspacePreviewHeader();
 }
 
 function applyWorkspaceLabels() {
@@ -6111,68 +7742,7 @@ function renderDashboardStructuredEditor(container) {
     }
     syncEditorDraft(buildDashboardContent(next), { refreshWorkspace });
   };
-  const executeDashboardCommand = createWorkspaceCommandExecutor(
-    "dashboard",
-    createDashboardWorkspaceCommandAdapter({
-      addMetric: () => {
-        writeDashboardDraft((next) => {
-          next.metrics.push({ label: `Metric ${next.metrics.length + 1}`, value: "", delta: "" });
-        });
-      },
-      addChart: (kind = "bar") => {
-        writeDashboardDraft((next) => {
-          const chartKind = String(kind || "bar");
-          next.charts.push({
-            title: `Chart ${next.charts.length + 1}`,
-            kind: chartKind,
-            points: [{ label: "P1", value: "" }, { label: "P2", value: "" }]
-          });
-          state.currentStructuredItemId = `chart-${next.charts.length}`;
-        });
-      },
-      addFilter: () => {
-        writeDashboardDraft((next) => {
-          next.filters.push(`Segment ${next.filters.length + 1}`);
-        });
-      },
-      addTableRow: () => {
-        writeDashboardDraft((next) => {
-          next.table.rows.push(Array.from({ length: next.table.columns.length }, () => ""));
-        });
-      },
-      addTableColumn: () => {
-        writeDashboardDraft((next) => {
-          next.table.columns.push(`Column ${next.table.columns.length + 1}`);
-          next.table.rows = next.table.rows.map((row) => [...row, ""]);
-        });
-      },
-      removeMetric: () => {
-        if (model.metrics.length <= 1) {
-          return;
-        }
-        writeDashboardDraft((next) => {
-          next.metrics = next.metrics.slice(0, -1);
-        });
-      },
-      removeChart: () => {
-        if (model.charts.length <= 1) {
-          return;
-        }
-        writeDashboardDraft((next) => {
-          next.charts = next.charts.filter((_, index) => index !== activeChartIndex);
-          state.currentStructuredItemId = next.charts.length
-            ? `chart-${Math.min(activeChartIndex + 1, next.charts.length)}`
-            : "";
-        });
-      },
-      moveWidget: (direction = 0) => {
-        moveDashboardWidget(activeWidget.id, direction);
-      },
-      refresh: () => {
-        writeDashboardDraft(null);
-      }
-    })
-  );
+  const executeDashboardCommand = createDashboardCommandExecutor({ forceEditMode: true, refreshWorkspace: true });
 
   // The Power BI-style dashboard belongs in the main preview canvas. Keep this
   // prototype dormant so the Modify drawer remains a compact editor.
@@ -6415,7 +7985,8 @@ function renderDashboardStructuredEditor(container) {
         canRemoveMetric: model.metrics.length > 1,
         canRemoveChart: model.charts.length > 1,
         canMoveWidgetLeft: activeWidgetIndex > 0,
-        canMoveWidgetRight: activeWidgetIndex < model.widgets.length - 1
+        canMoveWidgetRight: activeWidgetIndex < model.widgets.length - 1,
+        includeImportData: false
       }),
       executeDashboardCommand
     );
@@ -6550,7 +8121,8 @@ function renderDashboardStructuredEditor(container) {
       canRemoveMetric: model.metrics.length > 1,
       canRemoveChart: model.charts.length > 1,
       canMoveWidgetLeft: activeWidgetIndex > 0,
-      canMoveWidgetRight: activeWidgetIndex < model.widgets.length - 1
+      canMoveWidgetRight: activeWidgetIndex < model.widgets.length - 1,
+      includeImportData: false
     }),
     executeDashboardCommand
   );
@@ -9000,7 +10572,7 @@ async function selectWorkObject(workObjectId, filePath = "", options = {}) {
   clearRuntimeSyncTimer();
   state.currentWorkObjectId = workObject.id;
   state.currentWorkObject = workObject;
-  if (isSheetWorkObject(workObject) || isDocumentWorkObject(workObject)) {
+  if (isSheetWorkObject(workObject) || isDocumentWorkObject(workObject) || isDashboardWorkObject(workObject)) {
     reopenSheetDocument(workObject.id);
   }
   if (!options.preserveDimension) {
@@ -9092,15 +10664,23 @@ async function savePreferences() {
 }
 
 async function saveWorkObjectChanges(options = {}) {
-  const { silent = false, source = "manual" } = options;
+  const { silent = false, source = "manual", preserveScroll = false, skipWorkspaceRefresh = false } = options;
   if (!state.currentWorkObjectId || !state.currentWorkObjectFile) {
     throw new Error("Select a work object first");
   }
 
   clearAutoSaveTimer();
+  const scrollSnapshot = preserveScroll ? captureWorkspaceScrollSnapshot() : null;
+  const restorePreservedScroll = () => {
+    if (!scrollSnapshot) {
+      return;
+    }
+    restoreWorkspaceScrollSnapshot(scrollSnapshot);
+    window.requestAnimationFrame(() => restoreWorkspaceScrollSnapshot(scrollSnapshot));
+  };
 
   const runtimeTracked = isRuntimeTrackedFile(state.currentWorkObjectFile);
-  const keepInlinePreviewSession = silent && isInlinePreviewEditingActive();
+  const keepInlinePreviewSession = silent && (skipWorkspaceRefresh || isInlinePreviewEditingActive());
   const editorValue = currentEditorInputValue();
   const editorKeyAtStart = currentEditorKey();
   const normalizedEditorValue = normalizeEditorText(editorValue);
@@ -9176,9 +10756,13 @@ async function saveWorkObjectChanges(options = {}) {
       state.currentWorkspace = workspacePayload.workspace || state.currentWorkspace;
     }
 
-    renderWorkObjects();
+    if (!skipWorkspaceRefresh) {
+      renderWorkObjects();
+    }
+    restorePreservedScroll();
     if (!keepInlinePreviewSession) {
       renderWorkspace();
+      restorePreservedScroll();
     }
     if (!silent) {
       setStatus(`Saved ${currentScopeLabel().toLowerCase()} in ${state.currentWorkObject.title}.`);
@@ -9186,12 +10770,16 @@ async function saveWorkObjectChanges(options = {}) {
       setStatus(`Saved automatically in ${state.currentWorkObject.title}.`);
     }
     if (draftChangedSinceSaveStarted) {
-      scheduleAutoSave();
+      scheduleAutoSave({
+        preserveScroll,
+        skipWorkspaceRefresh
+      });
     }
   } finally {
     state.autoSaving = false;
     if (!keepInlinePreviewSession) {
       renderWorkspace();
+      restorePreservedScroll();
     } else {
       if (el["workspace-view-status"]) {
         el["workspace-view-status"].textContent = currentPreviewSummary();

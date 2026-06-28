@@ -29,6 +29,10 @@ import {
   createWorkspaceDocumentOutputMenuItems,
   createWorkspaceDocumentPageFormatMenuItems,
   createWorkspaceDocumentTableMenuItems,
+  createWorkspaceDashboardContextMenuItems,
+  createWorkspaceDashboardHomeMenuItems,
+  createWorkspaceDashboardPageMenuItems,
+  WORKSPACE_DASHBOARD_VISUAL_TYPES,
   createWorkspaceFontSizeOptions,
   createWorkspaceFilterMenuItems,
   createWorkspaceHomeCellsMenuItems,
@@ -136,6 +140,11 @@ const spreadsheetExpandedPopupHostStore = new Map();
 const spreadsheetRecentFormulaStore = new Map();
 const dashboardExpandedStore = new Map();
 const dashboardExpandedPopupHostStore = new Map();
+const dashboardPreviewViewStore = new Map();
+const dashboardPropertiesPanelStore = new Map();
+// Dashboard toolbar actions can run before the parent preview rerenders, so keep
+// the selected KPI/visual in a synchronous per-preview cache.
+const dashboardSelectionStore = new Map();
 const applicationPreviewExpandedStore = new Map();
 const applicationPreviewExpandedPopupHostStore = new Map();
 const SPREADSHEET_MIN_VISIBLE_COLUMNS = 26;
@@ -4121,6 +4130,11 @@ function renderMarkdownPreview(
     return null;
   };
 
+  const docsPasteBlockSelector = "h1,h2,h3,h4,p,blockquote,ul,ol,table,figcaption";
+
+  const hasDocsPasteBlockDescendant = (element) =>
+    Boolean(element?.querySelector?.(docsPasteBlockSelector));
+
   const collectDocsPasteBlocks = (root, blocks = []) => {
     let inlineBuffer = null;
     const flushInlineBuffer = () => {
@@ -4135,7 +4149,8 @@ function renderMarkdownPreview(
       const tag = element?.tagName?.toLowerCase?.() || "";
       const isWrapper = ["html", "body", "main", "section", "article", "div"].includes(tag);
       const isBlock = ["h1", "h2", "h3", "h4", "p", "blockquote", "ul", "ol", "table", "figcaption"].includes(tag);
-      if (isWrapper && !element.closest?.("li")) {
+      const isStructuralWrapper = !isBlock && hasDocsPasteBlockDescendant(element);
+      if ((isWrapper || isStructuralWrapper) && !element.closest?.("li")) {
         flushInlineBuffer();
         collectDocsPasteBlocks(element, blocks);
         return;
@@ -4171,6 +4186,61 @@ function renderMarkdownPreview(
     return collectDocsPasteBlocks(template.content).filter((node) =>
       Boolean(String(node.textContent || "").trim() || node.querySelector?.("br, img, table, ul, ol"))
     );
+  };
+
+  const normalizeDocsNestedBlockContent = (root) => {
+    if (!root?.querySelectorAll) {
+      return false;
+    }
+    let changed = false;
+    const unsafeContainers = Array.from(root.querySelectorAll("h1, h2, h3, h4, p, blockquote, figcaption"));
+    unsafeContainers.forEach((container) => {
+      if (!root.contains(container) || !hasDocsPasteBlockDescendant(container)) {
+        return;
+      }
+
+      const replacements = [];
+      let inlineBuffer = null;
+      const ensureInlineBuffer = () => {
+        if (!inlineBuffer) {
+          inlineBuffer = document.createElement(container.tagName.toLowerCase());
+          Array.from(container.attributes || []).forEach((attribute) => {
+            if (!["id", "data-docs-split-group", "data-docs-split-continuation"].includes(attribute.name)) {
+              inlineBuffer.setAttribute(attribute.name, attribute.value);
+            }
+          });
+        }
+        return inlineBuffer;
+      };
+      const flushInlineBuffer = () => {
+        if (inlineBuffer && (String(inlineBuffer.textContent || "").trim() || inlineBuffer.querySelector("br, img"))) {
+          replacements.push(inlineBuffer);
+        }
+        inlineBuffer = null;
+      };
+      const appendNode = (node) => {
+        const element = node.nodeType === Node.ELEMENT_NODE ? node : null;
+        if (element?.matches?.(docsPasteBlockSelector)) {
+          flushInlineBuffer();
+          replacements.push(element);
+          return;
+        }
+        if (element && hasDocsPasteBlockDescendant(element)) {
+          flushInlineBuffer();
+          Array.from(element.childNodes || []).forEach(appendNode);
+          return;
+        }
+        ensureInlineBuffer().appendChild(node);
+      };
+
+      Array.from(container.childNodes || []).forEach(appendNode);
+      flushInlineBuffer();
+      if (replacements.length) {
+        container.replaceWith(...replacements);
+        changed = true;
+      }
+    });
+    return changed;
   };
 
   const insertDocsInlineChildrenAtRange = (range, node) => {
@@ -4215,10 +4285,6 @@ function renderMarkdownPreview(
         placeDocsCaretAfterNode(lastInserted);
       }
       return true;
-    }
-
-    if (range && activeBlock && !shouldPasteAfterHeading && pasteNodes[0]?.matches?.("p")) {
-      lastInserted = insertDocsInlineChildrenAtRange(range, pasteNodes.shift());
     }
 
     if (pasteNodes.length) {
@@ -4333,13 +4399,6 @@ function renderMarkdownPreview(
     }
 
     const paragraphNodes = blocks.map((block) => createDocsPasteParagraph(block));
-    if (range && activeBlock && !shouldPasteAfterHeading && blocks.length) {
-      const textNode = document.createTextNode(blocks[0]);
-      range.insertNode(textNode);
-      lastInserted = textNode;
-      paragraphNodes.shift();
-    }
-
     if (paragraphNodes.length) {
       const anchor =
         topLevelAnchor?.classList?.contains?.("workspace-document-page-sheet") || topLevelAnchor === shell
@@ -5448,6 +5507,7 @@ function renderMarkdownPreview(
     }
     unwrapDocsPageShell();
     mergeDocsSplitContinuationBlocks(shell);
+    normalizeDocsNestedBlockContent(shell);
     const rawNodes = Array.from(shell.childNodes);
     const settingsNode =
       rawNodes.find((node) => node.nodeType === Node.ELEMENT_NODE && node.classList?.contains("workspace-docs-page-meta")) || null;
@@ -24973,6 +25033,7 @@ function attachPreviewDrag(element, {
   onStart = null,
   onEnd = null,
   onUpdate = null,
+  snapPosition = null,
   onCommit = null
 } = {}) {
   let dragState = null;
@@ -24998,8 +25059,19 @@ function attachPreviewDrag(element, {
     const scale = dragState.scale || Math.max(0.0001, Number(getScale?.() || 1) || 1);
     const deltaX = (clientX - dragState.startClientX) / scale;
     const deltaY = (clientY - dragState.startClientY) / scale;
-    dragState.nextX = clampPreviewPosition(dragState.startX + deltaX, minX, Math.max(minX, Math.min(maxX, (bounds.width || 0) - 24)));
-    dragState.nextY = clampPreviewPosition(dragState.startY + deltaY, minY, Math.max(minY, Math.min(maxY, (bounds.height || 0) - 24)));
+    if (Math.abs(deltaX) > 2 || Math.abs(deltaY) > 2) {
+      dragState.hasMoved = true;
+    }
+    let nextX = clampPreviewPosition(dragState.startX + deltaX, minX, Math.max(minX, Math.min(maxX, (bounds.width || 0) - 24)));
+    let nextY = clampPreviewPosition(dragState.startY + deltaY, minY, Math.max(minY, Math.min(maxY, (bounds.height || 0) - 24)));
+    const snappedPosition =
+      typeof snapPosition === "function" ? snapPosition(nextX, nextY, element, dragState) : null;
+    if (snappedPosition && Number.isFinite(Number(snappedPosition.x)) && Number.isFinite(Number(snappedPosition.y))) {
+      nextX = clampPreviewPosition(snappedPosition.x, minX, Math.max(minX, Math.min(maxX, (bounds.width || 0) - 24)));
+      nextY = clampPreviewPosition(snappedPosition.y, minY, Math.max(minY, Math.min(maxY, (bounds.height || 0) - 24)));
+    }
+    dragState.nextX = nextX;
+    dragState.nextY = nextY;
     element.style.transform = `translate(${dragState.nextX - dragState.startX}px, ${dragState.nextY - dragState.startY}px)`;
     onUpdate?.(dragState.nextX, dragState.nextY, element);
   };
@@ -25038,6 +25110,7 @@ function attachPreviewDrag(element, {
     flushQueuedDrag();
     const nextX = dragState.nextX;
     const nextY = dragState.nextY;
+    const didMove = Boolean(dragState.hasMoved);
     element.classList.remove("is-dragging");
     element.style.left = `${nextX}px`;
     element.style.top = `${nextY}px`;
@@ -25056,7 +25129,9 @@ function attachPreviewDrag(element, {
     dragState = null;
     pendingDragPoint = null;
     onEnd?.(element);
-    onCommit?.(nextX, nextY);
+    if (didMove) {
+      onCommit?.(nextX, nextY);
+    }
   };
 
   element.addEventListener("pointerdown", (event) => {
@@ -25088,7 +25163,8 @@ function attachPreviewDrag(element, {
       nextX: currentPosition.x,
       nextY: currentPosition.y,
       bounds: currentBounds,
-      scale: currentScale
+      scale: currentScale,
+      hasMoved: false
     };
 
     element.setPointerCapture?.(event.pointerId);
@@ -25145,7 +25221,8 @@ function attachPreviewDrag(element, {
       nextX: currentPosition.x,
       nextY: currentPosition.y,
       bounds: currentBounds,
-      scale: currentScale
+      scale: currentScale,
+      hasMoved: false
     };
 
     element.classList.add("is-dragging");
@@ -25169,8 +25246,12 @@ function attachPreviewDrag(element, {
 
 function attachPreviewResize(handle, {
   target = null,
+  initialX = 0,
+  initialY = 0,
   initialWidth = 160,
   initialHeight = 36,
+  direction = "se",
+  resizeMode = "size",
   getBounds = () => ({ width: 0, height: 0 }),
   getScale = () => 1,
   preferMouse = false,
@@ -25179,6 +25260,7 @@ function attachPreviewResize(handle, {
   onStart = null,
   onEnd = null,
   onUpdate = null,
+  snapBox = null,
   onCommit = null
 } = {}) {
   let resizeState = null;
@@ -25187,14 +25269,54 @@ function attachPreviewResize(handle, {
   let resizeAnimationFrame = null;
   let pendingResizePoint = null;
 
-  const readCurrentResizeSize = () => {
+  const readCurrentResizeBox = () => {
+    const currentX = Number.parseFloat(target?.style?.left || "");
+    const currentY = Number.parseFloat(target?.style?.top || "");
     const currentWidth = Number.parseFloat(target?.style?.width || "");
     const currentHeight = Number.parseFloat(target?.style?.height || "");
     return {
+      x: Number.isFinite(currentX) ? currentX : Number(initialX) || 0,
+      y: Number.isFinite(currentY) ? currentY : Number(initialY) || 0,
       width: Number.isFinite(currentWidth) ? currentWidth : Number(initialWidth) || 160,
       height: Number.isFinite(currentHeight) ? currentHeight : Number(initialHeight) || 36
     };
   };
+
+  const readResizeDirection = () => {
+    const nextDirection = String(handle?.dataset?.resizeDirection || direction || "se").toLowerCase();
+    return /[nesw]/.test(nextDirection) ? nextDirection : "se";
+  };
+
+  const createResizeState = (event, mode = "pointer") => {
+    const currentBox = readCurrentResizeBox();
+    return {
+      pointerId: mode === "pointer" ? event.pointerId : null,
+      mode,
+      direction: readResizeDirection(),
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      startX: currentBox.x,
+      startY: currentBox.y,
+      startWidth: currentBox.width,
+      startHeight: currentBox.height,
+      startRight: currentBox.x + currentBox.width,
+      startBottom: currentBox.y + currentBox.height,
+      nextX: currentBox.x,
+      nextY: currentBox.y,
+      nextWidth: currentBox.width,
+      nextHeight: currentBox.height,
+      bounds: getBounds() || { width: 0, height: 0 },
+      scale: Math.max(0.0001, Number(getScale?.() || 1) || 1),
+      hasMoved: false
+    };
+  };
+
+  const currentResizeBox = () => ({
+    x: resizeState?.nextX || 0,
+    y: resizeState?.nextY || 0,
+    w: resizeState?.nextWidth || 0,
+    h: resizeState?.nextHeight || 0
+  });
 
   const updateResize = (clientX = 0, clientY = 0) => {
     if (!resizeState) {
@@ -25204,22 +25326,98 @@ function attachPreviewResize(handle, {
     const scale = resizeState.scale || Math.max(0.0001, Number(getScale?.() || 1) || 1);
     const deltaX = (clientX - resizeState.startClientX) / scale;
     const deltaY = (clientY - resizeState.startClientY) / scale;
-    resizeState.nextWidth = clampPreviewPosition(
-      resizeState.startWidth + deltaX,
-      minWidth,
-      Math.max(minWidth, (bounds.width || resizeState.startWidth) - 12)
-    );
-    resizeState.nextHeight = clampPreviewPosition(
-      resizeState.startHeight + deltaY,
-      minHeight,
-      Math.max(minHeight, (bounds.height || resizeState.startHeight) - 12)
-    );
+    if (Math.abs(deltaX) > 3 || Math.abs(deltaY) > 3) {
+      resizeState.hasMoved = true;
+    }
+    const nextDirection = resizeState.direction || "se";
+    const resizesWest = nextDirection.includes("w");
+    const resizesEast = nextDirection.includes("e");
+    const resizesNorth = nextDirection.includes("n");
+    const resizesSouth = nextDirection.includes("s");
+
+    if (resizeMode === "box") {
+      const maxRight = Math.max(resizeState.startRight, Number(bounds.width) || resizeState.startRight);
+      const maxBottom = Math.max(resizeState.startBottom, Number(bounds.height) || resizeState.startBottom);
+      let nextX = resizeState.startX;
+      let nextY = resizeState.startY;
+      let nextWidth = resizeState.startWidth;
+      let nextHeight = resizeState.startHeight;
+
+      if (resizesWest) {
+        nextX = clampPreviewPosition(resizeState.startX + deltaX, 0, resizeState.startRight - minWidth);
+        nextWidth = resizeState.startRight - nextX;
+      } else if (resizesEast) {
+        nextWidth = clampPreviewPosition(resizeState.startWidth + deltaX, minWidth, maxRight - resizeState.startX);
+      }
+
+      if (resizesNorth) {
+        nextY = clampPreviewPosition(resizeState.startY + deltaY, 0, resizeState.startBottom - minHeight);
+        nextHeight = resizeState.startBottom - nextY;
+      } else if (resizesSouth) {
+        nextHeight = clampPreviewPosition(resizeState.startHeight + deltaY, minHeight, maxBottom - resizeState.startY);
+      }
+
+      resizeState.nextX = nextX;
+      resizeState.nextY = nextY;
+      resizeState.nextWidth = nextWidth;
+      resizeState.nextHeight = nextHeight;
+    } else {
+      resizeState.nextWidth = clampPreviewPosition(
+        resizeState.startWidth + deltaX,
+        minWidth,
+        Math.max(minWidth, (bounds.width || resizeState.startWidth) - 12)
+      );
+      resizeState.nextHeight = clampPreviewPosition(
+        resizeState.startHeight + deltaY,
+        minHeight,
+        Math.max(minHeight, (bounds.height || resizeState.startHeight) - 12)
+      );
+    }
+
+    const snappedBox =
+      typeof snapBox === "function"
+        ? snapBox(
+            {
+              x: resizeState.nextX,
+              y: resizeState.nextY,
+              width: resizeState.nextWidth,
+              height: resizeState.nextHeight
+            },
+            resizeState
+          )
+        : null;
+    if (snappedBox) {
+      resizeState.nextX = clampPreviewPosition(
+        Number(snappedBox.x),
+        0,
+        Math.max(0, (bounds.width || resizeState.startRight) - minWidth)
+      );
+      resizeState.nextY = clampPreviewPosition(
+        Number(snappedBox.y),
+        0,
+        Math.max(0, (bounds.height || resizeState.startBottom) - minHeight)
+      );
+      resizeState.nextWidth = clampPreviewPosition(
+        Number(snappedBox.width),
+        minWidth,
+        Math.max(minWidth, (bounds.width || resizeState.startRight) - resizeState.nextX)
+      );
+      resizeState.nextHeight = clampPreviewPosition(
+        Number(snappedBox.height),
+        minHeight,
+        Math.max(minHeight, (bounds.height || resizeState.startBottom) - resizeState.nextY)
+      );
+    }
 
     if (target) {
+      if (resizeMode === "box") {
+        target.style.left = `${resizeState.nextX}px`;
+        target.style.top = `${resizeState.nextY}px`;
+      }
       target.style.width = `${resizeState.nextWidth}px`;
       target.style.height = `${resizeState.nextHeight}px`;
     }
-    onUpdate?.(resizeState.nextWidth, resizeState.nextHeight, target);
+    onUpdate?.(resizeState.nextWidth, resizeState.nextHeight, target, currentResizeBox());
   };
 
   const flushQueuedResize = () => {
@@ -25256,6 +25454,8 @@ function attachPreviewResize(handle, {
     flushQueuedResize();
     const nextWidth = resizeState.nextWidth;
     const nextHeight = resizeState.nextHeight;
+    const nextBox = currentResizeBox();
+    const didMove = Boolean(resizeState.hasMoved);
     target?.classList?.remove("is-dragging");
     if (resizeState.mode === "pointer" && pointerId !== null) {
       handle.releasePointerCapture?.(pointerId);
@@ -25271,7 +25471,9 @@ function attachPreviewResize(handle, {
     resizeState = null;
     pendingResizePoint = null;
     onEnd?.(target);
-    onCommit?.(nextWidth, nextHeight);
+    if (didMove) {
+      onCommit?.(nextWidth, nextHeight, nextBox);
+    }
   };
 
   handle.addEventListener("pointerdown", (event) => {
@@ -25282,21 +25484,7 @@ function attachPreviewResize(handle, {
       return;
     }
 
-    const currentSize = readCurrentResizeSize();
-    const currentBounds = getBounds() || { width: 0, height: 0 };
-    const currentScale = Math.max(0.0001, Number(getScale?.() || 1) || 1);
-    resizeState = {
-      pointerId: event.pointerId,
-      mode: "pointer",
-      startClientX: event.clientX,
-      startClientY: event.clientY,
-      startWidth: currentSize.width,
-      startHeight: currentSize.height,
-      nextWidth: currentSize.width,
-      nextHeight: currentSize.height,
-      bounds: currentBounds,
-      scale: currentScale
-    };
+    resizeState = createResizeState(event, "pointer");
 
     handle.setPointerCapture?.(event.pointerId);
     target?.classList?.add("is-dragging");
@@ -25330,22 +25518,7 @@ function attachPreviewResize(handle, {
     if (resizeState || event.button !== 0) {
       return;
     }
-
-    const currentSize = readCurrentResizeSize();
-    const currentBounds = getBounds() || { width: 0, height: 0 };
-    const currentScale = Math.max(0.0001, Number(getScale?.() || 1) || 1);
-    resizeState = {
-      pointerId: null,
-      mode: "mouse",
-      startClientX: event.clientX,
-      startClientY: event.clientY,
-      startWidth: currentSize.width,
-      startHeight: currentSize.height,
-      nextWidth: currentSize.width,
-      nextHeight: currentSize.height,
-      bounds: currentBounds,
-      scale: currentScale
-    };
+    resizeState = createResizeState(event, "mouse");
 
     target?.classList?.add("is-dragging");
     onStart?.(target);
@@ -25378,8 +25551,13 @@ function renderDashboardExperiencePreview(
     onWidgetMove = null,
     onWidgetDrop = null,
     onWidgetResize = null,
+    onMetricLayoutChange = null,
+    onChartLayoutChange = null,
     onWidgetFocus = null,
-    onChartFocus = null
+    onChartFocus = null,
+    onCommand = null,
+    onEdit = null,
+    sheetDataSources = []
   } = {}
 ) {
   const model = safeJsonParse(content);
@@ -25388,25 +25566,28 @@ function renderDashboardExperiencePreview(
     return;
   }
 
-  const normalizedFilter = String(activeFilter || "").trim().toLowerCase();
-  const matchesFilter = (value = "") =>
-    !normalizedFilter || String(value || "").toLowerCase().includes(normalizedFilter);
-  const visibleWidgets = normalizedFilter
-    ? (model.widgets || []).filter(
-        (widget) =>
-          matchesFilter(widget.title) || matchesFilter(widget.summary) || matchesFilter(widget.type)
-      )
-    : model.widgets || [];
-  const visibleMetrics = normalizedFilter
-    ? (model.metrics || []).filter((metric) => matchesFilter(metric.label))
-    : model.metrics || [];
-  const visibleCharts = normalizedFilter
-    ? (model.charts || []).filter((chart) => matchesFilter(chart.title))
-    : model.charts || [];
+    const normalizedFilter = String(activeFilter || "").trim().toLowerCase();
+  const filterIsOverview = !normalizedFilter || normalizedFilter === "overview";
+  const activeDashboardPageKey = filterIsOverview ? "" : normalizedFilter;
+  const filterIsProductGroup = normalizedFilter === "by product";
+  const filterIsTeamGroup = normalizedFilter === "by team + user";
+  const filterIsGrouping = filterIsProductGroup || filterIsTeamGroup;
+  const matchesFilter = (value = "") => String(value || "").toLowerCase().includes(normalizedFilter);
+  const visibleWidgets = model.widgets || [];
+  const visibleMetrics = model.metrics || [];
+  const visibleCharts = model.charts || [];
+  const filteredCharts = Array.isArray(visibleCharts) ? visibleCharts : [];
 
   {
     const dashboardKey = String(previewKey || model.title || "dashboard-preview");
     let isDashboardExpanded = dashboardExpandedStore.get(dashboardKey) === true;
+    const normalizeDashboardPreviewMode = (mode = "overview") => {
+      const normalizedMode = String(mode || "overview").trim().toLowerCase();
+      return ["overview", "trends", "insights", "data"].includes(normalizedMode) ? normalizedMode : "overview";
+    };
+    let activeDashboardPreviewMode = normalizeDashboardPreviewMode(
+      dashboardPreviewViewStore.get(dashboardKey) || "overview"
+    );
     let expandedOverlay = null;
     let expandedDialog = null;
     let expandedScaleFrame = null;
@@ -25487,43 +25668,30 @@ function renderDashboardExperiencePreview(
     };
     const tableColumns = Array.isArray(model.table?.columns) ? model.table.columns : [];
     const tableRows = Array.isArray(model.table?.rows) ? model.table.rows : [];
+    const contentFilterActive = Boolean(
+      normalizedFilter &&
+        !filterIsOverview &&
+        !filterIsGrouping &&
+        tableRows.some((row) => (row || []).some((cell) => matchesFilter(cell)))
+    );
+    const displayTableRows = contentFilterActive
+      ? tableRows.filter((row) => (row || []).some((cell) => matchesFilter(cell)))
+      : tableRows;
     const findColumnIndex = (patterns = []) =>
       tableColumns.findIndex((column) => {
         const text = String(column || "").toLowerCase();
         return patterns.some((pattern) => text.includes(pattern));
       });
-    const labelColumnIndex = Math.max(
-      0,
-      findColumnIndex(["region", "territory", "product", "month", "segment", "name"])
-    );
+    const labelColumnPatterns = filterIsProductGroup
+      ? ["product category", "product", "category"]
+      : filterIsTeamGroup
+        ? ["team", "user", "territory", "region", "name"]
+        : ["region", "territory", "product", "month", "segment", "name"];
+    const labelColumnIndex = Math.max(0, findColumnIndex(labelColumnPatterns));
     const valueColumnIndex = Math.max(
       0,
-      findColumnIndex(["revenue", "sales", "amount", "value", "total", "units"])
+      findColumnIndex(["revenue won", "revenue", "sales", "amount", "value", "total", "units"])
     );
-    const tablePoints = tableRows
-      .map((row, index) => {
-        const numeric = parsePreviewNumber(row[valueColumnIndex]);
-        return {
-          label: row[labelColumnIndex] || `Row ${index + 1}`,
-          value: row[valueColumnIndex] || "",
-          numeric
-        };
-      })
-      .filter((point) => point.numeric !== null);
-    const activeChart =
-      (model.charts || []).find((_, index) => `chart-${index + 1}` === String(activeChartId || "")) ||
-      visibleCharts[0] ||
-      (model.charts || [])[0] ||
-      null;
-    const chartPoints = ((activeChart?.points || []).length ? activeChart.points : tablePoints)
-      .map((point, index) => ({
-        label: point.label || `Point ${index + 1}`,
-        value: point.value || "",
-        numeric: parsePreviewNumber(point.value)
-      }))
-      .filter((point) => point.numeric !== null);
-    const maxPointValue = Math.max(...chartPoints.map((point) => point.numeric), 1);
-    const totalValue = tablePoints.reduce((sum, point) => sum + (point.numeric || 0), 0);
     const formatPowerValue = (value) => {
       const numeric = typeof value === "number" ? value : parsePreviewNumber(value);
       if (numeric === null || !Number.isFinite(numeric)) {
@@ -25538,6 +25706,39 @@ function renderDashboardExperiencePreview(
       }
       return String(Math.round(numeric));
     };
+    const aggregatePoints = (rows = []) => {
+      const pointMap = new Map();
+      rows.forEach((row, index) => {
+        const numeric = parsePreviewNumber(row[valueColumnIndex]);
+        if (numeric === null) {
+          return;
+        }
+        const label = row[labelColumnIndex] || `Row ${index + 1}`;
+        const current = pointMap.get(label) || { label, numeric: 0 };
+        current.numeric += numeric;
+        pointMap.set(label, current);
+      });
+      return Array.from(pointMap.values()).map((point) => ({
+        ...point,
+        value: formatPowerValue(point.numeric)
+      }));
+    };
+    const tablePoints = aggregatePoints(displayTableRows);
+    const activeChart =
+      (model.charts || []).find((_, index) => `chart-${index + 1}` === String(activeChartId || "")) ||
+      filteredCharts[0] ||
+      (model.charts || [])[0] ||
+      null;
+    const shouldUseTablePoints = !filterIsOverview || !(activeChart?.points || []).length;
+    const chartPoints = (shouldUseTablePoints ? tablePoints : activeChart?.points || tablePoints)
+      .map((point, index) => ({
+        label: point.label || `Point ${index + 1}`,
+        value: point.value || "",
+        numeric: parsePreviewNumber(point.value)
+      }))
+      .filter((point) => point.numeric !== null);
+    const maxPointValue = Math.max(...chartPoints.map((point) => point.numeric), 1);
+    const totalValue = tablePoints.reduce((sum, point) => sum + (point.numeric || 0), 0);
     const metricCards = [
       ...(visibleMetrics || []).slice(0, 4).map((metric) => ({
         label: metric.label || "KPI",
@@ -25551,27 +25752,1406 @@ function renderDashboardExperiencePreview(
         value: chartPoints.length ? `${Math.round((totalValue / Math.max(maxPointValue, 1)) * 10)}%` : "100%",
         meta: "Scenario"
       },
-      { label: "Rows", value: String(tableRows.length), meta: `${tableColumns.length} fields` }
+      { label: "Rows", value: String(displayTableRows.length), meta: `${tableColumns.length} fields` }
     ].slice(0, 4);
+    let previewStatus = null;
+    const updatePreviewStatus = (message = "") => {
+      if (previewStatus) {
+        previewStatus.textContent = message || "Pret";
+      }
+    };
+    const runDashboardCommand = (commandId = "", options = {}, label = "") => {
+      const handled = typeof onCommand === "function" ? onCommand(commandId, options) : false;
+      updatePreviewStatus(label || getWorkspaceCommandLabel(commandId, "fr", commandId));
+      if (handled && typeof handled.catch === "function") {
+        handled.catch((error) => {
+          updatePreviewStatus("Commande impossible");
+          window.alert(`Dashboard command failed: ${error.message || error}`);
+        });
+      }
+      return handled;
+    };
+    const runDashboardCommandWithView = (commandId = "", options = {}, label = "", viewMode = "overview") => {
+      if (viewMode) {
+        activeDashboardPreviewMode = normalizeDashboardPreviewMode(viewMode);
+        dashboardPreviewViewStore.set(dashboardKey, activeDashboardPreviewMode);
+      }
+      const handled = runDashboardCommand(commandId, options, label);
+      if (viewMode) {
+        showPreviewView(activeDashboardPreviewMode);
+      }
+      return handled;
+    };
+    let dashboardPropertiesPanel = null;
+    const parseDashboardItemIndex = (value = "", prefix = "") => {
+      const match = String(value || "").match(new RegExp(`^${prefix}-(\\d+)$`, "i"));
+      const index = match ? Number.parseInt(match[1], 10) - 1 : -1;
+      return Number.isInteger(index) ? index : -1;
+    };
+    const normalizeDashboardSelection = (selection = {}) => {
+      const type = String(selection?.type || "").toLowerCase();
+      const index = Number.parseInt(selection?.index, 10);
+      if ((type === "metric" || type === "chart") && Number.isInteger(index) && index >= 0) {
+        return { type, index };
+      }
+      return { type: "dashboard", index: -1 };
+    };
+    const getDashboardSelectionFromProps = () => {
+      const metricIndex = parseDashboardItemIndex(activeWidgetId, "metric");
+      if (metricIndex >= 0) {
+        return { type: "metric", index: metricIndex };
+      }
+      const chartIndex = parseDashboardItemIndex(activeChartId, "chart");
+      if (chartIndex >= 0) {
+        return { type: "chart", index: chartIndex };
+      }
+      return { type: "dashboard", index: -1 };
+    };
+    const incomingDashboardSelection = getDashboardSelectionFromProps();
+    if (!dashboardSelectionStore.has(dashboardKey)) {
+      dashboardSelectionStore.set(dashboardKey, incomingDashboardSelection);
+    }
+    const readDashboardSelection = () =>
+      normalizeDashboardSelection(dashboardSelectionStore.get(dashboardKey) || getDashboardSelectionFromProps());
+    const writeDashboardSelection = (selection = {}) => {
+      const normalizedSelection = normalizeDashboardSelection(selection);
+      dashboardSelectionStore.set(dashboardKey, normalizedSelection);
+      return normalizedSelection;
+    };
+    const writeDashboardSelectionFromElement = (element = null) => {
+      const [type, rawIndex] = String(element?.dataset?.dashboardLayoutKey || "").split("-");
+      const index = Number.parseInt(rawIndex, 10);
+      if ((type === "metric" || type === "chart") && Number.isInteger(index) && index >= 0) {
+        return writeDashboardSelection({ type, index });
+      }
+      return writeDashboardSelection({ type: "dashboard", index: -1 });
+    };
+    const getDashboardPropertiesTarget = () => {
+      const selection = readDashboardSelection();
+      if (selection.type === "metric" && visibleMetrics[selection.index]) {
+        return { type: "metric", index: selection.index, item: visibleMetrics[selection.index] };
+      }
+      if (selection.type === "chart" && visibleCharts[selection.index]) {
+        return { type: "chart", index: selection.index, item: visibleCharts[selection.index] };
+      }
+      return { type: "dashboard", index: -1, item: model };
+    };
+    const createDashboardPropertyInput = (value = "", onCommit = null) => {
+      const input = document.createElement("input");
+      input.type = "text";
+      input.value = value || "";
+      input.className = "workspace-powerbi-property-input";
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          input.blur();
+        }
+      });
+      input.addEventListener("change", () => onCommit?.(input.value));
+      return input;
+    };
+    const createDashboardPropertySelect = (value = "", options = [], onCommit = null) => {
+      const select = document.createElement("select");
+      select.className = "workspace-powerbi-property-input";
+      options.forEach((option) => {
+        const item = document.createElement("option");
+        item.value = option.value;
+        item.textContent = option.label;
+        item.selected = String(option.value).toLowerCase() === String(value || "").toLowerCase();
+        select.appendChild(item);
+      });
+      select.addEventListener("change", () => onCommit?.(select.value));
+      return select;
+    };
+    const createDashboardPropertyField = (labelText = "", control = null, hint = "") => {
+      const field = document.createElement("label");
+      field.className = "workspace-powerbi-property-field";
+      const label = document.createElement("span");
+      label.textContent = labelText;
+      field.appendChild(label);
+      if (control) {
+        field.appendChild(control);
+      }
+      if (hint) {
+        const small = document.createElement("small");
+        small.textContent = hint;
+        field.appendChild(small);
+      }
+      return field;
+    };
+    const createDashboardPropertyStat = (label = "", value = "") => {
+      const item = document.createElement("div");
+      item.className = "workspace-powerbi-property-stat";
+      const key = document.createElement("span");
+      key.textContent = label;
+      const val = document.createElement("strong");
+      val.textContent = value;
+      item.append(key, val);
+      return item;
+    };
+    const renderDashboardPropertiesPanel = () => {
+      if (!dashboardPropertiesPanelStore.get(dashboardKey)) {
+        dashboardPropertiesPanel?.remove();
+        dashboardPropertiesPanel = null;
+        mainShell?.classList?.remove("has-properties");
+        return;
+      }
+      const target = getDashboardPropertiesTarget();
+      const panelTitle =
+        target.type === "metric" ? "KPI" : target.type === "chart" ? "Graphique" : "Dashboard";
+      const panel = dashboardPropertiesPanel || document.createElement("aside");
+      panel.className = "workspace-powerbi-properties-panel";
+      panel.setAttribute("aria-label", "Proprietes du dashboard");
+
+      const header = document.createElement("div");
+      header.className = "workspace-powerbi-properties-header";
+      const title = document.createElement("strong");
+      title.textContent = panelTitle;
+      const closeButton = document.createElement("button");
+      closeButton.type = "button";
+      closeButton.className = "workspace-powerbi-properties-close";
+      closeButton.textContent = "x";
+      closeButton.setAttribute("aria-label", "Fermer les proprietes");
+      closeButton.addEventListener("click", () => {
+        dashboardPropertiesPanelStore.set(dashboardKey, false);
+        renderDashboardPropertiesPanel();
+        updatePreviewStatus("Proprietes fermees");
+      });
+      header.append(title, closeButton);
+
+      const tabs = document.createElement("div");
+      tabs.className = "workspace-powerbi-properties-tabs";
+      ["Donnees", "Format"].forEach((label, index) => {
+        const tab = document.createElement("button");
+        tab.type = "button";
+        tab.className = index === 0 ? "is-active" : "";
+        tab.textContent = label;
+        tabs.appendChild(tab);
+      });
+
+      const body = document.createElement("div");
+      body.className = "workspace-powerbi-properties-body";
+
+      if (target.type === "metric") {
+        const metric = target.item || {};
+        body.append(
+          createDashboardPropertyField(
+            "Nom du KPI",
+            createDashboardPropertyInput(metric.label || "", (label) =>
+              runDashboardCommandWithView(
+                "dashboardUpdateMetric",
+                { value: { index: target.index, label } },
+                "KPI modifie",
+                activeDashboardPreviewMode
+              )
+            )
+          ),
+          createDashboardPropertyField(
+            "Valeur",
+            createDashboardPropertyInput(metric.value || "", (value) =>
+              runDashboardCommandWithView(
+                "dashboardUpdateMetric",
+                { value: { index: target.index, value } },
+                "KPI modifie",
+                activeDashboardPreviewMode
+              )
+            )
+          ),
+          createDashboardPropertyField(
+            "Description",
+            createDashboardPropertyInput(metric.delta || metric.meta || "", (delta) =>
+              runDashboardCommandWithView(
+                "dashboardUpdateMetric",
+                { value: { index: target.index, delta } },
+                "KPI modifie",
+                activeDashboardPreviewMode
+              )
+            )
+          )
+        );
+        const layout = metric.layout || {};
+        body.appendChild(createDashboardPropertyStat("Position", `${Math.round(layout.x || 0)}, ${Math.round(layout.y || 0)}`));
+        body.appendChild(createDashboardPropertyStat("Taille", `${Math.round(layout.w || 0)} x ${Math.round(layout.h || 0)}`));
+      } else if (target.type === "chart") {
+        const chart = target.item || {};
+        body.append(
+          createDashboardPropertyField(
+            "Titre du visuel",
+            createDashboardPropertyInput(chart.title || "", (chartTitle) =>
+              runDashboardCommandWithView(
+                "dashboardUpdateChart",
+                { value: { index: target.index, title: chartTitle } },
+                "Visuel modifie",
+                activeDashboardPreviewMode
+              )
+            )
+          ),
+          createDashboardPropertyField(
+            "Type",
+            createDashboardPropertySelect(
+              chart.kind || "bar",
+              [
+                { value: "bar", label: "Colonnes" },
+                { value: "progress", label: "Barres" },
+                { value: "line", label: "Ligne" },
+                { value: "area", label: "Aire" },
+                { value: "pie", label: "Secteurs" }
+              ],
+              (kind) =>
+                runDashboardCommandWithView(
+                  "dashboardUpdateChart",
+                  { value: { index: target.index, kind } },
+                  "Type modifie",
+                  activeDashboardPreviewMode
+                )
+            )
+          )
+        );
+        const layout = chart.layout || {};
+        body.appendChild(createDashboardPropertyStat("Points", String((chart.points || []).length)));
+        body.appendChild(createDashboardPropertyStat("Position", `${Math.round(layout.x || 0)}, ${Math.round(layout.y || 0)}`));
+        body.appendChild(createDashboardPropertyStat("Taille", `${Math.round(layout.w || 0)} x ${Math.round(layout.h || 0)}`));
+      } else {
+        body.append(
+          createDashboardPropertyField(
+            "Titre du rapport",
+            createDashboardPropertyInput(model.title || "", (dashboardTitle) =>
+              runDashboardCommandWithView(
+                "dashboardUpdateTitle",
+                { value: { title: dashboardTitle } },
+                "Rapport modifie",
+                activeDashboardPreviewMode
+              )
+            )
+          ),
+          createDashboardPropertyField(
+            "Sous-titre",
+            createDashboardPropertyInput(model.summary || "", (summary) =>
+              runDashboardCommandWithView(
+                "dashboardUpdateTitle",
+                { value: { summary } },
+                "Rapport modifie",
+                activeDashboardPreviewMode
+              )
+            )
+          )
+        );
+        body.appendChild(createDashboardPropertyStat("Lignes", String(displayTableRows.length)));
+        body.appendChild(createDashboardPropertyStat("Colonnes", String(tableColumns.length)));
+        body.appendChild(createDashboardPropertyStat("Pages", String((model.filters || []).length || 1)));
+        body.appendChild(createDashboardPropertyStat("Visuels", String(visibleCharts.length)));
+      }
+
+      panel.replaceChildren(header, tabs, body);
+      dashboardPropertiesPanel = panel;
+      mainShell.classList.add("has-properties");
+      if (!panel.isConnected) {
+        mainShell.appendChild(panel);
+      }
+    };
+    const openDashboardPropertiesPanel = () => {
+      closeDashboardCommandPanel();
+      const selectedElement = dashboardLayoutCanvas?.querySelector(".workspace-powerbi-layout-item.is-selected");
+      if (selectedElement) {
+        writeDashboardSelectionFromElement(selectedElement);
+      }
+      dashboardPropertiesPanelStore.set(dashboardKey, true);
+      renderDashboardPropertiesPanel();
+      updatePreviewStatus("Proprietes");
+    };
+    const getDashboardColumnOptions = ({ numericOnly = false } = {}) =>
+      tableColumns
+        .map((column, index) => {
+          const label = String(column || `Column ${index + 1}`).trim() || `Column ${index + 1}`;
+          const hasNumericValue = tableRows.some((row) => parsePreviewNumber(row[index]) !== null);
+          return numericOnly && !hasNumericValue ? null : { label, value: label };
+        })
+        .filter(Boolean);
+    const dashboardColumnOptions = getDashboardColumnOptions();
+    const dashboardNumericColumnOptions = getDashboardColumnOptions({ numericOnly: true });
+    const fallbackLabelColumn = tableColumns[labelColumnIndex] || dashboardColumnOptions[0]?.value || "";
+    const fallbackValueColumn =
+      tableColumns[valueColumnIndex] ||
+      dashboardNumericColumnOptions[0]?.value ||
+      tableColumns[1] ||
+      dashboardColumnOptions[0]?.value ||
+      "";
+    const aggregationOptions = [
+      { label: "Somme", value: "sum" },
+      { label: "Moyenne", value: "average" },
+      { label: "Nombre", value: "count" },
+      { label: "Maximum", value: "max" },
+      { label: "Minimum", value: "min" }
+    ];
+    const createDashboardCreateField = (labelText = "", control = null) => {
+      const field = document.createElement("label");
+      field.className = "workspace-powerbi-create-field";
+      const label = document.createElement("span");
+      label.textContent = labelText;
+      field.append(label);
+      if (control) {
+        field.append(control);
+      }
+      return field;
+    };
+    const createDashboardCreateInput = (value = "", placeholder = "") => {
+      const input = document.createElement("input");
+      input.type = "text";
+      input.value = value;
+      input.placeholder = placeholder;
+      return input;
+    };
+    const createDashboardCreateSelect = (options = [], selectedValue = "") => {
+      const select = document.createElement("select");
+      const entries = options.length ? options : [{ label: "Field", value: "Field" }];
+      entries.forEach((option) => {
+        const entry = document.createElement("option");
+        entry.value = option.value;
+        entry.textContent = option.label;
+        if (option.value === selectedValue) {
+          entry.selected = true;
+        }
+        select.appendChild(entry);
+      });
+      return select;
+    };
+    const createDashboardCreateSubmit = (label = "Creer") => {
+      const button = document.createElement("button");
+      button.type = "submit";
+      button.className = "workspace-powerbi-create-submit";
+      button.textContent = label;
+      return button;
+    };
+    const showDashboardCreateForm = (title = "", description = "", buildControls = null) => {
+      const form = document.createElement("form");
+      form.className = "workspace-powerbi-create-form";
+      buildControls?.(form);
+      showCommandPanel(title, description, form);
+      window.setTimeout(() => form.querySelector("input, select, button")?.focus({ preventScroll: true }), 0);
+    };
+    const showDashboardMetricCreator = () => {
+      showDashboardCreateForm("KPI personnalise", "Choisis la colonne et le calcul du KPI.", (form) => {
+        const titleInput = createDashboardCreateInput("", "Titre du KPI");
+        const valueSelect = createDashboardCreateSelect(dashboardNumericColumnOptions.length ? dashboardNumericColumnOptions : dashboardColumnOptions, fallbackValueColumn);
+        const aggregationSelect = createDashboardCreateSelect(aggregationOptions, "sum");
+        form.append(
+          createDashboardCreateField("Titre", titleInput),
+          createDashboardCreateField("Valeur", valueSelect),
+          createDashboardCreateField("Calcul", aggregationSelect),
+          createDashboardCreateSubmit("Ajouter KPI")
+        );
+        form.addEventListener("submit", (event) => {
+          event.preventDefault();
+          runDashboardCommandWithView(
+            "dashboardAddMetric",
+            {
+              value: {
+                label: titleInput.value.trim(),
+                valueColumn: valueSelect.value,
+                aggregation: aggregationSelect.value
+              }
+            },
+            "KPI ajoute",
+            "overview"
+          );
+          closeDashboardCommandPanel();
+        });
+      });
+    };
+    const showDashboardVisualCreator = (initialKind = "bar") => {
+      showDashboardCreateForm("Visuel personnalise", "Choisis le type de visuel et les champs a afficher.", (form) => {
+        const titleInput = createDashboardCreateInput("", "Titre du visuel");
+        const typeSelect = createDashboardCreateSelect(WORKSPACE_DASHBOARD_VISUAL_TYPES, initialKind || "bar");
+        const labelSelect = createDashboardCreateSelect(dashboardColumnOptions, fallbackLabelColumn);
+        const valueSelect = createDashboardCreateSelect(dashboardNumericColumnOptions.length ? dashboardNumericColumnOptions : dashboardColumnOptions, fallbackValueColumn);
+        const aggregationSelect = createDashboardCreateSelect(aggregationOptions, "sum");
+        form.append(
+          createDashboardCreateField("Type", typeSelect),
+          createDashboardCreateField("Axe", labelSelect),
+          createDashboardCreateField("Valeur", valueSelect),
+          createDashboardCreateField("Calcul", aggregationSelect),
+          createDashboardCreateField("Titre", titleInput),
+          createDashboardCreateSubmit("Ajouter visuel")
+        );
+        form.addEventListener("submit", (event) => {
+          event.preventDefault();
+          runDashboardCommandWithView(
+            "dashboardAddChart",
+            {
+              value: {
+                kind: typeSelect.value,
+                labelColumn: labelSelect.value,
+                valueColumn: valueSelect.value,
+                aggregation: aggregationSelect.value,
+                title: titleInput.value.trim()
+              }
+            },
+            "Visuel ajoute",
+            "overview"
+          );
+          closeDashboardCommandPanel();
+        });
+      });
+    };
+    const showDashboardSegmentCreator = () => {
+      showDashboardCreateForm("Segment depuis une colonne", "Choisis le champ qui deviendra un filtre du rapport.", (form) => {
+        const labelInput = createDashboardCreateInput("", "Nom optionnel");
+        const columnSelect = createDashboardCreateSelect(dashboardColumnOptions, fallbackLabelColumn);
+        form.append(
+          createDashboardCreateField("Champ", columnSelect),
+          createDashboardCreateField("Nom", labelInput),
+          createDashboardCreateSubmit("Ajouter segment")
+        );
+        form.addEventListener("submit", (event) => {
+          event.preventDefault();
+          runDashboardCommandWithView(
+            "dashboardAddFilter",
+            { value: { column: columnSelect.value, label: labelInput.value.trim() } },
+            "Segment ajoute",
+            "overview"
+          );
+          closeDashboardCommandPanel();
+        });
+      });
+    };
+    const showDashboardCreateMenu = (anchorElement = null) => {
+      showCommandPanel("Creer", "Ajoute rapidement des elements au rapport.", [
+        { label: "Obtenir les donnees", icon: "database", action: openDashboardDataImport },
+        { label: "KPI personnalise", icon: "number", action: showDashboardMetricCreator },
+        { label: "Visuel personnalise", icon: "chart", action: () => showDashboardVisualCreator("bar") },
+        { label: "Segment depuis une colonne", icon: "slicer", action: showDashboardSegmentCreator }
+      ], { anchorElement, width: 360 });
+    };
+    const downloadDashboardJson = () => {
+      const safeTitle = String(model.title || "dashboard")
+        .trim()
+        .replace(/[\\/:*?"<>|]+/g, "-")
+        .replace(/\s+/g, "-")
+        .slice(0, 80) || "dashboard";
+      const blob = new Blob([JSON.stringify(model, null, 2)], { type: "application/json;charset=utf-8" });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = `${safeTitle}.dashboard.json`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(link.href), 500);
+      updatePreviewStatus("Dashboard exporte");
+    };
+    let dashboardImportInput = null;
+    let commandPanel = null;
+    let dashboardCommandPanelAnchor = null;
+    let dashboardCommandPanelOutsideController = null;
+    const closeDashboardCommandPanel = () => {
+      dashboardCommandPanelOutsideController?.remove?.();
+      dashboardCommandPanelOutsideController = null;
+      if (commandPanel) {
+        commandPanel.classList.add("hidden");
+        commandPanel.classList.remove("has-form");
+        commandPanel.style.left = "";
+        commandPanel.style.top = "";
+        commandPanel.style.maxHeight = "";
+        if (commandPanel.isConnected) {
+          commandPanel.remove();
+        }
+      }
+      dashboardCommandPanelAnchor?.classList.remove("is-active", "is-open");
+      dashboardCommandPanelAnchor = null;
+    };
+    const bindDashboardCommandPanelOutsideClose = (anchorElement = null) => {
+      dashboardCommandPanelOutsideController?.remove?.();
+      dashboardCommandPanelOutsideController = createWorkspaceMenuOutsideController({
+        isOpen: () => Boolean(commandPanel && !commandPanel.classList.contains("hidden")),
+        closeOnViewportChange: true,
+        shouldKeepOpen: (event) =>
+          Boolean(commandPanel?.contains?.(event.target) || anchorElement?.contains?.(event.target)),
+        onClose: closeDashboardCommandPanel
+      });
+      window.setTimeout(() => dashboardCommandPanelOutsideController?.install?.(), 0);
+    };
+    const parseDashboardDelimitedText = (text = "") => {
+      const sample = String(text || "").split(/\r?\n/).slice(0, 8).join("\n");
+      const delimiter = ["\t", ";", ","]
+        .map((candidate) => ({
+          candidate,
+          count: (sample.match(new RegExp(candidate === "\t" ? "\\t" : `\\${candidate}`, "g")) || []).length
+        }))
+        .sort((left, right) => right.count - left.count)[0]?.candidate || ",";
+      const rows = [];
+      let current = "";
+      let row = [];
+      let inQuotes = false;
+      for (let index = 0; index < text.length; index += 1) {
+        const char = text[index];
+        const nextChar = text[index + 1];
+        if (char === '"' && inQuotes && nextChar === '"') {
+          current += '"';
+          index += 1;
+          continue;
+        }
+        if (char === '"') {
+          inQuotes = !inQuotes;
+          continue;
+        }
+        if (!inQuotes && char === delimiter) {
+          row.push(current);
+          current = "";
+          continue;
+        }
+        if (!inQuotes && (char === "\n" || char === "\r")) {
+          if (char === "\r" && nextChar === "\n") {
+            index += 1;
+          }
+          row.push(current);
+          if (row.some((cell) => String(cell || "").trim())) {
+            rows.push(row);
+          }
+          row = [];
+          current = "";
+          continue;
+        }
+        current += char;
+      }
+      row.push(current);
+      if (row.some((cell) => String(cell || "").trim())) {
+        rows.push(row);
+      }
+      if (!rows.length) {
+        return [];
+      }
+      return rows.map((cells) => cells.map((cell) => String(cell || "").trim()));
+    };
+    const dashboardTablePayloadFromRows = (rows = [], fileName = "", sourceType = "csv") => {
+      const [header = [], ...bodyRows] = rows;
+      const width = Math.max(1, ...rows.map((row) => row.length));
+      const columns = Array.from({ length: width }, (_, index) => {
+        const value = String(header[index] || "").trim();
+        return value || `Column ${index + 1}`;
+      });
+      const normalizedRows = bodyRows.map((row) =>
+        Array.from({ length: width }, (_, index) => String(row[index] ?? "").trim())
+      );
+      return { fileName, sourceType, columns, rows: normalizedRows };
+    };
+    const dashboardTablePayloadFromWorkbook = (payload = {}, file = null) => {
+      const workbookModel = payload?.model || payload?.workbook || payload;
+      const sheets = Array.isArray(workbookModel?.sheets) ? workbookModel.sheets : [];
+      const sheet = sheets.find((candidate) => Array.isArray(candidate?.rows) && candidate.rows.length) || sheets[0];
+      if (!sheet) {
+        throw new Error("No worksheet found in this workbook.");
+      }
+      return {
+        fileName: payload?.filename || file?.name || sheet.name || "Imported workbook",
+        sourceType: "xlsx",
+        columns: Array.isArray(sheet.columns) ? sheet.columns : [],
+        rows: Array.isArray(sheet.rows) ? sheet.rows : []
+      };
+    };
+    const importDashboardFile = async (file = null) => {
+      if (!file) {
+        return;
+      }
+      try {
+        updatePreviewStatus(`Import: ${file.name}`);
+        const extension = String(file.name || "").split(".").pop().toLowerCase();
+        let payload = null;
+        if (["xlsx", "xlsm", "xlsb", "xls"].includes(extension)) {
+          const formData = new FormData();
+          formData.append("workbook", file);
+          const response = await fetch("/api/sheets/import-xlsx", {
+            method: "POST",
+            body: formData
+          });
+          if (!response.ok) {
+            throw new Error(await response.text());
+          }
+          payload = dashboardTablePayloadFromWorkbook(await response.json(), file);
+        } else {
+          payload = dashboardTablePayloadFromRows(parseDashboardDelimitedText(await file.text()), file.name, extension || "csv");
+        }
+        if (!payload?.columns?.length || !payload?.rows?.length) {
+          throw new Error("The imported file does not contain a usable table.");
+        }
+        runDashboardCommand("dashboardImportData", { value: payload }, `${payload.rows.length} lignes importees`);
+      } catch (error) {
+        updatePreviewStatus("Import impossible");
+        window.alert(`Dashboard import failed: ${error.message || error}`);
+      }
+    };
+    const openDashboardLocalFileImport = () => {
+      if (!dashboardImportInput) {
+        return;
+      }
+      closeDashboardCommandPanel();
+      dashboardImportInput.value = "";
+      dashboardImportInput.click();
+    };
+    const openDashboardDataImport = (anchorElement = null) => {
+      const normalizedSources = Array.isArray(sheetDataSources) ? sheetDataSources.filter(Boolean) : [];
+      const linkedSource = model.source && String(model.source.type || "") === "hydria-sheet"
+        ? {
+            label: "Actualiser depuis le Sheet lie",
+            icon: "refresh",
+            meta: model.source.title || model.source.sheetName || "Source Hydria Sheet",
+            action: () => {
+              closeDashboardCommandPanel();
+              runDashboardCommand("dashboardImportSheetSource", { value: model.source }, "Source Sheet actualisee");
+            }
+          }
+        : null;
+      const sheetSourceActions = normalizedSources.length
+        ? normalizedSources.map((source) => ({
+            label: source.label || "Hydria Sheet",
+            icon: "table",
+            meta: source.meta || "Source Hydria",
+            disabled: !source.workObjectId && !source.payload,
+            action: () => {
+              closeDashboardCommandPanel();
+              runDashboardCommand(
+                "dashboardImportSheetSource",
+                { value: source },
+                `Source: ${source.label || "Hydria Sheet"}`
+              );
+            }
+          }))
+        : [
+            {
+              label: "Aucun Sheet ouvert",
+              icon: "table",
+              meta: "Ouvre ou cree un Sheet pour le reutiliser ici.",
+              disabled: true
+            }
+          ];
+
+      showCommandPanel(
+        "Obtenir les donnees",
+        "Importe un fichier local ou reutilise un Sheet deja ouvert dans Hydria.",
+        [
+          {
+            label: "Importer depuis cet ordinateur",
+            icon: "upload",
+            meta: "CSV, TSV ou XLSX",
+            action: openDashboardLocalFileImport
+          },
+          ...(linkedSource ? [linkedSource] : []),
+          ...sheetSourceActions
+        ],
+        { anchorElement, width: 420 }
+      );
+    };
+    const setActiveButton = (host, activeButton) => {
+      host?.querySelectorAll?.("button").forEach((button) => {
+        button.classList.toggle("is-active", button === activeButton);
+        if (button !== activeButton) {
+          button.classList.remove("is-open");
+        }
+      });
+    };
     const createPowerIcon = (icon, className = "workspace-powerbi-icon") =>
       createWorkspaceIconNode(icon, { className, label: icon });
-    const createRailButton = (label, icon, active = false) => {
+    const createRailButton = (label, icon, active = false, onClick = null) => {
       const button = document.createElement("button");
       button.type = "button";
       button.className = `workspace-powerbi-rail-button${active ? " is-active" : ""}`;
       button.append(createPowerIcon(icon), document.createElement("span"));
       button.lastChild.textContent = label;
+      button.addEventListener("click", () => {
+        closeDashboardCommandPanel();
+        setActiveButton(button.parentElement, button);
+        updatePreviewStatus(label);
+        onClick?.(button);
+      });
       return button;
     };
-    const createTopButton = (label, icon) => {
+    const createTopButton = (label, icon, onClick = null) => {
       const button = document.createElement("button");
       button.type = "button";
       button.className = "workspace-powerbi-top-command";
       button.append(createPowerIcon(icon), document.createElement("span"));
       button.lastChild.textContent = label;
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        setActiveButton(button.parentElement, button);
+        dashboardCommandPanelAnchor = button;
+        button.classList.add("is-open");
+        updatePreviewStatus(label);
+        onClick?.(button);
+      });
       return button;
     };
-    const createKpiCard = (metric) => {
+    const createServiceButton = (icon, title, onClick = null) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "workspace-powerbi-service-action";
+      button.title = title;
+      button.setAttribute("aria-label", title);
+      button.appendChild(createPowerIcon(icon));
+      button.addEventListener("click", () => {
+        updatePreviewStatus(title);
+        onClick?.();
+      });
+      return button;
+    };
+    const appendDashboardPreviewCommandGroups = (host, items = []) => {
+      if (!host) {
+        return;
+      }
+      let group = null;
+      const ensureGroup = () => {
+        if (!group) {
+          group = document.createElement("div");
+          group.className = "workspace-dashboard-command-group";
+          host.appendChild(group);
+        }
+        return group;
+      };
+      items.forEach((item) => {
+        if (item.separator) {
+          group = null;
+          return;
+        }
+        const button = createWorkspaceMenuActionButton(item, {
+          actionClassName: "workspace-dashboard-command-button",
+          iconClassName: "workspace-dashboard-command-icon",
+          labelClassName: "workspace-dashboard-command-label",
+          metaClassName: "workspace-dashboard-command-meta",
+          hasSubmenu: Boolean(item.items?.length),
+          createIconNode: createWorkspaceIconNode,
+          resolveIconName: getWorkspaceCommandIcon,
+          chevronClassName: "workspace-dashboard-command-icon",
+          onClick: (event, clickedItem) => {
+            event.preventDefault();
+            dashboardCommandPanelAnchor = button;
+            button.classList.add("is-active", "is-open");
+            if (clickedItem.commandId === "dashboardImportData") {
+              openDashboardDataImport(button);
+              return;
+            }
+            if (clickedItem.commandId === "dashboardAddMetric") {
+              showDashboardMetricCreator();
+              return;
+            }
+            if (clickedItem.commandId === "dashboardAddFilter") {
+              showDashboardSegmentCreator();
+              return;
+            }
+            if (clickedItem.commandId === "dashboardAddChart") {
+              showDashboardVisualCreator(clickedItem.value || "bar");
+              return;
+            }
+            if (Array.isArray(clickedItem.items) && clickedItem.items.length) {
+              showCommandPanel(clickedItem.label, "Choisis le type de visuel a ajouter au rapport.", clickedItem.items.map((childItem) => ({
+                label: childItem.label,
+                icon: childItem.icon,
+                action: () => showDashboardVisualCreator(childItem.value || "bar")
+              })));
+              return;
+            }
+            const nextView =
+              clickedItem.commandId === "dashboardAddTableRow" || clickedItem.commandId === "dashboardAddTableColumn"
+                ? "data"
+                : "overview";
+            runDashboardCommandWithView(clickedItem.commandId, { value: clickedItem.value }, clickedItem.label, nextView);
+          }
+        });
+        ensureGroup().appendChild(button);
+      });
+    };
+    const dashboardContextMenu = document.createElement("div");
+    dashboardContextMenu.className = "workspace-sheet-context-menu workspace-dashboard-context-menu";
+    dashboardContextMenu.hidden = true;
+    dashboardContextMenu.setAttribute("role", "menu");
+    installWorkspaceMenuEventBlockers(dashboardContextMenu);
+    let dashboardContextTarget = { targetType: "canvas", sourceIndex: null, pageLabel: "" };
+    let dashboardContextMenuApi = null;
+    const dashboardContextCommandTarget = () => ({
+      targetType: dashboardContextTarget?.targetType || "canvas",
+      ...(Number.isInteger(dashboardContextTarget?.sourceIndex)
+        ? { index: dashboardContextTarget.sourceIndex, sourceIndex: dashboardContextTarget.sourceIndex }
+        : {}),
+      ...(dashboardContextTarget?.pageLabel ? { page: dashboardContextTarget.pageLabel } : {})
+    });
+    const promptDashboardPageName = (message = "Nom de la page", fallback = "") => {
+      const value = window.prompt(message, fallback);
+      return value === null ? null : String(value || "").trim();
+    };
+    const handleDashboardContextMenuAction = (menuItem = {}) => {
+      if (!menuItem?.commandId || menuItem.disabled) {
+        return;
+      }
+      if (menuItem.commandId === "dashboardAddPage") {
+        const pageName = promptDashboardPageName("Nom de la nouvelle page", `Page ${(model.filters || []).length + 1}`);
+        if (!pageName) {
+          return;
+        }
+        runDashboardCommandWithView(menuItem.commandId, { value: { name: pageName } }, menuItem.label, "overview");
+        return;
+      }
+      if (menuItem.commandId === "dashboardRenamePage") {
+        const currentPage = dashboardContextTarget?.pageLabel || activeFilter || "";
+        const pageName = promptDashboardPageName("Renommer la page", currentPage);
+        if (!pageName || !currentPage) {
+          return;
+        }
+        runDashboardCommandWithView(
+          menuItem.commandId,
+          { value: { from: currentPage, to: pageName } },
+          menuItem.label,
+          "overview"
+        );
+        return;
+      }
+      if (menuItem.commandId === "dashboardDuplicatePage") {
+        const currentPage = dashboardContextTarget?.pageLabel || activeFilter || "Overview";
+        const pageName = promptDashboardPageName("Nom de la copie", `${currentPage} copy`);
+        if (!pageName) {
+          return;
+        }
+        runDashboardCommandWithView(
+          menuItem.commandId,
+          { value: { from: currentPage, to: pageName } },
+          menuItem.label,
+          "overview"
+        );
+        return;
+      }
+      if (menuItem.commandId === "dashboardDeletePage") {
+        const currentPage = dashboardContextTarget?.pageLabel || activeFilter || "";
+        if (!currentPage || !window.confirm(`Supprimer la page "${currentPage}" ?`)) {
+          return;
+        }
+        runDashboardCommandWithView(
+          menuItem.commandId,
+          { value: { page: currentPage } },
+          menuItem.label,
+          "overview"
+        );
+        return;
+      }
+      if (menuItem.commandId === "dashboardImportData") {
+        openDashboardDataImport();
+        return;
+      }
+      if (menuItem.commandId === "dashboardAddMetric") {
+        showDashboardMetricCreator();
+        return;
+      }
+      if (menuItem.commandId === "dashboardAddFilter") {
+        showDashboardSegmentCreator();
+        return;
+      }
+      if (menuItem.commandId === "dashboardAddChart") {
+        showDashboardVisualCreator(menuItem.value || "bar");
+        return;
+      }
+      if (menuItem.commandId === "dashboardChangeChartType") {
+        runDashboardCommandWithView(
+          menuItem.commandId,
+          {
+            ...dashboardContextCommandTarget(),
+            kind: menuItem.value || "bar"
+          },
+          menuItem.label,
+          "overview"
+        );
+        return;
+      }
+      runDashboardCommandWithView(
+        menuItem.commandId,
+        {
+          ...dashboardContextCommandTarget(),
+          value: menuItem.value
+        },
+        menuItem.label,
+        "overview"
+      );
+    };
+    dashboardContextMenuApi = createWorkspaceContextMenu({
+      root: dashboardContextMenu,
+      controllerOptions: {
+        rootOpenLeftClassName: "opens-left",
+        submenuClassName: "workspace-sheet-context-submenu",
+        itemOpenClassName: "is-open",
+        submenuZIndexBase: 2200,
+        leftLookaheadWidth: 560
+      },
+      renderOptions: {
+        itemClassName: "workspace-sheet-context-item",
+        itemDisabledClassName: "is-disabled",
+        itemOpenClassName: "is-open",
+        separatorClassName: "workspace-sheet-context-separator",
+        submenuClassName: "workspace-sheet-context-submenu",
+        actionOptions: {
+          actionClassName: "workspace-sheet-context-action",
+          iconClassName: "workspace-sheet-context-icon",
+          labelClassName: "workspace-sheet-context-label",
+          metaClassName: "workspace-sheet-context-meta",
+          chevronClassName: "workspace-sheet-context-chevron",
+          role: "menuitem",
+          createIconNode: createWorkspaceIconNode,
+          resolveIconName: getWorkspaceCommandIcon
+        },
+        onActionSelect: handleDashboardContextMenuAction
+      }
+    });
+    const openDashboardContextMenu = (event, target = {}) => {
+      event?.preventDefault?.();
+      event?.stopPropagation?.();
+      dashboardContextTarget = {
+        targetType: target.targetType || "canvas",
+        sourceIndex: Number.isInteger(target.sourceIndex) ? target.sourceIndex : null,
+        pageLabel: String(target.pageLabel || "")
+      };
+      const isPageTarget = dashboardContextTarget.targetType === "page";
+      dashboardContextMenuApi?.open?.(
+        isPageTarget
+          ? createWorkspaceDashboardPageMenuItems({
+              isOverview: String(dashboardContextTarget.pageLabel || "").trim().toLowerCase() === "overview",
+              canDelete: (model.filters || []).length > 1
+            })
+          : createWorkspaceDashboardContextMenuItems({
+              targetType: dashboardContextTarget.targetType,
+              canRemoveMetric: (model.metrics || []).length > 1,
+              canRemoveChart: (model.charts || []).length > 1,
+              includeImportData: true
+            }),
+        {
+          clientX: event?.clientX || 0,
+          clientY: event?.clientY || 0
+        }
+      );
+    };
+    let dashboardLayoutCanvas = null;
+    const powerBiLayoutGrid = {
+      cellSize: 24,
+      originX: 24,
+      originY: 24,
+      columnWidth: 264,
+      rowHeight: 120,
+      gap: 0,
+      columns: 4
+    };
+    const clampPowerBiLayoutValue = (value = 0, min = 0, max = 1000) => {
+      const numeric = Number(value);
+      return Number.isFinite(numeric) ? Math.min(Math.max(Math.round(numeric), min), max) : min;
+    };
+    const powerBiGridSizeToPixels = (span = 1, unit = 1) => {
+      const safeSpan = Math.max(1, Number(span) || 1);
+      return safeSpan * unit + (safeSpan - 1) * powerBiLayoutGrid.gap;
+    };
+    const closestPowerBiGridSize = (value = 0, unit = 1, minSpan = 1, maxSpan = 1) => {
+      const numeric = Number(value);
+      const safeValue = Number.isFinite(numeric) ? numeric : powerBiGridSizeToPixels(minSpan, unit);
+      let closest = powerBiGridSizeToPixels(minSpan, unit);
+      let closestDistance = Math.abs(safeValue - closest);
+      for (let span = minSpan + 1; span <= maxSpan; span += 1) {
+        const candidate = powerBiGridSizeToPixels(span, unit);
+        const distance = Math.abs(safeValue - candidate);
+        if (distance < closestDistance) {
+          closest = candidate;
+          closestDistance = distance;
+        }
+      }
+      return closest;
+    };
+    const snapPowerBiGridSize = (value = 0, min = powerBiLayoutGrid.cellSize, max = 5000) => {
+      const numeric = Number(value);
+      const safeValue = Number.isFinite(numeric) ? numeric : min;
+      const snapped = Math.round(safeValue / powerBiLayoutGrid.cellSize) * powerBiLayoutGrid.cellSize;
+      return Math.min(Math.max(snapped, min), max);
+    };
+    const snapPowerBiGridCoordinate = (value = 0, origin = 0) => {
+      const numeric = Number(value);
+      if (!Number.isFinite(numeric)) {
+        return origin;
+      }
+      const snapped =
+        origin + Math.round((numeric - origin) / powerBiLayoutGrid.cellSize) * powerBiLayoutGrid.cellSize;
+      return Math.max(0, snapped);
+    };
+    const snapPowerBiLayoutSize = (layout = {}, options = {}) => ({
+      ...layout,
+      x: snapPowerBiGridCoordinate(layout.x, powerBiLayoutGrid.originX),
+      y: snapPowerBiGridCoordinate(layout.y, powerBiLayoutGrid.originY),
+      w: snapPowerBiGridSize(
+        layout.w,
+        options.minWidth || powerBiLayoutGrid.cellSize * 5,
+        options.maxWidth || powerBiLayoutGrid.columnWidth * powerBiLayoutGrid.columns
+      ),
+      h: snapPowerBiGridSize(
+        layout.h,
+        options.minHeight || powerBiLayoutGrid.cellSize * 3,
+        options.maxHeight || powerBiLayoutGrid.rowHeight * 8
+      )
+    });
+    const normalizePowerBiLayout = (layout = {}, fallback = {}) => {
+      const readValue = (key = "", defaultValue = 0, min = 0, max = 5000) => {
+        const value = Number(layout?.[key] ?? fallback?.[key] ?? defaultValue);
+        return Number.isFinite(value) ? Math.min(Math.max(Math.round(value), min), max) : defaultValue;
+      };
+      return {
+        x: readValue("x", 24, 0),
+        y: readValue("y", 24, 0),
+        w: readValue("w", 240, 120),
+        h: readValue("h", 120, 72),
+        z: readValue("z", 0, -1000, 1000)
+      };
+    };
+    const defaultMetricLayout = (index = 0) => ({
+      x: powerBiLayoutGrid.originX + (Math.max(0, index) % powerBiLayoutGrid.columns) * (powerBiLayoutGrid.columnWidth + powerBiLayoutGrid.gap),
+      y: powerBiLayoutGrid.originY + Math.floor(Math.max(0, index) / powerBiLayoutGrid.columns) * (powerBiLayoutGrid.rowHeight + powerBiLayoutGrid.gap),
+      w: powerBiLayoutGrid.columnWidth,
+      h: powerBiLayoutGrid.rowHeight
+    });
+    const defaultChartLayout = (index = 0) => ({
+      x: powerBiLayoutGrid.originX + (Math.max(0, index) % 2) * (powerBiGridSizeToPixels(2, powerBiLayoutGrid.columnWidth) + powerBiLayoutGrid.gap),
+      y: powerBiLayoutGrid.originY + (powerBiLayoutGrid.rowHeight + powerBiLayoutGrid.gap) + Math.floor(Math.max(0, index) / 2) * (powerBiGridSizeToPixels(2, powerBiLayoutGrid.rowHeight) + powerBiLayoutGrid.gap),
+      w: powerBiGridSizeToPixels(2, powerBiLayoutGrid.columnWidth),
+      h: powerBiGridSizeToPixels(2, powerBiLayoutGrid.rowHeight)
+    });
+    const powerBiGridUnitToLayout = (unit = {}) => ({
+      x: powerBiLayoutGrid.originX + clampPowerBiLayoutValue(unit.col, 0, powerBiLayoutGrid.columns - 1) * (powerBiLayoutGrid.columnWidth + powerBiLayoutGrid.gap),
+      y: powerBiLayoutGrid.originY + Math.max(0, clampPowerBiLayoutValue(unit.row, 0, 200)) * (powerBiLayoutGrid.rowHeight + powerBiLayoutGrid.gap),
+      w: powerBiGridSizeToPixels(clampPowerBiLayoutValue(unit.colSpan, 1, powerBiLayoutGrid.columns), powerBiLayoutGrid.columnWidth),
+      h: powerBiGridSizeToPixels(clampPowerBiLayoutValue(unit.rowSpan, 1, 12), powerBiLayoutGrid.rowHeight)
+    });
+    const powerBiLayoutToGridUnit = (type = "chart", layout = {}, fallback = {}) => {
+      const normalized = normalizePowerBiLayout(layout, fallback);
+      const stepX = powerBiLayoutGrid.columnWidth + powerBiLayoutGrid.gap;
+      const stepY = powerBiLayoutGrid.rowHeight + powerBiLayoutGrid.gap;
+      const minColSpan = type === "chart" ? 2 : 1;
+      const minRowSpan = type === "chart" ? 2 : 1;
+      const colSpan = clampPowerBiLayoutValue(Math.round((normalized.w + powerBiLayoutGrid.gap) / stepX), minColSpan, powerBiLayoutGrid.columns);
+      const rowSpan = clampPowerBiLayoutValue(Math.round((normalized.h + powerBiLayoutGrid.gap) / stepY), minRowSpan, 8);
+      return {
+        col: clampPowerBiLayoutValue(Math.round((normalized.x - powerBiLayoutGrid.originX) / stepX), 0, powerBiLayoutGrid.columns - colSpan),
+        row: clampPowerBiLayoutValue(Math.round((normalized.y - powerBiLayoutGrid.originY) / stepY), 0, 200),
+        colSpan,
+        rowSpan
+      };
+    };
+    const packPowerBiLayoutItems = (items = []) => {
+      const occupancy = new Set();
+      const packed = new Map();
+      const canPlace = (unit) => {
+        if (unit.col < 0 || unit.col + unit.colSpan > powerBiLayoutGrid.columns) {
+          return false;
+        }
+        for (let row = unit.row; row < unit.row + unit.rowSpan; row += 1) {
+          for (let col = unit.col; col < unit.col + unit.colSpan; col += 1) {
+            if (occupancy.has(`${row}:${col}`)) {
+              return false;
+            }
+          }
+        }
+        return true;
+      };
+      const occupy = (unit) => {
+        for (let row = unit.row; row < unit.row + unit.rowSpan; row += 1) {
+          for (let col = unit.col; col < unit.col + unit.colSpan; col += 1) {
+            occupancy.add(`${row}:${col}`);
+          }
+        }
+      };
+      const findSlot = (unit) => {
+        const preferredCol = clampPowerBiLayoutValue(unit.col, 0, powerBiLayoutGrid.columns - unit.colSpan);
+        const preferredRow = Math.max(0, unit.row);
+        for (let row = preferredRow; row < preferredRow + 200; row += 1) {
+          const columns = [];
+          for (let col = preferredCol; col <= powerBiLayoutGrid.columns - unit.colSpan; col += 1) {
+            columns.push(col);
+          }
+          for (let col = 0; col < preferredCol; col += 1) {
+            columns.push(col);
+          }
+          for (const col of columns) {
+            const candidate = { ...unit, row, col };
+            if (canPlace(candidate)) {
+              return candidate;
+            }
+          }
+        }
+        return { ...unit, row: preferredRow, col: preferredCol };
+      };
+      [...items]
+        .sort((left, right) => left.unit.row - right.unit.row || left.unit.col - right.unit.col || left.order - right.order)
+        .forEach((item) => {
+          const slot = findSlot(item.unit);
+          occupy(slot);
+          packed.set(item.key, powerBiGridUnitToLayout(slot));
+        });
+      return packed;
+    };
+    const powerBiLayoutsOverlap = (left = {}, right = {}, gap = 0) =>
+      left.x < right.x + right.w + gap &&
+      left.x + left.w + gap > right.x &&
+      left.y < right.y + right.h + gap &&
+      left.y + left.h + gap > right.y;
+    const resolvePowerBiLayoutItems = (items = []) => {
+      const placed = [];
+      const packed = new Map();
+      [...items]
+        .sort((left, right) => left.layout.y - right.layout.y || left.layout.x - right.layout.x || left.order - right.order)
+        .forEach((item) => {
+          const layout = snapPowerBiLayoutSize(item.layout);
+          let guard = 0;
+          while (placed.some((placedLayout) => powerBiLayoutsOverlap(layout, placedLayout)) && guard < 200) {
+            const blockingLayout = placed.find((placedLayout) => powerBiLayoutsOverlap(layout, placedLayout));
+            layout.y = snapPowerBiGridCoordinate(
+              Math.max(
+                layout.y + powerBiLayoutGrid.cellSize,
+                (blockingLayout?.y || 0) + (blockingLayout?.h || 0) + powerBiLayoutGrid.gap
+              ),
+              powerBiLayoutGrid.originY
+            );
+            guard += 1;
+          }
+          placed.push(layout);
+          packed.set(item.key, layout);
+        });
+      return packed;
+    };
+    const readFiniteLayoutValue = (value, fallback = 0) => {
+      const numeric = Number.parseFloat(value);
+      return Number.isFinite(numeric) ? numeric : fallback;
+    };
+    const readLayoutFromElement = (element, fallback = {}) => ({
+      x: readFiniteLayoutValue(element.style.left, fallback.x || 0),
+      y: readFiniteLayoutValue(element.style.top, fallback.y || 0),
+      w: readFiniteLayoutValue(element.style.width, fallback.w || element.offsetWidth || 240),
+      h: readFiniteLayoutValue(element.style.height, fallback.h || element.offsetHeight || 120),
+      z: readFiniteLayoutValue(element.dataset.dashboardZ, fallback.z || 0)
+    });
+    const selectDashboardLayoutItem = (element) => {
+      dashboardLayoutCanvas
+        ?.querySelectorAll(".workspace-powerbi-layout-item.is-selected")
+        ?.forEach((item) => item.classList.remove("is-selected"));
+      element?.classList?.add("is-selected");
+      if (element) {
+        writeDashboardSelectionFromElement(element);
+      }
+      element?.focus?.({ preventScroll: true });
+    };
+    const setDashboardLayoutCanvasHeight = (nextHeight = 420) => {
+      if (!dashboardLayoutCanvas) {
+        return;
+      }
+      const normalizedHeight = Math.max(
+        420,
+        snapPowerBiGridCoordinate(nextHeight, powerBiLayoutGrid.originY)
+      );
+      const currentHeight = Number.parseFloat(dashboardLayoutCanvas.style.height || "");
+      if (Number.isFinite(currentHeight) && Math.abs(currentHeight - normalizedHeight) < 1) {
+        return;
+      }
+      dashboardLayoutCanvas.style.height = `${normalizedHeight}px`;
+    };
+    const extendDashboardLayoutCanvasHeight = (previewBox = null) => {
+      if (
+        !dashboardLayoutCanvas ||
+        !previewBox ||
+        !Number.isFinite(Number(previewBox.y)) ||
+        !Number.isFinite(Number(previewBox.h))
+      ) {
+        return;
+      }
+      const previewBottom = Number(previewBox.y) + Number(previewBox.h) + powerBiLayoutGrid.originY;
+      const currentHeight = Number.parseFloat(dashboardLayoutCanvas.style.height || "420") || 420;
+      if (previewBottom > currentHeight - powerBiLayoutGrid.cellSize) {
+        setDashboardLayoutCanvasHeight(previewBottom + powerBiLayoutGrid.rowHeight);
+      }
+    };
+    const syncDashboardLayoutCanvasHeight = () => {
+      if (!dashboardLayoutCanvas) {
+        return;
+      }
+      const maxBottom = Array.from(dashboardLayoutCanvas.querySelectorAll(".workspace-powerbi-layout-item")).reduce(
+        (bottom, item) => {
+          const layout = readLayoutFromElement(item);
+          return Math.max(bottom, layout.y + layout.h + powerBiLayoutGrid.originY);
+        },
+        420
+      );
+      setDashboardLayoutCanvasHeight(maxBottom);
+    };
+    const startDashboardLayoutInteraction = (element) => {
+      dashboardLayoutCanvas?.classList.add("is-layout-editing");
+      selectDashboardLayoutItem(element);
+    };
+    const finishDashboardLayoutInteraction = () => {
+      dashboardLayoutCanvas?.classList.remove("is-layout-editing");
+      syncDashboardLayoutCanvasHeight();
+    };
+    const applyDashboardLayoutItem = (
+      element,
+      {
+        type = "chart",
+        index = 0,
+        layout = {},
+        minWidth = 160,
+        minHeight = 90,
+        contextTarget = null,
+        onCommit = null
+      } = {}
+    ) => {
+      const normalizedLayout = normalizePowerBiLayout(layout, {
+        ...(type === "metric" ? defaultMetricLayout(index) : defaultChartLayout(index))
+      });
+      element.classList.add("workspace-powerbi-layout-item", `workspace-powerbi-layout-item--${type}`);
+      element.tabIndex = 0;
+      element.style.left = `${normalizedLayout.x}px`;
+      element.style.top = `${normalizedLayout.y}px`;
+      element.style.width = `${normalizedLayout.w}px`;
+      element.style.height = `${normalizedLayout.h}px`;
+      element.dataset.dashboardZ = String(normalizedLayout.z || 0);
+      element.dataset.dashboardLayoutKey = `${type}-${index}`;
+      element.style.zIndex = String(Math.max(0, 1000 + (normalizedLayout.z || 0)));
+      const focusLayoutTarget = () => {
+        writeDashboardSelection({ type, index });
+        if (type === "metric") {
+          onWidgetFocus?.(`metric-${index + 1}`);
+          return;
+        }
+        onChartFocus?.(`chart-${index + 1}`);
+      };
+      const currentDashboardSelection = readDashboardSelection();
+      const isActiveLayoutItem =
+        currentDashboardSelection.type === type && currentDashboardSelection.index === index;
+      element.classList.toggle("is-selected", isActiveLayoutItem);
+      element.addEventListener("pointerdown", () => {
+        selectDashboardLayoutItem(element);
+      });
+      element.addEventListener("mousedown", () => {
+        selectDashboardLayoutItem(element);
+      });
+      element.addEventListener("click", (event) => {
+        event.stopPropagation();
+        selectDashboardLayoutItem(element);
+        focusLayoutTarget();
+      });
+      element.addEventListener("contextmenu", (event) => {
+        selectDashboardLayoutItem(element);
+        openDashboardContextMenu(event, contextTarget || { targetType: type, sourceIndex: index });
+      });
+      element.addEventListener("focus", () => selectDashboardLayoutItem(element));
+
+      const commitLayout = (nextPatch = {}) => {
+        const currentLayout = readLayoutFromElement(element, normalizedLayout);
+        const cleanPatch = Object.fromEntries(
+          Object.entries(nextPatch).filter(([, value]) => value !== undefined && value !== null)
+        );
+        onCommit?.({
+          ...currentLayout,
+          ...cleanPatch
+        });
+      };
+      const getDragBounds = () => {
+        const canvasBounds = dashboardLayoutCanvas?.getBoundingClientRect?.() || { width: 1180, height: 620 };
+        const currentWidth = element.offsetWidth || normalizedLayout.w;
+        const currentHeight = element.offsetHeight || normalizedLayout.h;
+        return {
+          width: Math.max(0, canvasBounds.width - currentWidth + 24),
+          height: Math.max(
+            0,
+            canvasBounds.height + powerBiLayoutGrid.rowHeight * 8 - currentHeight + 24
+          )
+        };
+      };
+      const getResizeBounds = () => {
+        const canvasBounds = dashboardLayoutCanvas?.getBoundingClientRect?.() || { width: 1180, height: 620 };
+        return {
+          width: Math.max(minWidth, canvasBounds.width),
+          height: Math.max(minHeight, canvasBounds.height + powerBiLayoutGrid.rowHeight * 6)
+        };
+      };
+      const snapDashboardPosition = (x = 0, y = 0) => {
+        const currentLayout = readLayoutFromElement(element, normalizedLayout);
+        const snappedLayout = snapPowerBiLayoutSize({
+          ...currentLayout,
+          x,
+          y
+        });
+        return { x: snappedLayout.x, y: snappedLayout.y };
+      };
+      const snapDashboardResizeBox = (box = {}) => {
+        const snappedLayout = snapPowerBiLayoutSize({
+          x: box.x,
+          y: box.y,
+          w: box.width,
+          h: box.height
+        }, {
+          minWidth,
+          minHeight
+        });
+        return {
+          x: snappedLayout.x,
+          y: snappedLayout.y,
+          width: snappedLayout.w,
+          height: snappedLayout.h
+        };
+      };
+      attachPreviewDrag(element, {
+        initialX: normalizedLayout.x,
+        initialY: normalizedLayout.y,
+        minX: 0,
+        minY: 0,
+        getBounds: getDragBounds,
+        onStart: startDashboardLayoutInteraction,
+        onEnd: finishDashboardLayoutInteraction,
+        onUpdate: (x, y) => {
+          const currentHeight = readFiniteLayoutValue(element.style.height, normalizedLayout.h || minHeight);
+          extendDashboardLayoutCanvasHeight({ y, h: currentHeight });
+        },
+        onCommit: (x, y) => {
+          const snapped = snapDashboardPosition(x, y);
+          element.style.left = `${snapped.x}px`;
+          element.style.top = `${snapped.y}px`;
+          syncDashboardLayoutCanvasHeight();
+          commitLayout(snapped);
+        }
+      });
+      ["n", "ne", "e", "se", "s", "sw", "w", "nw"].forEach((direction) => {
+        const resizeHandle = document.createElement("span");
+        resizeHandle.className = `workspace-powerbi-layout-resize workspace-powerbi-layout-resize--${direction} workspace-preview-resize-handle`;
+        resizeHandle.dataset.resizeDirection = direction;
+        resizeHandle.title = "Redimensionner";
+        resizeHandle.setAttribute("aria-hidden", "true");
+        element.appendChild(resizeHandle);
+        attachPreviewResize(resizeHandle, {
+          target: element,
+          initialX: normalizedLayout.x,
+          initialY: normalizedLayout.y,
+          initialWidth: normalizedLayout.w,
+          initialHeight: normalizedLayout.h,
+          direction,
+          resizeMode: "box",
+          minWidth,
+          minHeight,
+          getBounds: getResizeBounds,
+          onStart: startDashboardLayoutInteraction,
+          onEnd: finishDashboardLayoutInteraction,
+          onUpdate: (_w, _h, _target, box) => {
+            extendDashboardLayoutCanvasHeight({ y: box?.y, h: box?.h });
+          },
+          onCommit: (w, h, box) => {
+            const snapped = snapDashboardResizeBox({
+              x: box?.x,
+              y: box?.y,
+              width: w,
+              height: h
+            });
+            element.style.left = `${snapped.x}px`;
+            element.style.top = `${snapped.y}px`;
+            element.style.width = `${snapped.width}px`;
+            element.style.height = `${snapped.height}px`;
+            syncDashboardLayoutCanvasHeight();
+            commitLayout({ x: snapped.x, y: snapped.y, w: snapped.width, h: snapped.height });
+          }
+        });
+      });
+      return element;
+    };
+    const createKpiCard = (metric, options = {}) => {
       const card = document.createElement("article");
       card.className = "workspace-powerbi-kpi-card";
       const label = document.createElement("span");
@@ -25581,6 +27161,17 @@ function renderDashboardExperiencePreview(
       const meta = document.createElement("small");
       meta.textContent = metric.meta || "Updated";
       card.append(label, value, meta);
+      if (options.layout && Number.isInteger(options.sourceIndex)) {
+        applyDashboardLayoutItem(card, {
+          type: "metric",
+          index: options.sourceIndex,
+          layout: options.layout,
+          minWidth: 120,
+          minHeight: 72,
+          contextTarget: { targetType: "metric", sourceIndex: options.sourceIndex },
+          onCommit: (nextLayout) => onMetricLayoutChange?.(options.sourceIndex, nextLayout)
+        });
+      }
       return card;
     };
     const createVisualCard = (title, extraClass = "") => {
@@ -25643,8 +27234,175 @@ function renderDashboardExperiencePreview(
       table.appendChild(tbody);
       card.appendChild(table);
     };
+    const createDashboardSvg = (className = "") => {
+      const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      svg.setAttribute("class", className);
+      svg.setAttribute("viewBox", "0 0 360 180");
+      svg.setAttribute("preserveAspectRatio", "none");
+      return svg;
+    };
+    const appendVerticalColumns = (card, points = [], localMax = 1) => {
+      const chart = document.createElement("div");
+      chart.className = "workspace-powerbi-column-chart";
+      points.slice(0, 7).forEach((point, index) => {
+        const item = document.createElement("div");
+        item.className = "workspace-powerbi-column-item";
+        const value = document.createElement("strong");
+        value.textContent = point.value || formatPowerValue(point.numeric);
+        const bar = document.createElement("span");
+        bar.className = `workspace-powerbi-column-bar color-${(index % 5) + 1}`;
+        bar.style.height = `${Math.max(8, Math.round((Math.abs(point.numeric || 0) / localMax) * 100))}%`;
+        const label = document.createElement("small");
+        label.textContent = point.label;
+        item.append(value, bar, label);
+        chart.appendChild(item);
+      });
+      card.appendChild(chart);
+    };
+    const appendLineOrAreaChart = (card, points = [], localMax = 1, { area = false } = {}) => {
+      const shell = document.createElement("div");
+      shell.className = `workspace-powerbi-line-chart${area ? " is-area" : ""}`;
+      const svg = createDashboardSvg("workspace-powerbi-line-svg");
+      const width = 360;
+      const height = 180;
+      const paddingX = 24;
+      const paddingTop = 18;
+      const paddingBottom = 34;
+      const chartHeight = height - paddingTop - paddingBottom;
+      for (let index = 0; index < 4; index += 1) {
+        const y = paddingTop + (chartHeight / 3) * index;
+        const grid = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        grid.setAttribute("x1", String(paddingX));
+        grid.setAttribute("x2", String(width - paddingX));
+        grid.setAttribute("y1", String(y));
+        grid.setAttribute("y2", String(y));
+        grid.setAttribute("class", "workspace-powerbi-line-grid");
+        svg.appendChild(grid);
+      }
+      const coords = points.slice(0, 10).map((point, index, list) => {
+        const x =
+          list.length <= 1
+            ? width / 2
+            : paddingX + ((width - paddingX * 2) / Math.max(1, list.length - 1)) * index;
+        const y = paddingTop + chartHeight - (Math.abs(point.numeric || 0) / localMax) * chartHeight;
+        return { x, y, point };
+      });
+      if (coords.length) {
+        if (area) {
+          const polygon = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+          polygon.setAttribute(
+            "points",
+            [
+              `${coords[0].x},${paddingTop + chartHeight}`,
+              ...coords.map((coord) => `${coord.x},${coord.y}`),
+              `${coords[coords.length - 1].x},${paddingTop + chartHeight}`
+            ].join(" ")
+          );
+          polygon.setAttribute("class", "workspace-powerbi-area-fill");
+          svg.appendChild(polygon);
+        }
+        const path = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
+        path.setAttribute("points", coords.map((coord) => `${coord.x},${coord.y}`).join(" "));
+        path.setAttribute("class", "workspace-powerbi-line-path");
+        svg.appendChild(path);
+        coords.forEach((coord) => {
+          const dot = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+          dot.setAttribute("cx", String(coord.x));
+          dot.setAttribute("cy", String(coord.y));
+          dot.setAttribute("r", "3.5");
+          dot.setAttribute("class", "workspace-powerbi-line-dot");
+          svg.appendChild(dot);
+        });
+      }
+      const labels = document.createElement("div");
+      labels.className = "workspace-powerbi-line-labels";
+      coords.forEach(({ point }) => {
+        const label = document.createElement("span");
+        label.textContent = point.label;
+        labels.appendChild(label);
+      });
+      shell.append(svg, labels);
+      card.appendChild(shell);
+    };
+    const createModelVisualCard = (chart = {}, sourceIndex = 0, options = {}) => {
+      const card = createVisualCard(
+        chart.title || `Chart ${sourceIndex + 1}`,
+        "workspace-powerbi-model-visual-card"
+      );
+      const sourcePoints = Array.isArray(options.pointsOverride) ? options.pointsOverride : chart.points || [];
+      const points = sourcePoints
+        .map((point, index) => ({
+          label: point.label || `Point ${index + 1}`,
+          value: point.value || "",
+          numeric: parsePreviewNumber(point.value)
+        }))
+        .filter((point) => point.numeric !== null);
+      if (!points.length) {
+        const empty = document.createElement("p");
+        empty.className = "muted";
+        empty.textContent = "Ajoute ou importe des donnees pour alimenter ce visuel.";
+        card.appendChild(empty);
+        if (options.layout) {
+          applyDashboardLayoutItem(card, {
+            type: "chart",
+            index: sourceIndex,
+            layout: options.layout,
+            minWidth: 168,
+            minHeight: 120,
+            contextTarget: { targetType: "chart", sourceIndex },
+            onCommit: (nextLayout) => onChartLayoutChange?.(`chart-${sourceIndex + 1}`, nextLayout)
+          });
+        }
+        return card;
+      }
+
+      const localMax = Math.max(...points.map((point) => Math.abs(point.numeric || 0)), 1);
+      const kind = String(chart.kind || "bar").toLowerCase();
+      if (kind.includes("line") || kind.includes("courbe")) {
+        appendLineOrAreaChart(card, points, localMax);
+      } else if (kind.includes("area") || kind.includes("aire")) {
+        appendLineOrAreaChart(card, points, localMax, { area: true });
+      } else if (kind.includes("progress")) {
+        appendHorizontalBars(card, points.slice(0, 6));
+      } else if (kind.includes("pie") || kind.includes("donut")) {
+        const legend = document.createElement("div");
+        legend.className = "workspace-powerbi-mini-legend";
+        points.slice(0, 6).forEach((point, index) => {
+          const item = document.createElement("span");
+          item.className = `workspace-powerbi-mini-legend-item color-${(index % 5) + 1}`;
+          item.textContent = `${point.label}: ${formatPowerValue(point.numeric)}`;
+          legend.appendChild(item);
+        });
+        card.appendChild(legend);
+      } else {
+        appendVerticalColumns(card, points, localMax);
+      }
+      if (options.layout) {
+        applyDashboardLayoutItem(card, {
+          type: "chart",
+          index: sourceIndex,
+          layout: options.layout,
+          minWidth: 168,
+          minHeight: 120,
+          contextTarget: { targetType: "chart", sourceIndex },
+          onCommit: (nextLayout) => onChartLayoutChange?.(`chart-${sourceIndex + 1}`, nextLayout)
+        });
+      } else {
+        card.addEventListener("click", () => onChartFocus?.(`chart-${sourceIndex + 1}`));
+      }
+      return card;
+    };
     const previewShell = document.createElement("section");
     previewShell.className = "workspace-dashboard-preview-card";
+    dashboardImportInput = document.createElement("input");
+    dashboardImportInput.type = "file";
+    dashboardImportInput.className = "workspace-dashboard-import-input";
+    dashboardImportInput.accept = ".csv,.tsv,.txt,.xlsx,.xlsm,.xlsb,.xls";
+    dashboardImportInput.hidden = true;
+    dashboardImportInput.addEventListener("change", () => {
+      importDashboardFile(dashboardImportInput.files?.[0] || null);
+    });
+    previewShell.appendChild(dashboardImportInput);
     const previewTopbar = document.createElement("div");
     previewTopbar.className = "workspace-dashboard-preview-topbar";
     const previewTitleGroup = document.createElement("div");
@@ -25653,7 +27411,7 @@ function renderDashboardExperiencePreview(
     previewTitle.textContent = model.title || "New Dashboard";
     const previewMeta = document.createElement("span");
     previewMeta.className = "tiny";
-    previewMeta.textContent = `${tableRows.length} ROWS | ${tableColumns.length} COLUMNS | ${visibleCharts.length} VISUALS`;
+    previewMeta.textContent = `${displayTableRows.length} ROWS | ${tableColumns.length} COLUMNS | ${visibleCharts.length} VISUALS | ${visibleMetrics.length} KPI`;
     previewTitleGroup.append(previewTitle, previewMeta);
     const previewSearch = document.createElement("label");
     previewSearch.className = "workspace-sheet-command-search workspace-dashboard-command-search";
@@ -25670,13 +27428,17 @@ function renderDashboardExperiencePreview(
       button.type = "button";
       button.className = `workspace-sheet-tab${index === 0 ? " active" : ""}`;
       button.textContent = label;
+      button.addEventListener("click", () => showPreviewView(index === 0 ? "overview" : "data"));
       previewTabs.appendChild(button);
     });
+    previewStatus = document.createElement("span");
+    previewStatus.className = "workspace-dashboard-preview-status tiny";
+    previewStatus.textContent = "Pret";
     const expandButton = document.createElement("button");
     expandButton.type = "button";
     expandButton.className = "workspace-sheet-tab workspace-dashboard-expand-button";
     expandButton.addEventListener("click", () => setExpandedMode(!isDashboardExpanded));
-    previewTopbar.append(previewTitleGroup, previewSearch, previewTabs, expandButton);
+    previewTopbar.append(previewTitleGroup, previewSearch, previewTabs, previewStatus, expandButton);
     const dashboardViewport = document.createElement("div");
     dashboardViewport.className = "workspace-dashboard-preview-viewport";
 
@@ -25689,11 +27451,14 @@ function renderDashboardExperiencePreview(
     launcher.textContent = "::";
     rail.append(
       launcher,
-      createRailButton("Accueil", "sheet", true),
-      createRailButton("Creer", "insert"),
-      createRailButton("Parcourir", "search"),
-      createRailButton("Donnees", "database"),
-      createRailButton("Rapports", "barChart")
+      createRailButton("Accueil", "sheet", true, () => showPreviewView("overview")),
+      createRailButton("Creer", "insert", false, showDashboardCreateMenu),
+      createRailButton("Parcourir", "search", false, () => {
+        previewSearchInput.focus();
+        showCommandPanel("Parcourir", "Utilise la recherche pour filtrer ou retrouver une commande Dashboard.");
+      }),
+      createRailButton("Donnees", "database", false, () => showPreviewView("data")),
+      createRailButton("Rapports", "barChart", false, () => showPreviewView("overview"))
     );
     const mainShell = document.createElement("div");
     mainShell.className = "workspace-powerbi-main";
@@ -25706,24 +27471,138 @@ function renderDashboardExperiencePreview(
     const titleMeta = document.createElement("span");
     titleMeta.textContent = "Hydria BI";
     titleWrap.append(titleName, titleMeta);
-    const search = document.createElement("input");
-    search.type = "search";
-    search.className = "workspace-powerbi-search";
-    search.placeholder = "Rechercher";
+    const applyDashboardSearch = () => {
+      const query = previewSearchInput.value.trim();
+      if (query) {
+        onFilterToggle?.(query);
+        updatePreviewStatus(`Filtre: ${query}`);
+      } else {
+        onFilterToggle?.("");
+        updatePreviewStatus("Rapport complet");
+      }
+    };
+    previewSearchInput.addEventListener("change", applyDashboardSearch);
+    previewSearchInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        applyDashboardSearch();
+      }
+    });
     const serviceActions = document.createElement("div");
     serviceActions.className = "workspace-powerbi-service-actions";
-    ["refresh", "settings", "download"].forEach((icon) => serviceActions.appendChild(createPowerIcon(icon)));
-    serviceBar.append(titleWrap, search, serviceActions);
+    serviceActions.append(
+      createServiceButton("refresh", "Actualiser", () => runDashboardCommand("dashboardRefresh", {}, "Actualise")),
+      createServiceButton("settings", "Modifier", openDashboardPropertiesPanel),
+      createServiceButton("download", "Exporter", downloadDashboardJson)
+    );
+    serviceBar.append(titleWrap, serviceActions);
     const commandBar = document.createElement("div");
     commandBar.className = "workspace-powerbi-commandbar";
     commandBar.append(
-      createTopButton("Fichier", "page"),
-      createTopButton("Exporter", "download"),
-      createTopButton("Partager", "link"),
-      createTopButton("Explorer les donnees", "database"),
-      createTopButton("Obtenir des insights", "sparkline"),
-      createTopButton("Modifier", "rename")
+      createTopButton("Fichier", "page", () =>
+        showCommandPanel("Fichier", "Actions du fichier dashboard.", [
+          { label: "Obtenir les donnees", icon: "database", action: openDashboardDataImport },
+          { label: "Rapport exemple", icon: "sparkline", action: () => runDashboardCommand("dashboardLoadSample", {}, "Rapport exemple charge") },
+          { label: "Exporter JSON", icon: "download", action: downloadDashboardJson },
+          { label: "Actualiser", icon: "refresh", action: () => runDashboardCommand("dashboardRefresh", {}, "Actualise") }
+        ])
+      ),
+      createTopButton("Exporter", "download", () =>
+        showCommandPanel("Exporter", "Exporte le dashboard courant.", [
+          { label: "Exporter JSON", icon: "download", action: downloadDashboardJson },
+          { label: "Rapport exemple", icon: "sparkline", action: () => runDashboardCommand("dashboardLoadSample", {}, "Rapport exemple charge") }
+        ])
+      ),
+      createTopButton("Partager", "link", () => {
+        navigator.clipboard?.writeText(window.location.href).catch(() => {});
+        showCommandPanel("Partager", "Lien du dashboard copie si le navigateur l'autorise.", [
+          { label: "Copier encore", icon: "copy", action: () => navigator.clipboard?.writeText(window.location.href).catch(() => {}) }
+        ]);
+      }),
+      createTopButton("Explorer les donnees", "database", () => showPreviewView("data")),
+      createTopButton("Obtenir des insights", "sparkline", () => {
+        activateReportTab("Insights");
+        showCommandPanel("Insights", "Signaux rapides calcules depuis les donnees visibles.", [
+          { label: `${displayTableRows.length} lignes`, icon: "table", action: () => showPreviewView("data") },
+          { label: `${visibleCharts.length} visuels`, icon: "chart", action: () => showPreviewView("overview") },
+          { label: `${visibleMetrics.length} KPI`, icon: "number", action: showDashboardMetricCreator }
+        ]);
+      }),
+      createTopButton("Modifier", "rename", openDashboardPropertiesPanel)
     );
+    const dashboardCommandGroups = document.createElement("div");
+    dashboardCommandGroups.className = "workspace-powerbi-commandbar-actions";
+    appendDashboardPreviewCommandGroups(
+      dashboardCommandGroups,
+      createWorkspaceDashboardHomeMenuItems({
+        canMoveWidgetLeft: (model.widgets || []).length > 1,
+        canMoveWidgetRight: (model.widgets || []).length > 1,
+        includeImportData: false
+      })
+    );
+    commandBar.appendChild(dashboardCommandGroups);
+    commandPanel = document.createElement("div");
+    commandPanel.className = "workspace-powerbi-action-panel hidden";
+    installWorkspaceMenuEventBlockers(commandPanel, { preventContextMenu: false });
+    const createPanelActionButton = (item = {}) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "workspace-powerbi-panel-action";
+      button.disabled = Boolean(item.disabled);
+      const textWrap = document.createElement("span");
+      textWrap.className = "workspace-powerbi-panel-action-text";
+      const label = document.createElement("span");
+      label.textContent = item.label || "Action";
+      textWrap.appendChild(label);
+      if (item.meta) {
+        const meta = document.createElement("small");
+        meta.textContent = item.meta;
+        textWrap.appendChild(meta);
+      }
+      button.append(createPowerIcon(item.icon || "chart"), textWrap);
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        if (button.disabled) {
+          return;
+        }
+        item.action?.();
+      });
+      return button;
+    };
+    function showCommandPanel(title = "", description = "", actions = [], options = {}) {
+      const heading = document.createElement("strong");
+      heading.textContent = title || "Dashboard";
+      const copy = document.createElement("span");
+      copy.textContent = description || "";
+      const isCustomContent = actions && typeof actions.nodeType === "number";
+      if (isCustomContent) {
+        commandPanel.classList.add("has-form");
+        commandPanel.replaceChildren(heading, copy, actions);
+      } else {
+        commandPanel.classList.remove("has-form");
+        const actionRow = document.createElement("div");
+        actionRow.className = "workspace-powerbi-action-row";
+        (Array.isArray(actions) ? actions : []).forEach((item) => actionRow.appendChild(createPanelActionButton(item)));
+        commandPanel.replaceChildren(heading, copy, actionRow);
+      }
+      if (!commandPanel.isConnected) {
+        document.body.appendChild(commandPanel);
+      }
+      commandPanel.classList.remove("hidden");
+      const anchorElement = options.anchorElement || dashboardCommandPanelAnchor || null;
+      dashboardCommandPanelAnchor = anchorElement;
+      dashboardCommandPanelAnchor?.classList.add("is-active", "is-open");
+      placeWorkspaceFloatingPanel(commandPanel, {
+        anchorElement,
+        minWidth: options.minWidth || 280,
+        fallbackWidth: options.width || 440,
+        minHeight: 120,
+        fallbackHeight: options.height || (commandPanel.classList.contains("has-form") ? 220 : 260),
+        offsetY: 6
+      });
+      bindDashboardCommandPanelOutsideClose(anchorElement);
+      updatePreviewStatus(title);
+    }
     const reportShell = document.createElement("section");
     reportShell.className = "workspace-powerbi-report-shell";
     const reportHeader = document.createElement("header");
@@ -25746,35 +27625,82 @@ function renderDashboardExperiencePreview(
     reportTitle.append(reportName, reportSub);
     const reportTabs = document.createElement("nav");
     reportTabs.className = "workspace-powerbi-report-tabs";
-    ["Overview", "Trends", "Insights"].forEach((label, index) => {
+    ["Overview", "Trends", "Insights"].forEach((label) => {
       const tab = document.createElement("button");
       tab.type = "button";
-      tab.className = index === 0 ? "is-active" : "";
+      const tabMode = normalizeDashboardPreviewMode(label);
+      tab.className =
+        (activeDashboardPreviewMode === "data" && tabMode === "overview") ||
+        activeDashboardPreviewMode === tabMode
+          ? "is-active"
+          : "";
       tab.textContent = label;
+      tab.addEventListener("click", () => activateReportTab(label));
       reportTabs.appendChild(tab);
     });
     reportHeader.append(brand, reportTitle, reportTabs);
-    if ((model.filters || []).length) {
+    const dashboardPages = (model.filters || []).length ? model.filters : ["Overview"];
+    if (dashboardPages.length) {
       reportShell.classList.add("has-filters");
       const filters = document.createElement("div");
       filters.className = "workspace-powerbi-filter-row";
-      (model.filters || []).forEach((filter) => {
+      dashboardPages.forEach((filter) => {
         const chip = document.createElement("button");
         chip.type = "button";
-        chip.className = String(filter || "") === String(activeFilter || "") ? "is-active" : "";
+        const chipKey = String(filter || "").trim().toLowerCase();
+        chip.className =
+          (filterIsOverview && chipKey === "overview") || chipKey === normalizedFilter ? "is-active" : "";
         chip.textContent = filter;
-        chip.addEventListener("click", () => onFilterToggle?.(filter));
+        chip.addEventListener("click", () => {
+          filters.querySelectorAll("button").forEach((button) => button.classList.remove("is-active"));
+          chip.classList.add("is-active");
+          updatePreviewStatus(`Filtre: ${filter}`);
+          onFilterToggle?.(chipKey === "overview" ? "" : filter);
+        });
+        chip.addEventListener("contextmenu", (event) => {
+          openDashboardContextMenu(event, { targetType: "page", pageLabel: filter });
+        });
         filters.appendChild(chip);
       });
+      const addPageButton = document.createElement("button");
+      addPageButton.type = "button";
+      addPageButton.className = "workspace-powerbi-page-add";
+      addPageButton.textContent = "+";
+      addPageButton.title = "Ajouter une page";
+      addPageButton.setAttribute("aria-label", "Ajouter une page");
+      addPageButton.addEventListener("click", () => {
+        const pageName = promptDashboardPageName("Nom de la nouvelle page", `Page ${(model.filters || []).length + 1}`);
+        if (!pageName) {
+          return;
+        }
+        runDashboardCommandWithView("dashboardAddPage", { value: { name: pageName } }, "Page ajoutee", "overview");
+      });
+      filters.appendChild(addPageButton);
       reportShell.append(reportHeader, filters);
     } else {
       reportShell.appendChild(reportHeader);
     }
     const canvas = document.createElement("div");
     canvas.className = "workspace-powerbi-canvas";
-    const kpiRow = document.createElement("div");
-    kpiRow.className = "workspace-powerbi-kpi-row";
-    metricCards.forEach((metric) => kpiRow.appendChild(createKpiCard(metric)));
+    const layoutCanvas = document.createElement("div");
+    layoutCanvas.className = "workspace-powerbi-edit-canvas";
+    dashboardLayoutCanvas = layoutCanvas;
+    layoutCanvas.addEventListener("click", (event) => {
+      if (event.target?.closest?.(".workspace-powerbi-layout-item")) {
+        return;
+      }
+      layoutCanvas
+        .querySelectorAll(".workspace-powerbi-layout-item.is-selected")
+        .forEach((item) => item.classList.remove("is-selected"));
+      writeDashboardSelection({ type: "dashboard", index: -1 });
+      renderDashboardPropertiesPanel();
+    });
+    layoutCanvas.addEventListener("contextmenu", (event) => {
+      if (event.target?.closest?.(".workspace-powerbi-layout-item")) {
+        return;
+      }
+      openDashboardContextMenu(event, { targetType: "canvas", sourceIndex: null });
+    });
     const grid = document.createElement("div");
     grid.className = "workspace-powerbi-report-grid";
     const stageCard = createVisualCard("Revenue Open par Sales Stage");
@@ -25791,11 +27717,25 @@ function renderDashboardExperiencePreview(
     input.max = "80";
     input.value = "0";
     const tabs = document.createElement("div");
-    tabs.innerHTML = "<button>By Team + User</button><button class=\"is-active\">By Product</button>";
+    ["By Team + User", "By Product"].forEach((label, index) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = index === 1 ? "is-active" : "";
+      button.textContent = label;
+      button.addEventListener("click", () => {
+        tabs.querySelectorAll("button").forEach((item) => item.classList.toggle("is-active", item === button));
+        showCommandPanel("What-if", `Scenario actif: ${label}`);
+        onFilterToggle?.(label);
+      });
+      tabs.appendChild(button);
+    });
     whatIf.append(input, tabs);
+    input.addEventListener("input", () => {
+      showCommandPanel("What-if", `Forecast ajuste de ${input.value}%`);
+    });
     whatIfCard.appendChild(whatIf);
     const territoryCard = createVisualCard("Forecast by Territory", "workspace-powerbi-matrix-card");
-    appendMatrix(territoryCard, tableColumns, tableRows);
+    appendMatrix(territoryCard, tableColumns, displayTableRows);
     const mapCard = createVisualCard("Forecast by Location", "workspace-powerbi-map-card");
     const map = document.createElement("div");
     map.className = "workspace-powerbi-map";
@@ -25807,14 +27747,224 @@ function renderDashboardExperiencePreview(
     });
     mapCard.appendChild(map);
     const detailCard = createVisualCard("Product Category", "workspace-powerbi-matrix-card");
-    appendMatrix(detailCard, tableColumns.slice(0, 4), tableRows.slice(0, 8));
+    appendMatrix(detailCard, tableColumns.slice(0, 4), displayTableRows.slice(0, 8));
+    pipelineCard.addEventListener("click", () => onChartFocus?.("chart-2"));
+    mapCard.addEventListener("click", () => showCommandPanel("Carte", "La carte reagit au rapport et aux filtres actifs."));
+    detailCard.addEventListener("click", () => showPreviewView("data"));
     grid.append(stageCard, pipelineCard, whatIfCard, territoryCard, mapCard, detailCard);
-    canvas.append(kpiRow, grid);
+    renderOverviewCanvas();
     reportShell.appendChild(canvas);
     mainShell.append(serviceBar, commandBar, reportShell);
+    renderDashboardPropertiesPanel();
     shell.append(rail, mainShell);
-    dashboardViewport.appendChild(shell);
+    const dataView = createVisualCard("Donnees du rapport", "workspace-powerbi-matrix-card workspace-powerbi-data-card");
+    appendMatrix(dataView, tableColumns, displayTableRows);
+    const dataToolbar = document.createElement("div");
+    dataToolbar.className = "workspace-powerbi-data-toolbar";
+    dataToolbar.append(
+      createTopButton("Ajouter une ligne", "rowInsert", () => runDashboardCommand("dashboardAddTableRow", {}, "Ligne ajoutee")),
+      createTopButton("Ajouter une colonne", "columnInsert", () => runDashboardCommand("dashboardAddTableColumn", {}, "Colonne ajoutee")),
+      createTopButton("Actualiser", "refresh", () => runDashboardCommand("dashboardRefresh", {}, "Actualise"))
+    );
+    dataView.prepend(dataToolbar);
+    showPreviewView(activeDashboardPreviewMode);
     previewShell.append(previewTopbar, dashboardViewport);
+
+    function renderOverviewCanvas() {
+      renderDashboardLayoutCanvas();
+      canvas.replaceChildren(layoutCanvas);
+    }
+
+    function renderDashboardLayoutCanvas() {
+      layoutCanvas.replaceChildren();
+      const metricItems = (visibleMetrics?.length ? visibleMetrics : metricCards).slice(0, 12);
+      const getPageAwareLayout = (item = {}, fallback = {}) =>
+        activeDashboardPageKey && item.pageLayouts?.[activeDashboardPageKey]
+          ? item.pageLayouts[activeDashboardPageKey]
+          : item.layout || fallback;
+      const getPageAwareMetric = (metric = {}, index = 0) => {
+        if (filterIsOverview) {
+          return {
+            label: metric.label || "KPI",
+            value: metric.value || "-",
+            meta: metric.delta || "Live"
+          };
+        }
+        const derivedMetric = metricCards[index] || metricCards[index % Math.max(1, metricCards.length)] || {};
+        return {
+          label: metric.label || derivedMetric.label || "KPI",
+          value: derivedMetric.value || metric.value || "-",
+          meta: derivedMetric.meta || metric.delta || "Page active"
+        };
+      };
+      const getPageAwareChart = (chart = {}, index = 0) => {
+        if (filterIsOverview) {
+          return chart;
+        }
+        return {
+          ...chart,
+          title: chart.title || (filterIsProductGroup ? "Analyse par produit" : filterIsTeamGroup ? "Analyse par equipe" : `Focus ${activeFilter}`),
+          points: tablePoints.length ? tablePoints : chart.points || []
+        };
+      };
+      const chartItems = (visibleCharts || []).map((chart, index) => {
+        const rawSourceIndex = (model.charts || []).findIndex((item) => item === chart);
+        return {
+          chart,
+          sourceIndex: rawSourceIndex >= 0 ? rawSourceIndex : index
+        };
+      });
+      const packedLayouts = resolvePowerBiLayoutItems([
+        ...metricItems.map((metric, index) => ({
+          key: `metric-${index}`,
+          order: index,
+          layout: normalizePowerBiLayout(getPageAwareLayout(metric, defaultMetricLayout(index)), defaultMetricLayout(index))
+        })),
+        ...chartItems.map(({ chart, sourceIndex }, index) => ({
+          key: `chart-${sourceIndex}`,
+          order: metricItems.length + index,
+          layout: normalizePowerBiLayout(getPageAwareLayout(chart, defaultChartLayout(sourceIndex)), defaultChartLayout(sourceIndex))
+        }))
+      ]);
+      metricItems.forEach((metric, index) => {
+        const layout = packedLayouts.get(`metric-${index}`) || normalizePowerBiLayout(getPageAwareLayout(metric, defaultMetricLayout(index)), defaultMetricLayout(index));
+        layoutCanvas.appendChild(
+          createKpiCard(
+            getPageAwareMetric(metric, index),
+            {
+              sourceIndex: index,
+              layout
+            }
+          )
+        );
+      });
+      chartItems.forEach(({ chart, sourceIndex }) => {
+        const layout = packedLayouts.get(`chart-${sourceIndex}`) || normalizePowerBiLayout(getPageAwareLayout(chart, defaultChartLayout(sourceIndex)), defaultChartLayout(sourceIndex));
+        layoutCanvas.appendChild(
+          createModelVisualCard(getPageAwareChart(chart, sourceIndex), sourceIndex, {
+            layout,
+            pointsOverride: activeDashboardPageKey ? tablePoints : null
+          })
+        );
+      });
+      if (!layoutCanvas.children.length) {
+        const empty = document.createElement("p");
+        empty.className = "workspace-powerbi-layout-empty";
+        empty.textContent = "Ajoute un KPI ou un visuel pour composer le rapport.";
+        layoutCanvas.appendChild(empty);
+      }
+      layoutCanvas.style.minHeight = "420px";
+      syncDashboardLayoutCanvasHeight();
+    }
+
+    function renderDashboardPageCanvas() {
+      const topPoint = [...tablePoints].sort((a, b) => (b.numeric || 0) - (a.numeric || 0))[0] || null;
+      const pageTitle = filterIsProductGroup
+        ? "Analyse par produit"
+        : filterIsTeamGroup
+          ? "Analyse par equipe"
+          : `Focus ${activeFilter}`;
+      const pageGrid = document.createElement("div");
+      pageGrid.className = "workspace-powerbi-report-grid workspace-powerbi-report-grid--page";
+      const pageMetrics = document.createElement("div");
+      pageMetrics.className = "workspace-powerbi-kpi-row workspace-powerbi-page-kpi-row";
+      [
+        { label: "Page active", value: activeFilter || "Overview", meta: "Feuille du rapport" },
+        { label: "Lignes", value: String(displayTableRows.length), meta: `${tableColumns.length} champs` },
+        { label: "Total visible", value: formatPowerValue(totalValue), meta: "Depuis les donnees de la page" },
+        { label: "Meilleur point", value: topPoint?.label || "-", meta: topPoint ? formatPowerValue(topPoint.numeric) : "Aucune valeur" }
+      ].forEach((metric) => pageMetrics.appendChild(createKpiCard(metric)));
+
+      const primaryCard = createVisualCard(pageTitle);
+      appendVerticalColumns(primaryCard, tablePoints.slice(0, 8), maxPointValue);
+      const comparisonCard = createVisualCard(
+        filterIsProductGroup ? "Contribution produit" : filterIsTeamGroup ? "Contribution equipe" : "Contribution du focus"
+      );
+      appendHorizontalBars(comparisonCard, tablePoints.slice(0, 8));
+      const detailCard = createVisualCard("Donnees de la page", "workspace-powerbi-matrix-card");
+      appendMatrix(detailCard, tableColumns, displayTableRows.slice(0, 12));
+      pageGrid.append(pageMetrics, primaryCard, comparisonCard, detailCard);
+      canvas.replaceChildren(pageGrid);
+    }
+
+    function renderTrendsCanvas() {
+      const trendGrid = document.createElement("div");
+      trendGrid.className = "workspace-powerbi-report-grid workspace-powerbi-report-grid--trends";
+      const trendCard = createVisualCard("Tendance par periode active");
+      appendHorizontalBars(trendCard, chartPoints.slice(0, 8));
+      const groupedCard = createVisualCard(
+        filterIsProductGroup ? "Revenu par produit" : filterIsTeamGroup ? "Revenu par equipe" : "Revenu filtre"
+      );
+      appendHorizontalBars(groupedCard, tablePoints.slice(0, 8));
+      const trendMatrix = createVisualCard("Details de tendance", "workspace-powerbi-matrix-card");
+      appendMatrix(trendMatrix, tableColumns, displayTableRows.slice(0, 10));
+      trendGrid.append(trendCard, groupedCard, trendMatrix);
+      canvas.replaceChildren(trendGrid);
+    }
+
+    function renderInsightsCanvas() {
+      const topPoint = [...tablePoints].sort((a, b) => (b.numeric || 0) - (a.numeric || 0))[0] || null;
+      const insightGrid = document.createElement("div");
+      insightGrid.className = "workspace-powerbi-insight-grid";
+      [
+        { label: "Focus actif", value: filterIsOverview ? "Tout" : activeFilter, meta: `${displayTableRows.length} lignes visibles` },
+        { label: "Meilleur signal", value: topPoint?.label || "-", meta: topPoint ? formatPowerValue(topPoint.numeric) : "Aucune valeur" },
+        { label: "Total visible", value: formatPowerValue(totalValue), meta: "Depuis les donnees filtrees" },
+        { label: "Visuels", value: String(visibleCharts.length || (model.charts || []).length), meta: "Disponibles dans le rapport" }
+      ].forEach((item) => insightGrid.appendChild(createKpiCard(item)));
+      const insightDetail = createVisualCard("Lecture rapide", "workspace-powerbi-matrix-card");
+      appendMatrix(insightDetail, tableColumns, displayTableRows.slice(0, 6));
+      canvas.replaceChildren(insightGrid, insightDetail);
+    }
+
+    function activateReportTab(label = "Overview") {
+      showPreviewView(label);
+    }
+
+    function renderDashboardReportMode(mode = "overview") {
+      const normalizedMode = normalizeDashboardPreviewMode(mode);
+      reportTabs.querySelectorAll("button").forEach((button) => {
+        const buttonMode = normalizeDashboardPreviewMode(button.textContent);
+        button.classList.toggle("is-active", buttonMode === (normalizedMode === "data" ? "overview" : normalizedMode));
+      });
+      if (normalizedMode === "insights") {
+        reportSub.textContent = "Insights auto depuis les donnees et les visuels";
+        renderInsightsCanvas();
+        return;
+      }
+      if (normalizedMode === "trends") {
+        reportSub.textContent = "Tendances du rapport";
+        renderTrendsCanvas();
+        return;
+      }
+      reportSub.textContent = normalizedFilter
+        ? `${model.summary || "Sales Overview"} - Focus: ${activeFilter}`
+        : model.summary || "Sales Overview";
+      renderOverviewCanvas();
+    }
+
+    function showPreviewView(mode = "overview") {
+      const normalizedMode = normalizeDashboardPreviewMode(mode);
+      activeDashboardPreviewMode = normalizedMode;
+      dashboardPreviewViewStore.set(dashboardKey, activeDashboardPreviewMode);
+      previewTabs.querySelectorAll("button").forEach((button) => {
+        button.classList.toggle(
+          "active",
+          (normalizedMode !== "data" && button.textContent === "Overview") ||
+            (normalizedMode === "data" && button.textContent === "Data")
+        );
+      });
+      if (normalizedMode === "data") {
+        dashboardViewport.replaceChildren(dataView);
+        updatePreviewStatus("Donnees");
+        return;
+      }
+      renderDashboardReportMode(normalizedMode);
+      dashboardViewport.replaceChildren(shell);
+      updatePreviewStatus(
+        normalizedMode === "trends" ? "Trends" : normalizedMode === "insights" ? "Insights" : "Overview"
+      );
+    }
 
     function mountPreviewShell() {
       previewShell.classList.toggle("is-expanded", isDashboardExpanded);
@@ -27611,8 +29761,13 @@ export function renderWorkspacePreview(
     onDashboardWidgetMove = null,
     onDashboardWidgetDrop = null,
     onDashboardWidgetResize = null,
+    onDashboardMetricLayoutChange = null,
+    onDashboardChartLayoutChange = null,
     onDashboardWidgetFocus = null,
     onDashboardChartFocus = null,
+    onDashboardCommand = null,
+    onDashboardEdit = null,
+    dashboardSheetSources = [],
     onWorkflowStageFocus = null,
     onWorkflowStageMove = null,
     onWorkflowStagePositionChange = null,
@@ -27824,8 +29979,13 @@ export function renderWorkspacePreview(
       onWidgetMove: onDashboardWidgetMove,
       onWidgetDrop: onDashboardWidgetDrop,
       onWidgetResize: onDashboardWidgetResize,
+      onMetricLayoutChange: onDashboardMetricLayoutChange,
+      onChartLayoutChange: onDashboardChartLayoutChange,
       onWidgetFocus: onDashboardWidgetFocus,
-      onChartFocus: onDashboardChartFocus
+      onChartFocus: onDashboardChartFocus,
+      onCommand: onDashboardCommand,
+      onEdit: onDashboardEdit,
+      sheetDataSources: dashboardSheetSources
     });
     return;
   }
@@ -27958,8 +30118,12 @@ export function renderWorkspacePreview(
         onWidgetMove: onDashboardWidgetMove,
         onWidgetDrop: onDashboardWidgetDrop,
         onWidgetResize: onDashboardWidgetResize,
+        onMetricLayoutChange: onDashboardMetricLayoutChange,
+        onChartLayoutChange: onDashboardChartLayoutChange,
         onWidgetFocus: onDashboardWidgetFocus,
-        onChartFocus: onDashboardChartFocus
+        onChartFocus: onDashboardChartFocus,
+        onCommand: onDashboardCommand,
+        onEdit: onDashboardEdit
       });
       return;
     }

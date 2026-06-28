@@ -78,11 +78,24 @@ export const WORKSPACE_COMMON_COMMANDS = {
   date: { id: "date", label: "Date", frLabel: "Date", icon: "calendar" },
   dashboardAddMetric: { id: "dashboardAddMetric", label: "Add KPI", frLabel: "Ajouter un KPI", icon: "number" },
   dashboardAddChart: { id: "dashboardAddChart", label: "Add visual", frLabel: "Ajouter un visuel", icon: "chart" },
+  dashboardChangeChartType: { id: "dashboardChangeChartType", label: "Change visual type", frLabel: "Changer le type de visuel", icon: "chart" },
   dashboardAddFilter: { id: "dashboardAddFilter", label: "Add slicer", frLabel: "Ajouter un segment", icon: "slicer" },
+  dashboardImportData: { id: "dashboardImportData", label: "Get data", frLabel: "Obtenir les donnees", icon: "database" },
+  dashboardUpdateTitle: { id: "dashboardUpdateTitle", label: "Update report title", frLabel: "Modifier le rapport", icon: "rename" },
+  dashboardUpdateMetric: { id: "dashboardUpdateMetric", label: "Update KPI", frLabel: "Modifier le KPI", icon: "number" },
+  dashboardUpdateChart: { id: "dashboardUpdateChart", label: "Update visual", frLabel: "Modifier le visuel", icon: "chart" },
   dashboardAddTableRow: { id: "dashboardAddTableRow", label: "Add data row", frLabel: "Ajouter une ligne", icon: "rowInsert" },
   dashboardAddTableColumn: { id: "dashboardAddTableColumn", label: "Add data column", frLabel: "Ajouter une colonne", icon: "columnInsert" },
+  dashboardAddPage: { id: "dashboardAddPage", label: "Add page", frLabel: "Ajouter une page", icon: "insert" },
+  dashboardRenamePage: { id: "dashboardRenamePage", label: "Rename page", frLabel: "Renommer la page", icon: "rename" },
+  dashboardDuplicatePage: { id: "dashboardDuplicatePage", label: "Duplicate page", frLabel: "Dupliquer la page", icon: "duplicate" },
+  dashboardDeletePage: { id: "dashboardDeletePage", label: "Delete page", frLabel: "Supprimer la page", icon: "delete" },
+  dashboardLoadSample: { id: "dashboardLoadSample", label: "Load sample report", frLabel: "Rapport exemple", icon: "sparkline" },
   dashboardRemoveMetric: { id: "dashboardRemoveMetric", label: "Remove KPI", frLabel: "Supprimer le KPI", icon: "delete" },
   dashboardRemoveChart: { id: "dashboardRemoveChart", label: "Remove visual", frLabel: "Supprimer le visuel", icon: "delete" },
+  dashboardDuplicateItem: { id: "dashboardDuplicateItem", label: "Duplicate", frLabel: "Dupliquer", icon: "duplicate" },
+  dashboardBringToFront: { id: "dashboardBringToFront", label: "Bring to front", frLabel: "Mettre au premier plan", icon: "move" },
+  dashboardSendToBack: { id: "dashboardSendToBack", label: "Send to back", frLabel: "Mettre a l'arriere-plan", icon: "move" },
   dashboardMoveWidgetLeft: { id: "dashboardMoveWidgetLeft", label: "Move widget left", frLabel: "Widget a gauche", icon: "chevronLeft" },
   dashboardMoveWidgetRight: { id: "dashboardMoveWidgetRight", label: "Move widget right", frLabel: "Widget a droite", icon: "chevronRight" },
   dashboardRefresh: { id: "dashboardRefresh", label: "Refresh dashboard", frLabel: "Actualiser", icon: "refresh" },
@@ -220,6 +233,7 @@ export function getWorkspaceCommandIcon(label = "") {
   if (text.includes("print") || text.includes("imprimer")) return "print";
   if (text.includes("docx") || text.includes("word")) return "docx";
   if (text.includes("pdf")) return "pdf";
+  if (text.includes("database") || text.includes("data") || text.includes("donnee")) return "database";
   if (text.includes("xlsx") || text.includes("csv") || text.includes("import") || text.includes("export") || text.includes("download")) return text.includes("csv") ? "csv" : "fileSpreadsheet";
   if (text.includes("zoom")) return "zoom";
   if (text.includes("grid") || text.includes("quadrillage")) return "grid";
