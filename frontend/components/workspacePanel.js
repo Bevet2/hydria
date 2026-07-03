@@ -2912,6 +2912,9 @@ function renderMarkdownPreview(
   let docsTableContextMenuApi = null;
   let docsTableControlSignature = "";
   let docsCommitHandle = null;
+  let docsPageReflowHandle = null;
+  let docsOverflowReflowHandle = null;
+  let docsPendingPageReflow = false;
   let normalizedLegacyHeading = false;
   let docsFullscreenButtons = [];
   let docsSavedSelectionRange = null;
@@ -4758,6 +4761,117 @@ function renderMarkdownPreview(
     docsTableControls.classList.add("hidden");
   };
 
+  const reflowDocsPages = ({ preserveSelection = false } = {}) => {
+    if (!isDocsClone || !shell) {
+      return false;
+    }
+    if (docsPageReflowHandle) {
+      window.clearTimeout(docsPageReflowHandle);
+      docsPageReflowHandle = null;
+    }
+    docsPendingPageReflow = false;
+    if (preserveSelection) {
+      saveDocsSelectionRange();
+    }
+    rebuildDocsPageShell();
+    if (preserveSelection) {
+      restoreDocsSelection();
+    }
+    return true;
+  };
+
+  const isDocsEditorActive = () => {
+    if (!shell) {
+      return false;
+    }
+    const selection = window.getSelection();
+    return Boolean(
+      shell === document.activeElement ||
+        shell.contains(document.activeElement) ||
+        shell.contains(selection?.anchorNode || null) ||
+        shell.contains(selection?.focusNode || null)
+    );
+  };
+
+  const scheduleDocsPageReflow = ({ delay = 800, preserveSelection = false, force = false } = {}) => {
+    if (!isDocsClone || !shell) {
+      return false;
+    }
+    docsPendingPageReflow = true;
+    if (!force && isDocsEditorActive()) {
+      return false;
+    }
+    if (docsPageReflowHandle) {
+      window.clearTimeout(docsPageReflowHandle);
+    }
+    docsPageReflowHandle = window.setTimeout(() => {
+      docsPageReflowHandle = null;
+      reflowDocsPages({ preserveSelection });
+      updateDocsTableControls(null, true);
+    }, delay);
+    return true;
+  };
+
+  const flushDocsPageReflow = ({ preserveSelection = false } = {}) => {
+    if (!isDocsClone || !shell) {
+      return false;
+    }
+    if (docsPageReflowHandle) {
+      window.clearTimeout(docsPageReflowHandle);
+      docsPageReflowHandle = null;
+    }
+    if (!docsPendingPageReflow && shell.querySelector?.(".workspace-document-page-sheet")) {
+      return false;
+    }
+    const didReflow = reflowDocsPages({ preserveSelection });
+    window.requestAnimationFrame(() => updateDocsTableControls(null, true));
+    return didReflow;
+  };
+
+  const getDocsPageVisibleHeight = (page) => {
+    if (!page?.isConnected) {
+      return 0;
+    }
+    return page.clientHeight || page.getBoundingClientRect?.().height || 0;
+  };
+
+  const doesDocsPageOverflow = (page) => {
+    const visibleHeight = getDocsPageVisibleHeight(page);
+    if (visibleHeight <= 0) {
+      return false;
+    }
+    return (page.scrollHeight || 0) > visibleHeight + 6;
+  };
+
+  const needsDocsOverflowReflow = () => {
+    if (!isDocsClone || !shell) {
+      return false;
+    }
+    const activePage = getActiveDocsPageSheet();
+    if (activePage?.classList?.contains("workspace-document-page-sheet") && doesDocsPageOverflow(activePage)) {
+      return true;
+    }
+    return Array.from(shell.querySelectorAll(".workspace-document-page-sheet")).some((page) => doesDocsPageOverflow(page));
+  };
+
+  const scheduleDocsOverflowReflow = ({ preserveSelection = true } = {}) => {
+    if (!isDocsClone || !shell) {
+      return false;
+    }
+    if (docsOverflowReflowHandle) {
+      window.cancelAnimationFrame(docsOverflowReflowHandle);
+    }
+    docsOverflowReflowHandle = window.requestAnimationFrame(() => {
+      docsOverflowReflowHandle = null;
+      if (!needsDocsOverflowReflow()) {
+        return;
+      }
+      reflowDocsPages({ preserveSelection });
+      updateDocsTableControls(null, true);
+      updateDocsActivePageRuler(window.getSelection()?.anchorNode || activeEditable || null);
+    });
+    return true;
+  };
   const getTableColumnCount = (table) =>
     Array.from(table?.querySelectorAll("tr") || []).reduce(
       (maxColumns, row) => Math.max(maxColumns, row.children?.length || 0),
@@ -5726,25 +5840,133 @@ function renderMarkdownPreview(
       shell.appendChild(settingsNode);
     }
     let pageIndex = 0;
-    let currentPage = document.createElement("section");
-    currentPage.className = "workspace-document-page-sheet";
-    currentPage.dataset.page = String(pageIndex + 1);
+    let renderedPageCount = 0;
+    const isDocsPageChromeNode = (node) =>
+      node.nodeType === Node.ELEMENT_NODE &&
+      (
+        node.classList?.contains("workspace-docs-page-control-bar") ||
+        node.classList?.contains("workspace-docs-page-header") ||
+        node.classList?.contains("workspace-docs-page-footer") ||
+        node.classList?.contains("workspace-docs-vertical-ruler")
+      );
+    const getDocsPageContentNodes = (page) =>
+      Array.from(page.childNodes).filter((node) => !isDocsPageChromeNode(node));
+    const createPage = () => {
+      const page = document.createElement("section");
+      page.className = "workspace-document-page-sheet";
+      page.dataset.page = String(pageIndex + 1);
+      page.dataset.orientation = formatState.orientation === "landscape" ? "landscape" : "portrait";
+      shell.appendChild(page);
+      return page;
+    };
+    const finalizePage = (page) => {
+      if (!page || page.dataset.finalized === "true") {
+        return;
+      }
+      applyDocsPageChrome(page, pageIndex, formatState);
+      page.dataset.finalized = "true";
+      renderedPageCount += 1;
+    };
+    const isDocsSplittableTextBlock = (node) =>
+      node?.nodeType === Node.ELEMENT_NODE &&
+      node.matches?.("p, blockquote, h1, h2, h3, h4, figcaption") &&
+      !node.querySelector?.("table, img, video, figure, ul, ol, input, button, .workspace-docs-page-break");
+    const splitPlainDocsBlockToFit = (page, block) => {
+      if (!isDocsSplittableTextBlock(block)) {
+        return null;
+      }
+      const originalText = block.textContent || "";
+      const parts = originalText.split(/(\s+)/);
+      if (parts.length < 4 || !originalText.trim()) {
+        return null;
+      }
+      let low = 1;
+      let high = parts.length - 1;
+      let best = 0;
+
+      // Use the browser layout as the source of truth, so pagination follows the real page size.
+      while (low <= high) {
+        const mid = Math.floor((low + high) / 2);
+        block.textContent = parts.slice(0, mid).join("").trimEnd();
+        if (block.textContent.trim() && !doesDocsPageOverflow(page)) {
+          best = mid;
+          low = mid + 1;
+        } else {
+          high = mid - 1;
+        }
+      }
+
+      if (best <= 0 || best >= parts.length) {
+        block.textContent = originalText;
+        return null;
+      }
+
+      const fittedText = parts.slice(0, best).join("").trimEnd();
+      const remainderText = parts.slice(best).join("").trimStart();
+      if (!fittedText || !remainderText) {
+        block.textContent = originalText;
+        return null;
+      }
+
+      block.textContent = fittedText;
+      const continuation = /^H[1-4]$/.test(block.tagName || "") ? document.createElement("p") : block.cloneNode(false);
+      continuation.removeAttribute("id");
+      const splitGroup =
+        block.dataset.docsSplitGroup ||
+        `docs-split-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+      block.dataset.docsSplitGroup = splitGroup;
+      continuation.dataset.docsSplitGroup = splitGroup;
+      continuation.dataset.docsSplitContinuation = "true";
+      continuation.textContent = remainderText;
+      return continuation;
+    };
+    let currentPage = createPage();
+    const appendNodeToCurrentPage = (node) => {
+      currentPage.appendChild(node);
+      if (!doesDocsPageOverflow(currentPage)) {
+        return;
+      }
+
+      if (getDocsPageContentNodes(currentPage).length > 1) {
+        currentPage.removeChild(node);
+        finalizePage(currentPage);
+        pageIndex += 1;
+        currentPage = createPage();
+        currentPage.appendChild(node);
+      }
+
+      let splitGuard = 0;
+      while (
+        doesDocsPageOverflow(currentPage) &&
+        getDocsPageContentNodes(currentPage).length === 1 &&
+        splitGuard < 40
+      ) {
+        const [onlyNode] = getDocsPageContentNodes(currentPage);
+        const continuation = splitPlainDocsBlockToFit(currentPage, onlyNode);
+        if (!continuation) {
+          break;
+        }
+        finalizePage(currentPage);
+        pageIndex += 1;
+        currentPage = createPage();
+        currentPage.appendChild(continuation);
+        splitGuard += 1;
+      }
+    };
     for (const node of contentNodes) {
       if (node.nodeType === Node.ELEMENT_NODE && node.classList?.contains("workspace-docs-page-break")) {
-        applyDocsPageChrome(currentPage, pageIndex, formatState);
-        shell.appendChild(currentPage);
+        finalizePage(currentPage);
         shell.appendChild(node);
         pageIndex += 1;
-        currentPage = document.createElement("section");
-        currentPage.className = "workspace-document-page-sheet";
-        currentPage.dataset.page = String(pageIndex + 1);
+        currentPage = createPage();
         continue;
       }
-      currentPage.appendChild(node);
+      appendNodeToCurrentPage(node);
     }
-    if (currentPage.childNodes.length || !shell.querySelector(".workspace-document-page-sheet")) {
-      applyDocsPageChrome(currentPage, pageIndex, formatState);
-      shell.appendChild(currentPage);
+    if (getDocsPageContentNodes(currentPage).length || renderedPageCount === 0) {
+      finalizePage(currentPage);
+    } else {
+      currentPage.remove();
     }
     syncDocsPageFullscreenControls();
   };
@@ -7959,6 +8181,8 @@ function renderMarkdownPreview(
       if (shouldLinkifyOnBreak(event)) {
         linkifyPlainUrlsInNode(shell);
       }
+      docsPendingPageReflow = true;
+      scheduleDocsOverflowReflow({ preserveSelection: true });
       if (docsCommitHandle) {
         window.clearTimeout(docsCommitHandle);
       }
@@ -28059,6 +28283,7 @@ export function renderWorkspacePreview(
     onPresentationSlideEdit = null,
     onDataHeaderEdit = null,
     onDataCellEdit = null,
+    onCanvasContentChange = null,
     onDataGridEdit = null,
     onDashboardFilterToggle = null,
     onDashboardWidgetMove = null,
@@ -28303,7 +28528,8 @@ export function renderWorkspacePreview(
       sections,
       blocks,
       selectedSectionId,
-      onSectionFocus: onDocumentSectionFocus
+      onSectionFocus: onDocumentSectionFocus,
+      onContentChange: onCanvasContentChange
     });
     return;
   }

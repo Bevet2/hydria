@@ -399,6 +399,15 @@ export function buildWorkObjectSurfaceModel({ workObject = {}, entryPath = "" } 
     );
   }
 
+  if (workspaceFamilyId === "canvas_board") {
+    baseSurfaces.push(
+      createSurface("canvas", {
+        primary: true,
+        description: "Canvas board surface"
+      })
+    );
+  }
+
   if (entrySurface === "media") {
     baseSurfaces.push(
       createSurface("media", {
@@ -436,10 +445,13 @@ export function buildWorkObjectSurfaceModel({ workObject = {}, entryPath = "" } 
   }
 
   const availableSurfaces = dedupeSurfaces(baseSurfaces);
-  const defaultSurface = chooseDefaultSurface(availableSurfaces, {
-    objectKind,
-    entrySurface
-  });
+  const defaultSurface =
+    (workspaceFamilyId === "canvas_board" && availableSurfaces.some((surface) => surface.id === "canvas")
+      ? "canvas"
+      : chooseDefaultSurface(availableSurfaces, {
+          objectKind,
+          entrySurface
+        }));
 
   return {
     objectSurface: objectKind === "project" ? "project" : entrySurface,

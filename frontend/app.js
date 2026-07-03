@@ -353,6 +353,15 @@ function currentScopeLabel() {
 }
 
 function currentWorkspaceActionGuide() {
+  if (isCanvasWorkspace()) {
+    return {
+      title: "Arrange the canvas directly",
+      text: "Drop notes, move blocks and organize the board here, then ask Hydria to clarify the structure or extend the visual map.",
+      editLabel: "Edit canvas",
+      steps: ["1 Add a card", "2 Move the board", "3 Saved automatically"]
+    };
+  }
+
   if (isDatasetWorkspace()) {
     return {
       title: "Edit directly in preview",
@@ -508,6 +517,14 @@ function syncPreviewInlineDraft(nextValue = "") {
 
 function updateDocumentPreviewInline(nextMarkdown = "") {
   syncPreviewInlineDraft(String(nextMarkdown || "").trim());
+}
+
+function updateCanvasPreviewInline(nextContent = "") {
+  syncEditorDraft(String(nextContent || ""), {
+    forceEditMode: false,
+    refreshWorkspace: false,
+    suppressPreviewRefresh: true
+  });
 }
 
 function updatePresentationPreviewInline(slideId = "", payload = {}) {
@@ -1310,6 +1327,11 @@ function buildSurfaceList(workObject = null) {
   const baseSurfaces = Array.isArray(workObject?.surfaceModel?.availableSurfaces)
     ? workObject.surfaceModel.availableSurfaces.filter(Boolean)
     : [];
+  const familyId = String(workObject?.workspaceFamilyId || workObject?.workspaceFamilyLabel || "").toLowerCase();
+
+  if (familyId === "canvas_board" && !baseSurfaces.some((surface) => surface.id === "canvas")) {
+    return [...baseSurfaces, { id: "canvas", label: "Canvas", enabled: true }];
+  }
 
   if (!shouldExposeCanvasSurface(workObject)) {
     return baseSurfaces;
@@ -1329,10 +1351,19 @@ function currentSurfaces() {
 function preferredSurfaceForLens(workObject = null) {
   const surfaces = buildSurfaceList(workObject).map((surface) => surface.id);
   const defaultSurface = workObject?.surfaceModel?.defaultSurface || surfaces[0] || "";
+  const familyId = String(
+    workObject?.workspaceFamilyId ||
+      workObject?.environmentPlan?.workspaceFamilyId ||
+      ""
+  ).toLowerCase();
   const { priority = "focus" } = currentWorkspaceLens();
 
   if (!surfaces.length) {
     return defaultSurface;
+  }
+
+  if (familyId === "canvas_board" && surfaces.includes("canvas")) {
+    return "canvas";
   }
 
   if (priority === "delivery_first") {
@@ -1571,6 +1602,14 @@ function isDashboardWorkspace() {
 
 function isWorkflowWorkspace() {
   return currentObjectKind() === "workflow" && /\.json$/i.test(String(state.currentWorkObjectFile || ""));
+}
+
+function isCanvasWorkspace() {
+  return (
+    currentObjectKind() === "design" &&
+    String(currentWorkspaceFamilyId() || "").toLowerCase() === "canvas_board" &&
+    /\.json$/i.test(String(state.currentWorkObjectFile || ""))
+  );
 }
 
 function isDesignWorkspace() {
@@ -3922,10 +3961,99 @@ function isSheetWorkObject(workObject = null) {
 }
 
 function sheetDocumentMeta(workObject = {}) {
+  return workspaceDocumentMeta(workObject, {
+    defaultMeta: "Spreadsheet workspace"
+  });
+}
+
+function isDocumentWorkObject(workObject = null) {
+  if (!workObject) {
+    return false;
+  }
+
+  const pageSlug = workspacePageForWorkObject(workObject)?.slug || "";
+  if (pageSlug) {
+    return pageSlug === "docs";
+  }
+
+  const kind = String(workObject.objectKind || workObject.kind || "").toLowerCase();
+  const family = String(workObject.workspaceFamilyId || workObject.workspaceFamilyLabel || "").toLowerCase();
+  const fileList = getEditableFiles(workObject).join(" ");
+
+  return (
+    kind === "document" ||
+    family.includes("document_knowledge") ||
+    /\.(md|markdown|txt|html?)\b/i.test(fileList)
+  );
+}
+
+function isCanvasWorkObject(workObject = null) {
+  if (!workObject) {
+    return false;
+  }
+
+  const pageSlug = workspacePageForWorkObject(workObject)?.slug || "";
+  if (pageSlug) {
+    return pageSlug === "canvas";
+  }
+
+  const family = String(workObject.workspaceFamilyId || workObject.workspaceFamilyLabel || "").toLowerCase();
+  const fileList = getEditableFiles(workObject).join(" ");
+  return family.includes("canvas_board") || /(^|\/)canvas\.json\b/i.test(fileList);
+}
+
+function currentWorkspaceDocumentListConfig() {
+  const page = currentWorkspacePage();
+  if (page?.slug === "docs") {
+    return {
+      title: "Open Docs",
+      newTitle: "New Docs document",
+      newKind: "document",
+      newFamily: "document_knowledge",
+      newLabel: "Docs",
+      emptyText: "Create a Docs document to start working with multiple files.",
+      defaultMeta: "Document workspace",
+      renamePrompt: "Nom du document Docs",
+      keepOneStatus: "Garde au moins un document Docs ouvert.",
+      matches: isDocumentWorkObject
+    };
+  }
+  if (page?.slug === "sheets") {
+    return {
+      title: "Open Sheets",
+      newTitle: "New Sheets document",
+      newKind: "dataset",
+      newFamily: "data_spreadsheet",
+      newLabel: "Sheets",
+      emptyText: "Create a Sheets document to start working with multiple files.",
+      defaultMeta: "Spreadsheet workspace",
+      renamePrompt: "Nom du document Sheets",
+      keepOneStatus: "Garde au moins un document Sheets ouvert.",
+      matches: isSheetWorkObject
+    };
+  }
+  if (page?.slug === "canvas") {
+    return {
+      title: "Open Canvas",
+      newTitle: "New Canvas board",
+      newKind: "design",
+      newFamily: "canvas_board",
+      newLabel: "Canvas",
+      emptyText: "Create a Canvas board to start arranging ideas on a whiteboard.",
+      defaultMeta: "Canvas board",
+      renamePrompt: "Nom du canvas",
+      keepOneStatus: "Garde au moins un canvas ouvert.",
+      matches: isCanvasWorkObject
+    };
+  }
+  return null;
+}
+
+function workspaceDocumentMeta(workObject = {}, config = currentWorkspaceDocumentListConfig()) {
   const primaryPath = workObject.primaryFile || getEditableFiles(workObject)[0] || "";
   const fileLabel = friendlyFileLabel(primaryPath);
   const status = workObject.status || "";
-  return [fileLabel, status].filter(Boolean).join(" | ") || "Spreadsheet workspace";
+  return [fileLabel, status].filter(Boolean).join(" | ") || config?.defaultMeta || "Workspace";
 }
 
 function isSheetDocumentClosed(workObjectId = "") {
@@ -4299,6 +4427,7 @@ function refreshPreviewPane() {
       renderWorkspace();
     },
     onDocumentInlineEdit: updateDocumentPreviewInline,
+    onCanvasContentChange: updateCanvasPreviewInline,
     onProjectObjectSelect: (workObject) =>
       selectWorkObject(workObject.id, preferredOpenPath(workObject)).catch(handleError),
     onPresentationSlideFocus: focusPresentationSlide,
@@ -8531,6 +8660,8 @@ function renderWorkspace() {
           ?"Edit the dashboard model directly."
           : isWorkflowWorkspace()
             ?"Edit the workflow directly."
+            : isCanvasWorkspace()
+              ?"Edit the canvas board model directly."
             : isDesignWorkspace()
               ?"Edit the design model directly."
         : isAppConfigWorkspace()
@@ -8547,6 +8678,8 @@ function renderWorkspace() {
           ?"Ex: add better KPIs and one clearer trend"
           : isWorkflowWorkspace()
             ?"Ex: simplify this flow and add one automation rule"
+            : isCanvasWorkspace()
+              ?"Ex: organize this canvas into clearer idea clusters"
             : isDesignWorkspace()
               ?"Ex: make this wireframe cleaner and more premium"
         : isAppConfigWorkspace()

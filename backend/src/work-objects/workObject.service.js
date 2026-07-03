@@ -354,6 +354,63 @@ function buildBlankWorkspaceFiles(kind = "document", title = "Hydria Workspace",
     };
   }
 
+  if (kind === "design" && workspaceFamilyId === "canvas_board") {
+    return {
+      sourceFormat: "json",
+      primaryPath: "canvas.json",
+      files: [
+        {
+          path: "canvas.json",
+          content: JSON.stringify(
+            {
+              title: headline,
+              brief: "Canvas workspace ready for notes, ideas and quick visual organization.",
+              palette: [
+                { name: "Warm note", value: "#f6d365" },
+                { name: "Mint note", value: "#c7f0d8" },
+                { name: "Ink", value: "#1f2937" }
+              ],
+              components: ["Sticky note", "Text block", "Shape"],
+              frames: [
+                {
+                  id: "frame-1",
+                  name: "Main canvas",
+                  goal: "Drop ideas, cluster them and shape the next steps.",
+                  blocks: [
+                    {
+                      id: "block-1",
+                      label: "Kickoff",
+                      body: "Drop the first idea here.",
+                      kind: "note",
+                      color: "#f6d365",
+                      x: 84,
+                      y: 88,
+                      w: 240,
+                      h: 150
+                    },
+                    {
+                      id: "block-2",
+                      label: "Next action",
+                      body: "Capture the next concrete move.",
+                      kind: "text",
+                      color: "#c7f0d8",
+                      x: 372,
+                      y: 136,
+                      w: 250,
+                      h: 132
+                    }
+                  ]
+                }
+              ]
+            },
+            null,
+            2
+          )
+        }
+      ]
+    };
+  }
+
   if (kind === "design") {
     return {
       sourceFormat: "json",

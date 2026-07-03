@@ -16,6 +16,7 @@ import artifactsRouter from "./routes/artifacts.js";
 import workObjectsRouter from "./routes/workObjects.js";
 import projectsRouter from "./routes/projects.js";
 import sheetsRouter from "./routes/sheets.js";
+import canvasRouter from "./routes/canvas.js";
 
 initDatabase();
 
@@ -35,6 +36,7 @@ app.use("/api/artifacts", artifactsRouter);
 app.use("/api/work-objects", workObjectsRouter);
 app.use("/api/projects", projectsRouter);
 app.use("/api/sheets", sheetsRouter);
+app.use("/api/canvas", canvasRouter);
 
 app.get("/favicon.ico", (req, res) => {
   res.sendFile(path.join(config.paths.frontendDir, "favicon.svg"));

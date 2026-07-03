@@ -32,6 +32,7 @@ export const WORKSPACE_ICON_SVG = {
   delete: '<path d="M5 7h14"/><path d="M9 7V5h6v2"/><path d="M8 7l1 13h6l1-13"/>',
   divider: '<path d="M4 12h16"/>',
   duplicate: '<rect x="8" y="8" width="11" height="11" rx="2"/><path d="M5 15V5h10"/>',
+  download: '<path d="M12 4v10"/><path d="M8 10l4 4 4-4"/><path d="M5 19h14"/>',
   eraser: '<path d="M4 16l8-8 6 6-5 5H7z"/><path d="M12 19h8"/>',
   eyeOff: '<path d="M3 3l18 18"/><path d="M10.6 10.6a2 2 0 0 0 2.8 2.8"/><path d="M9.5 5.3A9.8 9.8 0 0 1 12 5c5 0 8 4 9 7a12 12 0 0 1-2.4 3.7"/><path d="M6.1 6.8A12 12 0 0 0 3 12c1 3 4 7 9 7a9.8 9.8 0 0 0 3.5-.6"/>',
   fileSpreadsheet: '<path d="M6 3h9l4 4v14H6z"/><path d="M15 3v5h5"/><path d="M8 12h9"/><path d="M8 16h9"/><path d="M11 9v10"/>',
@@ -67,6 +68,14 @@ export const WORKSPACE_ICON_SVG = {
   rowInsert: '<path d="M4 7h16"/><path d="M4 17h16"/><path d="M12 10v4"/><path d="M10 12h4"/>',
   search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="M16 16l4 4"/>',
   shape: '<rect x="4" y="9" width="8" height="8" rx="1"/><circle cx="16" cy="9" r="4"/><path d="M15 14l5 6h-10z"/>',
+  shapeRect: '<rect x="4" y="7" width="16" height="10" rx="1.5"/>',
+  shapeRounded: '<rect x="4" y="7" width="16" height="10" rx="4"/>',
+  shapePill: '<rect x="3" y="8" width="18" height="8" rx="4"/>',
+  shapeCircle: '<circle cx="12" cy="12" r="7"/>',
+  shapeTriangle: '<path d="M12 5l8 14H4z"/>',
+  shapeDiamond: '<path d="M12 4l8 8-8 8-8-8z"/>',
+  shapeHexagon: '<path d="M7 5h10l5 7-5 7H7l-5-7z"/>',
+  shapeParallelogram: '<path d="M7 5h13l-3 14H4z"/>',
   sheet: '<path d="M6 3h9l4 4v14H6z"/><path d="M15 3v5h5"/><path d="M8 12h8"/><path d="M8 16h8"/>',
   slicer: '<path d="M4 5h16"/><path d="M7 10h10"/><path d="M9 15h6"/><path d="M11 20h2"/>',
   sort: '<path d="M8 5v14"/><path d="M5 8l3-3 3 3"/><path d="M16 19V5"/><path d="M13 16l3 3 3-3"/>',
@@ -81,6 +90,7 @@ export const WORKSPACE_ICON_SVG = {
   transpose: '<path d="M5 5h7v7H5z"/><path d="M12 12h7v7h-7z"/><path d="M15 5h4v4"/><path d="M19 5l-6 6"/><path d="M9 19H5v-4"/><path d="M5 19l6-6"/>',
   underline: '<path d="M7 5v6a5 5 0 0 0 10 0V5"/><path d="M5 21h14"/>',
   undo: '<path d="M9 7H4v5"/><path d="M4 7c2.8-2.8 7.2-3 10.2-.4 3.1 2.7 3.2 7.4.3 10.2-2.1 2.1-5.2 2.7-7.8 1.5"/>',
+  video: '<rect x="4" y="6" width="11" height="12" rx="2"/><path d="M15 10l5-3v10l-5-3z"/><path d="M8 10l3 2-3 2z"/>',
   zoom: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="M16 16l4 4"/><path d="M10.5 7v7"/><path d="M7 10.5h7"/>'
 };
 
