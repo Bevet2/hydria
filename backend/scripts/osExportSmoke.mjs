@@ -35,6 +35,16 @@ const xlsx = await exportFile("/api/sheets/export-xlsx", { filename: "hydria-tes
 const book = officeZip(xlsx, "xl/workbook.xml");
 assert.match(book.contents, /Sales Report/);
 assert.ok(book.entries >= 5, "XLSX should contain multiple workbook parts");
+
+const roundtripData = new FormData();
+roundtripData.append("workbook", new Blob([xlsx], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), "hydria-roundtrip.xlsx");
+const importedResponse = await fetch(baseUrl + "/api/sheets/import-xlsx", { method: "POST", body: roundtripData });
+if (!importedResponse.ok) throw new Error("XLSX roundtrip import failed: " + importedResponse.status + " " + (await importedResponse.text()).slice(0, 400));
+const imported = await importedResponse.json();
+assert.equal(imported.success, true);
+assert.ok(imported.model?.sheets?.some(sheet => sheet.name === "Sales Report"), "XLSX roundtrip should preserve sheet names");
+assert.ok(JSON.stringify(imported.model).includes("Paris"), "XLSX roundtrip should preserve data values");
+
 const sheetPdf = await exportFile("/api/sheets/export-pdf", { filename: "hydria-test.pdf", model }, /application\/pdf/);
 assert.equal(sheetPdf.subarray(0, 4).toString("utf8"), "%PDF");
 const pptx = await exportFile("/api/work-objects/export-smoke/presentation-export", {
@@ -47,7 +57,7 @@ assert.ok(slideEntries.length >= 1, "PowerPoint should contain at least one slid
 assert.ok(slideEntries.some(e => slidesZip.readAsText(e).includes("Presentation export regression")), "PowerPoint should preserve slide text");
 console.log(JSON.stringify({
   success: true,
-  exports: ["DOCX", "Docs PDF", "XLSX", "Sheets PDF", "PPTX"],
+  exports: ["DOCX", "Docs PDF", "XLSX", "XLSX import roundtrip", "Sheets PDF", "PPTX"],
   docxBytes: docx.length,
   docsPdfBytes: docsPdf.length,
   xlsxBytes: xlsx.length,
