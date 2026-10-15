@@ -367,11 +367,19 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
       const host = element("div", "hydria-flow-preview");
       renderTable(host, output.preview);
       consoleView.appendChild(host);
-      consoleView.appendChild(button("Download preview CSV", () => {
-        const rows = output.preview || [];
-        const columns = [...new Set(rows.flatMap((r) => Object.keys(r)))];
-        const data = [columns.map(csvEscape).join(","), ...rows.map((r) => columns.map((key) => csvEscape(r[key])).join(","))].join("\n");
-        download("hydria-flow-preview.csv", data, "text/csv;charset=utf-8");
+      consoleView.appendChild(button("Download full output CSV", async () => {
+        try {
+          const response = await fetch("/api/flows/export", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ flow: state.flow, outputId: output.id })
+          });
+          if (!response.ok) {
+            const reason = await response.json().catch(() => ({}));
+            throw new Error((reason.errors || []).join("; ") || "CSV export failed");
+          }
+          download("hydria-flow-output.csv", await response.blob(), "text/csv;charset=utf-8");
+        } catch (error) { state.error = error.message || String(error); renderConsole(); }
       }, "hydria-flow-secondary"));
     }
   }
