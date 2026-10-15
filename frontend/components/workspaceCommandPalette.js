@@ -67,7 +67,7 @@ export function installWorkspaceCommandPalette({ getActions, getObjects, openAct
       body.append(make("strong", "", item.label), make("small", "", item.hint));
       btn.append(icon, body);
       btn.addEventListener("click", () => dispatch(item));
-      btn.addEventListener("mouseenter", () => { active = index; refresh(); });
+      btn.addEventListener("mouseenter", () => { active = index; results.querySelectorAll(".hydria-command-result").forEach((item, i) => { item.classList.toggle("is-active", i === index); item.setAttribute("aria-selected", i === index ? "true" : "false"); }); });
       results.appendChild(btn);
     });
   }
