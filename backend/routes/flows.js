@@ -15,7 +15,9 @@ router.post("/run", (req, res) => {
 });
 
 function csvCell(value) {
-  const text = String(value == null ? "" : value).slice(0, 10000);
+  const raw = String(value == null ? "" : value).slice(0, 10000);
+  // Prevent spreadsheet formula execution when exported CSV is opened in Excel.
+  const text = /^[=+@\-\t\r]/.test(raw) ? "\x27" + raw : raw;
   return /[,"\r\n]/.test(text) ? '"' + text.replace(/"/g, '""') + '"' : text;
 }
 router.post("/export", (req, res) => {
