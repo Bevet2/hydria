@@ -20,6 +20,7 @@ import sheetsRouter from "./routes/sheets.js";
 import docsRouter from "./routes/docs.js";
 import canvasRouter from "./routes/canvas.js";
 import flowsRouter from "./routes/flows.js";
+import flowSourcesRouter from "./routes/flowSources.js";
 import hydriaApiRouter from "./routes/hydriaApi.js";
 
 initDatabase();
@@ -45,6 +46,7 @@ app.use("/api/sheets", sheetsRouter);
 app.use("/api/docs", docsRouter);
 app.use("/api/canvas", canvasRouter);
 app.use("/api/flows", flowsRouter);
+app.use("/api/flow-sources", flowSourcesRouter);
 
 app.get("/favicon.ico", (req, res) => {
   res.sendFile(path.join(config.paths.frontendDir, "favicon.svg"));
