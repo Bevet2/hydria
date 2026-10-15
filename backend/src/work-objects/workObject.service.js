@@ -2112,6 +2112,7 @@ export class WorkObjectService {
     const current = this.store.get(String(workObjectId || ""));
     if (!current) throw new AppError("Work object not found", 404);
     this.assertAccess(current, { actorUserId, shareToken }, "editor");
+    if (current.status === "trashed") throw new AppError("Restore the work object before changing its files", 409);
     // Native Docs/Sheets/Slides and other typed objects have canonical file paths.
     // Restrict physical moves to project/code workspaces until their respective
     // internal references can be migrated together.
@@ -2136,7 +2137,7 @@ export class WorkObjectService {
     if (source === destination) throw new AppError("Source and destination paths are identical", 400);
     const entry = (current.entries || []).find((candidate) => candidate.path === source);
     if (!entry || !entry.editable) throw new AppError("Editable source file not found", 404);
-    if ((current.entries || []).some((candidate) => candidate.path === destination)) {
+    if ((current.entries || []).some((candidate) => candidate.path.toLowerCase() === destination.toLowerCase())) {
       throw new AppError("A file already exists at the destination", 409);
     }
     if (!isEditableTextPath(destination)) {
@@ -2145,7 +2146,15 @@ export class WorkObjectService {
     const root = path.resolve(current.workspacePath);
     const sourceAbsolute = safeResolveWithin(root, source);
     const destinationAbsolute = safeResolveWithin(root, destination);
-    if (!fs.existsSync(sourceAbsolute) || !fs.statSync(sourceAbsolute).isFile() || fs.lstatSync(sourceAbsolute).isSymbolicLink()) {
+    // Source symlink ancestors are unsafe too, even if the leaf is a regular file.
+    let sourceCursor = root;
+    for (const segment of source.split("/")) {
+      sourceCursor = path.join(sourceCursor, segment);
+      if (fs.existsSync(sourceCursor) && fs.lstatSync(sourceCursor).isSymbolicLink()) {
+        throw new AppError("Source contains a symbolic link", 400);
+      }
+    }
+    if (!fs.existsSync(sourceAbsolute) || !fs.statSync(sourceAbsolute).isFile()) {
       throw new AppError("Source is not a regular file", 400);
     }
     if (fs.existsSync(destinationAbsolute)) throw new AppError("Destination already exists on disk", 409);
@@ -2169,12 +2178,16 @@ export class WorkObjectService {
         status: "updated",
         entries: (record.entries || []).map((item) =>
           item.path === source ? normalizeWorkObjectEntry({
-            ...item, path: destination,
+            ...item, id: destination, path: destination, label: destination,
             kind: inferEntryKind(destination, record.kind),
             contentType: guessContentType(destination),
             lastModifiedAt: new Date().toISOString()
           }) : item
         ),
+        metadata: {
+          ...(record.metadata || {}),
+          previewAssetPath: record.metadata?.previewAssetPath === source ? destination : record.metadata?.previewAssetPath
+        },
         history: [...(record.history || []).map((item) =>
           item.entryPath === source ? { ...item, entryPath: destination } : item
         ), {
