@@ -95,6 +95,9 @@ jobs:
           assert.equal(body.trim().split("\r\n").length,4);
           console.log("Full CSV export verified");
           '
+      - name: Validate real Docs Sheets and PowerPoint exports
+        run: node backend/scripts/osExportSmoke.mjs
+
   browser:
     runs-on: ubuntu-latest
     steps:
