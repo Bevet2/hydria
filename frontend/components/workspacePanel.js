@@ -30954,6 +30954,7 @@ export function renderWorkspacePreview(
     crmUserId = null,
     onDocumentSectionFocus = null,
     onDocumentInlineEdit = null,
+    onCanvasContentChange = null,
     onProjectObjectSelect = null,
     onPresentationSlideFocus = null,
     onPresentationSlideEdit = null,
