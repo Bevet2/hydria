@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import AdmZip from "adm-zip";
+import { runFlow } from "../services/flow/flowEngine.js";
+import { spreadsheetSheetToFlowRows } from "../../frontend/components/workspaceFlowManager.js";
 const baseUrl = process.env.HYDRIA_VISUAL_BASE_URL || "http://127.0.0.1:3001";
 
 async function exportFile(path, body, contentType) {
@@ -44,6 +46,25 @@ const imported = await importedResponse.json();
 assert.equal(imported.success, true);
 assert.ok(imported.model?.sheets?.some(sheet => sheet.name === "Sales Report"), "XLSX roundtrip should preserve sheet names");
 assert.ok(JSON.stringify(imported.model).includes("Paris"), "XLSX roundtrip should preserve data values");
+const salesSheet = imported.model.sheets.find(sheet => sheet.name === "Sales Report");
+const flowRows = spreadsheetSheetToFlowRows(salesSheet);
+assert.deepEqual(flowRows, [
+  {City:"Paris", Amount:"42"},
+  {City:"Lyon", Amount:"25"}
+], "XLSX imported via Sheets must become typed Flow Manager source rows");
+const excelFlow = runFlow({
+  stages:[
+    {id:"excel",type:"input.table",config:{data:JSON.stringify(flowRows)}},
+    {id:"filter",type:"transform.filter",config:{column:"Amount",operator:"gte",value:"40"}},
+    {id:"result",type:"output.table",config:{}}
+  ],
+  links:[
+    {from:"excel",to:"filter",toPort:0},
+    {from:"filter",to:"result",toPort:0}
+  ]
+});
+assert.equal(excelFlow.success,true,"Flow Manager must execute a table sourced from Excel");
+assert.deepEqual(excelFlow.outputs[0].preview,[{City:"Paris",Amount:"42"}]);
 
 const sheetPdf = await exportFile("/api/sheets/export-pdf", { filename: "hydria-test.pdf", model }, /application\/pdf/);
 assert.equal(sheetPdf.subarray(0, 4).toString("utf8"), "%PDF");
