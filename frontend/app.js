@@ -17145,6 +17145,28 @@ function renderWorkspace() {
         preserveSurface: true,
         preserveMode: true
       }).catch(handleError);
+    },
+    onMove: async (fromPath, toPath) => {
+      if (!workObject?.id) return;
+      try {
+        await flushPendingWorkObjectChanges();
+        await apiClient.moveWorkObjectFile(workObject.id, {
+          userId: state.currentUserId,
+          fromPath,
+          toPath,
+          expectedRevision: state.currentWorkObject?.revision
+        });
+        await selectWorkObject(workObject.id, toPath, {
+          syncProject: false,
+          preserveDimension: true,
+          preserveSurface: true,
+          preserveMode: true
+        });
+        setStatus("File moved to " + toPath);
+      } catch (error) {
+        handleError(error);
+        throw error;
+      }
     }
   });
   const surfaceModel = currentSurfaceModel();
