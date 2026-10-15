@@ -1,0 +1,27 @@
+name: Temporary file explorer rebase
+on:
+  push:
+    branches:
+      - feat/hydria-os-files-reconciled-2026-10-15
+permissions:
+  contents: write
+jobs:
+  merge-current-main:
+    if: "!contains(github.event.head_commit.message, '[files-rebase]')"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Merge all current main changes without overriding conflicting source
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git merge --no-ff --no-edit origin/main -m "merge: incorporate latest Hydria OS work [files-rebase]"
+          node --check frontend/app.js
+          node --check frontend/components/workspaceFileExplorer.js
+          node --check frontend/components/workspaceCommandPalette.js
+          git push origin HEAD:refs/heads/feat/hydria-os-files-reconciled-2026-10-15
