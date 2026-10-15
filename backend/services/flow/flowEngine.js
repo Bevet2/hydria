@@ -32,7 +32,7 @@ function normalizedRows(value) {
   if (!Array.isArray(value) || value.length > MAX_ROWS) flowError("Input must be an array with at most 20,000 rows.");
   return value.map((row) => {
     if (!row || typeof row !== "object" || Array.isArray(row)) flowError("Each row must be a JSON object.");
-    return Object.fromEntries(Object.entries(row).slice(0, 100).map(([k, v]) => [k.slice(0, 100), typeof v === "object" ? JSON.stringify(v).slice(0, MAX_CELL_CHARS) : v]));
+    return Object.fromEntries(Object.entries(row).slice(0, 100).map(([k, v]) => [k.slice(0, 100), v === null ? null : typeof v === "object" ? JSON.stringify(v).slice(0, MAX_CELL_CHARS) : v]));
   });
 }
 function numerical(value, label) {
