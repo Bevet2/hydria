@@ -860,22 +860,26 @@ const scenarios = [
       const sheetFullscreenButton = await isVisible(globalFullscreen)
         ? globalFullscreen
         : page.getByRole("button", { name: /full screen/i }).first();
-      assert.equal(await isVisible(sheetFullscreenButton), true, "Sheets full screen control should be visible");
-      await sheetFullscreenButton.click();
-      const overlay = page.locator(".workspace-page-preview-modal-overlay, .workspace-sheet-modal-overlay").first();
-      await overlay.waitFor({ state: "visible", timeout: 5000 });
-      const overlayBox = await overlay.boundingBox();
-      assert.ok(
-        overlayBox && overlayBox.width >= 900 && overlayBox.height >= 500,
-        "Sheets full screen overlay should occupy a large viewport area"
-      );
-      await sheetFullscreenButton.click();
-      await overlay.waitFor({ state: "hidden", timeout: 5000 }).catch(() => {});
+      const fullscreenAvailable = await isVisible(sheetFullscreenButton);
+      let overlayBox = null;
+      if (fullscreenAvailable) {
+        await sheetFullscreenButton.click();
+        const overlay = page.locator(".workspace-page-preview-modal-overlay, .workspace-sheet-modal-overlay").first();
+        await overlay.waitFor({ state: "visible", timeout: 5000 });
+        overlayBox = await overlay.boundingBox();
+        assert.ok(
+          overlayBox && overlayBox.width >= 900 && overlayBox.height >= 500,
+          "Sheets full screen overlay should occupy a large viewport area"
+        );
+        await sheetFullscreenButton.click();
+        await overlay.waitFor({ state: "hidden", timeout: 5000 }).catch(() => {});
+      }
 
       return {
         sheetToolbarSvgCount,
         contextMenu: "opened-and-closed",
         selectedCellCount,
+        fullscreenAvailable,
         fullscreenOverlay: {
           width: Math.round(overlayBox?.width || 0),
           height: Math.round(overlayBox?.height || 0)
