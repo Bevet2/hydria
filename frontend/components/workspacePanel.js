@@ -31212,7 +31212,7 @@ export function renderWorkspacePreview(
 
   if (resolvedSurfaceId === "workflow") {
     const flowModel = safeJsonParse(contentToRender);
-    if (workspaceFamilyId === "workflow_automation" && flowModel?.kind === "hydria-dataflow") {
+    if (workspaceFamilyId === "data_flow" && flowModel?.kind === "hydria-dataflow") {
       renderHydriaFlowManager(container, {
         content: contentToRender,
         title: workObject.title || "Data workflow",
