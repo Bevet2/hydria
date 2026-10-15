@@ -43,6 +43,7 @@ import {
   replayCollaborationOperations
 } from "./services/collaborationClient.js";
 import { installWorkspaceCommandPalette } from "./components/workspaceCommandPalette.js";
+import { renderWorkspaceFileExplorer } from "./components/workspaceFileExplorer.js";
 import { sessionStore } from "./services/sessionStore.js";
 
 const initialWorkspacePage = parseWorkspacePagePath();
@@ -246,6 +247,7 @@ function cache() {
     "work-object-kind",
     "workspace-panel-root",
     "workspace-launcher",
+    "workspace-file-explorer",
     "workspace-layout",
     "workspace-switcher",
     "workspace-context-label",
@@ -17074,6 +17076,21 @@ function renderWorkspace() {
   ensureCurrentSurface();
 
   const filePath = state.currentWorkObjectFile || workObject?.primaryFile || "";
+  renderWorkspaceFileExplorer(el["workspace-file-explorer"], {
+    workObjectId: workObject?.id || "",
+    userId: state.currentUserId,
+    files: getEditableFiles(workObject),
+    activePath: filePath,
+    onOpen: (path) => {
+      if (!workObject?.id || path === state.currentWorkObjectFile) return;
+      selectWorkObject(workObject.id, path, {
+        syncProject: false,
+        preserveDimension: true,
+        preserveSurface: true,
+        preserveMode: true
+      }).catch(handleError);
+    }
+  });
   const surfaceModel = currentSurfaceModel();
   const dimensions = project?.dimensions || workObject?.projectDimensions || [];
 
