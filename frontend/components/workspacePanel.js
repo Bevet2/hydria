@@ -31248,7 +31248,8 @@ export function renderWorkspacePreview(
       sections,
       blocks,
       selectedSectionId,
-      onSectionFocus: onDocumentSectionFocus
+      onSectionFocus: onDocumentSectionFocus,
+      onContentChange: onCanvasContentChange
     });
     return;
   }

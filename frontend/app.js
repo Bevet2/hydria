@@ -591,6 +591,15 @@ function currentScopeLabel() {
 }
 
 function currentWorkspaceActionGuide() {
+  if (isCanvasWorkspace()) {
+    return {
+      title: "Arrange the canvas directly",
+      text: "Drop notes, move blocks and organize the board here, then ask Hydria to clarify the structure or extend the visual map.",
+      editLabel: "Edit canvas",
+      steps: ["1 Add a card", "2 Move the board", "3 Saved automatically"]
+    };
+  }
+
   if (isDatasetWorkspace()) {
     return {
       title: "Edit directly in preview",
@@ -793,6 +802,14 @@ function syncPreviewInlineDraft(nextValue = "") {
 
 function updateDocumentPreviewInline(nextMarkdown = "") {
   syncPreviewInlineDraft(String(nextMarkdown || "").trim());
+}
+
+function updateCanvasPreviewInline(nextContent = "") {
+  syncEditorDraft(String(nextContent || ""), {
+    forceEditMode: false,
+    refreshWorkspace: false,
+    suppressPreviewRefresh: true
+  });
 }
 
 function updatePresentationPreviewInline(slideId = "", payload = {}) {
@@ -1058,10 +1075,19 @@ function currentSurfaces() {
 function preferredSurfaceForLens(workObject = null) {
   const surfaces = buildSurfaceList(workObject).map((surface) => surface.id);
   const defaultSurface = workObject?.surfaceModel?.defaultSurface || surfaces[0] || "";
+  const familyId = String(
+    workObject?.workspaceFamilyId ||
+      workObject?.environmentPlan?.workspaceFamilyId ||
+      ""
+  ).toLowerCase();
   const { priority = "focus" } = currentWorkspaceLens();
 
   if (!surfaces.length) {
     return defaultSurface;
+  }
+
+  if (familyId === "canvas_board" && surfaces.includes("canvas")) {
+    return "canvas";
   }
 
   if (priority === "delivery_first") {
@@ -1301,6 +1327,14 @@ function isDashboardWorkspace() {
 
 function isWorkflowWorkspace() {
   return currentObjectKind() === "workflow" && /\.json$/i.test(String(state.currentWorkObjectFile || ""));
+}
+
+function isCanvasWorkspace() {
+  return (
+    currentObjectKind() === "design" &&
+    String(currentWorkspaceFamilyId() || "").toLowerCase() === "canvas_board" &&
+    /\.json$/i.test(String(state.currentWorkObjectFile || ""))
+  );
 }
 
 function isDesignWorkspace() {
@@ -8062,6 +8096,7 @@ function refreshPreviewPane() {
       renderWorkspace();
     },
     onDocumentInlineEdit: updateDocumentPreviewInline,
+    onCanvasContentChange: updateCanvasPreviewInline,
     onProjectObjectSelect: (workObject) =>
       selectWorkObject(workObject.id, preferredOpenPath(workObject)).catch(handleError),
     onPresentationSlideFocus: focusPresentationSlide,
@@ -17366,6 +17401,8 @@ function renderWorkspace() {
           ?"Edit the dashboard model directly."
           : isWorkflowWorkspace()
             ?"Edit the workflow directly."
+            : isCanvasWorkspace()
+              ?"Edit the canvas board model directly."
             : isDesignWorkspace()
               ?"Edit the design model directly."
         : isAppConfigWorkspace()
@@ -17382,6 +17419,8 @@ function renderWorkspace() {
           ?"Ex: add better KPIs and one clearer trend"
           : isWorkflowWorkspace()
             ?"Ex: simplify this flow and add one automation rule"
+            : isCanvasWorkspace()
+              ?"Ex: organize this canvas into clearer idea clusters"
             : isDesignWorkspace()
               ?"Ex: make this wireframe cleaner and more premium"
         : isAppConfigWorkspace()
