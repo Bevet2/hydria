@@ -171,4 +171,17 @@ assert.equal(
   runFlow({stages:[node("s","input.table",{data:'[{"name":"Nice"}]'}),node("r","transform.text",{column:"name",textAction:"replace",find:""})],links:[link("s","r")]}).success,
   false
 );
+const twoOutputs = runFlow({
+  stages: [
+    node("source","input.table",{data:'[{"city":"Paris","sales":10},{"city":"Lyon","sales":7}]'}),
+    node("filtered","transform.filter",{column:"city",operator:"eq",value:"Paris"}),
+    node("all","output.table"),
+    node("paris","output.table")
+  ],
+  links: [link("source","all"),link("source","filtered"),link("filtered","paris")]
+}, { includeAllOutputs: true });
+assert.equal(twoOutputs.success,true);
+assert.equal(twoOutputs.outputs.length,2);
+assert.deepEqual(twoOutputs.outputs.find((item)=>item.id==="all").data.map((r)=>r.city),["Paris","Lyon"]);
+assert.deepEqual(twoOutputs.outputs.find((item)=>item.id==="paris").data.map((r)=>r.city),["Paris"]);
 console.log("Hydria dataflow integration gate passed (ETL transforms, CSV/TSV/XLSX inputs, joins, cleanup, type conversion, column profiling, limits and errors).");

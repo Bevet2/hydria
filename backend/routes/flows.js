@@ -27,7 +27,8 @@ router.post("/export", (req, res) => {
     res.status(422).json({ success: false, errors: result.errors });
     return;
   }
-  const output = result.outputs.find((item) => item.id === req.body?.outputId) || result.outputs[0];
+  const outputId = String(req.body?.outputId || "");
+  const output = outputId ? result.outputs.find((item) => item.id === outputId) : result.outputs[0];
   if (!output) {
     res.status(422).json({ success: false, errors: ["Connect at least one Table output node."] });
     return;

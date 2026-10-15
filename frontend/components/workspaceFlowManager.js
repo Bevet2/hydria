@@ -189,7 +189,7 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
     return;
   }
   host.replaceChildren();
-  const state = { flow: structuredClone(model), selected: model.stages[0]?.id || "", pending: "", zoom: 1, results: null, error: "", running: false, history: [], future: [] };
+  const state = { flow: structuredClone(model), selected: model.stages[0]?.id || "", activeOutputId: "", pending: "", zoom: 1, results: null, error: "", running: false, history: [], future: [] };
   const root = element("section", "hydria-flow-manager");
   const toolbar = element("div", "hydria-flow-toolbar");
   const name = element("div", "hydria-flow-title");
@@ -477,7 +477,28 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
       }, "hydria-flow-run-step");
       consoleView.appendChild(item);
     });
-    const output = state.results.outputs?.[0];
+    const outputs = state.results.outputs || [];
+    if (outputs.length > 1) {
+      const selection = element("label", "hydria-flow-field");
+      selection.appendChild(element("span", "", "Output dataset"));
+      const picker = element("select", "hydria-flow-output-picker");
+      for (const candidate of outputs) {
+        const option = element("option", "", (nodeById(candidate.id)?.label || candidate.id) + " · " + candidate.rows + " rows");
+        option.value = candidate.id;
+        picker.appendChild(option);
+      }
+      if (!outputs.some((candidate) => candidate.id === state.activeOutputId)) {
+        state.activeOutputId = outputs[0].id;
+      }
+      picker.value = state.activeOutputId;
+      picker.addEventListener("change", () => {
+        state.activeOutputId = picker.value;
+        renderConsole();
+      });
+      selection.appendChild(picker);
+      consoleView.appendChild(selection);
+    }
+    const output = outputs.find((item) => item.id === state.activeOutputId) || outputs[0];
     if (output) {
       const host = element("div", "hydria-flow-preview");
       renderTable(host, output.preview);
@@ -519,6 +540,9 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
       const response = await fetch("/api/flows/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ flow: state.flow, sampleLimit: 30 }) });
       const result = await response.json();
       state.results = result;
+      if (!result.outputs?.some((item) => item.id === state.activeOutputId)) {
+        state.activeOutputId = result.outputs?.[0]?.id || "";
+      }
       if (!response.ok && !result.errors?.length) state.error = "Flow execution failed.";
     } catch (error) { state.error = error.message || String(error); }
     finally { state.running = false; renderConsole(); renderInspector(); }

@@ -19112,6 +19112,7 @@ window.addEventListener("online", async () => {
 });
 
 window.addEventListener("beforeunload", () => {
+  state.osIsNavigatingAway = true;
   clearAutoSaveTimer();
   clearRuntimeSyncTimer();
   if (state.liveDraftRefreshHandle) {
@@ -19141,6 +19142,13 @@ state.bootPromise
     setInteractiveEnabled(true);
   })
   .catch((error) => {
+    // Browser navigation aborts in-flight startup requests. Do not report a
+    // cancelled request from the *previous page* as a new application failure.
+    // Any error on an active page continues through the normal error handler.
+    if (state.osIsNavigatingAway &&
+        /^(?:TypeError: )?Failed to fetch$|^Invalid server response$|AbortError/i.test(String(error?.message || ""))) {
+      return;
+    }
     state.ready = true;
     document.documentElement.dataset.hydriaBoot = "failed";
     setInteractiveEnabled(true);
