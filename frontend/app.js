@@ -19041,10 +19041,27 @@ async function init() {
   renderWorkObjects();
   renderWorkspace();
 
+  // Failures during the initial user-list request must not leave the entire
+  // workspace unusable after a brief local proxy/reload interruption. Only
+  // retry network failures and malformed transient responses; HTTP errors
+  // (including permission denials) still surface immediately.
+  const loadUsersAtStartup = async () => {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        return await apiClient.listUsers();
+      } catch (error) {
+        const message = String(error?.message || "");
+        const retryable = (error instanceof TypeError && /fetch|network|load failed/i.test(message)) ||
+          (error?.status === 200 && message === "Invalid server response");
+        if (!retryable || attempt === 2) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+      }
+    }
+  };
   const [configPayload, healthPayload, usersPayload] = await Promise.all([
     apiClient.getPublicConfig().catch(() => null),
     apiClient.getHealth().catch(() => null),
-    apiClient.listUsers()
+    loadUsersAtStartup()
   ]);
 
   state.config = configPayload || null;
