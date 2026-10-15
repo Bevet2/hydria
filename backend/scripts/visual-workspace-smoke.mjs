@@ -141,7 +141,12 @@ async function maybeOpenWorkspacePage(page, label) {
 }
 
 async function waitForWorkspace(page, baseUrl) {
-  await page.goto(baseUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
+  const destination = new URL("/", baseUrl).href;
+  // Navigating twice aborts the in-flight user/preferences bootstrap request.
+  // Reuse the already loaded root page when a scenario asks for workspace readiness.
+  if (page.url() !== destination) {
+    await page.goto(destination, { waitUntil: "domcontentloaded", timeout: 30000 });
+  }
   await page.waitForLoadState("networkidle", { timeout: 5000 }).catch(() => {});
   await page.waitForTimeout(1200);
 }
