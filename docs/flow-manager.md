@@ -13,12 +13,13 @@ do not replace the existing task/workflow editor.
 - Select columns, filter rows, sort, arithmetic derived columns, group/aggregate,
   two-input left/inner join, and table output.
 - Inspect intermediate node row counts, execution status and samples.
-- Import/export a `hydria-dataflow` JSON model, export output **preview** as CSV.
+- Import/export a `hydria-dataflow` JSON model, export the **full output** as CSV.
 - Automatic persistence through the current work object's `workflow.json` and OS autosave.
 - Stateless local validation/execution API:
   - `GET /api/flows/catalog`
   - `POST /api/flows/validate` with `{ "flow": { ... } }`
   - `POST /api/flows/run` with `{ "flow": { ... }, "sampleLimit": 30 }`
+  - `POST /api/flows/export` with `{ "flow": { ... } }` for a complete CSV download
 
 A new Flow Manager project starts with a source → filter → output example.
 
@@ -30,8 +31,9 @@ missing edges, duplicate input connections, and cycles.
 
 Current limits: 100 nodes, 250 links, 20,000 rows, 100 source columns and 100
 sampled preview rows per node. CSV imports are limited to 2 MB.
-Flow executions are manual and stateless; the workflow definition is persisted,
-but execution results are returned as previews, not separate durable datasets.
+Flow executions are manual and stateless; the workflow definition is persisted.
+Execution previews are sampled; complete output can be exported as CSV (up to 25 MB).
+Execution results are not stored as separate durable datasets.
 
 This is not a full KNIME alternative yet. SQL connectors, data catalog discovery,
 typed schemas, runtime caching, streaming files, scheduling, execution history,
