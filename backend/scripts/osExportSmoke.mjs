@@ -23,6 +23,28 @@ function officeZip(bytes, entry) {
   assert.ok(file, "Missing Office package part: " + entry);
   return { contents: zip.readAsText(file), entries: zip.getEntries().length };
 }
+const svgResponse = await fetch(baseUrl + "/api/canvas/export-svg", {
+  method: "POST", headers: { "content-type": "application/json" },
+  body: JSON.stringify({
+    title: "Hydria SVG regression",
+    boardWidth: 900, boardHeight: 600,
+    elements: [
+      {id:"a",type:"shape",shape:"diamond",x:30,y:60,width:180,height:120,title:"A <script>alert(1)</script>"},
+      {id:"b",type:"note",x:400,y:100,width:200,height:160,title:"Second",body:"Save & export"}
+    ],
+    links: [{id:"a-b",from:"a",to:"b",label:"Connection"}]
+  })
+});
+assert.equal(svgResponse.status,200);
+assert.match(svgResponse.headers.get("content-type") || "",/image\/svg\+xml/);
+const svg = await svgResponse.text();
+assert.match(svg, /<svg[^>]+xmlns="http:\/\/www\.w3\.org\/2000\/svg"/);
+assert.match(svg, /<polygon/);
+assert.match(svg, /<path[^>]+marker-end/);
+assert.match(svg, /Connection/);
+assert.match(svg, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+assert.doesNotMatch(svg, /<script>/);
+assert.match(svg, /Save &amp; export/);
 const documentHtml = "<h1>Hydria Docs</h1><p>Export regression test</p><table><tr><th>Item</th><th>Amount</th></tr><tr><td>Revenue</td><td>42</td></tr></table>";
 const docx = await exportFile("/api/docs/export-docx", { title: "Hydria export test", html: documentHtml }, /wordprocessingml\.document/);
 const docXml = officeZip(docx, "word/document.xml");
@@ -112,7 +134,7 @@ assert.ok(slideEntries.length >= 1, "PowerPoint should contain at least one slid
 assert.ok(slideEntries.some(e => slidesZip.readAsText(e).includes("Presentation export regression")), "PowerPoint should preserve slide text");
 console.log(JSON.stringify({
   success: true,
-  exports: ["DOCX", "Docs PDF", "XLSX", "XLSX import roundtrip", "Flow XLSX", "Sheets PDF", "PPTX"],
+  exports: ["DOCX", "Docs PDF", "XLSX", "XLSX import roundtrip", "Flow XLSX", "Sheets PDF", "PPTX", "Canvas SVG"],
   docxBytes: docx.length,
   docsPdfBytes: docsPdf.length,
   xlsxBytes: xlsx.length,
