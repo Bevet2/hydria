@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import AdmZip from "adm-zip";
+import XLSX from "xlsx";
 import { runFlow } from "../services/flow/flowEngine.js";
 import { spreadsheetSheetToFlowRows } from "../../frontend/components/workspaceFlowManager.js";
 const baseUrl = process.env.HYDRIA_VISUAL_BASE_URL || "http://127.0.0.1:3001";
@@ -66,6 +67,39 @@ const excelFlow = runFlow({
 assert.equal(excelFlow.success,true,"Flow Manager must execute a table sourced from Excel");
 assert.deepEqual(excelFlow.outputs[0].preview,[{City:"Paris",Amount:"42"}]);
 
+const exportedFlow = {
+  title: "Flow Excel export",
+  stages:[
+    {id:"source",type:"input.table",config:{data:JSON.stringify([
+      {city:"Paris",amount:42,unsafe:"=1+1"},
+      {city:"Lyon",amount:25,unsafe:"+2+2"}
+    ])}},
+    {id:"result",type:"output.table",config:{}}
+  ],
+  links:[{from:"source",to:"result",toPort:0}]
+};
+const flowXlsx = await exportFile(
+  "/api/flows/export-xlsx",
+  {flow:exportedFlow, outputId:"result"},
+  /spreadsheetml\.sheet/
+);
+officeZip(flowXlsx, "xl/workbook.xml");
+const flowBook = XLSX.read(flowXlsx, {type:"buffer"});
+assert.deepEqual(flowBook.SheetNames, ["Flow Result"]);
+const flowSheet = flowBook.Sheets["Flow Result"];
+const flowMatrix = XLSX.utils.sheet_to_json(flowSheet, {header:1,defval:null});
+assert.deepEqual(flowMatrix, [
+  ["city","amount","unsafe"],
+  ["Paris",42,"=1+1"],
+  ["Lyon",25,"+2+2"]
+], "Flow export must preserve columns, values and original string literals");
+assert.equal(flowSheet.C2.f,undefined,"Untrusted strings must not execute as Excel formulas");
+const invalidOutput = await fetch(baseUrl + "/api/flows/export-xlsx", {
+  method:"POST",headers:{"content-type":"application/json"},
+  body:JSON.stringify({flow:exportedFlow,outputId:"missing"})
+});
+assert.equal(invalidOutput.status,422,"Invalid output IDs must be rejected");
+
 const sheetPdf = await exportFile("/api/sheets/export-pdf", { filename: "hydria-test.pdf", model }, /application\/pdf/);
 assert.equal(sheetPdf.subarray(0, 4).toString("utf8"), "%PDF");
 const pptx = await exportFile("/api/work-objects/export-smoke/presentation-export", {
@@ -78,7 +112,7 @@ assert.ok(slideEntries.length >= 1, "PowerPoint should contain at least one slid
 assert.ok(slideEntries.some(e => slidesZip.readAsText(e).includes("Presentation export regression")), "PowerPoint should preserve slide text");
 console.log(JSON.stringify({
   success: true,
-  exports: ["DOCX", "Docs PDF", "XLSX", "XLSX import roundtrip", "Sheets PDF", "PPTX"],
+  exports: ["DOCX", "Docs PDF", "XLSX", "XLSX import roundtrip", "Flow XLSX", "Sheets PDF", "PPTX"],
   docxBytes: docx.length,
   docsPdfBytes: docsPdf.length,
   xlsxBytes: xlsx.length,
