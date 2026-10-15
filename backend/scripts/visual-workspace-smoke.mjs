@@ -1092,7 +1092,14 @@ const scenarios = [
       assert.match(body, /Table output|rows/i);
       await editor.locator(".hydria-flow-catalog-item").filter({ hasText: "Select columns" }).click();
       assert.ok(await editor.locator(".hydria-flow-node").count() === initialNodes + 1, "Catalog must add nodes");
-      return { nodes: initialNodes, executionSteps: await steps.count(), catalogAdded: true };
+      await page.keyboard.press("Control+k");
+      const searchPanel = page.locator(".hydria-command-panel").first();
+      await searchPanel.waitFor({ state: "visible", timeout: 5000 });
+      await searchPanel.locator("input").fill("Paris");
+      await page.waitForFunction(() => [...document.querySelectorAll(".hydria-command-result-body small")].some(el => (el.textContent || "").includes("workflow.json") && (el.textContent || "").includes("Paris")), { timeout: 8000 });
+      const fullTextHits = await searchPanel.locator(".hydria-command-result").count();
+      await page.keyboard.press("Escape");
+      return { nodes: initialNodes, executionSteps: await steps.count(), catalogAdded: true, fullTextHits };
     }
   },
   {
