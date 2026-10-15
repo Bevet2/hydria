@@ -63,7 +63,8 @@ export function renderWorkspaceFileExplorer(container, {
   files = [],
   activePath = "",
   onOpen = () => {},
-  onMove = null
+  onMove = null,
+  onCreate = null
 } = {}) {
   if (!container) return;
   const id = String(workObjectId || "");
@@ -81,6 +82,40 @@ export function renderWorkspaceFileExplorer(container, {
   const title = el("strong", "", "Files");
   const count = el("small", "hydria-files-count", String(files.length));
   header.append(title, count);
+  if (typeof onCreate === "function") {
+    const create = el("button", "hydria-files-star hydria-files-new", "+ File");
+    create.type = "button";
+    create.setAttribute("aria-label", "Create a new project file");
+    create.addEventListener("click", () => {
+      const form = el("form", "hydria-files-rename-form");
+      const input = el("input", "hydria-files-rename-input");
+      input.type = "text";
+      input.placeholder = "folder/new-file.md";
+      input.maxLength = 240;
+      input.required = true;
+      input.setAttribute("aria-label", "New project file path");
+      const save = el("button", "hydria-files-rename-save", "Create");
+      save.type = "submit";
+      const cancel = el("button", "hydria-files-rename-cancel", "Cancel");
+      cancel.type = "button";
+      const close = () => { form.remove(); create.disabled = false; create.focus(); };
+      cancel.addEventListener("click", close);
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") { event.preventDefault(); close(); }
+      });
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        save.disabled = true; cancel.disabled = true;
+        try { await onCreate(input.value.trim()); }
+        finally { close(); }
+      });
+      form.append(input, save, cancel);
+      header.after(form);
+      create.disabled = true;
+      input.focus();
+    });
+    header.append(create);
+  }
   const controls = el("div", "hydria-files-controls");
   const search = el("input", "hydria-files-search");
   search.type = "search"; search.placeholder = "Find a file…"; search.value = state.query;
