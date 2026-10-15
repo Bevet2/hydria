@@ -5502,7 +5502,7 @@ async function flushCollaborativeOperation() {
   }
 }
 
-function scheduleAutoSave() {
+function scheduleAutoSave(options = {}) {
   clearAutoSaveTimer();
   state.autoSavePreserveScroll = Boolean(options.preserveScroll);
   state.autoSaveSkipWorkspaceRefresh = Boolean(options.skipWorkspaceRefresh);
@@ -5649,7 +5649,7 @@ function syncEditorDraft(nextValue = "", options = {}) {
   if (usesCollaborativeEditing()) {
     scheduleCollaborativeOperation(previousContent, normalized);
   } else {
-    scheduleAutoSave();
+    scheduleAutoSave({ preserveScroll, skipWorkspaceRefresh: skipWorkspaceRefreshOnSave });
   }
 
   if (refreshWorkspace) {
