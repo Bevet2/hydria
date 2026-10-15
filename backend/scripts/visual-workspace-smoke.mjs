@@ -1010,7 +1010,9 @@ const scenarios = [
       assert.ok(await explorer.getAttribute("data-selected"), "Selection should invoke original work object navigation");
       await explorer.locator(".hydria-explorer-folder").filter({ hasText: "All files" }).click();
       const reportGroup = explorer.locator(".hydria-explorer-object-group").filter({ hasText: "Weekly report" }).first();
-      await reportGroup.locator(".hydria-explorer-expand").click();
+      if (!(await isVisible(reportGroup.locator(".hydria-explorer-file").first()))) {
+        await reportGroup.locator(".hydria-explorer-expand").click();
+      }
       assert.equal(await reportGroup.locator(".hydria-explorer-file").count(), 2);
       await reportGroup.locator(".hydria-explorer-file").filter({ hasText: "reports/draft.md" }).click();
       assert.equal(await explorer.getAttribute("data-selected-file"), "reports/draft.md", "Explorer should open a nested editable file");
