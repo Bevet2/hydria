@@ -1,3 +1,4 @@
+import { renderHydriaFlowManager } from "./workspaceFlowManager.js";
 import {
   WORKSPACE_DOCS_HIGHLIGHT_COLOR_OPTIONS,
   WORKSPACE_DOCS_TEXT_COLOR_OPTIONS,
@@ -30971,6 +30972,7 @@ export function renderWorkspacePreview(
     onDashboardCommand = null,
     onDashboardEdit = null,
     dashboardSheetSources = [],
+    onWorkflowContentChange = null,
     onWorkflowStageFocus = null,
     onWorkflowStageMove = null,
     onWorkflowStagePositionChange = null,
@@ -31209,6 +31211,15 @@ export function renderWorkspacePreview(
   }
 
   if (resolvedSurfaceId === "workflow") {
+    const flowModel = safeJsonParse(contentToRender);
+    if (workspaceFamilyId === "workflow_automation" && flowModel?.kind === "hydria-dataflow") {
+      renderHydriaFlowManager(container, {
+        content: contentToRender,
+        title: workObject.title || "Data workflow",
+        onChange: onWorkflowContentChange
+      });
+      return;
+    }
     renderWorkflowExperiencePreview(container, contentToRender, {
       activeStageId: selectedStructuredItemId,
       activeLinkId: selectedStructuredSubItemId,
