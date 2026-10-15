@@ -150,8 +150,8 @@ function compute(type, inputTables, config) {
       let converted;
       if (valueType === "string") converted = safeString(original);
       else if (valueType === "number") {
-        const normalized = String(original).trim().replace(/\\s/g, "").replace(",", ".");
-        if (!/^[+-]?(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][+-]?\\d+)?$/.test(normalized)) {
+        const normalized = String(original).trim().replace(/\s/g, "").replace(",", ".");
+        if (!/^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/.test(normalized)) {
           flowError("Cannot convert row " + (index + 1) + " column " + column + " to number.");
         }
         converted = Number(normalized);
