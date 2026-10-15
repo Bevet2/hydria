@@ -42,6 +42,7 @@ import {
   queueCollaborationOperation,
   replayCollaborationOperations
 } from "./services/collaborationClient.js";
+import { installWorkspaceCommandPalette } from "./components/workspaceCommandPalette.js";
 import { sessionStore } from "./services/sessionStore.js";
 
 const initialWorkspacePage = parseWorkspacePagePath();
@@ -18889,6 +18890,12 @@ function bindEvents() {
 
 async function init() {
   cache();
+  installWorkspaceCommandPalette({
+    getActions: () => WORKSPACE_PAGES,
+    getObjects: () => allWorkspaceWorkObjects(),
+    openAction: (page) => activateWorkspacePage(page).catch(handleError),
+    openObject: (object) => selectWorkObject(object.id, object.primaryFile || "").catch(handleError)
+  });
   setWorkspacePage(initialWorkspacePage, { historyMode: "none" });
   setInteractiveEnabled(false);
   bindEvents();
