@@ -2101,6 +2101,99 @@ export class WorkObjectService {
     };
   }
 
+  moveFile({
+    workObjectId = "",
+    from = "",
+    to = "",
+    actorUserId = null,
+    shareToken = "",
+    expectedRevision = null
+  } = {}) {
+    const current = this.store.get(String(workObjectId || ""));
+    if (!current) throw new AppError("Work object not found", 404);
+    this.assertAccess(current, { actorUserId, shareToken }, "editor");
+    // Native Docs/Sheets/Slides and other typed objects have canonical file paths.
+    // Restrict physical moves to project/code workspaces until their respective
+    // internal references can be migrated together.
+    if (!["project", "code"].includes(current.kind)) {
+      throw new AppError("File moves are available for project/code workspaces only", 409);
+    }
+    if (expectedRevision != null && Number(expectedRevision) !== Number(current.revision || 1)) {
+      throw new AppError("This work object was modified by another collaborator", 409);
+    }
+    const validatePath = (value) => {
+      const raw = String(value || "").replace(/\\/g, "/").trim();
+      if (!raw || raw.length > 240 || raw.startsWith("/") || /^[a-z]:/i.test(raw) || raw.includes("\0")) {
+        throw new AppError("Invalid workspace file path", 400);
+      }
+      const pieces = raw.split("/");
+      if (pieces.some((piece) => !piece || piece === "." || piece === ".." || piece === ".hydria-history" || piece.startsWith(".env"))) {
+        throw new AppError("Reserved or unsafe workspace file path", 400);
+      }
+      return pieces.join("/");
+    };
+    const source = validatePath(from), destination = validatePath(to);
+    if (source === destination) throw new AppError("Source and destination paths are identical", 400);
+    const entry = (current.entries || []).find((candidate) => candidate.path === source);
+    if (!entry || !entry.editable) throw new AppError("Editable source file not found", 404);
+    if ((current.entries || []).some((candidate) => candidate.path === destination)) {
+      throw new AppError("A file already exists at the destination", 409);
+    }
+    if (!isEditableTextPath(destination)) {
+      throw new AppError("Destination must have an editable file extension", 400);
+    }
+    const root = path.resolve(current.workspacePath);
+    const sourceAbsolute = safeResolveWithin(root, source);
+    const destinationAbsolute = safeResolveWithin(root, destination);
+    if (!fs.existsSync(sourceAbsolute) || !fs.statSync(sourceAbsolute).isFile() || fs.lstatSync(sourceAbsolute).isSymbolicLink()) {
+      throw new AppError("Source is not a regular file", 400);
+    }
+    if (fs.existsSync(destinationAbsolute)) throw new AppError("Destination already exists on disk", 409);
+    // Prevent following symlink directories out of the work-object sandbox.
+    const segments = destination.split("/").slice(0, -1);
+    let parent = root;
+    for (const segment of segments) {
+      parent = path.join(parent, segment);
+      if (fs.existsSync(parent) && (!fs.statSync(parent).isDirectory() || fs.lstatSync(parent).isSymbolicLink())) {
+        throw new AppError("Destination directory is not safe", 400);
+      }
+    }
+    fs.mkdirSync(path.dirname(destinationAbsolute), { recursive: true });
+    fs.renameSync(sourceAbsolute, destinationAbsolute);
+    try {
+      const updated = this.store.update(current.id, (record) => ({
+        ...record,
+        sourcePath: record.sourcePath === sourceAbsolute ? destinationAbsolute : record.sourcePath,
+        activeEntryPath: record.activeEntryPath === source ? destination : record.activeEntryPath,
+        revision: Number(record.revision || 1) + 1,
+        status: "updated",
+        entries: (record.entries || []).map((item) =>
+          item.path === source ? normalizeWorkObjectEntry({
+            ...item, path: destination,
+            kind: inferEntryKind(destination, record.kind),
+            contentType: guessContentType(destination),
+            lastModifiedAt: new Date().toISOString()
+          }) : item
+        ),
+        history: [...(record.history || []).map((item) =>
+          item.entryPath === source ? { ...item, entryPath: destination } : item
+        ), {
+          id: randomUUID(),
+          type: "file_move",
+          at: new Date().toISOString(),
+          actor: `user:${actorUserId || "unknown"}`,
+          from: source,
+          to: destination
+        }].slice(-25)
+      }));
+      return compactWorkObject(updated);
+    } catch (error) {
+      // Metadata must never point at a file that did not move successfully.
+      fs.renameSync(destinationAbsolute, sourceAbsolute);
+      throw error;
+    }
+  }
+
   resolveAsset({ workObjectId, entryPath = "" } = {}) {
     const workObject = this.store.get(String(workObjectId || ""));
     if (!workObject) {
