@@ -17622,7 +17622,8 @@ async function loadPreferences() {
       payload = await apiClient.getPreferences(state.currentUserId);
       break;
     } catch (error) {
-      const transient = error instanceof TypeError && /fetch|network|load failed/i.test(String(error.message || ""));
+      const transient = (error instanceof TypeError && /fetch|network|load failed/i.test(String(error.message || ""))) ||
+        (error?.status === 200 && String(error?.message || "") === "Invalid server response");
       if (!transient || attempt === 2) throw error;
       await new Promise((resolve) => setTimeout(resolve, (attempt + 1) * 250));
     }
