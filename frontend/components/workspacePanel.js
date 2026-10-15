@@ -31528,6 +31528,67 @@ function createWorkspaceChip(text = "", tone = "default") {
   return chip;
 }
 
+
+function renderFilteredWorkspaceList(container, items, {
+  inputLabel = "Search items",
+  searchText = (item) => String(item.title || item.name || ""),
+  renderItem
+} = {}) {
+  const toolbar = document.createElement("div");
+  toolbar.className = "workspace-library-controls";
+  const search = document.createElement("input");
+  search.type = "search";
+  search.className = "workspace-library-search";
+  search.placeholder = "Search...";
+  search.setAttribute("aria-label", inputLabel);
+  const sorting = document.createElement("select");
+  sorting.className = "workspace-library-sort";
+  sorting.setAttribute("aria-label", "Sort items");
+  [
+    ["recent", "Most recent"],
+    ["alpha", "Name A–Z"],
+    ["alpha-desc", "Name Z–A"]
+  ].forEach(([key, label]) => {
+    const option = document.createElement("option");
+    option.value = key;
+    option.textContent = label;
+    sorting.appendChild(option);
+  });
+  const count = document.createElement("span");
+  count.className = "workspace-library-count";
+  toolbar.append(search, sorting, count);
+  const list = document.createElement("div");
+  list.className = "workspace-library-filtered-list";
+  container.append(toolbar, list);
+  const filter = () => {
+    const words = search.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const rows = [...items].filter((item) => {
+      const searchable = searchText(item).toLowerCase();
+      return words.every((word) => searchable.includes(word));
+    });
+    const nameOf = (item) => String(item.title || item.name || "").toLowerCase();
+    const latestOf = (item) => Date.parse(item.updatedAt || item.updated_at || item.createdAt || item.created_at || "") || 0;
+    rows.sort((a, b) => {
+      if (sorting.value === "alpha") return nameOf(a).localeCompare(nameOf(b));
+      if (sorting.value === "alpha-desc") return nameOf(b).localeCompare(nameOf(a));
+      return latestOf(b) - latestOf(a);
+    });
+    list.replaceChildren();
+    count.textContent = rows.length + " / " + items.length;
+    if (!rows.length) {
+      const empty = document.createElement("p");
+      empty.className = "workspace-library-empty";
+      empty.textContent = "No matching results.";
+      list.appendChild(empty);
+      return;
+    }
+    rows.forEach((item) => renderItem(list, item));
+  };
+  search.addEventListener("input", filter);
+  sorting.addEventListener("change", filter);
+  filter();
+}
+
 export function renderWorkspaceObjectList(
   container,
   workObjects = [],
@@ -31544,7 +31605,7 @@ export function renderWorkspaceObjectList(
     return;
   }
 
-  for (const workObject of workObjects) {
+  function renderObjectCard(list, workObject) {
     const button = document.createElement("button");
     button.type = "button";
     button.className = `workspace-nav-item${
@@ -31588,8 +31649,13 @@ export function renderWorkspaceObjectList(
       .join(" · ");
 
     button.append(header, summary, meta);
-    container.appendChild(button);
+    list.appendChild(button);
   }
+  renderFilteredWorkspaceList(container, workObjects, {
+    inputLabel: "Search work objects",
+    searchText: (item) => [item.title, item.summary, item.workspaceFamilyLabel, item.workspaceFamilyId, item.objectKind, item.primaryFile, ...(item.editableFiles || [])].filter(Boolean).join(" "),
+    renderItem: renderObjectCard
+  });
 }
 
 export function renderWorkspaceSectionList(
@@ -31689,7 +31755,7 @@ export function renderProjectCards(
     return;
   }
 
-  for (const project of projects) {
+  function renderProjectCard(list, project) {
     const button = document.createElement("button");
     button.type = "button";
     button.className = `conversation-card${
@@ -31729,8 +31795,13 @@ export function renderProjectCards(
       .join(" | ");
 
     button.append(title, summary, chipRow, meta);
-    container.appendChild(button);
+    list.appendChild(button);
   }
+  renderFilteredWorkspaceList(container, projects, {
+    inputLabel: "Search projects",
+    searchText: (item) => [item.name, item.title, item.description, item.globalProject?.summary, ...(item.workspaceFamilies || [])].filter(Boolean).join(" "),
+    renderItem: renderProjectCard
+  });
 }
 
 function humanizeGraphEdgeType(type = "") {
