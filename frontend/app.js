@@ -5165,8 +5165,27 @@ function setWorkspacePreviewExpanded(nextExpanded = false) {
 function enhanceWorkspacePreviewHeader() {
   const preview = el["workspace-preview"];
   const header = preview?.querySelector(":scope > .workspace-preview-header");
-  if (!preview || !header || !state.currentWorkObject) {
+  if (!preview || !state.currentWorkObject) {
     updateWorkspacePreviewExpandButton();
+    return;
+  }
+  // Native app editors do not always render the generic preview header.
+  // Expose the shared full-screen control without modifying their toolbars.
+  if (!header) {
+    let button = preview.querySelector(":scope > .workspace-page-preview-expand-button.is-fallback");
+    if (!button) {
+      button = document.createElement("button");
+      button.type = "button";
+      button.className = "workspace-page-preview-expand-button is-fallback";
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        setWorkspacePreviewExpanded(!state.workspacePreviewExpanded);
+      });
+      preview.appendChild(button);
+    }
+    preview.classList.add("has-global-preview-control");
+    mountWorkspacePreviewPane();
     return;
   }
 
