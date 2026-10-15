@@ -16835,3 +16835,36 @@ body.hydria-command-open{overflow:hidden}
   min-height: min(620px, 75vh);
   max-width: none;
 }
+
+/* File explorer: inline, keyboard-accessible relative-path rename/move. */
+.hydria-files-rename-form {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  margin: 3px 0;
+  padding: 6px;
+  border-radius: 10px;
+  border: 1px solid var(--line, rgba(117, 138, 157, .2));
+}
+.hydria-files-rename-input {
+  flex: 1;
+  min-width: 88px;
+  font: inherit;
+  padding: 6px 8px;
+  border: 1px solid var(--line, rgba(117, 138, 157, .25));
+  border-radius: 7px;
+}
+.hydria-files-rename-form button {
+  cursor: pointer;
+  font: inherit;
+  font-size: .76rem;
+  padding: 6px 8px;
+  border: 1px solid var(--line, rgba(117, 138, 157, .25));
+  border-radius: 7px;
+}
+.hydria-files-rename-form button:focus-visible,
+.hydria-files-rename-input:focus-visible {
+  outline: 2px solid var(--accent, #da8b45);
+  outline-offset: 2px;
+}
