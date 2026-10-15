@@ -1,4 +1,5 @@
 import { renderChatMessage } from "./components/chatMessage.js";
+import { renderHydriaLibraryExplorer } from "./components/workspaceLibraryExplorer.js";
 import { renderRunDetails } from "./components/detailsPanel.js";
 import {
   applyWorkspaceBlockEdit,
@@ -5944,12 +5945,12 @@ function renderWorkObjects() {
     return;
   }
 
-  renderWorkspaceObjectList(
-    el["workspace-object-list"],
-    state.workObjects,
-    state.currentWorkObjectId,
-    (workObject) => selectWorkObject(workObject.id, preferredOpenPath(workObject)).catch(handleError)
-  );
+  renderHydriaLibraryExplorer(el["workspace-object-list"], {
+    workObjects: state.workObjects,
+    currentWorkObjectId: state.currentWorkObjectId,
+    userId: state.currentUserId || "local",
+    onSelect: (workObject) => selectWorkObject(workObject.id, preferredOpenPath(workObject)).catch(handleError)
+  });
 }
 
 function renderMessages() {
