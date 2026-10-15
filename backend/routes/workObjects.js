@@ -370,6 +370,28 @@ router.post("/new", (req, res, next) => {
   }
 });
 
+router.post("/:workObjectId/files/new", (req, res, next) => {
+  try {
+    const updated = workObjectService.createFile({
+      workObjectId: req.params.workObjectId,
+      entryPath: req.body?.entryPath,
+      content: req.body?.content || "",
+      actorUserId: req.body?.userId ?? null,
+      expectedRevision: req.body?.expectedRevision
+    });
+    res.status(201).json({ success: true, workObject: updated });
+    workObjectEvents.emit(`work-object:${req.params.workObjectId}`, {
+      type: "file_create",
+      revision: updated.revision,
+      entryPath: req.body?.entryPath,
+      actorUserId: req.body?.userId ?? null,
+      workObject: updated
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.post("/:workObjectId/files/move", (req, res, next) => {
   try {
     const updated = workObjectService.moveFile({
