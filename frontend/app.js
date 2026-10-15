@@ -19094,14 +19094,20 @@ window.addEventListener("beforeunload", () => {
   }
 });
 
+// Expose a minimal, non-sensitive boot state for deterministic workspace
+// automation. DOM-ready alone does not mean async user/preferences loading
+// has finished; navigating before that causes aborted bootstrap requests.
+document.documentElement.dataset.hydriaBoot = "loading";
 state.bootPromise = init();
 state.bootPromise
   .then(() => {
     state.ready = true;
+    document.documentElement.dataset.hydriaBoot = "ready";
     setInteractiveEnabled(true);
   })
   .catch((error) => {
     state.ready = true;
+    document.documentElement.dataset.hydriaBoot = "failed";
     setInteractiveEnabled(true);
     handleError(error);
   });
