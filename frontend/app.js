@@ -46,6 +46,7 @@ import { installWorkspaceCommandPalette } from "./components/workspaceCommandPal
 import { sessionStore } from "./services/sessionStore.js";
 
 const initialWorkspacePage = parseWorkspacePagePath();
+let workspaceCommandPalette = null;
 
 const state = {
   config: null,
@@ -6774,6 +6775,13 @@ function renderWorkspaceSwitcher(hasVisibleWorkspace = false) {
     });
     container.appendChild(chip);
   });
+  const searchChip = document.createElement("button");
+  searchChip.type = "button";
+  searchChip.className = "workspace-switcher-chip workspace-search-chip";
+  searchChip.textContent = "Search ⌘K";
+  searchChip.title = "Search all workspaces and files (Ctrl/⌘ K)";
+  searchChip.addEventListener("click", () => workspaceCommandPalette?.open());
+  container.appendChild(searchChip);
 }
 
 function renderPreferences() {
@@ -18890,11 +18898,12 @@ function bindEvents() {
 
 async function init() {
   cache();
-  installWorkspaceCommandPalette({
+  workspaceCommandPalette = installWorkspaceCommandPalette({
     getActions: () => WORKSPACE_PAGES,
     getObjects: () => allWorkspaceWorkObjects(),
     openAction: (page) => activateWorkspacePage(page).catch(handleError),
-    openObject: (object) => selectWorkObject(object.id, object.primaryFile || "").catch(handleError)
+    openObject: (object) => selectWorkObject(object.id, object.primaryFile || "").catch(handleError),
+    onSave: () => { if (state.currentWorkObjectId && state.editorDirty) saveWorkObjectChanges().catch(handleError); }
   });
   setWorkspacePage(initialWorkspacePage, { historyMode: "none" });
   setInteractiveEnabled(false);
