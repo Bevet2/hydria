@@ -5077,7 +5077,7 @@ function getWorkspacePreviewPane() {
   // The rich Docs/Sheets/Slides editors live in the editor drawer, not in
   // #workspace-preview. Expand whichever surface actually contains the editor.
   const structured = el["workspace-structured-editor"];
-  if (structured && !structured.classList.contains("hidden") && usesWholeFileStructuredEditing()) {
+  if (state.workspaceMode === "edit" && structured && !structured.classList.contains("hidden") && usesWholeFileStructuredEditing()) {
     return structured;
   }
   return el["workspace-preview"]?.closest(".workspace-preview-pane") || null;
@@ -5179,7 +5179,7 @@ function enhanceWorkspacePreviewHeader() {
   }
 
   const structured = el["workspace-structured-editor"];
-  if (usesWholeFileStructuredEditing() && structured && !structured.classList.contains("hidden")) {
+  if (state.workspaceMode === "edit" && usesWholeFileStructuredEditing() && structured && !structured.classList.contains("hidden")) {
     // A native editor is drawn in the separate drawer. Its full-screen action
     // must travel with that editor, not the (potentially hidden) preview pane.
     let button = structured.querySelector(":scope > .workspace-structured-preview-expand-button");
@@ -5211,7 +5211,9 @@ function enhanceWorkspacePreviewHeader() {
         event.stopPropagation();
         setWorkspacePreviewExpanded(!state.workspacePreviewExpanded);
       });
-      preview.appendChild(button);
+      // Keep the control at the top of native preview content: appending it
+      // after a long grid put the button outside the usable viewport.
+      preview.prepend(button);
     }
     preview.classList.add("has-global-preview-control");
     mountWorkspacePreviewPane();
