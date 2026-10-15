@@ -17146,6 +17146,24 @@ function renderWorkspace() {
         preserveMode: true
       }).catch(handleError);
     },
+    onCreate: ["project", "code"].includes(workObject?.kind) ? async (entryPath) => {
+      await flushPendingWorkObjectChanges();
+      try {
+        const result = await apiClient.createWorkObjectFile(workObject.id, {
+          entryPath,
+          content: "",
+          userId: state.currentUserId,
+          expectedRevision: state.currentWorkObject?.revision
+        });
+        mergeWorkObject(result.workObject);
+        await selectWorkObject(workObject.id, entryPath, {
+          syncProject: false,
+          preserveDimension: true,
+          preserveSurface: true,
+          preserveMode: true
+        });
+      } catch (error) { handleError(error); }
+    } : null,
     onMove: ["project", "code"].includes(workObject?.kind) ? async (entryPath, nextPath) => {
       await flushPendingWorkObjectChanges();
       try {
