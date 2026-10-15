@@ -8191,6 +8191,12 @@ function refreshPreviewPane() {
     onDesignBlockResize: resizeDesignBlock
   });
   renderRemoteWorkspacePresence();
+  // The preview renderer rebuilds its header when Sheets or other native
+  // editors refresh after a cell interaction. Reattach the shared control
+  // every time, not only during a full renderWorkspace() cycle.
+  if (state.workspaceMode !== "edit") {
+    enhanceWorkspacePreviewHeader();
+  }
 }
 
 function applyWorkspaceLabels() {
