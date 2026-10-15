@@ -3,6 +3,10 @@
 export const FLOW_NODE_CATALOG = Object.freeze([
   { type: "input.table", group: "Sources", label: "Table source", inputs: 0, outputs: 1, description: "Rows stored inside the workflow", defaults: { data: '[{"city":"Paris","sales":10},{"city":"Lyon","sales":7},{"city":"Paris","sales":5}]' } },
   { type: "transform.select", group: "Transform", label: "Select columns", inputs: 1, outputs: 1, description: "Keep columns in a specified order", defaults: { columns: "city,sales" } },
+  { type: "transform.rename", group: "Transform", label: "Rename column", inputs: 1, outputs: 1, description: "Rename a column without overwriting existing data", defaults: { from: "city", to: "location" } },
+  { type: "transform.fill", group: "Transform", label: "Fill missing", inputs: 1, outputs: 1, description: "Replace missing or blank values in a column", defaults: { column: "city", value: "Unknown" } },
+  { type: "transform.unique", group: "Transform", label: "Remove duplicates", inputs: 1, outputs: 1, description: "Keep the first row for each combination of columns", defaults: { columns: "city" } },
+  { type: "transform.union", group: "Transform", label: "Concatenate tables", inputs: 2, outputs: 1, description: "Append two tables while aligning their columns", defaults: {} },
   { type: "transform.filter", group: "Transform", label: "Row filter", inputs: 1, outputs: 1, description: "Compare a field against a value", defaults: { column: "sales", operator: "gte", value: "7" } },
   { type: "transform.sort", group: "Transform", label: "Sort rows", inputs: 1, outputs: 1, description: "Sort by field (ascending/descending)", defaults: { column: "sales", direction: "desc" } },
   { type: "transform.derive", group: "Transform", label: "Derived column", inputs: 1, outputs: 1, description: "Use safe arithmetic on a numeric column", defaults: { column: "sales", target: "with_tax", operator: "multiply", value: "1.2" } },
@@ -28,7 +32,7 @@ function normalizedRows(value) {
   if (!Array.isArray(value) || value.length > MAX_ROWS) flowError("Input must be an array with at most 20,000 rows.");
   return value.map((row) => {
     if (!row || typeof row !== "object" || Array.isArray(row)) flowError("Each row must be a JSON object.");
-    return Object.fromEntries(Object.entries(row).slice(0, 100).map(([k, v]) => [k.slice(0, 100), typeof v === "object" ? JSON.stringify(v).slice(0, MAX_CELL_CHARS) : v]));
+    return Object.fromEntries(Object.entries(row).slice(0, 100).map(([k, v]) => [k.slice(0, 100), v === null ? null : typeof v === "object" ? JSON.stringify(v).slice(0, MAX_CELL_CHARS) : v]));
   });
 }
 function numerical(value, label) {
@@ -68,6 +72,46 @@ function compute(type, inputTables, config) {
     const keys = String(config.columns || "").split(",").map((s) => s.trim()).filter(Boolean);
     if (!keys.length) flowError("Select needs at least one column.");
     return rows.map((row) => Object.fromEntries(keys.map((k) => [k, row[k] ?? null])));
+  }
+  if (type === "transform.rename") {
+    const from = safeString(config.from || "").trim();
+    const to = safeString(config.to || "").trim();
+    if (!from || !to) flowError("Source and destination column names are required.");
+    if (from !== to && rows.some((row) => Object.hasOwn(row, from) && Object.hasOwn(row, to))) {
+      flowError("Renaming would overwrite an existing column: " + to);
+    }
+    return rows.map((row) => Object.fromEntries(
+      Object.entries(row).map(([key, value]) => [key === from ? to : key, value])
+    ));
+  }
+  if (type === "transform.fill") {
+    const column = safeString(config.column || "").trim();
+    if (!column) flowError("Choose a column to fill.");
+    const replacement = safeString(config.value ?? "");
+    return rows.map((row) => ({
+      ...row,
+      [column]: row[column] == null || row[column] === "" ? replacement : row[column]
+    }));
+  }
+  if (type === "transform.unique") {
+    const columns = [...new Set(String(config.columns || "").split(",").map((key) => key.trim()).filter(Boolean))];
+    const seen = new Set();
+    return rows.filter((row) => {
+      const keys = columns.length ? columns : Object.keys(row).sort();
+      const fingerprint = JSON.stringify(keys.map((key) => [key, row[key] ?? null]));
+      if (seen.has(fingerprint)) return false;
+      seen.add(fingerprint);
+      return true;
+    });
+  }
+  if (type === "transform.union") {
+    const right = inputTables[1] || [];
+    if (rows.length + right.length > MAX_ROWS) flowError("Concatenated table exceeds 20,000 rows.");
+    const columns = [...new Set([...rows, ...right].flatMap((row) => Object.keys(row)))];
+    if (columns.length > 100) flowError("Concatenated table exceeds 100 columns.");
+    return [...rows, ...right].map((row) => Object.fromEntries(
+      columns.map((column) => [column, row[column] ?? null])
+    ));
   }
   if (type === "transform.filter") {
     if (!config.column) flowError("Choose a filter column.");

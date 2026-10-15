@@ -47,4 +47,40 @@ const huge = runFlow({stages:[node("s","input.table",{data:JSON.stringify(Array.
 assert.equal(huge.success,false);
 const noCode = runFlow({stages:[node("s","input.table",{data:"[]"}),node("e","output.table")],links:[link("s","e")]});
 assert.equal(noCode.success,true);
-console.log("Hydria dataflow integration gate passed (validation, ETL transforms, joins, cycles, limits and errors).");
+const cleanup = runFlow({
+  stages: [
+    node("source","input.table",{data:JSON.stringify([{city:"Paris",amount:null},{city:"Paris",amount:null},{city:"Lyon",amount:5}])}),
+    node("fill","transform.fill",{column:"amount",value:"0"}),
+    node("unique","transform.unique",{columns:"city,amount"}),
+    node("rename","transform.rename",{from:"city",to:"location"}),
+    node("out","output.table")
+  ],
+  links:[link("source","fill"),link("fill","unique"),link("unique","rename"),link("rename","out")]
+});
+assert.equal(cleanup.success,true);
+assert.deepEqual(cleanup.outputs[0].preview,[{location:"Paris",amount:"0"},{location:"Lyon",amount:5}]);
+
+const union = runFlow({
+  stages:[
+    node("left","input.table",{data:'[{"city":"Paris","sales":10}]'}),
+    node("right","input.table",{data:'[{"city":"Lyon","department":"69"}]'}),
+    node("concat","transform.union"),
+    node("out","output.table")
+  ],
+  links:[link("left","concat",0),link("right","concat",1),link("concat","out")]
+});
+assert.equal(union.success,true);
+assert.deepEqual(union.outputs[0].preview,[
+  {city:"Paris",sales:10,department:null},
+  {city:"Lyon",sales:null,department:"69"}
+]);
+const collision = runFlow({
+  stages:[
+    node("src","input.table",{data:'[{"city":"Paris","location":"France"}]'}),
+    node("rename","transform.rename",{from:"city",to:"location"})
+  ],
+  links:[link("src","rename")]
+});
+assert.equal(collision.success,false);
+assert.equal(collision.failedNodeId,"rename");
+console.log("Hydria dataflow integration gate passed (validation, ETL transforms, joins, cleanup, union, cycles, limits and errors).");
