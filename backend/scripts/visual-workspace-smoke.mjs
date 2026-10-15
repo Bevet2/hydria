@@ -146,8 +146,16 @@ async function waitForWorkspace(page, baseUrl) {
   if (page.url() !== destination) {
     await page.goto(destination, { waitUntil: "domcontentloaded", timeout: 30000 });
   }
+  // The app initializes users, preferences and work objects after DOMContentLoaded.
+  // Wait for that promise to settle before any scenario can trigger a reload.
+  await page.waitForFunction(
+    () => ["ready", "failed"].includes(document.documentElement.dataset.hydriaBoot),
+    undefined,
+    { timeout: 30000 }
+  );
+  const bootState = await page.locator("html").getAttribute("data-hydria-boot");
+  assert.equal(bootState, "ready", "Hydria OS must finish startup without errors");
   await page.waitForLoadState("networkidle", { timeout: 5000 }).catch(() => {});
-  await page.waitForTimeout(1200);
 }
 
 const scenarios = [
