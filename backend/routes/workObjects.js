@@ -370,6 +370,31 @@ router.post("/new", (req, res, next) => {
   }
 });
 
+router.post("/:workObjectId/files/move", (req, res, next) => {
+  try {
+    const updated = workObjectService.moveFile({
+      workObjectId: req.params.workObjectId,
+      from: req.body?.from,
+      to: req.body?.to,
+      actorUserId: req.body?.userId ?? null,
+      shareToken: req.body?.shareToken || "",
+      expectedRevision: req.body?.expectedRevision
+    });
+    const payload = { success: true, workObject: updated };
+    res.json(payload);
+    workObjectEvents.emit(`work-object:${req.params.workObjectId}`, {
+      type: "file_move",
+      revision: updated.revision,
+      from: req.body?.from,
+      to: req.body?.to,
+      actorUserId: req.body?.userId ?? null,
+      workObject: updated
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.patch("/:workObjectId", (req, res, next) => {
   try {
     const workObject = workObjectService.updateMetadata({

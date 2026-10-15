@@ -62,7 +62,8 @@ export function renderWorkspaceFileExplorer(container, {
   userId = "",
   files = [],
   activePath = "",
-  onOpen = () => {}
+  onOpen = () => {},
+  onMove = null
 } = {}) {
   if (!container) return;
   const id = String(workObjectId || "");
@@ -146,7 +147,16 @@ export function renderWorkspaceFileExplorer(container, {
           if (favorites.has(file.path)) favorites.delete(file.path); else favorites.add(file.path);
           writeFavorites(favKey, favorites); render();
         });
-        row.append(open, star); target.append(row);
+        row.append(open, star);
+        if (typeof onMove === "function") {
+          const move = el("button", "hydria-files-star hydria-files-move", "↗");
+          move.type = "button";
+          move.title = "Rename or move " + file.path;
+          move.setAttribute("aria-label", "Rename or move: " + file.path);
+          move.addEventListener("click", () => onMove(file.path));
+          row.append(move);
+        }
+        target.append(row);
       }
     }
     draw(tree, list);

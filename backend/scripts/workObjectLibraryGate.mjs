@@ -70,6 +70,35 @@ try {
   assert.equal(restored.file.content, initial.file.content);
   assert.equal(restored.revision, initial.revision + 2);
 
+  // Physical file moves must update disk, metadata, active paths and search.
+  const beforeMove = service.get(first.id, { includeContent: true });
+  const oldFile = beforeMove.file.path;
+  const movedPath = "renamed-folder/project-notes.md";
+  const moved = service.moveFile({
+    workObjectId: first.id,
+    from: oldFile,
+    to: movedPath,
+    actorUserId: 1,
+    expectedRevision: beforeMove.revision
+  });
+  assert.equal(moved.primaryFile, movedPath);
+  assert.equal(service.get(first.id, { includeContent: true }).file.content, initial.file.content);
+  assert.ok(service.get(first.id).entries.some((entry) => entry.path === movedPath));
+  await assert.rejects(
+    Promise.resolve().then(() => service.moveFile({
+      workObjectId: first.id, from: movedPath, to: "../outside.md", actorUserId: 1
+    })),
+    (error) => error.statusCode === 400
+  );
+  assert.throws(() => service.moveFile({
+    workObjectId: first.id, from: movedPath, to: "conflict.md",
+    actorUserId: 1, expectedRevision: beforeMove.revision
+  }), (error) => error.statusCode === 409);
+  assert.throws(() => service.moveFile({
+    workObjectId: first.id, from: movedPath, to: "other.md", actorUserId: 2
+  }), (error) => error.statusCode === 403);
+  assert.ok(service.listHistory(first.id).some((item) => item.type === "file_move"));
+
   const searchResults = service.searchContent({
     userId: 1,
     query: "App builder workspace"
