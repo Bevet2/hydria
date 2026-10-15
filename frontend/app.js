@@ -5074,11 +5074,17 @@ function renderWorkspaceModeNav() {
 }
 
 function getWorkspacePreviewPane() {
+  // The rich Docs/Sheets/Slides editors live in the editor drawer, not in
+  // #workspace-preview. Expand whichever surface actually contains the editor.
+  const structured = el["workspace-structured-editor"];
+  if (structured && !structured.classList.contains("hidden") && usesWholeFileStructuredEditing()) {
+    return structured;
+  }
   return el["workspace-preview"]?.closest(".workspace-preview-pane") || null;
 }
 
 function getWorkspacePreviewExpandButton() {
-  return el["workspace-preview"]?.querySelector(".workspace-page-preview-expand-button") || null;
+  return getWorkspacePreviewPane()?.querySelector(".workspace-page-preview-expand-button") || null;
 }
 
 function updateWorkspacePreviewExpandButton() {
@@ -5171,6 +5177,27 @@ function enhanceWorkspacePreviewHeader() {
     updateWorkspacePreviewExpandButton();
     return;
   }
+
+  const structured = el["workspace-structured-editor"];
+  if (usesWholeFileStructuredEditing() && structured && !structured.classList.contains("hidden")) {
+    // A native editor is drawn in the separate drawer. Its full-screen action
+    // must travel with that editor, not the (potentially hidden) preview pane.
+    let button = structured.querySelector(":scope > .workspace-structured-preview-expand-button");
+    if (!button) {
+      button = document.createElement("button");
+      button.type = "button";
+      button.className = "workspace-page-preview-expand-button workspace-structured-preview-expand-button";
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        setWorkspacePreviewExpanded(!state.workspacePreviewExpanded);
+      });
+      structured.prepend(button);
+    }
+    mountWorkspacePreviewPane();
+    return;
+  }
+
   // Native app editors do not always render the generic preview header.
   // Expose the shared full-screen control without modifying their toolbars.
   if (!header) {
@@ -17431,8 +17458,8 @@ function renderWorkspace() {
   }
 
   refreshPreviewPane();
-  enhanceWorkspacePreviewHeader();
   renderStructuredEditor();
+  enhanceWorkspacePreviewHeader();
 
   el["work-object-editor"].disabled = !workObject || !filePath;
   el["save-work-object-button"].disabled = !workObject || !filePath;
