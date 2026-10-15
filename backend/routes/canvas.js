@@ -1,6 +1,7 @@
 import { Router } from "express";
 import PDFDocument from "pdfkit";
 import { AppError } from "../utils/errors.js";
+import { renderCanvasSvg } from "../services/canvas/canvasSvgExport.js";
 
 const router = Router();
 const CANVAS_DEFAULT_WIDTH = 1800;
@@ -621,6 +622,21 @@ router.post("/export-pdf", async (req, res, next) => {
   } catch (error) {
     next(error);
   }
+});
+
+router.post("/export-svg", (req, res, next) => {
+  try {
+    if (!Array.isArray(req.body?.elements)) throw new AppError("No canvas content provided", 400);
+    if (req.body.elements.length > 500 || (req.body.links || []).length > 1000) {
+      throw new AppError("Canvas SVG export exceeds element or link limits", 413);
+    }
+    const payload = normalizeCanvasExportPayload(req.body);
+    const svg = renderCanvasSvg(payload);
+    if (Buffer.byteLength(svg, "utf8") > 8_000_000) throw new AppError("SVG export is too large", 413);
+    res.setHeader("Content-Type", "image/svg+xml; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="${safeExportFilename(req.body?.filename, "svg")}"`);
+    res.send(svg);
+  } catch (error) { next(error); }
 });
 
 export default router;
