@@ -17163,9 +17163,10 @@ function renderWorkspace() {
           preserveMode: true
         });
         setStatus("File moved to " + toPath);
+        return true;
       } catch (error) {
         handleError(error);
-        throw error;
+        return false;
       }
     }
   });
