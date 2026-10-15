@@ -962,6 +962,37 @@ const scenarios = [
     }
   },
   {
+    name: "dataflow-workbench-smoke",
+    tags: ["automation", "dataflow", "workflow", "etl"],
+    run: async ({ page, options }) => {
+      const baseUrl = String(options.baseUrl || "").replace(/\/+$/, "");
+      await page.goto(baseUrl + "/workspace/automation", { waitUntil: "domcontentloaded", timeout: 30000 });
+      await page.waitForLoadState("networkidle", { timeout: 5000 }).catch(() => {});
+      await page.waitForTimeout(700);
+      const editor = page.locator(".hydria-flow-manager").first();
+      if (!(await isVisible(editor))) {
+        const launcher = page.locator('.workspace-launcher-card[data-workspace="automation"]').first();
+        if (await isVisible(launcher)) await launcher.click();
+        else {
+          const button = page.getByRole("button", { name: /create an automation|create automation/i }).first();
+          if (await isVisible(button)) await button.click();
+        }
+      }
+      await editor.waitFor({ state: "visible", timeout: 12000 });
+      const initialNodes = await editor.locator(".hydria-flow-node").count();
+      assert.ok(initialNodes >= 3, "Dataflow starts with a source, transform and output");
+      await editor.getByRole("button", { name: /run/i }).first().click();
+      const steps = editor.locator(".hydria-flow-run-step");
+      await steps.first().waitFor({ state: "visible", timeout: 9000 });
+      assert.ok(await steps.count() >= 3, "Node execution should return trace steps");
+      const body = await editor.locator(".hydria-flow-console").innerText();
+      assert.match(body, /Table output|rows/i);
+      await editor.locator(".hydria-flow-catalog-item").filter({ hasText: "Select columns" }).click();
+      assert.ok(await editor.locator(".hydria-flow-node").count() === initialNodes + 1, "Catalog must add nodes");
+      return { nodes: initialNodes, executionSteps: await steps.count(), catalogAdded: true };
+    }
+  },
+  {
     name: "canvas-whiteboard-smoke",
     tags: ["whiteboard", "canvas", "workspace"],
     run: async ({ page, options }) => {
