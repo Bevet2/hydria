@@ -854,17 +854,22 @@ const scenarios = [
         { timeout: 5000 }
       );
 
-      const sheetFullscreenButton = page.getByRole("button", { name: /full screen/i }).first();
-      assert.equal(await isVisible(sheetFullscreenButton), true, "Sheets full screen button should be visible");
+      // The current OS owns fullscreen at the preview-pane level; legacy Sheets
+      // had an inner fullscreen button. Exercise whichever shell is rendered.
+      const globalFullscreen = page.locator(".workspace-page-preview-expand-button").first();
+      const sheetFullscreenButton = await isVisible(globalFullscreen)
+        ? globalFullscreen
+        : page.getByRole("button", { name: /full screen/i }).first();
+      assert.equal(await isVisible(sheetFullscreenButton), true, "Sheets full screen control should be visible");
       await sheetFullscreenButton.click();
-      const overlay = page.locator(".workspace-sheet-modal-overlay").first();
+      const overlay = page.locator(".workspace-page-preview-modal-overlay, .workspace-sheet-modal-overlay").first();
       await overlay.waitFor({ state: "visible", timeout: 5000 });
       const overlayBox = await overlay.boundingBox();
       assert.ok(
         overlayBox && overlayBox.width >= 900 && overlayBox.height >= 500,
         "Sheets full screen overlay should occupy a large viewport area"
       );
-      await page.getByRole("button", { name: /exit full screen/i }).first().click();
+      await sheetFullscreenButton.click();
       await overlay.waitFor({ state: "hidden", timeout: 5000 }).catch(() => {});
 
       return {
@@ -884,6 +889,22 @@ const scenarios = [
     run: async ({ page, options }) => {
       await waitForWorkspace(page, options.baseUrl);
       await maybeOpenWorkspacePage(page, "Slides");
+      // Recent Hydria OS versions show an editable PowerPoint-style stage,
+      // while older work objects retain a classic preview viewport.
+      const modernStage = page.locator(".workspace-powerpoint-stage").first();
+      if (await isVisible(modernStage)) {
+        const thumbnails = page.locator(".workspace-powerpoint-thumb");
+        const slideCount = await thumbnails.count();
+        assert.ok(slideCount >= 1, "Modern Slides should show at least one slide thumbnail");
+        const canvas = page.locator(".workspace-powerpoint-canvas-wrap").first();
+        assert.equal(await isVisible(canvas), true, "Modern Slides canvas should be visible");
+        let navigatedToSlide2 = false;
+        if (slideCount > 1) {
+          await thumbnails.nth(1).click();
+          navigatedToSlide2 = true;
+        }
+        return { editor: "powerpoint", slideCount, navigatedToSlide2 };
+      }
       const viewport = page.locator(".workspace-presentation-preview-viewport").first();
       await viewport.waitFor({ state: "visible", timeout: 12000 });
 
