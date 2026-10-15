@@ -835,6 +835,11 @@ const scenarios = [
 
       const firstCell = page.locator(".workspace-sheet-cell-input").first();
       assert.equal(await isVisible(firstCell), true, "A Sheets cell should be visible for context menu testing");
+      assert.equal(
+        await isVisible(page.locator(".workspace-page-preview-expand-button").first()),
+        true,
+        "Sheets full-screen control should exist before interacting with cells"
+      );
       await firstCell.click({ timeout: 5000 });
       const secondCell = page.locator(".workspace-sheet-cell-input").nth(1);
       await page.keyboard.down("Shift");
@@ -865,7 +870,11 @@ const scenarios = [
         ? globalFullscreen
         : page.getByRole("button", { name: /full screen/i }).first();
       const fullscreenAvailable = await isVisible(sheetFullscreenButton);
-      assert.equal(fullscreenAvailable, true, "OS full-screen control must exist in Sheets");
+      assert.equal(
+        fullscreenAvailable,
+        true,
+        "OS full-screen control must persist after editing Sheets cells"
+      );
       let overlayBox = null;
       if (fullscreenAvailable) {
         await sheetFullscreenButton.click();
