@@ -16768,3 +16768,17 @@ body.hydria-command-open{overflow:hidden}
 .hydria-explorer-file.is-primary{font-weight:600}
 .hydria-explorer-file-icon{color:#507fac;flex:none}
 .hydria-explorer-file-path{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* OS-wide fallback full screen button for native document/sheet/slide/canvas surfaces */
+#workspace-preview.has-global-preview-control { position: relative; }
+#workspace-preview > .workspace-page-preview-expand-button.is-fallback {
+  position: sticky;
+  top: 10px;
+  left: calc(100% - 115px);
+  z-index: 45;
+  margin: 8px 10px -42px auto;
+  display: flex;
+  width: max-content;
+  min-width: 88px;
+  box-shadow: 0 2px 10px rgba(15, 32, 56, 0.15);
+}
