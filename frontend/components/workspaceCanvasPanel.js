@@ -1799,6 +1799,29 @@ export function renderWorkspaceCanvasPanel(
   const exportButton = createToolbarButton("Export PDF", () => {
     exportCanvasAsPdf()
   })
+  async function exportCanvasAsSvg() {
+    try {
+      const filename = `${toFileLabel(filePath)}-canvas.svg`
+      const response = await fetch("/api/canvas/export-svg", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          filename, title: boardTitle,
+          boardWidth: CANVAS_BOARD_WIDTH, boardHeight: CANVAS_BOARD_HEIGHT,
+          elements, links
+        })
+      })
+      if (!response.ok) throw new Error(await readCanvasApiError(response))
+      const blob = await response.blob()
+      if (!blob.size) throw new Error("SVG export is empty")
+      downloadBlobFile(blob, filename)
+    } catch (error) {
+      window.alert(`SVG export failed: ${error.message || error}`)
+    }
+  }
+  const exportSvgButton = createToolbarButton("Export SVG", () => {
+    void exportCanvasAsSvg()
+  })
   const exportAssetButton = createToolbarButton("Export asset", () => {
     downloadCanvasAssetSelection()
   })
@@ -1911,7 +1934,8 @@ export function renderWorkspaceCanvasPanel(
     exportAssetButton,
     fullscreenButton,
     printButton,
-    exportButton
+    exportButton,
+    exportSvgButton
   )
 
   function isCanvasNativeFullscreen() {
@@ -2586,6 +2610,11 @@ export function renderWorkspaceCanvasPanel(
           label: "Export PDF",
           icon: "pdf",
           onSelect: () => exportCanvasAsPdf()
+        },
+        {
+          label: "Export SVG",
+          icon: "download",
+          onSelect: () => exportCanvasAsSvg()
         },
         {
           label: "Cancel arrow mode",
