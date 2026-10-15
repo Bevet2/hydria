@@ -1,0 +1,49 @@
+name: Hydria OS integration validation
+on:
+  push:
+    branches:
+      - integration/harmonisation-2026-10-15
+      - main
+  pull_request:
+    branches:
+      - main
+permissions:
+  contents: read
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Bundle frontend and validate module exports
+        run: npx --yes esbuild@0.25.10 frontend/app.js --bundle --format=esm --platform=browser --outfile=/tmp/hydria-integration.js
+      - name: Check JavaScript syntax for integrated files
+        run: |
+          for file in frontend/app.js frontend/components/workspaceCanvasPanel.js frontend/components/workspacePanel.js frontend/components/workspaceMenuUi.js backend/server.js backend/routes/canvas.js; do
+            node --check "$file"
+          done
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend dependencies
+        run: npm ci --prefix backend --no-audit --no-fund
+      - name: Core adapter smoke
+        run: npm run smoke:hydria-core-adapter --prefix backend
+      - name: Workspace tool integration
+        run: npm run gate:workspace --prefix backend
+      - name: Work objects and revision history
+        run: npm run gate:work-object-library --prefix backend
+      - name: Collaboration and formulas
+        run: npm run gate:collaboration-formulas --prefix backend
+      - name: Core CRM integration
+        run: npm run gate:crm-core --prefix backend
+      - name: Hydria interactions API
+        run: npm run gate:hydria-interactions --prefix backend
