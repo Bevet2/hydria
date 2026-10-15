@@ -7,6 +7,9 @@ export const FLOW_NODE_CATALOG = Object.freeze([
   { type: "transform.fill", group: "Transform", label: "Fill missing", inputs: 1, outputs: 1, description: "Replace missing or blank values in a column", defaults: { column: "city", value: "Unknown" } },
   { type: "transform.unique", group: "Transform", label: "Remove duplicates", inputs: 1, outputs: 1, description: "Keep the first row for each combination of columns", defaults: { columns: "city" } },
   { type: "transform.union", group: "Transform", label: "Concatenate tables", inputs: 2, outputs: 1, description: "Append two tables while aligning their columns", defaults: {} },
+  { type: "transform.text", group: "Clean", label: "Clean text", inputs: 1, outputs: 1, description: "Trim, change case or replace text in a column", defaults: { column: "city", target: "city", textAction: "trim", find: "", replacement: "" } },
+  { type: "transform.cast", group: "Clean", label: "Convert type", inputs: 1, outputs: 1, description: "Strictly convert a field to text, number or boolean", defaults: { column: "sales", target: "sales", valueType: "number" } },
+  { type: "transform.profile", group: "Inspect", label: "Column profile", inputs: 1, outputs: 1, description: "Count missing, distinct and numeric values for every field", defaults: {} },
   { type: "transform.filter", group: "Transform", label: "Row filter", inputs: 1, outputs: 1, description: "Compare a field against a value", defaults: { column: "sales", operator: "gte", value: "7" } },
   { type: "transform.sort", group: "Transform", label: "Sort rows", inputs: 1, outputs: 1, description: "Sort by field (ascending/descending)", defaults: { column: "sales", direction: "desc" } },
   { type: "transform.derive", group: "Transform", label: "Derived column", inputs: 1, outputs: 1, description: "Use safe arithmetic on a numeric column", defaults: { column: "sales", target: "with_tax", operator: "multiply", value: "1.2" } },
@@ -112,6 +115,76 @@ function compute(type, inputTables, config) {
     return [...rows, ...right].map((row) => Object.fromEntries(
       columns.map((column) => [column, row[column] ?? null])
     ));
+  }
+  if (type === "transform.text") {
+    const column = safeString(config.column || "").trim();
+    const target = safeString(config.target || column).trim();
+    const action = String(config.textAction || "trim");
+    if (!column || !target) flowError("Text transformation requires a source and destination column.");
+    if (!["trim", "lower", "upper", "replace"].includes(action)) flowError("Unsupported text operation.");
+    const find = safeString(config.find ?? "");
+    if (action === "replace" && !find) flowError("Text replacement requires a non-empty search string.");
+    const replacement = safeString(config.replacement ?? "");
+    return rows.map((row) => {
+      const value = row[column];
+      const input = value == null || value === "" ? null : safeString(value);
+      let transformed = input;
+      if (input !== null) {
+        if (action === "trim") transformed = input.trim();
+        if (action === "lower") transformed = input.toLocaleLowerCase();
+        if (action === "upper") transformed = input.toLocaleUpperCase();
+        if (action === "replace") transformed = input.split(find).join(replacement).slice(0, MAX_CELL_CHARS);
+      }
+      return { ...row, [target]: transformed };
+    });
+  }
+  if (type === "transform.cast") {
+    const column = safeString(config.column || "").trim();
+    const target = safeString(config.target || column).trim();
+    const valueType = String(config.valueType || "string");
+    if (!column || !target) flowError("Type conversion requires a source and destination column.");
+    if (!["string", "number", "boolean"].includes(valueType)) flowError("Unsupported conversion type.");
+    return rows.map((row, index) => {
+      const original = row[column];
+      if (original == null || String(original).trim() === "") return { ...row, [target]: null };
+      let converted;
+      if (valueType === "string") converted = safeString(original);
+      else if (valueType === "number") {
+        const normalized = String(original).trim().replace(/\s/g, "").replace(",", ".");
+        if (!/^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/.test(normalized)) {
+          flowError("Cannot convert row " + (index + 1) + " column " + column + " to number.");
+        }
+        converted = Number(normalized);
+        if (!Number.isFinite(converted)) flowError("Non-finite number at row " + (index + 1));
+      } else {
+        const literal = safeString(original).trim().toLowerCase();
+        if (["true", "1", "yes", "oui"].includes(literal)) converted = true;
+        else if (["false", "0", "no", "non"].includes(literal)) converted = false;
+        else flowError("Cannot convert row " + (index + 1) + " column " + column + " to boolean.");
+      }
+      return { ...row, [target]: converted };
+    });
+  }
+  if (type === "transform.profile") {
+    const columns = [...new Set(rows.flatMap((row) => Object.keys(row)))].slice(0, 100);
+    return columns.map((column) => {
+      const values = rows.map((row) => row[column]);
+      const present = values.filter((value) => value != null && String(value).trim() !== "");
+      const numeric = present.filter((value) =>
+        typeof value !== "boolean" &&
+        /^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/.test(String(value).trim().replace(",", "."))
+      );
+      return {
+        column,
+        rows: rows.length,
+        missing: values.length - present.length,
+        distinct: new Set(present.map((value) => JSON.stringify(value))).size,
+        numeric: numeric.length,
+        inferredType: !present.length ? "empty" :
+          present.every((value) => typeof value === "boolean") ? "boolean" :
+          numeric.length === present.length ? "number" : numeric.length === 0 ? "text" : "mixed"
+      };
+    });
   }
   if (type === "transform.filter") {
     if (!config.column) flowError("Choose a filter column.");

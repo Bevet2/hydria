@@ -7,6 +7,9 @@ const DEFINITIONS = [
   { type: "transform.fill", group: "Transform", label: "Fill missing", inputs: 1, defaults: { column: "city", value: "Unknown" } },
   { type: "transform.unique", group: "Transform", label: "Remove duplicates", inputs: 1, defaults: { columns: "city" } },
   { type: "transform.union", group: "Transform", label: "Concatenate tables", inputs: 2, defaults: {} },
+  { type: "transform.text", group: "Clean", label: "Clean text", inputs: 1, defaults: { column: "city", target: "city", textAction: "trim", find: "", replacement: "" } },
+  { type: "transform.cast", group: "Clean", label: "Convert type", inputs: 1, defaults: { column: "sales", target: "sales", valueType: "number" } },
+  { type: "transform.profile", group: "Inspect", label: "Column profile", inputs: 1, defaults: {} },
   { type: "transform.filter", group: "Transform", label: "Row filter", inputs: 1, defaults: { column: "sales", operator: "gte", value: "7" } },
   { type: "transform.sort", group: "Transform", label: "Sort", inputs: 1, defaults: { column: "sales", direction: "desc" } },
   { type: "transform.derive", group: "Transform", label: "Derived column", inputs: 1, defaults: { column: "sales", target: "with_tax", operator: "multiply", value: "1.2" } },
@@ -169,7 +172,9 @@ const OPTIONS = {
   operator: [["eq","="],["neq","≠"],["gt",">"],["gte","≥"],["lt","<"],["lte","≤"],["contains","Contains"],["add","Add"],["subtract","Subtract"],["multiply","Multiply"],["divide","Divide"]],
   direction: [["asc","Ascending"],["desc","Descending"]],
   operation: [["sum","Sum"],["avg","Average"],["count","Count"],["min","Min"],["max","Max"]],
-  how: [["left","Left join"],["inner","Inner join"]]
+  how: [["left","Left join"],["inner","Inner join"]],
+  textAction: [["trim","Trim whitespace"],["lower","Lowercase"],["upper","Uppercase"],["replace","Replace substring"]],
+  valueType: [["string","Text"],["number","Number"],["boolean","Boolean"]]
 };
 function isFormControl(target) {
   return ["INPUT", "SELECT", "TEXTAREA"].includes(target?.tagName);
