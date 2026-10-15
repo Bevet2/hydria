@@ -805,6 +805,15 @@ function updateCanvasPreviewInline(nextContent = "") {
   });
 }
 
+function updateWorkflowContentInline(nextContent = "") {
+  syncEditorDraft(String(nextContent || ""), {
+    forceEditMode: false,
+    refreshWorkspace: false,
+    suppressPreviewRefresh: true,
+    skipWorkspaceRefreshOnSave: true
+  });
+}
+
 function updatePresentationPreviewInline(slideId = "", payload = {}) {
   const content = normalizePresentationSourceText(currentDraftContent());
   const deck = derivePresentationDeck(content, state.currentWorkObject?.title || "Untitled presentation");
@@ -8107,6 +8116,7 @@ function refreshPreviewPane() {
     onDashboardCommand: executeDashboardPreviewCommand,
     onDashboardEdit: openDashboardEditorFromPreview,
     dashboardSheetSources: dashboardSheetSourcesForPreview(),
+    onWorkflowContentChange: updateWorkflowContentInline,
     onWorkflowStageFocus: focusWorkflowStage,
     onWorkflowStageMove: moveWorkflowStage,
     onWorkflowStagePositionChange: updateWorkflowStagePosition,
