@@ -210,7 +210,7 @@ export function validateFlow(source) {
   if (order.length !== nodes.size) errors.push("Workflow contains a cycle.");
   return { valid: !errors.length, errors, order, nodes, inCounts, flow };
 }
-export function runFlow(flow, { sampleLimit = 20 } = {}) {
+export function runFlow(flow, { sampleLimit = 20, includeAllOutputs = false } = {}) {
   const validation = validateFlow(flow);
   if (!validation.valid) return { success: false, errors: validation.errors, order: validation.order, steps: [], outputs: [] };
   const results = new Map(), steps = [];
@@ -228,6 +228,6 @@ export function runFlow(flow, { sampleLimit = 20 } = {}) {
       return { success: false, errors: [error.message], failedNodeId: id, steps, order: validation.order, outputs: [] };
     }
   }
-  const outputs = steps.filter((s) => s.type === "output.table").map((s) => ({ id: s.id, rows: s.rows, preview: s.preview }));
+  const outputs = steps.filter((s) => s.type === "output.table").map((s) => ({ id: s.id, rows: s.rows, preview: s.preview, ...(includeAllOutputs ? { data: results.get(s.id) } : {}) }));
   return { success: true, errors: [], order: validation.order, steps, outputs };
 }
