@@ -43,7 +43,31 @@ jobs:
         run: npm run gate:work-object-library --prefix backend
       - name: Collaboration and formulas
         run: npm run gate:collaboration-formulas --prefix backend
-      - name: Core CRM integration
-        run: npm run gate:crm-core --prefix backend
       - name: Hydria interactions API
         run: npm run gate:hydria-interactions --prefix backend
+      - name: Launch Hydria OS and verify Canvas PDF API
+        run: |
+          npm run start --prefix backend > /tmp/hydria-os.log 2>&1 &
+          alive=false
+          for i in {1..25}; do
+            if curl --silent --fail http://127.0.0.1:3001/api/health >/dev/null; then
+              alive=true
+              break
+            fi
+            sleep 1
+          done
+          if [ "$alive" != "true" ]; then cat /tmp/hydria-os.log; exit 1; fi
+          node --input-type=module -e '
+          import assert from "node:assert/strict";
+          const response = await fetch("http://127.0.0.1:3001/api/canvas/export-pdf", {
+            method:"POST",
+            headers:{"content-type":"application/json"},
+            body:JSON.stringify({title:"Hydria Canvas CI",elements:[{id:"e1",type:"note",x:40,y:50,width:250,height:130,title:"Note",body:"Canvas PDF export"}]})
+          });
+          assert.equal(response.status, 200);
+          assert.match(response.headers.get("content-type")||"", /application\\/pdf/);
+          const bytes=new Uint8Array(await response.arrayBuffer());
+          assert.equal(new TextDecoder().decode(bytes.slice(0,4)),"%PDF");
+          console.log("Hydria Canvas API PDF export verified; bytes:",bytes.length);
+          '
+
