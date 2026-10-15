@@ -117,6 +117,40 @@ try {
     (error) => error.statusCode === 409
   );
 
+  // Real file relocation: preserve bytes, file selection and content-history
+  // snapshots while enforcing ACLs, optimistic revision and root confinement.
+  const movable = service.createBlankWorkObject({
+    kind: "document",
+    title: "Movable document",
+    userId: 1
+  });
+  const beforeMove = service.get(movable.id, { includeContent: true });
+  const originalPath = beforeMove.file.path;
+  const moved = service.relocateEntry({
+    workObjectId: movable.id,
+    fromPath: originalPath,
+    toPath: "Notes/renamed.md",
+    actorUserId: 1,
+    expectedRevision: beforeMove.revision
+  });
+  assert.equal(moved.primaryFile, "Notes/renamed.md");
+  assert.equal(service.get(movable.id, { includeContent: true, entryPath: "Notes/renamed.md" }).file.content, beforeMove.file.content);
+  assert.equal(fs.existsSync(path.join(movable.workspacePath, originalPath)), false);
+  assert.equal(fs.existsSync(path.join(movable.workspacePath, "Notes/renamed.md")), true);
+  assert.throws(
+    () => service.relocateEntry({ workObjectId: movable.id, fromPath: "Notes/renamed.md", toPath: "../outside.md", actorUserId: 1 }),
+    (error) => error.statusCode === 400
+  );
+  assert.throws(
+    () => service.relocateEntry({ workObjectId: movable.id, fromPath: "Notes/renamed.md", toPath: "Notes/again.md", actorUserId: 2 }),
+    (error) => error.statusCode === 403
+  );
+  assert.throws(
+    () => service.relocateEntry({ workObjectId: movable.id, fromPath: "Notes/renamed.md", toPath: "Notes/again.md", actorUserId: 1, expectedRevision: beforeMove.revision }),
+    (error) => error.statusCode === 409
+  );
+  assert.ok(service.listHistory(movable.id).some(item => item.type === "entry_relocate"));
+
   const trashable = service.createBlankWorkObject({
     kind: "document",
     title: "Delete me",
@@ -144,7 +178,8 @@ try {
       restoredRevision: restored.revision,
       shared: true,
       conflictProtected: true,
-      trashLifecycle: true
+      trashLifecycle: true,
+      physicalFileMoves: true
     })
   );
 } finally {
