@@ -145,7 +145,7 @@ const qualityFlow = runFlow({
 assert.equal(qualityFlow.success,true);
 assert.deepEqual(qualityFlow.steps.find(step=>step.id==="amount").preview.map(r=>r.amount),[12.5,7,null]);
 assert.deepEqual(qualityFlow.steps.find(step=>step.id==="active").preview.map(r=>r.active),[true,false,null]);
-assert.deepEqual(qualityFlow.steps.find(step=>step.id==="upper").preview.map(r=>r.label),["PARIS","LYON",""]);
+assert.deepEqual(qualityFlow.steps.find(step=>step.id==="upper").preview.map(r=>r.label),["PARIS","LYON",null]);
 assert.deepEqual(qualityFlow.outputs[0].preview.find(r=>r.column==="amount"),{
   column:"amount",rows:3,missing:1,distinct:2,numeric:2,inferredType:"number"
 });
