@@ -16791,3 +16791,47 @@ body.hydria-command-open{overflow:hidden}
 .hydria-files-star.is-favorite{color:#c69224}
 .hydria-files-star:focus-visible,.hydria-files-folder:focus-visible,.hydria-files-open:focus-visible{outline:2px solid #528ac9;outline-offset:-2px}
 .hydria-files-empty{color:var(--muted,#788496);font-size:12px;margin:8px;padding:6px}
+
+
+/* Shared OS full-screen action for native editor surfaces */
+#workspace-preview.has-global-preview-control { position: relative; }
+#workspace-preview > .workspace-page-preview-expand-button.is-fallback {
+  position: sticky;
+  top: 10px;
+  left: calc(100% - 115px);
+  z-index: 45;
+  margin: 8px 10px -42px auto;
+  display: flex;
+  width: max-content;
+  min-width: 88px;
+  box-shadow: 0 2px 10px rgba(15, 32, 56, 0.15);
+}
+
+/* Full-screen for the *active* structured editors (Docs, Sheets, Slides).
+   The editor node is moved into the existing accessible modal and restored on exit. */
+.workspace-structured-preview-expand-button {
+  position: sticky;
+  top: 8px;
+  z-index: 60;
+  justify-self: end;
+  margin: 0 8px 2px auto;
+  min-width: 104px;
+}
+.workspace-page-preview-modal-frame > #workspace-structured-editor {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  padding: 12px;
+  overflow: auto;
+}
+.workspace-page-preview-modal-frame > #workspace-structured-editor > .workspace-sheet-app,
+.workspace-page-preview-modal-frame > #workspace-structured-editor > .workspace-powerpoint-app {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: min(620px, 75vh);
+  max-width: none;
+}

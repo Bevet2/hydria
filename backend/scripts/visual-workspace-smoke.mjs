@@ -141,7 +141,11 @@ async function maybeOpenWorkspacePage(page, label) {
 }
 
 async function waitForWorkspace(page, baseUrl) {
-  await page.goto(baseUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
+  const destination = new URL("/", baseUrl).href;
+  // Reuse an already-loaded page: a second navigation aborts the user bootstrap fetch.
+  if (page.url() !== destination) {
+    await page.goto(destination, { waitUntil: "domcontentloaded", timeout: 30000 });
+  }
   await page.waitForLoadState("networkidle", { timeout: 5000 }).catch(() => {});
   await page.waitForTimeout(1200);
 }
@@ -831,6 +835,11 @@ const scenarios = [
 
       const firstCell = page.locator(".workspace-sheet-cell-input").first();
       assert.equal(await isVisible(firstCell), true, "A Sheets cell should be visible for context menu testing");
+      assert.equal(
+        await isVisible(page.locator(".workspace-page-preview-expand-button").first()),
+        true,
+        "Sheets full-screen control should exist before interacting with cells"
+      );
       await firstCell.click({ timeout: 5000 });
       const secondCell = page.locator(".workspace-sheet-cell-input").nth(1);
       await page.keyboard.down("Shift");
@@ -861,6 +870,11 @@ const scenarios = [
         ? globalFullscreen
         : page.getByRole("button", { name: /full screen/i }).first();
       const fullscreenAvailable = await isVisible(sheetFullscreenButton);
+      assert.equal(
+        fullscreenAvailable,
+        true,
+        "OS full-screen control must persist after editing Sheets cells"
+      );
       let overlayBox = null;
       if (fullscreenAvailable) {
         await sheetFullscreenButton.click();
@@ -1375,36 +1389,32 @@ if (!selectedScenarios.length) {
 }
 
 const browser = await chromium.launch({ headless: options.headless });
-const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
-const browserErrors = [];
+const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
 const results = [];
 
-page.on("pageerror", (error) => {
-  browserErrors.push(error.stack || error.message);
-});
-
-page.on("console", (message) => {
-  if (message.type() === "error") {
-    browserErrors.push(message.text());
-  }
-});
-
 try {
-  await waitForWorkspace(page, options.baseUrl);
-
   for (const scenario of selectedScenarios) {
-    results.push(await runScenario(scenario, { page, options }));
-  }
-
-  if (browserErrors.length) {
-    results.push({
-      name: "browser-console-clean",
-      ok: false,
-      durationMs: 0,
-      error: browserErrors.join("\n")
+    // Each scenario receives an isolated page while sharing the user session.
+    const page = await context.newPage();
+    const pageErrors = [];
+    page.on("pageerror", (error) => pageErrors.push(error.stack || error.message));
+    page.on("console", (message) => {
+      if (message.type() === "error") pageErrors.push(message.text());
     });
+    try {
+      await waitForWorkspace(page, options.baseUrl);
+      const result = await runScenario(scenario, { page, options });
+      if (pageErrors.length) {
+        result.ok = false;
+        result.error = [result.error, ...pageErrors].filter(Boolean).join("\n");
+      }
+      results.push(result);
+    } finally {
+      await page.close().catch(() => {});
+    }
   }
 } finally {
+  await context.close().catch(() => {});
   await browser.close();
 }
 

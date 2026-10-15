@@ -5074,11 +5074,17 @@ function renderWorkspaceModeNav() {
 }
 
 function getWorkspacePreviewPane() {
+  // The rich Docs/Sheets/Slides editors live in the editor drawer, not in
+  // #workspace-preview. Expand whichever surface actually contains the editor.
+  const structured = el["workspace-structured-editor"];
+  if (state.workspaceMode === "edit" && structured && !structured.classList.contains("hidden") && usesWholeFileStructuredEditing()) {
+    return structured;
+  }
   return el["workspace-preview"]?.closest(".workspace-preview-pane") || null;
 }
 
 function getWorkspacePreviewExpandButton() {
-  return el["workspace-preview"]?.querySelector(".workspace-page-preview-expand-button") || null;
+  return getWorkspacePreviewPane()?.querySelector(".workspace-page-preview-expand-button") || null;
 }
 
 function updateWorkspacePreviewExpandButton() {
@@ -5167,8 +5173,50 @@ function setWorkspacePreviewExpanded(nextExpanded = false) {
 function enhanceWorkspacePreviewHeader() {
   const preview = el["workspace-preview"];
   const header = preview?.querySelector(":scope > .workspace-preview-header");
-  if (!preview || !header || !state.currentWorkObject) {
+  if (!preview || !state.currentWorkObject) {
     updateWorkspacePreviewExpandButton();
+    return;
+  }
+
+  const structured = el["workspace-structured-editor"];
+  if (state.workspaceMode === "edit" && usesWholeFileStructuredEditing() && structured && !structured.classList.contains("hidden")) {
+    // A native editor is drawn in the separate drawer. Its full-screen action
+    // must travel with that editor, not the (potentially hidden) preview pane.
+    let button = structured.querySelector(":scope > .workspace-structured-preview-expand-button");
+    if (!button) {
+      button = document.createElement("button");
+      button.type = "button";
+      button.className = "workspace-page-preview-expand-button workspace-structured-preview-expand-button";
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        setWorkspacePreviewExpanded(!state.workspacePreviewExpanded);
+      });
+      structured.prepend(button);
+    }
+    mountWorkspacePreviewPane();
+    return;
+  }
+
+  // Native app editors do not always render the generic preview header.
+  // Expose the shared full-screen control without modifying their toolbars.
+  if (!header) {
+    let button = preview.querySelector(":scope > .workspace-page-preview-expand-button.is-fallback");
+    if (!button) {
+      button = document.createElement("button");
+      button.type = "button";
+      button.className = "workspace-page-preview-expand-button is-fallback";
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        setWorkspacePreviewExpanded(!state.workspacePreviewExpanded);
+      });
+      // Keep the control at the top of native preview content: appending it
+      // after a long grid put the button outside the usable viewport.
+      preview.prepend(button);
+    }
+    preview.classList.add("has-global-preview-control");
+    mountWorkspacePreviewPane();
     return;
   }
 
@@ -8143,6 +8191,12 @@ function refreshPreviewPane() {
     onDesignBlockResize: resizeDesignBlock
   });
   renderRemoteWorkspacePresence();
+  // The preview renderer rebuilds its header when Sheets or other native
+  // editors refresh after a cell interaction. Reattach the shared control
+  // every time, not only during a full renderWorkspace() cycle.
+  if (state.workspaceMode !== "edit") {
+    enhanceWorkspacePreviewHeader();
+  }
 }
 
 function applyWorkspaceLabels() {
@@ -17412,8 +17466,8 @@ function renderWorkspace() {
   }
 
   refreshPreviewPane();
-  enhanceWorkspacePreviewHeader();
   renderStructuredEditor();
+  enhanceWorkspacePreviewHeader();
 
   el["work-object-editor"].disabled = !workObject || !filePath;
   el["save-work-object-button"].disabled = !workObject || !filePath;
