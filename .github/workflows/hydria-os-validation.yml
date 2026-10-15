@@ -37,6 +37,8 @@ jobs:
         run: npm ci --prefix backend --no-audit --no-fund
       - name: Core adapter smoke
         run: npm run smoke:hydria-core-adapter --prefix backend
+      - name: Data-flow engine operations
+        run: node backend/scripts/dataFlowGate.mjs
       - name: Workspace tool integration
         run: npm run gate:workspace --prefix backend
       - name: Work objects and revision history
@@ -93,4 +95,4 @@ jobs:
           if [ "$ready" != "true" ]; then cat /tmp/hydria-visual.log; exit 1; fi
           curl --fail --silent --show-error -X POST http://127.0.0.1:3001/api/users -H "Content-Type: application/json" -d '{"username":"hydria-visual-ci"}'
       - name: Test Docs Sheets and Slides after harmonisation
-        run: npm run test:visual-workspace --prefix backend -- --scenario "shared-command-adapters,docs-shared-menu-definitions,docs-context-menu-helper,sheets-toolbar-context-menu-fullscreen,slides-presentation-smoke,canvas-whiteboard-smoke"
+        run: npm run test:visual-workspace --prefix backend -- --scenario "shared-command-adapters,docs-shared-menu-definitions,docs-context-menu-helper,sheets-toolbar-context-menu-fullscreen,slides-presentation-smoke,canvas-whiteboard-smoke,dataflow-workbench-smoke"
