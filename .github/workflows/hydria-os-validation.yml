@@ -65,7 +65,7 @@ jobs:
             body:JSON.stringify({title:"Hydria Canvas CI",elements:[{id:"e1",type:"note",x:40,y:50,width:250,height:130,title:"Note",body:"Canvas PDF export"}]})
           });
           assert.equal(response.status, 200);
-          assert.match(response.headers.get("content-type")||"", /application\\/pdf/);
+          assert.equal((response.headers.get("content-type")||"").startsWith("application/pdf"), true);
           const bytes=new Uint8Array(await response.arrayBuffer());
           assert.equal(new TextDecoder().decode(bytes.slice(0,4)),"%PDF");
           console.log("Hydria Canvas API PDF export verified; bytes:",bytes.length);
