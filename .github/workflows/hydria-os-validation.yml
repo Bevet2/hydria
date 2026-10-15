@@ -39,6 +39,8 @@ jobs:
         run: npm run smoke:hydria-core-adapter --prefix backend
       - name: Data-flow engine operations
         run: node backend/scripts/dataFlowGate.mjs
+      - name: Flow SQLite source and permission limits
+        run: node backend/scripts/flowSqliteSourceGate.mjs
       - name: Workspace tool integration
         run: npm run gate:workspace --prefix backend
       - name: Work objects and revision history
