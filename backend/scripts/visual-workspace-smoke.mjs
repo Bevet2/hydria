@@ -861,6 +861,7 @@ const scenarios = [
         ? globalFullscreen
         : page.getByRole("button", { name: /full screen/i }).first();
       const fullscreenAvailable = await isVisible(sheetFullscreenButton);
+      assert.equal(fullscreenAvailable, true, "Every workspace must have a visible OS full-screen control");
       let overlayBox = null;
       if (fullscreenAvailable) {
         await sheetFullscreenButton.click();
