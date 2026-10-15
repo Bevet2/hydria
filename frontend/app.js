@@ -18900,9 +18900,16 @@ async function init() {
   cache();
   workspaceCommandPalette = installWorkspaceCommandPalette({
     getActions: () => WORKSPACE_PAGES,
-    getObjects: () => allWorkspaceWorkObjects(),
+    // Search across the user's full library, not only the currently open project.
+    getObjects: () => state.workObjects,
+    getProjects: () => state.projects,
+    getFiles: () => state.workObjects.flatMap((workObject) =>
+      getEditableFiles(workObject).map((path) => ({ path, workObject }))
+    ),
     openAction: (page) => activateWorkspacePage(page).catch(handleError),
-    openObject: (object) => selectWorkObject(object.id, object.primaryFile || "").catch(handleError),
+    openProject: (project) => selectProject(project.id).catch(handleError),
+    openObject: (object) => selectWorkObject(object.id, preferredOpenPath(object)).catch(handleError),
+    openFile: ({ workObject, path }) => selectWorkObject(workObject.id, path).catch(handleError),
     onSave: () => { if (state.currentWorkObjectId && state.editorDirty) saveWorkObjectChanges().catch(handleError); }
   });
   setWorkspacePage(initialWorkspacePage, { historyMode: "none" });
