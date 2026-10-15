@@ -149,6 +149,9 @@ assert.deepEqual(qualityFlow.steps.find(step=>step.id==="upper").preview.map(r=>
 assert.deepEqual(qualityFlow.outputs[0].preview.find(r=>r.column==="amount"),{
   column:"amount",rows:3,missing:1,distinct:2,numeric:2,inferredType:"number"
 });
+assert.deepEqual(qualityFlow.outputs[0].preview.find(r=>r.column==="active"),{
+  column:"active",rows:3,missing:1,distinct:2,numeric:0,inferredType:"boolean"
+});
 const invalidCast=runFlow({
   stages:[node("s","input.table",{data:'[{"n":"wrong"}]'}),node("c","transform.cast",{column:"n",valueType:"number"})],
   links:[link("s","c")]
