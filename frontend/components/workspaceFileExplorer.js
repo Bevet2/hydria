@@ -150,7 +150,7 @@ export function renderWorkspaceFileExplorer(container, {
       }
     }
     draw(tree, list);
-    if (visible === 0) list.append(el("p", "hydria-files-empty", query ? "No matching files." : "No editable files."));
+    if (visible === 0 && (query || !files.length)) list.append(el("p", "hydria-files-empty", query ? "No matching files." : "No editable files."));
     count.textContent = query ? visible + "/" + files.length : String(files.length);
   }
   search.addEventListener("input", () => { state.query = search.value; render(); });
