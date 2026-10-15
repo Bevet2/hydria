@@ -16729,3 +16729,12 @@ body.hydria-command-open{overflow:hidden}
 .hydria-command-result-body small{font-size:11px;color:var(--text-muted,#788496);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .hydria-command-help{margin:0;padding:9px 14px;border-top:1px solid rgba(112,132,159,.2);font-size:11px;color:var(--text-muted,#788496)}
 .hydria-command-empty{padding:20px;font-size:13px;color:var(--text-muted,#788496)}
+
+
+/* Hydria OS explorer: shared search and sorting controls */
+.workspace-library-controls{display:flex;align-items:center;gap:7px;flex-wrap:wrap;padding:7px 1px 10px}
+.workspace-library-search{flex:1;min-width:95px;min-height:33px;border:1px solid rgba(120,137,162,.28);border-radius:7px;color:inherit;background:var(--card-bg,#fff);padding:7px 9px;font:inherit;font-size:12px}
+.workspace-library-sort{min-height:33px;max-width:115px;border:1px solid rgba(120,137,162,.28);border-radius:7px;color:inherit;background:var(--card-bg,#fff);padding:7px;font:inherit;font-size:11px}
+.workspace-library-count{font-size:10px;color:var(--text-muted,#788496);white-space:nowrap}
+.workspace-library-filtered-list{display:flex;flex-direction:column;min-height:0;gap:5px}
+.workspace-library-empty{padding:12px 6px;color:var(--text-muted,#788496);font-size:12px}
