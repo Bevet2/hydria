@@ -76,6 +76,7 @@ export function installWorkspaceCommandPalette({ getActions, getObjects, getProj
     matches.forEach((item, index) => {
       const btn = make("button", "hydria-command-result" + (index === active ? " is-active" : ""));
       btn.type = "button";
+      btn.dataset.kind = item.kind;
       btn.setAttribute("role", "option");
       btn.setAttribute("aria-selected", index === active ? "true" : "false");
       const icon = make("span", "hydria-command-kind", item.kind === "workspace" ? "◈" : item.kind === "project" ? "▦" : item.kind === "file" ? "▧" : "▤");
