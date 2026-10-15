@@ -1208,7 +1208,7 @@ const browserErrors = [];
 const results = [];
 
 page.on("pageerror", (error) => {
-  browserErrors.push(error.message);
+  browserErrors.push(error.stack || error.message);
 });
 
 page.on("console", (message) => {
