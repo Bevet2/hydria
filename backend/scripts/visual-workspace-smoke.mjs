@@ -962,6 +962,29 @@ const scenarios = [
     }
   },
   {
+    name: "os-global-command-palette",
+    tags: ["navigation", "search", "keyboard", "files"],
+    run: async ({ page, options }) => {
+      await waitForWorkspace(page, options.baseUrl);
+      await page.keyboard.press("Control+k");
+      const panel = page.locator(".hydria-command-panel");
+      await panel.waitFor({ state: "visible", timeout: 5000 });
+      const input = panel.locator("input").first();
+      await input.fill("Automation");
+      const matches = panel.locator(".hydria-command-result");
+      assert.ok(await matches.count() >= 1, "Search should find Automation");
+      await input.press("Enter");
+      assert.equal(await isVisible(panel), false, "Palette should close after navigation");
+      assert.match(page.url(), /workspace\/automation/, "Workspace navigation should open Automation");
+      await page.keyboard.press("Control+Shift+f");
+      await panel.waitFor({ state: "visible", timeout: 5000 });
+      await panel.locator("input").fill("zz-unmatched-search");
+      assert.equal(await panel.locator(".hydria-command-empty").count(), 1);
+      await page.keyboard.press("Escape");
+      return { keyboardNavigation: true, searchEmptyState: true };
+    }
+  },
+  {
     name: "dataflow-workbench-smoke",
     tags: ["automation", "dataflow", "workflow", "etl"],
     run: async ({ page, options }) => {
