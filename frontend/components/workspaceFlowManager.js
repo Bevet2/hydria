@@ -106,6 +106,23 @@ export function parseCSV(text) {
   if (rows.length > 20000) throw new Error("Table exceeds 20,000 rows");
   return rows.map((line) => Object.fromEntries(headers.map((header, index) => [header, (line[index] ?? "").slice(0, 10000)])));
 }
+export function normalizedJsonApiRows(payload) {
+  const rows = Array.isArray(payload) ? payload :
+    Array.isArray(payload?.data) ? payload.data :
+    Array.isArray(payload?.rows) ? payload.rows : null;
+  if (!rows || rows.length > 20000) throw new Error("REST JSON source must contain up to 20,000 object rows");
+  return rows.map((row, index) => {
+    if (!row || typeof row !== "object" || Array.isArray(row) || Object.keys(row).length > 100) {
+      throw new Error("Invalid REST JSON object row " + (index + 1));
+    }
+    return Object.fromEntries(Object.entries(row).map(([key, value]) => [
+      String(key).slice(0, 100),
+      value === null ? null : typeof value === "object"
+        ? JSON.stringify(value).slice(0, 10000)
+        : typeof value === "string" ? value.slice(0, 10000) : value
+    ]));
+  });
+}
 export function spreadsheetSheetToFlowRows(sheet = {}) {
   const names = sheet?.columns;
   if (!Array.isArray(names) || names.length === 0 || names.length > 100) {
@@ -509,6 +526,63 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
         }
       }, "hydria-flow-secondary"));
       inspector.appendChild(dbPanel);
+
+      // Explicit public/CORS-accessible REST JSON data import. The browser
+      // never forwards cookies, secrets or privileged backend credentials.
+      const restPanel = element("div", "hydria-flow-rest-source");
+      restPanel.appendChild(element("h4", "", "REST JSON source"));
+      const urlLabel = element("label", "hydria-flow-field");
+      urlLabel.appendChild(element("span", "", "Public HTTPS JSON URL"));
+      const urlInput = element("input");
+      urlInput.type = "url";
+      urlInput.placeholder = "https://example.com/data.json";
+      urlInput.autocomplete = "off";
+      urlLabel.appendChild(urlInput);
+      restPanel.appendChild(urlLabel);
+      restPanel.appendChild(button("Import REST JSON (CORS)", async () => {
+        try {
+          const address = new URL(urlInput.value.trim());
+          if (address.protocol !== "https:" &&
+              !(address.protocol === "http:" && ["localhost", "127.0.0.1"].includes(address.hostname))) {
+            throw new Error("Only HTTPS URLs are supported (HTTP on localhost for development)");
+          }
+          if (address.username || address.password) throw new Error("Credentials must not be embedded in URLs");
+          const response = await fetch(address.href, {
+            mode: "cors", credentials: "omit", redirect: "error",
+            headers: { Accept: "application/json" }
+          });
+          if (!response.ok) throw new Error("REST source returned HTTP " + response.status);
+          if (Number(response.headers.get("content-length") || 0) > 2_000_000) throw new Error("REST source exceeds 2 MB");
+          const reader = response.body?.getReader();
+          if (!reader) throw new Error("REST source response has no readable body");
+          const decoder = new TextDecoder();
+          let text = "", bytes = 0;
+          try {
+            while (true) {
+              const { value, done } = await reader.read();
+              if (done) break;
+              bytes += value.byteLength;
+              if (bytes > 2_000_000) {
+                await reader.cancel();
+                throw new Error("REST source exceeds 2 MB");
+              }
+              text += decoder.decode(value, { stream: true });
+            }
+            text += decoder.decode();
+          } finally { reader.releaseLock(); }
+          const rows = normalizedJsonApiRows(JSON.parse(text));
+          const target = nodeById(node.id);
+          if (!target) throw new Error("The source node has been removed");
+          mutate(() => {
+            target.config = { ...(target.config || {}), data: JSON.stringify(rows) };
+            target.label = "REST · " + address.hostname;
+          });
+        } catch (error) {
+          state.error = "REST import: " + String(error.message || error);
+          renderConsole();
+        }
+      }, "hydria-flow-secondary"));
+      inspector.appendChild(restPanel);
     }
 
     inspector.appendChild(button("Delete node", removeSelected, "hydria-flow-danger"));
