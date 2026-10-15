@@ -20,7 +20,7 @@ The repository currently contains:
 - User-wide Docs and Sheets libraries with search, favorites, persistent
   archives and restorable content revisions.
 - Dedicated workspace pages for Docs, Sheets, Slides, Dashboard, CRM,
-  Automation, App Builder, Whiteboard and Code Studio.
+  Automation, Flow Manager (Data/ETL), App Builder, Whiteboard and Code Studio.
 - Operational-transform collaboration for Docs and cell-level collaboration
   for Sheets, with presence, offline replay, autosave and revision history.
 - Live HTML/CSS/JavaScript runtime and preview surfaces.
@@ -30,6 +30,15 @@ The repository currently contains:
 - Local tools for workspace inspection, diagnostics and browser previews.
 - Local model, OpenRouter and Hydria Core routing.
 - Web search, direct URL reading and catalog-driven external APIs.
+
+### Flow Manager (separate from Automation)
+
+- A visual KNIME-inspired dataflow editor with node catalog, ports, graph links, node configuration and execution previews.
+- Manual local ETL operations: JSON/CSV input, filter, select, sort, derive, group/aggregate, joins and table output.
+- Workflow save/reopen via `workflow.json`, import/export JSON and preview CSV, with built-in graph validation.
+- Global workspace/file search from any page (`Ctrl/Cmd+K`) and unified save (`Ctrl/Cmd+S`).
+
+See [Flow Manager](docs/flow-manager.md) for usage and limitations.
 
 ### Live workspace actions
 
