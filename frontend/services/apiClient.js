@@ -309,6 +309,12 @@ export const apiClient = {
       body: JSON.stringify(payload)
     });
   },
+  createWorkObjectFile(workObjectId, payload = {}) {
+    return request(`/api/work-objects/${encodeURIComponent(workObjectId)}/files/new`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+  },
   moveWorkObjectFile(workObjectId, payload = {}) {
     return request(`/api/work-objects/${encodeURIComponent(workObjectId)}/files/move`, {
       method: "POST",
