@@ -988,7 +988,7 @@ const scenarios = [
     name: "os-project-file-search",
     tags: ["navigation", "search", "files", "projects"],
     run: async ({ page, options }) => {
-      const base = String(options.baseUrl || "").replace(/\\/+$/, "");
+      const base = String(options.baseUrl || "").replace(/[/]+$/, "");
       await page.goto(base + "/workspace/flows", { waitUntil: "domcontentloaded", timeout: 30000 });
       await page.waitForLoadState("networkidle", { timeout: 5000 }).catch(() => {});
       const flow = page.locator(".hydria-flow-manager").first();
@@ -1001,7 +1001,7 @@ const scenarios = [
       const palette = page.locator(".hydria-command-panel");
       await palette.waitFor({ state: "visible", timeout: 5000 });
       await palette.locator("input").first().fill("workflow.json");
-      const file = palette.locator(".hydria-command-result").filter({ has: page.locator(".hydria-command-kind") }).filter({ hasText: "workflow.json" }).first();
+      const file = palette.locator('.hydria-command-result[data-kind="file"]').filter({ hasText: "workflow.json" }).first();
       await file.waitFor({ state: "visible", timeout: 5000 });
       const entries = await palette.locator(".hydria-command-result").allTextContents();
       assert.ok(entries.some((item) => item.includes("workflow.json")), "Should index editable work-object files");
