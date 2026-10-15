@@ -5949,7 +5949,8 @@ function renderWorkObjects() {
     workObjects: state.workObjects,
     currentWorkObjectId: state.currentWorkObjectId,
     userId: state.currentUserId || "local",
-    onSelect: (workObject) => selectWorkObject(workObject.id, preferredOpenPath(workObject)).catch(handleError)
+    onSelect: (workObject) => selectWorkObject(workObject.id, preferredOpenPath(workObject)).catch(handleError),
+    onOpenFile: (workObject, filePath) => selectWorkObject(workObject.id, filePath).catch(handleError)
   });
 }
 
