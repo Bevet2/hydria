@@ -985,6 +985,33 @@ const scenarios = [
     }
   },
   {
+    name: "os-project-file-search",
+    tags: ["navigation", "search", "files", "projects"],
+    run: async ({ page, options }) => {
+      const base = String(options.baseUrl || "").replace(/\\/+$/, "");
+      await page.goto(base + "/workspace/flows", { waitUntil: "domcontentloaded", timeout: 30000 });
+      await page.waitForLoadState("networkidle", { timeout: 5000 }).catch(() => {});
+      const flow = page.locator(".hydria-flow-manager").first();
+      if (!(await isVisible(flow))) {
+        const launcher = page.locator('.workspace-launcher-card[data-workspace="flows"]').first();
+        if (await isVisible(launcher)) await launcher.click();
+      }
+      await flow.waitFor({ state: "visible", timeout: 15000 });
+      await page.keyboard.press("Control+k");
+      const palette = page.locator(".hydria-command-panel");
+      await palette.waitFor({ state: "visible", timeout: 5000 });
+      await palette.locator("input").first().fill("workflow.json");
+      const file = palette.locator(".hydria-command-result").filter({ has: page.locator(".hydria-command-kind") }).filter({ hasText: "workflow.json" }).first();
+      await file.waitFor({ state: "visible", timeout: 5000 });
+      const entries = await palette.locator(".hydria-command-result").allTextContents();
+      assert.ok(entries.some((item) => item.includes("workflow.json")), "Should index editable work-object files");
+      await file.click();
+      await flow.waitFor({ state: "visible", timeout: 15000 });
+      assert.equal(await isVisible(palette), false, "File opening closes command palette");
+      return { fileSearch: true, openedFile: "workflow.json" };
+    }
+  },
+  {
     name: "dashboard-editor-smoke",
     tags: ["dashboard", "layout", "charts", "regression"],
     run: async ({ page, options }) => {
