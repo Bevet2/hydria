@@ -42,9 +42,11 @@ import {
   queueCollaborationOperation,
   replayCollaborationOperations
 } from "./services/collaborationClient.js";
+import { installWorkspaceCommandPalette } from "./components/workspaceCommandPalette.js";
 import { sessionStore } from "./services/sessionStore.js";
 
 const initialWorkspacePage = parseWorkspacePagePath();
+let workspaceCommandPalette = null;
 
 const state = {
   config: null,
@@ -802,6 +804,15 @@ function updateCanvasPreviewInline(nextContent = "") {
     forceEditMode: false,
     refreshWorkspace: false,
     suppressPreviewRefresh: true
+  });
+}
+
+function updateWorkflowContentInline(nextContent = "") {
+  syncEditorDraft(String(nextContent || ""), {
+    forceEditMode: false,
+    refreshWorkspace: false,
+    suppressPreviewRefresh: true,
+    skipWorkspaceRefreshOnSave: true
   });
 }
 
@@ -6764,6 +6775,13 @@ function renderWorkspaceSwitcher(hasVisibleWorkspace = false) {
     });
     container.appendChild(chip);
   });
+  const searchChip = document.createElement("button");
+  searchChip.type = "button";
+  searchChip.className = "workspace-switcher-chip workspace-search-chip";
+  searchChip.textContent = "Search ⌘K";
+  searchChip.title = "Search all workspaces and files (Ctrl/⌘ K)";
+  searchChip.addEventListener("click", () => workspaceCommandPalette?.open());
+  container.appendChild(searchChip);
 }
 
 function renderPreferences() {
@@ -8107,6 +8125,7 @@ function refreshPreviewPane() {
     onDashboardCommand: executeDashboardPreviewCommand,
     onDashboardEdit: openDashboardEditorFromPreview,
     dashboardSheetSources: dashboardSheetSourcesForPreview(),
+    onWorkflowContentChange: updateWorkflowContentInline,
     onWorkflowStageFocus: focusWorkflowStage,
     onWorkflowStageMove: moveWorkflowStage,
     onWorkflowStagePositionChange: updateWorkflowStagePosition,
@@ -18879,6 +18898,13 @@ function bindEvents() {
 
 async function init() {
   cache();
+  workspaceCommandPalette = installWorkspaceCommandPalette({
+    getActions: () => WORKSPACE_PAGES,
+    getObjects: () => allWorkspaceWorkObjects(),
+    openAction: (page) => activateWorkspacePage(page).catch(handleError),
+    openObject: (object) => selectWorkObject(object.id, object.primaryFile || "").catch(handleError),
+    onSave: () => { if (state.currentWorkObjectId && state.editorDirty) saveWorkObjectChanges().catch(handleError); }
+  });
   setWorkspacePage(initialWorkspacePage, { historyMode: "none" });
   setInteractiveEnabled(false);
   bindEvents();

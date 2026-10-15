@@ -37,6 +37,8 @@ jobs:
         run: npm ci --prefix backend --no-audit --no-fund
       - name: Core adapter smoke
         run: npm run smoke:hydria-core-adapter --prefix backend
+      - name: Data-flow engine operations
+        run: node backend/scripts/dataFlowGate.mjs
       - name: Workspace tool integration
         run: npm run gate:workspace --prefix backend
       - name: Work objects and revision history
@@ -71,6 +73,28 @@ jobs:
           console.log("Hydria Canvas API PDF export verified; bytes:",bytes.length);
           '
 
+      - name: Export full data-flow results through HTTP
+        run: |
+          node --input-type=module -e '
+          import assert from "node:assert/strict";
+          const flow = {
+            stages:[
+              {id:"src",type:"input.table",config:{data:JSON.stringify([{city:"Paris",sales:1},{city:"Paris",sales:2},{city:"Lyon",sales:3}])}},
+              {id:"sink",type:"output.table",config:{}}
+            ],
+            links:[{id:"e1",from:"src",to:"sink",toPort:0}]
+          };
+          const response = await fetch("http://127.0.0.1:3001/api/flows/export", {
+            method:"POST",headers:{"content-type":"application/json"},
+            body:JSON.stringify({flow})
+          });
+          assert.equal(response.status,200);
+          assert.match(response.headers.get("content-type")||"",/text\/csv/);
+          const body=await response.text();
+          assert.match(body,/city,sales/);
+          assert.equal(body.trim().split("\r\n").length,4);
+          console.log("Full CSV export verified");
+          '
   browser:
     runs-on: ubuntu-latest
     steps:
@@ -93,4 +117,4 @@ jobs:
           if [ "$ready" != "true" ]; then cat /tmp/hydria-visual.log; exit 1; fi
           curl --fail --silent --show-error -X POST http://127.0.0.1:3001/api/users -H "Content-Type: application/json" -d '{"username":"hydria-visual-ci"}'
       - name: Test Docs Sheets and Slides after harmonisation
-        run: npm run test:visual-workspace --prefix backend -- --scenario "shared-command-adapters,docs-shared-menu-definitions,docs-context-menu-helper,sheets-toolbar-context-menu-fullscreen,slides-presentation-smoke,canvas-whiteboard-smoke"
+        run: npm run test:visual-workspace --prefix backend -- --scenario "shared-command-adapters,docs-shared-menu-definitions,docs-context-menu-helper,sheets-toolbar-context-menu-fullscreen,slides-presentation-smoke,canvas-whiteboard-smoke,dashboard-editor-smoke,dataflow-workbench-smoke,os-global-command-palette"

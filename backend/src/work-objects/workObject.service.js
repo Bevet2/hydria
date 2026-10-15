@@ -419,6 +419,32 @@ function buildBlankWorkspaceFiles(kind = "document", title = "Hydria Workspace",
     };
   }
 
+  if (kind === "workflow" && workspaceFamilyId === "data_flow") {
+    return {
+      sourceFormat: "json",
+      primaryPath: "workflow.json",
+      files: [{
+        path: "workflow.json",
+        content: JSON.stringify({
+          kind: "hydria-dataflow",
+          version: 1,
+          title: headline,
+          objective: "Explore, transform and export structured data.",
+          trigger: "manual",
+          stages: [
+            { id: "source-1", type: "input.table", kind: "input.table", label: "Table source", x: 85, y: 180, config: { data: '[{"city":"Paris","sales":10},{"city":"Lyon","sales":7},{"city":"Paris","sales":5}]' } },
+            { id: "filter-1", type: "transform.filter", kind: "transform.filter", label: "Row filter", x: 375, y: 180, config: { column: "sales", operator: "gte", value: "7" } },
+            { id: "output-1", type: "output.table", kind: "output.table", label: "Table output", x: 690, y: 180, config: {} }
+          ],
+          links: [
+            { id: "link-1", from: "source-1", to: "filter-1", toPort: 0 },
+            { id: "link-2", from: "filter-1", to: "output-1", toPort: 0 }
+          ]
+        }, null, 2)
+      }]
+    };
+  }
+
   if (kind === "workflow") {
     return {
       sourceFormat: "json",

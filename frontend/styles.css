@@ -16652,3 +16652,80 @@ body.workspace-canvas-expanded {
     print-color-adjust: exact !important;
   }
 }
+
+
+
+/* HYDRIA OS — DATA FLOW WORKBENCH */
+.hydria-flow-manager{--flow-accent:#3978bd;display:flex;flex-direction:column;min-height:620px;color:var(--text,#202838);font:inherit;background:var(--card-bg,#fff);border:1px solid rgba(112,132,159,.23);border-radius:12px;overflow:hidden}
+.hydria-flow-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 16px;border-bottom:1px solid rgba(112,132,159,.18);background:var(--surface,#f9fafc)}
+.hydria-flow-title{display:flex;flex-direction:column;gap:2px}
+.hydria-flow-title strong{font-size:16px}
+.hydria-flow-title span{font-size:11px}
+.flow-muted{color:var(--text-muted,#788496);font-size:12px}
+.hydria-flow-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.hydria-flow-actions button,.hydria-flow-secondary{border:1px solid rgba(109,126,155,.27);border-radius:6px;background:var(--card-bg,#fff);color:inherit;padding:7px 9px;font:inherit;font-size:12px;cursor:pointer}
+.hydria-flow-actions button:hover,.hydria-flow-secondary:hover{border-color:var(--flow-accent)}
+.hydria-flow-actions .hydria-flow-primary{background:var(--flow-accent);color:#fff;border-color:var(--flow-accent);font-weight:700}
+.hydria-flow-layout{display:grid;grid-template-columns:195px minmax(0,1fr) 235px;min-height:565px;flex:1;overflow:hidden}
+.hydria-flow-palette,.hydria-flow-inspector{padding:14px;min-width:0;overflow-y:auto;background:var(--surface,#f9fafc)}
+.hydria-flow-palette{border-right:1px solid rgba(112,132,159,.19)}
+.hydria-flow-inspector{border-left:1px solid rgba(112,132,159,.19)}
+.hydria-flow-palette h3,.hydria-flow-inspector h3{font-size:13px;margin:0 0 14px}
+.hydria-flow-palette h4{font-size:10px;letter-spacing:.09em;text-transform:uppercase;margin:18px 0 8px;color:var(--text-muted,#788496)}
+.hydria-flow-search{box-sizing:border-box;border:1px solid rgba(112,132,159,.32);border-radius:7px;background:var(--card-bg,#fff);color:inherit;padding:9px 10px;width:100%;font:inherit;font-size:12px}
+.hydria-flow-catalog{display:flex;flex-direction:column;gap:6px}
+.hydria-flow-catalog-item{width:100%;text-align:left;padding:9px 10px;border-radius:7px;border:1px solid rgba(112,132,159,.2);background:var(--card-bg,#fff);font-size:12px;cursor:pointer;color:inherit}
+.hydria-flow-catalog-item:hover{border-color:var(--flow-accent);background:rgba(75,132,199,.08)}
+.hydria-flow-central{display:flex;flex-direction:column;min-width:0;overflow:hidden}
+.hydria-flow-scroll{flex:1;min-height:405px;overflow:auto;background-color:#f2f5fa;background-image:radial-gradient(rgba(95,125,169,.24) 1px,transparent 1px);background-size:20px 20px;position:relative}
+.hydria-flow-graph{position:relative;width:1800px;height:1200px;transform-origin:top left}
+.hydria-flow-wires{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.hydria-flow-wires path{pointer-events:stroke;cursor:crosshair}
+.hydria-flow-wires .hydria-flow-edge{pointer-events:none}
+.hydria-flow-node{position:absolute;box-sizing:border-box;width:216px;min-height:112px;border:2px solid #c2d0e1;border-radius:9px;background:#fff;box-shadow:0 4px 12px rgba(25,43,68,.14);user-select:none;color:#26344a}
+.hydria-flow-node.is-selected{border-color:var(--flow-accent);box-shadow:0 0 0 3px rgba(57,120,189,.18),0 5px 14px rgba(25,43,68,.15)}
+.hydria-flow-node-heading{font-size:13px;font-weight:700;padding:12px 14px;background:#e9eff8;border-radius:7px 7px 0 0;cursor:grab;touch-action:none}
+.hydria-flow-node-heading:active{cursor:grabbing}
+.hydria-flow-node-subtitle{font-size:10px;padding:9px 14px 1px;color:#657a96;font-family:monospace}
+.hydria-flow-node-meta{font-size:10px;padding:2px 14px 12px;color:#627895}
+.hydria-flow-input-port,.hydria-flow-output-port{position:absolute;width:27px;height:27px;line-height:18px;padding:0;border:2px solid #7fa8d3;background:#fff;border-radius:50%;color:#3978bd;cursor:crosshair}
+.hydria-flow-input-port{left:-14px}
+.hydria-flow-output-port{right:-14px;top:45px}
+.hydria-flow-input-port:hover,.hydria-flow-output-port:hover{background:#d7e9fc}
+.hydria-flow-inspector .hydria-flow-type-chip{display:inline-block;font:11px monospace;color:#3978bd;margin-bottom:13px}
+.hydria-flow-field{display:flex;flex-direction:column;gap:5px;margin:0 0 11px;font-size:12px}
+.hydria-flow-field span{font-weight:600}
+.hydria-flow-field input,.hydria-flow-field select,.hydria-flow-field textarea{box-sizing:border-box;width:100%;border:1px solid rgba(109,126,155,.3);border-radius:6px;padding:8px;background:var(--card-bg,#fff);color:inherit;font:12px inherit}
+.hydria-flow-field textarea{font:11px/1.5 monospace;resize:vertical}
+.hydria-flow-danger{width:100%;padding:8px;border:1px solid rgba(190,50,50,.4);color:#b83232;background:transparent;border-radius:6px;cursor:pointer}
+.hydria-flow-console{border-top:1px solid rgba(112,132,159,.2);max-height:220px;min-height:115px;overflow:auto;background:var(--card-bg,#fff);padding:10px 14px}
+.hydria-flow-console-header{display:flex;justify-content:space-between;font-size:12px;margin-bottom:6px}
+.hydria-flow-run-step{display:inline-block;text-align:left;border:1px solid #c6d6e6;background:#eff5fb;color:#254d7f;padding:5px 9px;margin:3px;border-radius:6px;font-size:11px;cursor:pointer}
+.hydria-flow-error{padding:7px 9px;color:#a22626;background:#fff0f0;border:1px solid #f0cccc;border-radius:5px;font-size:12px}
+.hydria-flow-banner{background:#e6f2fe;color:#165287;padding:7px;border-radius:6px;font-size:12px}
+.hydria-flow-preview{margin:8px 0;overflow:auto;max-height:190px;max-width:100%}
+.hydria-flow-table{border-collapse:collapse;width:100%;font-size:11px}
+.hydria-flow-table th,.hydria-flow-table td{padding:5px 8px;text-align:left;border:1px solid rgba(112,132,159,.25);white-space:nowrap}
+.hydria-flow-table th{background:#eff3f9;color:#294669}
+body.hydria-flow-fullscreen{overflow:hidden}
+.hydria-flow-manager.is-expanded{position:fixed;inset:12px;z-index:1800;min-height:0;height:calc(100dvh - 24px);box-shadow:0 16px 60px rgba(12,27,50,.35)}
+.hydria-flow-manager.is-expanded .hydria-flow-layout{min-height:0;flex:1}
+@media(max-width:950px){.hydria-flow-layout{grid-template-columns:150px minmax(0,1fr)}.hydria-flow-inspector{grid-column:1/-1;max-height:250px;border-top:1px solid rgba(112,132,159,.19)}}
+@media(max-width:650px){.hydria-flow-toolbar{align-items:flex-start;flex-direction:column}.hydria-flow-layout{display:flex;flex-direction:column}.hydria-flow-palette{max-height:175px;border-right:0;border-bottom:1px solid rgba(112,132,159,.19)}.hydria-flow-catalog{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.hydria-flow-catalog h4{grid-column:1/-1}.hydria-flow-scroll{min-height:310px}.hydria-flow-inspector{max-height:220px}}
+
+
+/* Global OS command palette */
+body.hydria-command-open{overflow:hidden}
+.hydria-command-backdrop{position:fixed;inset:0;background:rgba(13,23,42,.56);z-index:1950;display:flex;align-items:flex-start;justify-content:center;padding:12vh 15px 15px;box-sizing:border-box}
+.hydria-command-backdrop[hidden]{display:none}
+.hydria-command-panel{width:min(630px,100%);max-height:76vh;display:flex;flex-direction:column;background:var(--card-bg,#fff);color:var(--text,#223048);border-radius:14px;box-shadow:0 22px 65px rgba(0,0,0,.3);overflow:hidden;border:1px solid rgba(112,132,159,.2)}
+.hydria-command-input{width:100%;height:58px;box-sizing:border-box;border:0;outline:0;padding:0 20px;border-bottom:1px solid rgba(112,132,159,.23);font:17px inherit;color:inherit;background:transparent}
+.hydria-command-results{overflow-y:auto;flex:1;min-height:50px;max-height:58vh;padding:8px}
+.hydria-command-result{width:100%;display:flex;gap:12px;align-items:center;text-align:left;background:transparent;border:0;padding:10px 12px;color:inherit;border-radius:8px;cursor:pointer;font:inherit}
+.hydria-command-result.is-active,.hydria-command-result:hover{background:rgba(73,127,199,.12)}
+.hydria-command-kind{font-size:20px;color:#507ba9;width:27px;text-align:center}
+.hydria-command-result-body{display:flex;flex-direction:column;min-width:0;gap:2px}
+.hydria-command-result-body strong{font-size:13px;font-weight:650;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hydria-command-result-body small{font-size:11px;color:var(--text-muted,#788496);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hydria-command-help{margin:0;padding:9px 14px;border-top:1px solid rgba(112,132,159,.2);font-size:11px;color:var(--text-muted,#788496)}
+.hydria-command-empty{padding:20px;font-size:13px;color:var(--text-muted,#788496)}

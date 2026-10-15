@@ -65,6 +65,15 @@ export const WORKSPACE_PAGES = Object.freeze([
     hint: "Create an automation"
   },
   {
+    slug: "flows",
+    kind: "workflow",
+    family: "data_flow",
+    label: "Flow Manager",
+    title: "Data Flow Manager",
+    description: "Create, connect and execute visual ETL pipelines with data previews.",
+    hint: "Create a data flow"
+  },
+  {
     slug: "app-builder",
     kind: "project",
     family: "app_builder",
@@ -105,6 +114,7 @@ export const WORKSPACE_FAMILY_LABELS = Object.freeze({
   project_management: "Project Management",
   strategy_planning: "Strategy & Planning",
   workflow_automation: "Workflow & Automation",
+  data_flow: "Data Flow & ETL",
   ai_agent: "AI & Agents",
   crm_sales: "CRM & Sales",
   operations: "Operations",

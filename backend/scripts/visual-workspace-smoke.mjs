@@ -962,6 +962,81 @@ const scenarios = [
     }
   },
   {
+    name: "os-global-command-palette",
+    tags: ["navigation", "search", "keyboard", "files"],
+    run: async ({ page, options }) => {
+      await waitForWorkspace(page, options.baseUrl);
+      await page.keyboard.press("Control+k");
+      const panel = page.locator(".hydria-command-panel");
+      await panel.waitFor({ state: "visible", timeout: 5000 });
+      const input = panel.locator("input").first();
+      await input.fill("Automation");
+      const matches = panel.locator(".hydria-command-result");
+      assert.ok(await matches.count() >= 1, "Search should find Automation");
+      await input.press("Enter");
+      assert.equal(await isVisible(panel), false, "Palette should close after navigation");
+      assert.match(page.url(), /workspace\/automation/, "Workspace navigation should open Automation");
+      await page.keyboard.press("Control+Shift+f");
+      await panel.waitFor({ state: "visible", timeout: 5000 });
+      await panel.locator("input").fill("zz-unmatched-search");
+      assert.equal(await panel.locator(".hydria-command-empty").count(), 1);
+      await page.keyboard.press("Escape");
+      return { keyboardNavigation: true, searchEmptyState: true };
+    }
+  },
+  {
+    name: "dashboard-editor-smoke",
+    tags: ["dashboard", "layout", "charts", "regression"],
+    run: async ({ page, options }) => {
+      const baseUrl = String(options.baseUrl || "").replace(/\/+$/, "");
+      await page.goto(baseUrl + "/workspace/dashboard", { waitUntil: "domcontentloaded", timeout: 30000 });
+      await page.waitForLoadState("networkidle", { timeout: 5000 }).catch(() => {});
+      await page.waitForTimeout(650);
+      const shell = page.locator(".workspace-dashboard-preview-card").first();
+      if (!(await isVisible(shell))) {
+        const launcher = page.locator('.workspace-launcher-card[data-workspace="dashboard"]').first();
+        if (await isVisible(launcher)) await launcher.click();
+      }
+      await shell.waitFor({ state: "visible", timeout: 12000 });
+      const surface = shell.locator(".workspace-dashboard-powerbi").first();
+      assert.equal(await isVisible(surface), true, "Dashboard should open its visual PowerBI-like surface");
+      const importInput = shell.locator(".workspace-dashboard-import-input").first();
+      assert.equal(await importInput.count(), 1, "Dashboard should provide CSV/Excel data import");
+      return { dashboardVisible: true, dataImportAvailable: true };
+    }
+  },
+  {
+    name: "dataflow-workbench-smoke",
+    tags: ["automation", "dataflow", "workflow", "etl"],
+    run: async ({ page, options }) => {
+      const baseUrl = String(options.baseUrl || "").replace(/\/+$/, "");
+      await page.goto(baseUrl + "/workspace/flows", { waitUntil: "domcontentloaded", timeout: 30000 });
+      await page.waitForLoadState("networkidle", { timeout: 5000 }).catch(() => {});
+      await page.waitForTimeout(700);
+      const editor = page.locator(".hydria-flow-manager").first();
+      if (!(await isVisible(editor))) {
+        const launcher = page.locator('.workspace-launcher-card[data-workspace="flows"]').first();
+        if (await isVisible(launcher)) await launcher.click();
+        else {
+          const button = page.getByRole("button", { name: /create a data flow|create data flow/i }).first();
+          if (await isVisible(button)) await button.click();
+        }
+      }
+      await editor.waitFor({ state: "visible", timeout: 12000 });
+      const initialNodes = await editor.locator(".hydria-flow-node").count();
+      assert.ok(initialNodes >= 3, "Dataflow starts with a source, transform and output");
+      await editor.getByRole("button", { name: /run/i }).first().click();
+      const steps = editor.locator(".hydria-flow-run-step");
+      await steps.first().waitFor({ state: "visible", timeout: 9000 });
+      assert.ok(await steps.count() >= 3, "Node execution should return trace steps");
+      const body = await editor.locator(".hydria-flow-console").innerText();
+      assert.match(body, /Table output|rows/i);
+      await editor.locator(".hydria-flow-catalog-item").filter({ hasText: "Select columns" }).click();
+      assert.ok(await editor.locator(".hydria-flow-node").count() === initialNodes + 1, "Catalog must add nodes");
+      return { nodes: initialNodes, executionSteps: await steps.count(), catalogAdded: true };
+    }
+  },
+  {
     name: "canvas-whiteboard-smoke",
     tags: ["whiteboard", "canvas", "workspace"],
     run: async ({ page, options }) => {
