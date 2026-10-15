@@ -962,6 +962,56 @@ const scenarios = [
     }
   },
   {
+    name: "os-project-explorer",
+    tags: ["navigation", "explorer", "search", "favorites", "folders"],
+    run: async ({ page }) => {
+      const fixtures = [
+        { id: "fixture-d1", title: "Weekly report", objectKind: "document", workspaceFamilyId: "document_knowledge", primaryFile: "reports/weekly.md" },
+        { id: "fixture-s1", title: "Revenue data", objectKind: "dataset", workspaceFamilyId: "data_spreadsheet", primaryFile: "data/sales.csv" },
+        { id: "fixture-p1", title: "Company presentation", objectKind: "presentation", workspaceFamilyId: "presentation", primaryFile: "slides.md" }
+      ];
+      await page.evaluate(async (items) => {
+        const { renderHydriaLibraryExplorer } = await import("/components/workspaceLibraryExplorer.js");
+        localStorage.removeItem("hydria:library:ci-explorer");
+        const root = document.createElement("div");
+        root.id = "hydria-explorer-fixture";
+        document.body.appendChild(root);
+        window.__renderHydriaExplorerFixture = () => renderHydriaLibraryExplorer(root, {
+          workObjects: items,
+          currentWorkObjectId: "fixture-d1",
+          userId: "ci-explorer",
+          onSelect: (object) => { root.dataset.selected = object.id; }
+        });
+        window.__renderHydriaExplorerFixture();
+      }, fixtures);
+      const explorer = page.locator("#hydria-explorer-fixture");
+      assert.equal(await explorer.locator(".hydria-explorer-entry").count(), 3);
+      await explorer.locator(".hydria-explorer-search").fill("Revenue");
+      assert.equal(await explorer.locator(".hydria-explorer-entry").count(), 1, "Search should match title and file path");
+      await explorer.locator(".hydria-explorer-search").fill("");
+      await explorer.locator(".hydria-explorer-sort").selectOption("name");
+      const firstTitle = (await explorer.locator(".hydria-explorer-entry > .workspace-nav-item strong").first().innerText()).trim();
+      assert.equal(firstTitle, "Company presentation", "Sort should order by title");
+      await explorer.locator(".hydria-explorer-entry").first().locator(".hydria-explorer-favorite").click();
+      await explorer.locator(".hydria-explorer-folder").filter({ hasText: "Favorites" }).click();
+      assert.equal(await explorer.locator(".hydria-explorer-entry").count(), 1, "Favorite view should show starred object");
+      await explorer.locator(".hydria-explorer-folder").filter({ hasText: "All files" }).click();
+      page.once("dialog", dialog => dialog.accept("Review assets"));
+      await explorer.locator(".hydria-explorer-new-folder").click();
+      const select = explorer.locator(".hydria-explorer-move").first();
+      await explorer.locator(".hydria-explorer-folder").filter({ hasText: "All files" }).click();
+      await select.selectOption("Review assets");
+      await explorer.locator(".hydria-explorer-folder").filter({ hasText: "Review assets" }).click();
+      assert.equal(await explorer.locator(".hydria-explorer-entry").count(), 1, "Virtual folder should contain moved object");
+      await page.evaluate(() => window.__renderHydriaExplorerFixture());
+      assert.equal(await explorer.locator(".hydria-explorer-entry").count(), 1, "Virtual folder selection survives rerenders");
+      await explorer.locator(".hydria-explorer-entry > .workspace-nav-item").first().click();
+      assert.ok(await explorer.getAttribute("data-selected"), "Selection should invoke original work object navigation");
+      await page.evaluate(() => { delete window.__renderHydriaExplorerFixture; document.querySelector("#hydria-explorer-fixture")?.remove(); });
+      return { objects: fixtures.length, search: true, favorites: true, virtualFolders: true, sorting: true };
+    }
+  },
+  {
     name: "os-global-command-palette",
     tags: ["navigation", "search", "keyboard", "files"],
     run: async ({ page, options }) => {
