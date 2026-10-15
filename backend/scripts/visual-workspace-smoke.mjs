@@ -1065,6 +1065,37 @@ const scenarios = [
     }
   },
   {
+    name: "os-per-file-tree-smoke",
+    tags: ["navigation", "files", "explorer", "tree"],
+    run: async ({ page, options }) => {
+      const base = String(options.baseUrl || "").replace(/\/+$/, "");
+      await page.goto(base + "/workspace/flows", { waitUntil: "domcontentloaded", timeout: 30000 });
+      await page.waitForLoadState("networkidle", { timeout: 5000 }).catch(() => {});
+      await page.waitForTimeout(500);
+      const flow = page.locator(".hydria-flow-manager").first();
+      if (!(await isVisible(flow))) {
+        const launcher = page.locator('.workspace-launcher-card[data-workspace="flows"]').first();
+        if (await isVisible(launcher)) await launcher.click();
+      }
+      await flow.waitFor({ state: "visible", timeout: 12000 });
+      const explorer = page.locator("#workspace-file-explorer");
+      await explorer.waitFor({ state: "visible", timeout: 5000 });
+      const search = explorer.getByRole("searchbox", { name: "Search files in current work object" });
+      await search.fill("workflow.json");
+      const open = explorer.locator(".hydria-files-open").first();
+      assert.equal(await isVisible(open), true, "File tree should find workflow.json");
+      const favorite = explorer.locator(".hydria-files-star").first();
+      await favorite.click();
+      assert.match(await favorite.getAttribute("class") || "", /is-favorite/, "Favorite should update");
+      await explorer.locator(".hydria-files-sort").selectOption("favorite");
+      await open.click();
+      await explorer.locator(".hydria-files-row.is-active .hydria-files-open").first().waitFor({ state: "visible", timeout: 5000 });
+      await search.fill("missing-file-12345");
+      assert.equal(await explorer.locator(".hydria-files-empty").count(), 1, "Unmatched file search should show an empty state");
+      return { foundWorkflowFile: true, favoriteSaved: true, fileOpenWorks: true, searchEmptyState: true };
+    }
+  },
+  {
     name: "dataflow-workbench-smoke",
     tags: ["automation", "dataflow", "workflow", "etl"],
     run: async ({ page, options }) => {
