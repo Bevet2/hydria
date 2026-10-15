@@ -117,4 +117,4 @@ jobs:
           if [ "$ready" != "true" ]; then cat /tmp/hydria-visual.log; exit 1; fi
           curl --fail --silent --show-error -X POST http://127.0.0.1:3001/api/users -H "Content-Type: application/json" -d '{"username":"hydria-visual-ci"}'
       - name: Test Docs Sheets and Slides after harmonisation
-        run: npm run test:visual-workspace --prefix backend -- --scenario "shared-command-adapters,docs-shared-menu-definitions,docs-context-menu-helper,sheets-toolbar-context-menu-fullscreen,slides-presentation-smoke,canvas-whiteboard-smoke,dashboard-editor-smoke,dataflow-workbench-smoke,os-global-command-palette"
+        run: npm run test:visual-workspace --prefix backend -- --scenario "shared-command-adapters,docs-shared-menu-definitions,docs-context-menu-helper,sheets-toolbar-context-menu-fullscreen,slides-presentation-smoke,canvas-whiteboard-smoke,dashboard-editor-smoke,dataflow-workbench-smoke,os-global-command-palette,os-file-explorer-smoke"
