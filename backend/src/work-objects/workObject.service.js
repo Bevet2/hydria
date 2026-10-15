@@ -2126,7 +2126,7 @@ export class WorkObjectService {
     if (!entry || entry.length > 240 || entry.startsWith("/") || /^[a-z]:/i.test(entry) ||
       segments.length > 12 || segments.some((item) => !item || item === "." || item === ".." ||
         item === ".git" || item === ".hydria-history" || item === "node_modules" ||
-        /[\\x00-\\x1f<>:"|?*]/.test(item))) {
+        /[\x00-\x1f<>:"|?*]/.test(item))) {
       throw new AppError("Invalid project file path", 400);
     }
     if (!isEditableTextPath(entry)) throw new AppError("Only editable text file extensions can be created", 400);
