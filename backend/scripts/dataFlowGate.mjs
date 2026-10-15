@@ -123,4 +123,49 @@ assert.throws(
   ()=>spreadsheetSheetToFlowRows({columns:["x"],rows:Array.from({length:20001},()=>["v"])}),
   /20,000 rows/
 );
-console.log("Hydria dataflow integration gate passed (ETL transforms, CSV/TSV/XLSX inputs, joins, cleanup, union, cycles, limits and errors).");
+const qualityFlow = runFlow({
+  stages:[
+    node("source","input.table",{data:JSON.stringify([
+      {city:" Paris ",amount:"12,50",active:"oui"},
+      {city:" Lyon ",amount:"7.0",active:"non"},
+      {city:"  ",amount:null,active:""}
+    ])}),
+    node("trim","transform.text",{column:"city",target:"city",textAction:"trim"}),
+    node("upper","transform.text",{column:"city",target:"label",textAction:"upper"}),
+    node("amount","transform.cast",{column:"amount",target:"amount",valueType:"number"}),
+    node("active","transform.cast",{column:"active",target:"active",valueType:"boolean"}),
+    node("profile","transform.profile",{}),
+    node("out","output.table")
+  ],
+  links:[
+    link("source","trim"),link("trim","upper"),link("upper","amount"),
+    link("amount","active"),link("active","profile"),link("profile","out")
+  ]
+});
+assert.equal(qualityFlow.success,true);
+assert.deepEqual(qualityFlow.steps.find(step=>step.id==="amount").preview.map(r=>r.amount),[12.5,7,null]);
+assert.deepEqual(qualityFlow.steps.find(step=>step.id==="active").preview.map(r=>r.active),[true,false,null]);
+assert.deepEqual(qualityFlow.steps.find(step=>step.id==="upper").preview.map(r=>r.label),["PARIS","LYON",""]);
+assert.deepEqual(qualityFlow.outputs[0].preview.find(r=>r.column==="amount"),{
+  column:"amount",rows:3,missing:1,distinct:2,numeric:2,inferredType:"number"
+});
+const invalidCast=runFlow({
+  stages:[node("s","input.table",{data:'[{"n":"wrong"}]'}),node("c","transform.cast",{column:"n",valueType:"number"})],
+  links:[link("s","c")]
+});
+assert.equal(invalidCast.success,false);
+assert.equal(invalidCast.failedNodeId,"c");
+assert.match(invalidCast.errors[0],/row 1 column n/i);
+const replaced=runFlow({
+  stages:[node("s","input.table",{data:'[{"name":"Paris Paris"},{"name":"Nice"}]'}),
+    node("r","transform.text",{column:"name",target:"name",textAction:"replace",find:"Paris",replacement:"Lyon"}),
+    node("o","output.table")],
+  links:[link("s","r"),link("r","o")]
+});
+assert.equal(replaced.success,true);
+assert.deepEqual(replaced.outputs[0].preview,[{name:"Lyon Lyon"},{name:"Nice"}]);
+assert.equal(
+  runFlow({stages:[node("s","input.table",{data:'[{"name":"Nice"}]'}),node("r","transform.text",{column:"name",textAction:"replace",find:""})],links:[link("s","r")]}).success,
+  false
+);
+console.log("Hydria dataflow integration gate passed (ETL transforms, CSV/TSV/XLSX inputs, joins, cleanup, type conversion, column profiling, limits and errors).");
