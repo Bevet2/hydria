@@ -19,8 +19,17 @@ function mk(tag, cls = "", text = "") {
 }
 const id = (value) => String(value == null ? "" : value);
 function stamp(obj) { return Date.parse(obj.updatedAt || obj.updated_at || obj.createdAt || obj.created_at || "") || 0; }
+function editablePaths(obj) {
+  const files = [
+    obj.primaryFile,
+    ...(Array.isArray(obj.editableFiles) ? obj.editableFiles : []),
+    ...(Array.isArray(obj.entries) ? obj.entries.filter(entry => entry?.editable !== false).map(entry => entry.path) : []),
+    ...(Array.isArray(obj.files) ? obj.files.map(file => typeof file === "string" ? file : file?.path) : [])
+  ];
+  return [...new Set(files.filter(path => typeof path === "string" && path.trim()))].slice(0, 200);
+}
 function objectSearch(obj) {
-  const paths = [obj.primaryFile, obj.primaryEntry?.path, ...(Array.isArray(obj.files) ? obj.files.map((file) => typeof file === "string" ? file : file.path) : [])];
+  const paths = editablePaths(obj);
   return [obj.title, obj.name, obj.summary, obj.workspaceFamilyId, obj.objectKind, obj.kind, ...paths].filter(Boolean).join(" ").toLocaleLowerCase();
 }
 function belongsTo(obj, folder, metadata) {
@@ -34,14 +43,14 @@ function uniqueFolderName(name, current) {
   return clean;
 }
 export function renderHydriaLibraryExplorer(container, {
-  workObjects = [], currentWorkObjectId = "", onSelect = () => {}, userId = "local"
+  workObjects = [], currentWorkObjectId = "", onSelect = () => {}, onOpenFile = null, userId = "local"
 } = {}) {
   if (!container) return;
   const key = id(userId || "local");
   let view = instances.get(container);
   if (!view || view.userId !== key) {
     container.replaceChildren();
-    view = { userId: key, metadata: load(key), selected: "__all", query: "", total: 0 };
+    view = { userId: key, metadata: load(key), selected: "__all", query: "", total: 0, expanded: new Set() };
     const root = mk("section", "hydria-explorer");
     const tools = mk("div", "hydria-explorer-tools");
     const heading = mk("div", "hydria-explorer-heading");
@@ -76,6 +85,7 @@ export function renderHydriaLibraryExplorer(container, {
   view.workObjects = Array.isArray(workObjects) ? workObjects : [];
   view.currentWorkObjectId = currentWorkObjectId;
   view.onSelect = onSelect;
+  view.onOpenFile = typeof onOpenFile === "function" ? onOpenFile : (obj) => view.onSelect(obj);
   function moveObject(objectId, folder) {
     if (!view.workObjects.some(obj => id(obj.id) === id(objectId))) return;
     if (folder !== "__all" && !view.metadata.folders.includes(folder)) return;
@@ -147,8 +157,39 @@ export function renderHydriaLibraryExplorer(container, {
       folder.addEventListener("change", () => moveObject(obj.id, folder.value));
       const controls = mk("div", "hydria-explorer-entry-tools");
       controls.append(favorite, folder);
-      card.replaceWith(wrapper);
+      const paths = editablePaths(obj);
+      const group = mk("div", "hydria-explorer-object-group");
+      const list = mk("div", "hydria-explorer-file-list");
+      const expanded = view.expanded.has(id(obj.id)) || (id(view.currentWorkObjectId) === id(obj.id) && !view.expanded.has("__closed:" + id(obj.id)));
+      list.hidden = !expanded;
+      if (paths.length) {
+        const toggle = mk("button", "hydria-explorer-expand", expanded ? "▾" : "▸");
+        toggle.type = "button";
+        toggle.setAttribute("aria-label", "Toggle files for " + (obj.title || ""));
+        toggle.setAttribute("aria-expanded", expanded ? "true" : "false");
+        toggle.addEventListener("click", () => {
+          if (list.hidden) { view.expanded.add(id(obj.id)); view.expanded.delete("__closed:" + id(obj.id)); }
+          else { view.expanded.delete(id(obj.id)); view.expanded.add("__closed:" + id(obj.id)); }
+          list.hidden = !list.hidden;
+          toggle.textContent = list.hidden ? "▸" : "▾";
+          toggle.setAttribute("aria-expanded", list.hidden ? "false" : "true");
+        });
+        controls.prepend(toggle);
+        for (const filePath of paths) {
+          const item = mk("button", "hydria-explorer-file" + (
+            id(view.currentWorkObjectId) === id(obj.id) && filePath === obj.primaryFile ? " is-primary" : ""
+          ));
+          item.type = "button"; item.title = filePath;
+          const depth = filePath.replace(/\\/g, "/").split("/").length - 1;
+          item.style.paddingLeft = (9 + Math.min(4, depth) * 12) + "px";
+          item.append(mk("span", "hydria-explorer-file-icon", "▤"), mk("span", "hydria-explorer-file-path", filePath));
+          item.addEventListener("click", () => view.onOpenFile(obj, filePath));
+          list.append(item);
+        }
+      }
+      card.replaceWith(group);
       wrapper.append(card, controls);
+      group.append(wrapper, list);
     });
     if (view.workObjects.length && !objects.length) view.items.replaceChildren(mk("p", "hydria-explorer-empty", "No objects match the current filter."));
   }
