@@ -958,6 +958,35 @@ const scenarios = [
     }
   },
   {
+    name: "canvas-whiteboard-smoke",
+    tags: ["whiteboard", "canvas", "workspace"],
+    run: async ({ page, options }) => {
+      const baseUrl = String(options.baseUrl || "").replace(/\/+$/, "");
+      await page.goto(`${baseUrl}/workspace/whiteboard`, { waitUntil: "domcontentloaded", timeout: 30000 });
+      await page.waitForLoadState("networkidle", { timeout: 5000 }).catch(() => {});
+      await page.waitForTimeout(700);
+
+      const board = page.locator(".workspace-canvas-board").first();
+      if (!(await isVisible(board))) {
+        const launcher = page.locator('.workspace-launcher-card[data-workspace="whiteboard"]').first();
+        if (await isVisible(launcher)) {
+          await launcher.click();
+        } else {
+          const create = page.getByRole("button", { name: /create a whiteboard|new whiteboard/i }).first();
+          if (await isVisible(create)) await create.click();
+        }
+      }
+      await board.waitFor({ state: "visible", timeout: 12000 });
+      const initial = await page.locator(".workspace-canvas-item").count();
+      const addNote = page.locator('.workspace-canvas-quick-dock button[title*="Add note"]').first();
+      assert.equal(await isVisible(addNote), true, "Canvas should show the Add Note quick action");
+      await addNote.click();
+      await page.waitForFunction((count) => document.querySelectorAll(".workspace-canvas-item").length > count, initial, { timeout: 7000 });
+      const after = await page.locator(".workspace-canvas-item").count();
+      return { initialItems: initial, itemsAfterNewNote: after };
+    }
+  },
+  {
     name: "crm-workspace-page",
     tags: ["crm", "workspace"],
     run: async ({ page, options }) => {
