@@ -1006,6 +1006,43 @@ const scenarios = [
     }
   },
   {
+    name: "os-file-explorer-smoke",
+    tags: ["navigation", "explorer", "files", "search"],
+    run: async ({ page, options }) => {
+      const base = String(options.baseUrl || "").replace(/\/+$/, "");
+      await page.goto(base + "/workspace/flows", { waitUntil: "domcontentloaded", timeout: 30000 });
+      await page.waitForLoadState("networkidle", { timeout: 6000 }).catch(() => {});
+      await page.waitForTimeout(500);
+      const flow = page.locator(".hydria-flow-manager").first();
+      if (!(await isVisible(flow))) {
+        const launcher = page.locator('.workspace-launcher-card[data-workspace="flows"]').first();
+        if (await isVisible(launcher)) await launcher.click();
+      }
+      await flow.waitFor({ state: "visible", timeout: 12000 });
+      const explorer = page.locator("#workspace-file-explorer");
+      await explorer.waitFor({ state: "visible", timeout: 5000 });
+      const search = explorer.getByRole("searchbox", { name: "Search files in current work object" });
+      await search.fill("workflow.json");
+      const file = explorer.locator(".hydria-files-open").first();
+      assert.equal(await isVisible(file), true, "File search should find the active workflow source");
+      const favorites = explorer.locator(".hydria-files-star").first();
+      await favorites.click();
+      assert.match(await favorites.getAttribute("class") || "", /is-favorite/);
+      await explorer.locator(".hydria-files-sort").selectOption("favorite");
+      await file.click();
+      await explorer.locator(".hydria-files-open.is-active, .hydria-files-row.is-active .hydria-files-open").first().waitFor({state:"visible", timeout:5000});
+      await page.keyboard.press("Control+k");
+      const command = page.locator(".hydria-command-panel");
+      await command.waitFor({ state: "visible", timeout: 5000 });
+      await command.locator("input").fill("sales");
+      await command.locator(".hydria-command-result").first().waitFor({ state: "visible", timeout: 6000 });
+      const matching = await command.locator(".hydria-command-result").count();
+      assert.ok(matching >= 1, "Server-backed global content search should find dataflow text");
+      await page.keyboard.press("Escape");
+      return { fileExplorerVisible: true, fileSearchWorks: true, favoritesStored: true, globalContentResults: matching };
+    }
+  },
+  {
     name: "dataflow-workbench-smoke",
     tags: ["automation", "dataflow", "workflow", "etl"],
     run: async ({ page, options }) => {
