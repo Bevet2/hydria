@@ -1,4 +1,5 @@
 import { renderChatMessage } from "./components/chatMessage.js";
+import { renderHydriaLibraryExplorer } from "./components/workspaceLibraryExplorer.js";
 import { renderRunDetails } from "./components/detailsPanel.js";
 import {
   applyWorkspaceBlockEdit,
@@ -5944,12 +5945,12 @@ function renderWorkObjects() {
     return;
   }
 
-  renderWorkspaceObjectList(
-    el["workspace-object-list"],
-    state.workObjects,
-    state.currentWorkObjectId,
-    (workObject) => selectWorkObject(workObject.id, preferredOpenPath(workObject)).catch(handleError)
-  );
+  renderHydriaLibraryExplorer(el["workspace-object-list"], {
+    workObjects: state.workObjects,
+    currentWorkObjectId: state.currentWorkObjectId,
+    userId: state.currentUserId || "local",
+    onSelect: (workObject) => selectWorkObject(workObject.id, preferredOpenPath(workObject)).catch(handleError)
+  });
 }
 
 function renderMessages() {
@@ -18900,7 +18901,20 @@ async function init() {
   cache();
   workspaceCommandPalette = installWorkspaceCommandPalette({
     getActions: () => WORKSPACE_PAGES,
-    getObjects: () => allWorkspaceWorkObjects(),
+    getObjects: () => state.workObjects.flatMap((workObject) => {
+      const editablePaths = getEditableFiles(workObject).filter((path) => path && path !== workObject.primaryFile);
+      return [
+        workObject,
+        ...editablePaths.map((path) => ({
+          id: workObject.id,
+          title: path,
+          primaryFile: path,
+          kind: "file",
+          objectKind: "File · " + (workObject.title || "Work object"),
+          workspaceFamilyId: workObject.workspaceFamilyId
+        }))
+      ];
+    }),
     openAction: (page) => activateWorkspacePage(page).catch(handleError),
     openObject: (object) => selectWorkObject(object.id, object.primaryFile || "").catch(handleError),
     onSave: () => { if (state.currentWorkObjectId && state.editorDirty) saveWorkObjectChanges().catch(handleError); }
