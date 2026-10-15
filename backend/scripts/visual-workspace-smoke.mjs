@@ -989,15 +989,15 @@ const scenarios = [
     tags: ["automation", "dataflow", "workflow", "etl"],
     run: async ({ page, options }) => {
       const baseUrl = String(options.baseUrl || "").replace(/\/+$/, "");
-      await page.goto(baseUrl + "/workspace/automation", { waitUntil: "domcontentloaded", timeout: 30000 });
+      await page.goto(baseUrl + "/workspace/flows", { waitUntil: "domcontentloaded", timeout: 30000 });
       await page.waitForLoadState("networkidle", { timeout: 5000 }).catch(() => {});
       await page.waitForTimeout(700);
       const editor = page.locator(".hydria-flow-manager").first();
       if (!(await isVisible(editor))) {
-        const launcher = page.locator('.workspace-launcher-card[data-workspace="automation"]').first();
+        const launcher = page.locator('.workspace-launcher-card[data-workspace="flows"]').first();
         if (await isVisible(launcher)) await launcher.click();
         else {
-          const button = page.getByRole("button", { name: /create an automation|create automation/i }).first();
+          const button = page.getByRole("button", { name: /create a data flow|create data flow/i }).first();
           if (await isVisible(button)) await button.click();
         }
       }
