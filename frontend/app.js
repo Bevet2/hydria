@@ -5165,8 +5165,27 @@ function setWorkspacePreviewExpanded(nextExpanded = false) {
 function enhanceWorkspacePreviewHeader() {
   const preview = el["workspace-preview"];
   const header = preview?.querySelector(":scope > .workspace-preview-header");
-  if (!preview || !header || !state.currentWorkObject) {
+  if (!preview || !state.currentWorkObject) {
     updateWorkspacePreviewExpandButton();
+    return;
+  }
+  // Some native editors render their own toolbars instead of the generic
+  // preview header. Keep the OS full-screen action available in every editor.
+  if (!header) {
+    let button = preview.querySelector(":scope > .workspace-page-preview-expand-button.is-fallback");
+    if (!button) {
+      button = document.createElement("button");
+      button.type = "button";
+      button.className = "workspace-page-preview-expand-button is-fallback";
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        setWorkspacePreviewExpanded(!state.workspacePreviewExpanded);
+      });
+      preview.appendChild(button);
+    }
+    preview.classList.add("has-global-preview-control");
+    mountWorkspacePreviewPane();
     return;
   }
 
