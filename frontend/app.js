@@ -17591,7 +17591,20 @@ async function loadPreferences() {
     return;
   }
 
-  const payload = await apiClient.getPreferences(state.currentUserId);
+  // A reload or brief local-network interruption can abort the initial
+  // preferences request. Retry transient fetch failures a bounded number of
+  // times; do not suppress authorization or server errors.
+  let payload;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      payload = await apiClient.getPreferences(state.currentUserId);
+      break;
+    } catch (error) {
+      const transient = error instanceof TypeError && /fetch|network|load failed/i.test(String(error.message || ""));
+      if (!transient || attempt === 2) throw error;
+      await new Promise((resolve) => setTimeout(resolve, (attempt + 1) * 250));
+    }
+  }
   state.preferences = payload.preferences || {};
   renderPreferences();
 }
