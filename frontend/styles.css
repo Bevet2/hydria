@@ -16768,3 +16768,27 @@ body.hydria-command-open{overflow:hidden}
 .hydria-explorer-file.is-primary{font-weight:600}
 .hydria-explorer-file-icon{color:#507fac;flex:none}
 .hydria-explorer-file-path{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+
+/* Hydria OS work-object file explorer */
+.hydria-files-nav-group{min-width:0}
+.hydria-files-explorer{min-width:0;max-height:45vh;overflow-y:auto;overflow-x:hidden;padding:5px 1px}
+.hydria-files-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:3px 8px 9px;font-size:12px}
+.hydria-files-count{color:var(--muted,#778397);font-size:11px}
+.hydria-files-controls{display:flex;gap:5px;padding:0 6px 8px}
+.hydria-files-search{flex:1;min-width:0;font:12px inherit;background:var(--surface,#fff);color:inherit;padding:7px 9px;border-radius:6px;border:1px solid rgba(118,137,160,.3)}
+.hydria-files-sort{max-width:85px;min-width:74px;font-size:11px;color:inherit;background:var(--surface,#fff);border-radius:6px;border:1px solid rgba(118,137,160,.3);padding:5px}
+.hydria-files-tree{display:flex;flex-direction:column;gap:1px;min-width:0}
+.hydria-files-folder{display:block;width:100%;text-align:left;border:0;background:transparent;color:inherit;padding:8px 5px;cursor:pointer;font-size:12px;font-weight:650;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hydria-files-folder:hover{background:rgba(91,129,171,.1)}
+.hydria-files-folder-children{display:flex;flex-direction:column;gap:1px}
+.hydria-files-row{display:flex;align-items:center;gap:3px;border-radius:6px;min-width:0}
+.hydria-files-row.is-active{background:rgba(62,122,196,.15)}
+.hydria-files-row:hover{background:rgba(91,129,171,.08)}
+.hydria-files-open{border:0;background:transparent;color:inherit;display:flex;align-items:center;gap:7px;padding:7px 3px;min-width:0;flex:1;text-align:left;cursor:pointer;font-size:12px}
+.hydria-files-icon{color:#5380b2;font-size:13px;flex-shrink:0}
+.hydria-files-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hydria-files-star{border:0;background:transparent;padding:5px 7px;color:#9ca8b4;cursor:pointer;font-size:15px;flex-shrink:0}
+.hydria-files-star.is-favorite{color:#c69224}
+.hydria-files-star:focus-visible,.hydria-files-folder:focus-visible,.hydria-files-open:focus-visible{outline:2px solid #528ac9;outline-offset:-2px}
+.hydria-files-empty{color:var(--muted,#788496);font-size:12px;margin:8px;padding:6px}
