@@ -99,6 +99,31 @@ try {
   }), (error) => error.statusCode === 403);
   assert.ok(service.listHistory(first.id).some((item) => item.type === "file_move"));
 
+  const beforeCreate = service.get(first.id);
+  const createdFile = service.createFile({
+    workObjectId: first.id,
+    entryPath: "reports/summary.md",
+    content: "# New report",
+    actorUserId: 1,
+    expectedRevision: beforeCreate.revision
+  });
+  assert.equal(createdFile.file.path,"reports/summary.md");
+  assert.equal(createdFile.file.content,"# New report");
+  assert.ok(fs.existsSync(path.join(createdFile.workspacePath,"reports","summary.md")));
+  assert.throws(
+    () => service.createFile({ workObjectId:first.id,entryPath:"reports/summary.md",actorUserId:1 }),
+    (error) => error.statusCode === 409
+  );
+  assert.throws(
+    () => service.createFile({ workObjectId:first.id,entryPath:"../forbidden.md",actorUserId:1 }),
+    (error) => error.statusCode === 400
+  );
+  assert.throws(
+    () => service.createFile({ workObjectId:first.id,entryPath:"reports/other.md",actorUserId:2 }),
+    (error) => error.statusCode === 403
+  );
+  assert.ok(service.listHistory(first.id).some((item) => item.type === "file_create"));
+
   const searchResults = service.searchContent({
     userId: 1,
     query: "App builder workspace"
