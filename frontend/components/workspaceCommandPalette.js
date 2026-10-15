@@ -6,7 +6,7 @@ function make(tag, cls, text) {
   if (text) el.textContent = text;
   return el;
 }
-export function installWorkspaceCommandPalette({ getActions, getObjects, openAction, openObject, onSave }) {
+export function installWorkspaceCommandPalette({ getActions, getObjects, searchObjects, openAction, openObject, onSave }) {
   const backdrop = make("div", "hydria-command-backdrop");
   backdrop.hidden = true;
   const panel = make("section", "hydria-command-panel");
@@ -21,8 +21,10 @@ export function installWorkspaceCommandPalette({ getActions, getObjects, openAct
   const help = make("p", "hydria-command-help", "↑↓ Navigate · Enter Open · Esc Close · Ctrl/⌘ K");
   panel.append(input, results, help);
   backdrop.appendChild(panel); document.body.appendChild(backdrop);
-  let matches = [], active = 0, priorFocus = null;
+  let matches = [], active = 0, priorFocus = null, remoteObjects = [], searchHandle = null, searchGeneration = 0;
   function close() {
+    searchGeneration++;
+    clearTimeout(searchHandle);
     backdrop.hidden = true;
     document.body.classList.remove("hydria-command-open");
     priorFocus?.focus?.();
@@ -32,6 +34,7 @@ export function installWorkspaceCommandPalette({ getActions, getObjects, openAct
     backdrop.hidden = false;
     document.body.classList.add("hydria-command-open");
     input.value = "";
+    remoteObjects = [];
     refresh();
     input.focus();
   }
@@ -53,7 +56,22 @@ export function installWorkspaceCommandPalette({ getActions, getObjects, openAct
       label: item.title || item.name || item.primaryFile || "Untitled object",
       hint: (item.objectKind || item.kind || "File") + (item.primaryFile ? " · " + item.primaryFile : "")
     }));
-    matches = [...actions, ...objects].filter((item) => !text || (item.label + " " + item.hint).toLowerCase().includes(text)).slice(0, 40);
+    const found = remoteObjects.map((item) => ({
+      kind: "object", target: item,
+      label: item.title || item.name || item.primaryFile || "Untitled object",
+      hint: [item.match?.entryPath || item.primaryFile, item.match?.snippet || ""].filter(Boolean).join(" · ")
+    }));
+    const seen = new Set();
+    matches = [...actions, ...objects, ...found]
+      .filter((item) => !text || (item.label + " " + item.hint).toLowerCase().includes(text))
+      .filter((item) => {
+        const key = item.kind === "workspace"
+          ? "workspace:" + item.target.slug
+          : "object:" + item.target.id + ":" + (item.target.match?.entryPath || "");
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      }).slice(0, 40);
     active = Math.min(active, Math.max(0, matches.length - 1));
     results.replaceChildren();
     if (!matches.length) { results.appendChild(make("p", "hydria-command-empty", "No matching workspaces or files.")); return; }
@@ -86,7 +104,23 @@ export function installWorkspaceCommandPalette({ getActions, getObjects, openAct
     else if (event.key === "ArrowUp") { event.preventDefault(); active = (active + matches.length - 1) % Math.max(1, matches.length); refresh(); }
     else if (event.key === "Enter") { event.preventDefault(); dispatch(matches[active]); }
   });
-  input.addEventListener("input", () => { active = 0; refresh(); });
+  input.addEventListener("input", () => {
+    active = 0;
+    remoteObjects = [];
+    clearTimeout(searchHandle);
+    const generation = ++searchGeneration;
+    const query = input.value.trim();
+    refresh();
+    if (query.length < 3 || typeof searchObjects !== "function") return;
+    searchHandle = setTimeout(async () => {
+      try {
+        const results = await searchObjects(query);
+        if (generation !== searchGeneration || backdrop.hidden || input.value.trim() !== query) return;
+        remoteObjects = Array.isArray(results) ? results : [];
+        refresh();
+      } catch { /* local search remains available when server search fails */ }
+    }, 240);
+  });
   backdrop.addEventListener("mousedown", (event) => { if (event.target === backdrop) close(); });
   return { open, close };
 }
