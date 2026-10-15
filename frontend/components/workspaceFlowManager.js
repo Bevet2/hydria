@@ -30,6 +30,27 @@ function parseFlow(content) {
     return obj && obj.kind === "hydria-dataflow" && Array.isArray(obj.stages) && Array.isArray(obj.links) ? obj : null;
   } catch { return null; }
 }
+function parseCSV(text) {
+  // RFC4180-compatible quotes, escaped quotes, commas and newlines.
+  const matrix = [], row = []; let cell = "", quoted = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c === '"') {
+      if (quoted && text[i+1] === '"') { cell += '"'; i++; }
+      else quoted = !quoted;
+    } else if (c === "," && !quoted) { row.push(cell); cell = ""; }
+    else if ((c === "\n" || c === "\r") && !quoted) {
+      if (c === "\r" && text[i+1] === "\n") i++;
+      row.push(cell); matrix.push([...row]); row.length = 0; cell = "";
+      if (matrix.length > 20001) throw new Error("CSV exceeds 20,000 rows");
+    } else cell += c;
+  }
+  if (quoted) throw new Error("Unclosed CSV quote");
+  if (cell.length || row.length) { row.push(cell); matrix.push([...row]); }
+  const headers = (matrix.shift() || []).map((v, i) => String(v).trim() || "column_" + (i+1));
+  if (!headers.length || headers.length > 100) throw new Error("CSV must contain 1–100 columns");
+  return matrix.filter((line) => line.some((v) => v.trim())).map((line) => Object.fromEntries(headers.map((header, i) => [header, line[i] ?? ""])));
+}
 function csvEscape(value) {
   const str = String(value == null ? "" : value);
   return /[,"\n]/.test(str) ? '"' + str.replace(/"/g, '""') + '"' : str;
@@ -276,6 +297,21 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
       const multiline = key === "data";
       inspector.appendChild(configurationField(key === "data" ? "Source rows (JSON array)" : key, config[key] ?? initial, (v) => mutate(() => { config[key] = v; }), OPTIONS[key] || null, multiline));
     });
+    if (node.type === "input.table") {
+      const csv = element("input"); csv.type = "file"; csv.accept = ".csv,text/csv"; csv.hidden = true;
+      csv.addEventListener("change", async () => {
+        const file = csv.files?.[0];
+        if (!file) return;
+        try {
+          if (file.size > 2_000_000) throw new Error("CSV file is larger than 2 MB");
+          const rows = parseCSV(await file.text());
+          mutate(() => { config.data = JSON.stringify(rows); node.label = file.name; });
+        } catch (error) { state.error = error.message || "CSV import failed"; renderConsole(); }
+        csv.value = "";
+      });
+      inspector.append(csv, button("Import CSV", () => csv.click(), "hydria-flow-secondary"));
+    }
+
     inspector.appendChild(button("Delete node", removeSelected, "hydria-flow-danger"));
     if (state.results?.steps) {
       const step = state.results.steps.find((s) => s.id === node.id);
