@@ -103,6 +103,27 @@ export function parseCSV(text) {
   if (rows.length > 20000) throw new Error("Table exceeds 20,000 rows");
   return rows.map((line) => Object.fromEntries(headers.map((header, index) => [header, (line[index] ?? "").slice(0, 10000)])));
 }
+export function spreadsheetSheetToFlowRows(sheet = {}) {
+  const names = sheet?.columns;
+  if (!Array.isArray(names) || names.length === 0 || names.length > 100) {
+    throw new Error("Excel sheet must contain 1–100 columns");
+  }
+  const seen = new Set();
+  const columns = names.map((value, index) => {
+    const base = String(value ?? "").trim().slice(0, 100) || `Column ${index + 1}`;
+    let name = base, suffix = 2;
+    while (seen.has(name)) name = base.slice(0, 90) + "_" + suffix++;
+    seen.add(name);
+    return name;
+  });
+  const data = Array.isArray(sheet.rows) ? sheet.rows : [];
+  if (data.length > 20000) throw new Error("Excel sheet exceeds 20,000 rows");
+  return data
+    .filter((row) => Array.isArray(row) && row.some((cell) => String(cell ?? "").trim()))
+    .map((row) => Object.fromEntries(columns.map((column, index) => [
+      column, String(row[index] ?? "").slice(0, 10000)
+    ])));
+}
 function csvEscape(value) {
   const str = String(value == null ? "" : value);
   return /[,"\n]/.test(str) ? '"' + str.replace(/"/g, '""') + '"' : str;
@@ -362,6 +383,43 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
         csv.value = "";
       });
       inspector.append(csv, button("Import CSV / TSV", () => csv.click(), "hydria-flow-secondary"));
+
+      // Reuse the OS Sheets import route, so Flow Manager and Sheets decode
+      // XLSX files consistently (formats, dates and sheet names included).
+      const excel = element("input");
+      excel.type = "file";
+      excel.accept = ".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+      excel.hidden = true;
+      excel.addEventListener("change", async () => {
+        const file = excel.files?.[0];
+        if (!file) return;
+        try {
+          if (file.size > 5_000_000) throw new Error("Excel workbook exceeds the 5 MB import limit");
+          const data = new FormData();
+          data.append("workbook", file);
+          const response = await fetch("/api/sheets/import-xlsx", { method: "POST", body: data });
+          const result = await response.json().catch(() => ({}));
+          if (!response.ok || result.success !== true) {
+            throw new Error(String(result.message || result.error?.message || result.error || "Excel import failed"));
+          }
+          const sheets = Array.isArray(result.model?.sheets) ? result.model.sheets : [];
+          const sheet = sheets.find((item) => !item.hidden && Array.isArray(item.rows)) ||
+            sheets.find((item) => Array.isArray(item.rows));
+          if (!sheet) throw new Error("No usable worksheet in the imported Excel workbook");
+          const rows = spreadsheetSheetToFlowRows(sheet);
+          if (!nodeById(node.id)) throw new Error("Selected source node no longer exists");
+          mutate(() => {
+            config.data = JSON.stringify(rows);
+            node.label = file.name + " · " + String(sheet.name || "Sheet 1");
+          });
+        } catch (error) {
+          state.error = error.message || "Excel import failed";
+          renderConsole();
+        } finally {
+          excel.value = "";
+        }
+      });
+      inspector.append(excel, button("Import Excel (XLSX)", () => excel.click(), "hydria-flow-secondary"));
     }
 
     inspector.appendChild(button("Delete node", removeSelected, "hydria-flow-danger"));
