@@ -985,6 +985,27 @@ const scenarios = [
     }
   },
   {
+    name: "dashboard-editor-smoke",
+    tags: ["dashboard", "layout", "charts", "regression"],
+    run: async ({ page, options }) => {
+      const baseUrl = String(options.baseUrl || "").replace(/\/+$/, "");
+      await page.goto(baseUrl + "/workspace/dashboard", { waitUntil: "domcontentloaded", timeout: 30000 });
+      await page.waitForLoadState("networkidle", { timeout: 5000 }).catch(() => {});
+      await page.waitForTimeout(650);
+      const shell = page.locator(".workspace-dashboard-preview-card").first();
+      if (!(await isVisible(shell))) {
+        const launcher = page.locator('.workspace-launcher-card[data-workspace="dashboard"]').first();
+        if (await isVisible(launcher)) await launcher.click();
+      }
+      await shell.waitFor({ state: "visible", timeout: 12000 });
+      const surface = shell.locator(".workspace-dashboard-powerbi").first();
+      assert.equal(await isVisible(surface), true, "Dashboard should open its visual PowerBI-like surface");
+      const importInput = shell.locator(".workspace-dashboard-import-input").first();
+      assert.equal(await importInput.count(), 1, "Dashboard should provide CSV/Excel data import");
+      return { dashboardVisible: true, dataImportAvailable: true };
+    }
+  },
+  {
     name: "dataflow-workbench-smoke",
     tags: ["automation", "dataflow", "workflow", "etl"],
     run: async ({ page, options }) => {
