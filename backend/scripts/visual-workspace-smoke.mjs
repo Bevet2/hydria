@@ -1328,36 +1328,33 @@ if (!selectedScenarios.length) {
 }
 
 const browser = await chromium.launch({ headless: options.headless });
-const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
-const browserErrors = [];
+const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
 const results = [];
 
-page.on("pageerror", (error) => {
-  browserErrors.push(error.stack || error.message);
-});
-
-page.on("console", (message) => {
-  if (message.type() === "error") {
-    browserErrors.push(message.text());
-  }
-});
-
 try {
-  await waitForWorkspace(page, options.baseUrl);
-
   for (const scenario of selectedScenarios) {
-    results.push(await runScenario(scenario, { page, options }));
-  }
-
-  if (browserErrors.length) {
-    results.push({
-      name: "browser-console-clean",
-      ok: false,
-      durationMs: 0,
-      error: browserErrors.join("\n")
+    // New page per scenario isolates pending event handlers, async previews and
+    // aborted navigations. Use one context so local user identity remains shared.
+    const page = await context.newPage();
+    const pageErrors = [];
+    page.on("pageerror", (error) => pageErrors.push(error.stack || error.message));
+    page.on("console", (message) => {
+      if (message.type() === "error") pageErrors.push(message.text());
     });
+    try {
+      await waitForWorkspace(page, options.baseUrl);
+      const result = await runScenario(scenario, { page, options });
+      if (pageErrors.length) {
+        result.ok = false;
+        result.error = [result.error, ...pageErrors].filter(Boolean).join("\n");
+      }
+      results.push(result);
+    } finally {
+      await page.close().catch(() => {});
+    }
   }
 } finally {
+  await context.close().catch(() => {});
   await browser.close();
 }
 
