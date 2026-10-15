@@ -1,0 +1,39 @@
+name: Hydria branch harmonisation
+on:
+  push:
+    branches:
+      - integration/harmonisation-2026-10-15
+permissions:
+  contents: write
+concurrency:
+  group: hydria-harmonize-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  consolidate:
+    if: "!contains(github.event.head_commit.message, '[hydria-merge]')"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Reconcile source branches with modern main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin Celso137 fire
+          git merge -s ort -X ours --no-edit --no-ff origin/Celso137 -m "merge: reconcile dashboard and workspace from Celso137 [hydria-merge]"
+          git merge -s ort -X ours --no-edit --no-ff origin/fire -m "merge: reconcile Canvas developments from fire [hydria-merge]"
+          echo "Combined changes:"
+          git diff --stat origin/main...HEAD
+          echo "Checking JavaScript syntax:"
+          git diff --name-only origin/main...HEAD -- '*.js' '*.mjs' '*.cjs' | while IFS= read -r file; do
+            if [ -f "$file" ]; then
+              echo "node --check $file"
+              node --check "$file"
+            fi
+          done
+          git push origin HEAD:refs/heads/integration/harmonisation-2026-10-15
