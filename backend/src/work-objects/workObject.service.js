@@ -2101,6 +2101,87 @@ export class WorkObjectService {
     };
   }
 
+  createFile({
+    workObjectId = "",
+    entryPath = "",
+    content = "",
+    actorUserId = null,
+    expectedRevision = null
+  } = {}) {
+    const stored = this.store.get(String(workObjectId || ""));
+    if (!stored) throw new AppError("Work object not found", 404);
+    if (!Number.isSafeInteger(Number(actorUserId)) || Number(actorUserId) <= 0) {
+      throw new AppError("A valid acting user is required to create files", 403);
+    }
+    this.assertAccess(stored, { actorUserId }, "editor");
+    if (stored.status === "trashed") throw new AppError("Restore the work object before creating files", 409);
+    if (!["project", "code"].includes(stored.kind)) {
+      throw new AppError("File creation is available for project/code workspaces only", 409);
+    }
+    if (expectedRevision != null && Number(expectedRevision) !== Number(stored.revision || 1)) {
+      throw new AppError("This work object was modified by another collaborator", 409);
+    }
+    const entry = String(entryPath || "").replace(/\\/g, "/").trim();
+    const segments = entry.split("/");
+    if (!entry || entry.length > 240 || entry.startsWith("/") || /^[a-z]:/i.test(entry) ||
+      segments.length > 12 || segments.some((item) => !item || item === "." || item === ".." ||
+        item === ".git" || item === ".hydria-history" || item === "node_modules" ||
+        /[\x00-\x1f<>:"|?*]/.test(item))) {
+      throw new AppError("Invalid project file path", 400);
+    }
+    if (!isEditableTextPath(entry)) throw new AppError("Only editable text file extensions can be created", 400);
+    if ((stored.entries || []).some((item) => item.path.toLowerCase() === entry.toLowerCase())) {
+      throw new AppError("A file already exists at that path", 409);
+    }
+    const textContent = String(content ?? "");
+    if (Buffer.byteLength(textContent, "utf8") > 1_000_000) {
+      throw new AppError("New files are limited to 1 MB", 413);
+    }
+    const root = path.resolve(stored.workspacePath);
+    const destination = safeResolveWithin(root, entry);
+    if (fs.existsSync(destination)) throw new AppError("File already exists on disk", 409);
+    let cursor = root;
+    for (const segment of segments.slice(0, -1)) {
+      cursor = path.join(cursor, segment);
+      if (fs.existsSync(cursor) && (fs.lstatSync(cursor).isSymbolicLink() || !fs.statSync(cursor).isDirectory())) {
+        throw new AppError("Unsafe project directory", 400);
+      }
+    }
+    fs.mkdirSync(path.dirname(destination), { recursive: true });
+    fs.writeFileSync(destination, textContent, { encoding: "utf8", flag: "wx" });
+    try {
+      const updated = this.store.update(stored.id, (record) => ({
+        ...record,
+        activeEntryPath: entry,
+        revision: Number(record.revision || 1) + 1,
+        status: "updated",
+        entries: [...(record.entries || []), normalizeWorkObjectEntry({
+          id: entry,
+          path: entry,
+          label: entry,
+          kind: inferEntryKind(entry, record.kind),
+          editable: true,
+          primary: !(record.entries || []).length,
+          contentType: guessContentType(entry),
+          preview: previewContent(textContent),
+          sizeBytes: Buffer.byteLength(textContent, "utf8"),
+          lastModifiedAt: new Date().toISOString()
+        })],
+        history: [...(record.history || []), {
+          id: randomUUID(),
+          type: "file_create",
+          at: new Date().toISOString(),
+          actor: `user:${actorUserId}`,
+          entryPath: entry
+        }].slice(-25)
+      }));
+      return compactWorkObject(updated, { entryPath: entry, content: textContent });
+    } catch (error) {
+      fs.unlinkSync(destination);
+      throw error;
+    }
+  }
+
   moveFile({
     workObjectId = "",
     from = "",
