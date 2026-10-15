@@ -153,7 +153,40 @@ export function renderWorkspaceFileExplorer(container, {
           move.type = "button";
           move.title = "Rename or move " + file.path;
           move.setAttribute("aria-label", "Rename or move: " + file.path);
-          move.addEventListener("click", () => onMove(file.path));
+          move.addEventListener("click", () => {
+            const form = el("form", "hydria-files-rename-form");
+            const input = el("input", "hydria-files-rename-input");
+            input.type = "text";
+            input.value = file.path;
+            input.maxLength = 240;
+            input.required = true;
+            input.setAttribute("aria-label", "New relative file path");
+            const save = el("button", "hydria-files-rename-save", "Move");
+            save.type = "submit";
+            const cancel = el("button", "hydria-files-rename-cancel", "Cancel");
+            cancel.type = "button";
+            const restore = () => { if (form.isConnected) form.replaceWith(row); };
+            cancel.addEventListener("click", restore);
+            input.addEventListener("keydown", (event) => {
+              if (event.key === "Escape") { event.preventDefault(); restore(); }
+            });
+            form.addEventListener("submit", async (event) => {
+              event.preventDefault();
+              const nextPath = input.value.trim();
+              if (!nextPath || nextPath === file.path) { restore(); return; }
+              save.disabled = true; cancel.disabled = true; input.disabled = true;
+              try {
+                await onMove(file.path, nextPath);
+              } finally {
+                save.disabled = false; cancel.disabled = false; input.disabled = false;
+                restore();
+              }
+            });
+            form.append(input, save, cancel);
+            row.replaceWith(form);
+            input.focus();
+            input.select();
+          });
           row.append(move);
         }
         target.append(row);

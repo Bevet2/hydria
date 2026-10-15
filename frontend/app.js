@@ -17146,11 +17146,9 @@ function renderWorkspace() {
         preserveMode: true
       }).catch(handleError);
     },
-    onMove: ["project", "code"].includes(workObject?.kind) ? async (entryPath) => {
-      const nextPath = window.prompt("Move or rename file (relative project path):", entryPath);
-      if (nextPath === null || nextPath.trim() === entryPath) return;
+    onMove: ["project", "code"].includes(workObject?.kind) ? async (entryPath, nextPath) => {
+      await flushPendingWorkObjectChanges();
       try {
-        await flushPendingWorkObjectChanges();
         const result = await apiClient.moveWorkObjectFile(workObject.id, {
           from: entryPath,
           to: nextPath.trim(),
