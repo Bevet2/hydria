@@ -76,7 +76,7 @@ export const WORKSPACE_PAGES = Object.freeze([
   {
     slug: "whiteboard",
     kind: "design",
-    family: "design",
+    family: "canvas_board",
     label: "Whiteboard",
     title: "Whiteboards",
     description: "Explore layouts, frames and visual ideas on a dedicated canvas.",
@@ -100,6 +100,7 @@ export const WORKSPACE_FAMILY_LABELS = Object.freeze({
   development: "Development",
   app_builder: "App Builder",
   design: "Design",
+  canvas_board: "Canvas & Whiteboard",
   presentation: "Presentation",
   project_management: "Project Management",
   strategy_planning: "Strategy & Planning",
