@@ -2111,6 +2111,9 @@ export class WorkObjectService {
   } = {}) {
     const current = this.store.get(String(workObjectId || ""));
     if (!current) throw new AppError("Work object not found", 404);
+    if (!Number.isSafeInteger(Number(actorUserId)) || Number(actorUserId) <= 0) {
+      throw new AppError("A valid acting user is required for file moves", 403);
+    }
     this.assertAccess(current, { actorUserId, shareToken }, "editor");
     if (current.status === "trashed") throw new AppError("Restore the work object before changing its files", 409);
     // Native Docs/Sheets/Slides and other typed objects have canonical file paths.
