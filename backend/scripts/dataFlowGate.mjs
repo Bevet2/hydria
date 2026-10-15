@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { FLOW_NODE_CATALOG, runFlow, validateFlow } from "../services/flow/flowEngine.js";
+import { parseCSV } from "../../frontend/components/workspaceFlowManager.js";
 function node(id, type, config = {}) { return { id, type, label: id, config }; }
 function link(from, to, toPort = 0) { return { id: from + "-" + to + "-" + toPort, from, to, toPort }; }
 const sample = {
@@ -83,4 +84,29 @@ const collision = runFlow({
 });
 assert.equal(collision.success,false);
 assert.equal(collision.failedNodeId,"rename");
-console.log("Hydria dataflow integration gate passed (validation, ETL transforms, joins, cleanup, union, cycles, limits and errors).");
+// Imported sources must handle European CSV and spreadsheet TSV without
+// silently discarding columns or treating separators inside quotes as real.
+assert.deepEqual(
+  parseCSV('\uFEFFcity;amount;amount\r\n"Paris; Nord";"5,42";"8"\r\nLyon;7;9'),
+  [
+    {city:"Paris; Nord",amount:"5,42",amount_2:"8"},
+    {city:"Lyon",amount:"7",amount_2:"9"}
+  ]
+);
+assert.deepEqual(parseCSV('city\tsales\nParis\t10\nLyon\t20'),[
+  {city:"Paris",sales:"10"}, {city:"Lyon",sales:"20"}
+]);
+assert.deepEqual(parseCSV('name,notes\n"Hydria","Line 1\nLine 2"'),[
+  {name:"Hydria",notes:"Line 1\nLine 2"}
+]);
+assert.throws(()=>parseCSV('name,sales\n"unclosed,3'),/Unclosed CSV quote/);
+const delimitedFlow = runFlow({
+  stages:[
+    node("csv","input.table",{data:JSON.stringify(parseCSV('city;amount\nParis;42\nLyon;25'))}),
+    node("filter","transform.filter",{column:"amount",operator:"gte",value:"40"}),
+    node("output","output.table")
+  ],links:[link("csv","filter"),link("filter","output")]
+});
+assert.equal(delimitedFlow.success,true);
+assert.deepEqual(delimitedFlow.outputs[0].preview,[{city:"Paris",amount:"42"}]);
+console.log("Hydria dataflow integration gate passed (ETL transforms, CSV/TSV import, joins, cleanup, union, cycles, limits and errors).");

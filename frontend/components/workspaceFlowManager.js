@@ -34,26 +34,74 @@ function parseFlow(content) {
     return obj && obj.kind === "hydria-dataflow" && Array.isArray(obj.stages) && Array.isArray(obj.links) ? obj : null;
   } catch { return null; }
 }
-function parseCSV(text) {
-  // RFC4180-compatible quotes, escaped quotes, commas and newlines.
-  const matrix = [], row = []; let cell = "", quoted = false;
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i];
+function detectTableDelimiter(text) {
+  // Rank separators by how consistently they appear across logical records.
+  // This covers French Excel CSV (semicolon) and tab-delimited files without
+  // confusing punctuation contained inside quoted cells with delimiters.
+  const separators = [",", ";", "\t"];
+  const records = [];
+  let counts = [0, 0, 0], quoted = false, hasContent = false;
+  for (let i = 0; i < text.length && records.length < 6; i++) {
+    const char = text[i];
+    if (char === '"') {
+      if (quoted && text[i + 1] === '"') { i++; continue; }
+      quoted = !quoted;
+    } else if (!quoted && (char === "\n" || char === "\r")) {
+      if (hasContent) records.push(counts);
+      counts = [0, 0, 0]; hasContent = false;
+      if (char === "\r" && text[i + 1] === "\n") i++;
+    } else {
+      if (!/\s/.test(char)) hasContent = true;
+      if (!quoted) {
+        const index = separators.indexOf(char);
+        if (index !== -1) counts[index]++;
+      }
+    }
+  }
+  if (hasContent && records.length < 6) records.push(counts);
+  const score = separators.map((_, index) => {
+    const occurrences = records.map((record) => record[index]);
+    return occurrences.filter((count) => count > 0).length * 100 +
+      occurrences.reduce((sum, count) => sum + count, 0);
+  });
+  const best = score.indexOf(Math.max(...score));
+  return score[best] > 0 ? separators[best] : ",";
+}
+
+export function parseCSV(text) {
+  // Quotes, multiline cells, French semicolon CSV, TSV, UTF-8 BOM and duplicate
+  // headers are all handled before storing rows as JSON in a source node.
+  const source = String(text || "").replace(/^\uFEFF/, "");
+  const delimiter = detectTableDelimiter(source);
+  const matrix = [], row = [];
+  let cell = "", quoted = false;
+  for (let i = 0; i < source.length; i++) {
+    const c = source[i];
     if (c === '"') {
-      if (quoted && text[i+1] === '"') { cell += '"'; i++; }
+      if (quoted && source[i + 1] === '"') { cell += '"'; i++; }
       else quoted = !quoted;
-    } else if (c === "," && !quoted) { row.push(cell); cell = ""; }
-    else if ((c === "\n" || c === "\r") && !quoted) {
-      if (c === "\r" && text[i+1] === "\n") i++;
+    } else if (c === delimiter && !quoted) {
+      row.push(cell); cell = "";
+    } else if ((c === "\n" || c === "\r") && !quoted) {
+      if (c === "\r" && source[i + 1] === "\n") i++;
       row.push(cell); matrix.push([...row]); row.length = 0; cell = "";
-      if (matrix.length > 20001) throw new Error("CSV exceeds 20,000 rows");
+      if (matrix.length > 20001) throw new Error("Table exceeds 20,000 rows");
     } else cell += c;
   }
   if (quoted) throw new Error("Unclosed CSV quote");
   if (cell.length || row.length) { row.push(cell); matrix.push([...row]); }
-  const headers = (matrix.shift() || []).map((v, i) => String(v).trim() || "column_" + (i+1));
-  if (!headers.length || headers.length > 100) throw new Error("CSV must contain 1–100 columns");
-  return matrix.filter((line) => line.some((v) => v.trim())).map((line) => Object.fromEntries(headers.map((header, i) => [header, line[i] ?? ""])));
+  const seen = new Set();
+  const headers = (matrix.shift() || []).map((value, index) => {
+    const base = String(value).trim().slice(0, 100) || "column_" + (index + 1);
+    let key = base, suffix = 2;
+    while (seen.has(key)) key = base.slice(0, 90) + "_" + suffix++;
+    seen.add(key);
+    return key;
+  });
+  if (!headers.length || headers.length > 100) throw new Error("Table must contain 1–100 columns");
+  const rows = matrix.filter((line) => line.some((v) => v.trim()));
+  if (rows.length > 20000) throw new Error("Table exceeds 20,000 rows");
+  return rows.map((line) => Object.fromEntries(headers.map((header, index) => [header, (line[index] ?? "").slice(0, 10000)])));
 }
 function csvEscape(value) {
   const str = String(value == null ? "" : value);
@@ -302,18 +350,18 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
       inspector.appendChild(configurationField(key === "data" ? "Source rows (JSON array)" : key, config[key] ?? initial, (v) => mutate(() => { config[key] = v; }), OPTIONS[key] || null, multiline));
     });
     if (node.type === "input.table") {
-      const csv = element("input"); csv.type = "file"; csv.accept = ".csv,text/csv"; csv.hidden = true;
+      const csv = element("input"); csv.type = "file"; csv.accept = ".csv,.tsv,.txt,text/csv,text/tab-separated-values"; csv.hidden = true;
       csv.addEventListener("change", async () => {
         const file = csv.files?.[0];
         if (!file) return;
         try {
-          if (file.size > 2_000_000) throw new Error("CSV file is larger than 2 MB");
+          if (file.size > 2_000_000) throw new Error("Delimited text file is larger than 2 MB");
           const rows = parseCSV(await file.text());
           mutate(() => { config.data = JSON.stringify(rows); node.label = file.name; });
-        } catch (error) { state.error = error.message || "CSV import failed"; renderConsole(); }
+        } catch (error) { state.error = error.message || "Table import failed"; renderConsole(); }
         csv.value = "";
       });
-      inspector.append(csv, button("Import CSV", () => csv.click(), "hydria-flow-secondary"));
+      inspector.append(csv, button("Import CSV / TSV", () => csv.click(), "hydria-flow-secondary"));
     }
 
     inspector.appendChild(button("Delete node", removeSelected, "hydria-flow-danger"));
