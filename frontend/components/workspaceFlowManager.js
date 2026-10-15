@@ -3,6 +3,10 @@
 const DEFINITIONS = [
   { type: "input.table", group: "Sources", label: "Table source", inputs: 0, defaults: { data: '[{"city":"Paris","sales":10},{"city":"Lyon","sales":7},{"city":"Paris","sales":5}]' } },
   { type: "transform.select", group: "Transform", label: "Select columns", inputs: 1, defaults: { columns: "city,sales" } },
+  { type: "transform.rename", group: "Transform", label: "Rename column", inputs: 1, defaults: { from: "city", to: "location" } },
+  { type: "transform.fill", group: "Transform", label: "Fill missing", inputs: 1, defaults: { column: "city", value: "Unknown" } },
+  { type: "transform.unique", group: "Transform", label: "Remove duplicates", inputs: 1, defaults: { columns: "city" } },
+  { type: "transform.union", group: "Transform", label: "Concatenate tables", inputs: 2, defaults: {} },
   { type: "transform.filter", group: "Transform", label: "Row filter", inputs: 1, defaults: { column: "sales", operator: "gte", value: "7" } },
   { type: "transform.sort", group: "Transform", label: "Sort", inputs: 1, defaults: { column: "sales", direction: "desc" } },
   { type: "transform.derive", group: "Transform", label: "Derived column", inputs: 1, defaults: { column: "sales", target: "with_tax", operator: "multiply", value: "1.2" } },
