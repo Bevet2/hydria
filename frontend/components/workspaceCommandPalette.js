@@ -6,7 +6,7 @@ function make(tag, cls, text) {
   if (text) el.textContent = text;
   return el;
 }
-export function installWorkspaceCommandPalette({ getActions, getObjects, openAction, openObject, onSave }) {
+export function installWorkspaceCommandPalette({ getActions, getObjects, getProjects = () => [], getFiles = () => [], openAction, openObject, openProject = () => {}, openFile = () => {}, onSave }) {
   const backdrop = make("div", "hydria-command-backdrop");
   backdrop.hidden = true;
   const panel = make("section", "hydria-command-panel");
@@ -39,6 +39,8 @@ export function installWorkspaceCommandPalette({ getActions, getObjects, openAct
     if (!match) return;
     close();
     if (match.kind === "workspace") openAction(match.target);
+    else if (match.kind === "project") openProject(match.target);
+    else if (match.kind === "file") openFile(match.target);
     else openObject(match.target);
   }
   function refresh() {
@@ -53,7 +55,21 @@ export function installWorkspaceCommandPalette({ getActions, getObjects, openAct
       label: item.title || item.name || item.primaryFile || "Untitled object",
       hint: (item.objectKind || item.kind || "File") + (item.primaryFile ? " · " + item.primaryFile : "")
     }));
-    matches = [...actions, ...objects].filter((item) => !text || (item.label + " " + item.hint).toLowerCase().includes(text)).slice(0, 40);
+    const projects = (getProjects() || []).map((project) => ({
+      kind: "project", target: project,
+      label: project.name || project.title || "Untitled project",
+      hint: "Project · " + (project.description || project.id || "")
+    }));
+    const files = (getFiles() || []).map((file) => ({
+      kind: "file", target: file,
+      label: file.path.split("/").pop() || file.path,
+      hint: (file.workObject?.title || "Work object") + " · " + file.path
+    }));
+    const queryTerms = text.split(/\s+/).filter(Boolean);
+    matches = [...actions, ...projects, ...objects, ...files].filter((item) => {
+      const searchable = (item.label + " " + item.hint).toLowerCase();
+      return queryTerms.every((term) => searchable.includes(term));
+    }).slice(0, 60);
     active = Math.min(active, Math.max(0, matches.length - 1));
     results.replaceChildren();
     if (!matches.length) { results.appendChild(make("p", "hydria-command-empty", "No matching workspaces or files.")); return; }
@@ -62,7 +78,7 @@ export function installWorkspaceCommandPalette({ getActions, getObjects, openAct
       btn.type = "button";
       btn.setAttribute("role", "option");
       btn.setAttribute("aria-selected", index === active ? "true" : "false");
-      const icon = make("span", "hydria-command-kind", item.kind === "workspace" ? "◈" : "▤");
+      const icon = make("span", "hydria-command-kind", item.kind === "workspace" ? "◈" : item.kind === "project" ? "▦" : item.kind === "file" ? "▧" : "▤");
       const body = make("span", "hydria-command-result-body");
       body.append(make("strong", "", item.label), make("small", "", item.hint));
       btn.append(icon, body);
