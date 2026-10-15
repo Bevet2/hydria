@@ -67,3 +67,27 @@ The CI also validates the core Docs, Sheets, Slides and Canvas smoke scenarios.
 - `Ctrl/Cmd + S`: save current editable object.
 - Flow editor: `Delete` selected node, `Escape` connection mode,
   `Ctrl/Cmd + Z` undo and `Ctrl/Cmd + Shift + Z` redo.
+
+
+## Optional SQLite connector (server-side, read-only)
+
+The Flow Manager can read an explicitly configured SQLite database through
+`GET /api/flow-sources/sqlite/tables` and `POST /api/flow-sources/sqlite/read`.
+This is a **bounded read-only source**, not an arbitrary SQL execution endpoint.
+
+An administrator must configure both values in `backend/.env`:
+
+```env
+HYDRIA_FLOW_SQLITE_PATH=/absolute/path/to/business-data.sqlite
+HYDRIA_FLOW_CONNECTOR_TOKEN=long-private-random-token
+```
+
+Both endpoints require the token in the `x-hydria-flow-token` request header.
+The POST body is `{"table":"sales","limit":1000}`. The database path and
+authentication secret are never included in a flow file. The query is restricted
+to a known database table, uses a read-only SQLite connection, and accepts a
+bounded count of at most 20,000 rows, 100 columns, and 2 MB returned JSON.
+
+The returned `rows` can be used as the JSON data of an `input.table` source
+in a Flow Manager graph. This is a local SQL source foundation, **not** a
+PostgreSQL connector, credential vault, scheduled refresh or managed catalog.
