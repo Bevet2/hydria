@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { FLOW_NODE_CATALOG, runFlow, validateFlow } from "../services/flow/flowEngine.js";
-import { parseCSV } from "../../frontend/components/workspaceFlowManager.js";
+import { parseCSV, spreadsheetSheetToFlowRows } from "../../frontend/components/workspaceFlowManager.js";
 function node(id, type, config = {}) { return { id, type, label: id, config }; }
 function link(from, to, toPort = 0) { return { id: from + "-" + to + "-" + toPort, from, to, toPort }; }
 const sample = {
@@ -109,4 +109,18 @@ const delimitedFlow = runFlow({
 });
 assert.equal(delimitedFlow.success,true);
 assert.deepEqual(delimitedFlow.outputs[0].preview,[{city:"Paris",amount:"42"}]);
-console.log("Hydria dataflow integration gate passed (ETL transforms, CSV/TSV import, joins, cleanup, union, cycles, limits and errors).");
+assert.deepEqual(
+  spreadsheetSheetToFlowRows({
+    columns: ["City", "Amount", "City"],
+    rows: [["Paris", 42, "France"], ["Lyon", 25, "France"], ["", "", ""]]
+  }),
+  [
+    {City:"Paris",Amount:"42",City_2:"France"},
+    {City:"Lyon",Amount:"25",City_2:"France"}
+  ]
+);
+assert.throws(
+  ()=>spreadsheetSheetToFlowRows({columns:["x"],rows:Array.from({length:20001},()=>["v"])}),
+  /20,000 rows/
+);
+console.log("Hydria dataflow integration gate passed (ETL transforms, CSV/TSV/XLSX inputs, joins, cleanup, union, cycles, limits and errors).");
