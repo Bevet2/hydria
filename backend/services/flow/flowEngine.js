@@ -170,14 +170,19 @@ function compute(type, inputTables, config) {
     return columns.map((column) => {
       const values = rows.map((row) => row[column]);
       const present = values.filter((value) => value != null && String(value).trim() !== "");
-      const numeric = present.filter((value) => String(value).trim() !== "" && Number.isFinite(Number(String(value).trim().replace(",", "."))));
+      const numeric = present.filter((value) =>
+        typeof value !== "boolean" &&
+        /^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/.test(String(value).trim().replace(",", "."))
+      );
       return {
         column,
         rows: rows.length,
         missing: values.length - present.length,
         distinct: new Set(present.map((value) => JSON.stringify(value))).size,
         numeric: numeric.length,
-        inferredType: !present.length ? "empty" : numeric.length === present.length ? "number" : numeric.length === 0 ? "text" : "mixed"
+        inferredType: !present.length ? "empty" :
+          present.every((value) => typeof value === "boolean") ? "boolean" :
+          numeric.length === present.length ? "number" : numeric.length === 0 ? "text" : "mixed"
       };
     });
   }
