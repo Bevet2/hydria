@@ -966,7 +966,7 @@ const scenarios = [
     tags: ["navigation", "explorer", "search", "favorites", "folders"],
     run: async ({ page }) => {
       const fixtures = [
-        { id: "fixture-d1", title: "Weekly report", objectKind: "document", workspaceFamilyId: "document_knowledge", primaryFile: "reports/weekly.md" },
+        { id: "fixture-d1", title: "Weekly report", objectKind: "document", workspaceFamilyId: "document_knowledge", primaryFile: "reports/weekly.md", editableFiles: ["reports/weekly.md","reports/draft.md"] },
         { id: "fixture-s1", title: "Revenue data", objectKind: "dataset", workspaceFamilyId: "data_spreadsheet", primaryFile: "data/sales.csv" },
         { id: "fixture-p1", title: "Company presentation", objectKind: "presentation", workspaceFamilyId: "presentation", primaryFile: "slides.md" }
       ];
@@ -980,7 +980,8 @@ const scenarios = [
           workObjects: items,
           currentWorkObjectId: "fixture-d1",
           userId: "ci-explorer",
-          onSelect: (object) => { root.dataset.selected = object.id; }
+          onSelect: (object) => { root.dataset.selected = object.id; },
+          onOpenFile: (object, path) => { root.dataset.selected = object.id; root.dataset.selectedFile = path; }
         });
         window.__renderHydriaExplorerFixture();
       }, fixtures);
@@ -1007,6 +1008,14 @@ const scenarios = [
       assert.equal(await explorer.locator(".hydria-explorer-entry").count(), 1, "Virtual folder selection survives rerenders");
       await explorer.locator(".hydria-explorer-entry > .workspace-nav-item").first().click();
       assert.ok(await explorer.getAttribute("data-selected"), "Selection should invoke original work object navigation");
+      await explorer.locator(".hydria-explorer-folder").filter({ hasText: "All files" }).click();
+      const reportGroup = explorer.locator(".hydria-explorer-object-group").filter({ hasText: "Weekly report" }).first();
+      if (!(await isVisible(reportGroup.locator(".hydria-explorer-file").first()))) {
+        await reportGroup.locator(".hydria-explorer-expand").click();
+      }
+      assert.equal(await reportGroup.locator(".hydria-explorer-file").count(), 2);
+      await reportGroup.locator(".hydria-explorer-file").filter({ hasText: "reports/draft.md" }).click();
+      assert.equal(await explorer.getAttribute("data-selected-file"), "reports/draft.md", "Explorer should open a nested editable file");
       await page.evaluate(() => { delete window.__renderHydriaExplorerFixture; document.querySelector("#hydria-explorer-fixture")?.remove(); });
       return { objects: fixtures.length, search: true, favorites: true, virtualFolders: true, sorting: true };
     }
