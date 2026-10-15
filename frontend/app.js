@@ -376,19 +376,12 @@ function focusWorkspaceEditor() {
 }
 
 async function ensureConversationForWorkspace() {
-  if (state.currentConversationId) {
-    return state.currentConversationId;
-  }
   if (!state.currentUserId) {
     throw new Error("No active user");
   }
-  const created = await apiClient.createConversation(
-    state.currentUserId,
-    "Workspace"
-  );
-  state.currentConversationId = created.conversation?.id || null;
-  await loadConversations();
-  return state.currentConversationId;
+  // Reuse the canonical conversation lifecycle: creation, session selection,
+  // project association, sidebar refresh and persistence stay consistent.
+  return ensureConversation();
 }
 
 async function createBlankWorkspace(kind, familyId, label) {
