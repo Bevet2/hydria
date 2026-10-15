@@ -2070,6 +2070,115 @@ export class WorkObjectService {
     };
   }
 
+
+  // Rename and relocate a real editable file inside its work-object workspace.
+  // Object ownership and filesystem confinement are checked before any mutation.
+  relocateEntry({
+    workObjectId = "",
+    fromPath = "",
+    toPath = "",
+    actorUserId = null,
+    shareToken = "",
+    expectedRevision = null
+  } = {}) {
+    const current = this.store.get(String(workObjectId || ""));
+    if (!current) throw new AppError("Work object not found", 404);
+    this.assertAccess(current, { actorUserId, shareToken }, "editor");
+    if (current.status === "trashed") throw new AppError("Restore the work object before editing files", 409);
+    if (expectedRevision != null && Number(expectedRevision) !== Number(current.revision || 1)) {
+      throw new AppError("This work object was modified by another collaborator", 409, {
+        expectedRevision: Number(expectedRevision),
+        currentRevision: Number(current.revision || 1)
+      });
+    }
+    const sanitize = (value) => {
+      const raw = String(value || "").replace(/\\/g, "/").trim();
+      const parts = raw.split("/");
+      if (!raw || raw.length > 240 || raw.startsWith("/") || /^[a-z]:/i.test(raw) ||
+        parts.length > 12 || parts.some(part => !part || part === "." || part === ".." ||
+          part === ".git" || part === ".hydria-history" || part === "node_modules" ||
+          /[\x00-\x1f<>:"|?*]/.test(part))) {
+        throw new AppError("Invalid workspace file path", 400);
+      }
+      return parts.join("/");
+    };
+    const source = sanitize(fromPath), destination = sanitize(toPath);
+    if (source === destination) throw new AppError("Choose a different destination path", 400);
+    const entry = (current.entries || []).find(item => item.path === source && item.editable);
+    if (!entry) throw new AppError("Editable source file not found", 404);
+    if (!isEditableTextPath(destination)) throw new AppError("Only editable text file destinations are supported", 400);
+    if ((current.entries || []).some(item => item.path.toLowerCase() === destination.toLowerCase())) {
+      throw new AppError("A file already exists at that destination", 409);
+    }
+    const root = path.resolve(current.workspacePath);
+    const absoluteSource = safeResolveWithin(root, source);
+    const absoluteDestination = safeResolveWithin(root, destination);
+    // Existing symlinked path segments can bypass ordinary lexical path checks.
+    const assertNoSymlink = (relative) => {
+      let cursor = root;
+      for (const part of relative.split("/")) {
+        cursor = path.join(cursor, part);
+        if (fs.existsSync(cursor) && fs.lstatSync(cursor).isSymbolicLink()) {
+          throw new AppError("Symbolic links cannot be used for file moves", 400);
+        }
+      }
+    };
+    assertNoSymlink(source);
+    assertNoSymlink(destination);
+    if (!fs.existsSync(absoluteSource) || !fs.statSync(absoluteSource).isFile()) {
+      throw new AppError("Source file is missing", 404);
+    }
+    if (fs.existsSync(absoluteDestination)) throw new AppError("Destination file already exists", 409);
+    ensureDirectory(path.dirname(absoluteDestination));
+    fs.renameSync(absoluteSource, absoluteDestination);
+    let updated;
+    try {
+      updated = this.store.update(current.id, (stored) => ({
+        ...stored,
+        activeEntryPath: stored.activeEntryPath === source ? destination : stored.activeEntryPath,
+        sourcePath: path.resolve(stored.sourcePath || "") === absoluteSource
+          ? absoluteDestination : stored.sourcePath,
+        entries: stored.entries.map(item =>
+          item.path === source
+            ? normalizeWorkObjectEntry({
+                ...item,
+                id: destination,
+                path: destination,
+                label: destination,
+                kind: inferEntryKind(destination, stored.kind),
+                contentType: guessContentType(destination)
+              })
+            : item
+        ),
+        metadata: {
+          ...stored.metadata,
+          previewAssetPath: stored.metadata?.previewAssetPath === source
+            ? destination : stored.metadata?.previewAssetPath
+        },
+        revision: Number(stored.revision || 1) + 1,
+        history: [
+          ...(stored.history || []).map(item =>
+            item.entryPath === source
+              ? { ...item, entryPath: destination, originalEntryPath: item.originalEntryPath || source }
+              : item
+          ),
+          {
+            id: randomUUID(),
+            type: "entry_relocate",
+            at: new Date().toISOString(),
+            actor: `user:${actorUserId || "unknown"}`,
+            fromPath: source,
+            toPath: destination
+          }
+        ].slice(-25)
+      }));
+    } catch (error) {
+      fs.renameSync(absoluteDestination, absoluteSource);
+      throw error;
+    }
+    return compactWorkObject(updated);
+  }
+
   readContent({ workObjectId, entryPath = "" } = {}) {
     const workObject = this.store.get(String(workObjectId || ""));
     if (!workObject) {
