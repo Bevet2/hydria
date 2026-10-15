@@ -512,10 +512,9 @@ export function createWorkspaceDashboardVisualTypeMenuItems() {
 }
 
 export function createWorkspaceDashboardHomeMenuItems({
-  canRemoveMetric = true,
-  canRemoveChart = true,
   canMoveWidgetLeft = true,
-  canMoveWidgetRight = true
+  canMoveWidgetRight = true,
+  includeImportData = true
 } = {}) {
   return normalizeWorkspaceMenuItems([
     { label: "KPI", icon: "number", commandId: "dashboardAddMetric" },
@@ -527,16 +526,85 @@ export function createWorkspaceDashboardHomeMenuItems({
       items: createWorkspaceDashboardVisualTypeMenuItems()
     },
     { label: "Segment", icon: "slicer", commandId: "dashboardAddFilter" },
+    includeImportData ? { label: "Obtenir les donnees", icon: "database", commandId: "dashboardImportData" } : null,
     { separator: true },
     { label: "Ligne de donnees", icon: "rowInsert", commandId: "dashboardAddTableRow" },
     { label: "Colonne de donnees", icon: "columnInsert", commandId: "dashboardAddTableColumn" },
+    { label: "Rapport exemple", icon: "sparkline", commandId: "dashboardLoadSample" },
     { separator: true },
     { label: "Widget gauche", icon: "chevronLeft", commandId: "dashboardMoveWidgetLeft", disabled: !canMoveWidgetLeft },
     { label: "Widget droite", icon: "chevronRight", commandId: "dashboardMoveWidgetRight", disabled: !canMoveWidgetRight },
     { separator: true },
-    { label: "Supprimer KPI", icon: "delete", commandId: "dashboardRemoveMetric", disabled: !canRemoveMetric },
-    { label: "Supprimer visuel", icon: "delete", commandId: "dashboardRemoveChart", disabled: !canRemoveChart },
-    { separator: true },
     { label: "Actualiser", icon: "refresh", commandId: "dashboardRefresh" }
+  ]);
+}
+
+export function createWorkspaceDashboardContextMenuItems({
+  targetType = "canvas",
+  canRemoveMetric = true,
+  canRemoveChart = true,
+  includeImportData = true
+} = {}) {
+  const isMetric = targetType === "metric";
+  const isChart = targetType === "chart";
+  const hasTarget = isMetric || isChart;
+  return normalizeWorkspaceMenuItems([
+    {
+      label: "Ajouter",
+      icon: "insert",
+      items: [
+        { label: "KPI", icon: "number", commandId: "dashboardAddMetric" },
+        {
+          label: "Visuel",
+          icon: "chart",
+          commandId: "dashboardAddChart",
+          value: "bar",
+          items: createWorkspaceDashboardVisualTypeMenuItems()
+        },
+        { label: "Segment", icon: "slicer", commandId: "dashboardAddFilter" }
+      ]
+    },
+    includeImportData ? { label: "Obtenir les donnees", icon: "database", commandId: "dashboardImportData" } : null,
+    { separator: true },
+    {
+      label: "Type de visuel",
+      icon: "chart",
+      disabled: !isChart,
+      items: createWorkspaceDashboardVisualTypeMenuItems().map((item) => ({
+        ...item,
+        commandId: "dashboardChangeChartType"
+      }))
+    },
+    { label: "Dupliquer", icon: "duplicate", commandId: "dashboardDuplicateItem", disabled: !hasTarget },
+    { label: "Mettre au premier plan", icon: "move", commandId: "dashboardBringToFront", disabled: !hasTarget },
+    { label: "Mettre a l'arriere-plan", icon: "move", commandId: "dashboardSendToBack", disabled: !hasTarget },
+    { separator: true },
+    isMetric
+      ? { label: "Supprimer le KPI", icon: "delete", commandId: "dashboardRemoveMetric", disabled: !canRemoveMetric }
+      : null,
+    isChart
+      ? { label: "Supprimer le visuel", icon: "delete", commandId: "dashboardRemoveChart", disabled: !canRemoveChart }
+      : null,
+    !hasTarget ? { label: "Actualiser", icon: "refresh", commandId: "dashboardRefresh" } : null,
+    !hasTarget ? { label: "Rapport exemple", icon: "sparkline", commandId: "dashboardLoadSample" } : null
+  ]);
+}
+
+export function createWorkspaceDashboardPageMenuItems({
+  isOverview = false,
+  canDelete = true
+} = {}) {
+  return normalizeWorkspaceMenuItems([
+    { label: "Nouvelle page", icon: "insert", commandId: "dashboardAddPage" },
+    { separator: true },
+    { label: "Renommer", icon: "rename", commandId: "dashboardRenamePage", disabled: isOverview },
+    { label: "Dupliquer", icon: "duplicate", commandId: "dashboardDuplicatePage" },
+    {
+      label: "Supprimer",
+      icon: "delete",
+      commandId: "dashboardDeletePage",
+      disabled: isOverview || !canDelete,
+      danger: true
+    }
   ]);
 }
