@@ -18916,8 +18916,13 @@ async function init() {
         }))
       ];
     }),
+    searchObjects: async (query) => {
+      if (!state.currentUserId) return [];
+      const payload = await apiClient.searchWorkObjects(state.currentUserId, query);
+      return payload.results || [];
+    },
     openAction: (page) => activateWorkspacePage(page).catch(handleError),
-    openObject: (object) => selectWorkObject(object.id, object.primaryFile || "").catch(handleError),
+    openObject: (object) => selectWorkObject(object.id, object.match?.entryPath || object.primaryFile || "").catch(handleError),
     onSave: () => { if (state.currentWorkObjectId && state.editorDirty) saveWorkObjectChanges().catch(handleError); }
   });
   setWorkspacePage(initialWorkspacePage, { historyMode: "none" });
