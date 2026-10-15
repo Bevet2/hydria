@@ -1065,6 +1065,35 @@ const scenarios = [
     }
   },
   {
+    name: "os-active-file-tree",
+    tags: ["navigation", "explorer", "files", "workspace"],
+    run: async ({ page, options }) => {
+      const base = String(options.baseUrl || "").replace(/\/+$/, "");
+      await page.goto(base + "/workspace/flows", { waitUntil: "domcontentloaded", timeout: 30000 });
+      await page.waitForLoadState("networkidle", { timeout: 6000 }).catch(() => {});
+      await page.waitForTimeout(500);
+      const flow = page.locator(".hydria-flow-manager").first();
+      if (!(await isVisible(flow))) {
+        const launcher = page.locator('.workspace-launcher-card[data-workspace="flows"]').first();
+        if (await isVisible(launcher)) await launcher.click();
+      }
+      await flow.waitFor({ state: "visible", timeout: 12000 });
+      const explorer = page.locator("#workspace-file-explorer");
+      await explorer.waitFor({ state: "visible", timeout: 5000 });
+      const search = explorer.getByRole("searchbox", { name: "Search files in current work object" });
+      await search.fill("workflow.json");
+      const file = explorer.locator(".hydria-files-open").first();
+      assert.equal(await isVisible(file), true, "Active file explorer should show workflow.json");
+      const star = explorer.locator(".hydria-files-star").first();
+      await star.click();
+      assert.match(await explorer.locator(".hydria-files-star").first().getAttribute("class") || "", /is-favorite/);
+      await explorer.locator(".hydria-files-sort").selectOption("favorite");
+      await file.click();
+      await explorer.locator(".hydria-files-open.is-active, .hydria-files-row.is-active .hydria-files-open").first().waitFor({ state: "visible", timeout: 5000 });
+      return { activeFileTree: true, search: true, favorite: true, directOpen: true };
+    }
+  },
+  {
     name: "dataflow-workbench-smoke",
     tags: ["automation", "dataflow", "workflow", "etl"],
     run: async ({ page, options }) => {
