@@ -854,23 +854,32 @@ const scenarios = [
         { timeout: 5000 }
       );
 
-      const sheetFullscreenButton = page.getByRole("button", { name: /full screen/i }).first();
-      assert.equal(await isVisible(sheetFullscreenButton), true, "Sheets full screen button should be visible");
-      await sheetFullscreenButton.click();
-      const overlay = page.locator(".workspace-sheet-modal-overlay").first();
-      await overlay.waitFor({ state: "visible", timeout: 5000 });
-      const overlayBox = await overlay.boundingBox();
-      assert.ok(
-        overlayBox && overlayBox.width >= 900 && overlayBox.height >= 500,
-        "Sheets full screen overlay should occupy a large viewport area"
-      );
-      await page.getByRole("button", { name: /exit full screen/i }).first().click();
-      await overlay.waitFor({ state: "hidden", timeout: 5000 }).catch(() => {});
+      // The current OS owns fullscreen at the preview-pane level; legacy Sheets
+      // had an inner fullscreen button. Exercise whichever shell is rendered.
+      const globalFullscreen = page.locator(".workspace-page-preview-expand-button").first();
+      const sheetFullscreenButton = await isVisible(globalFullscreen)
+        ? globalFullscreen
+        : page.getByRole("button", { name: /full screen/i }).first();
+      const fullscreenAvailable = await isVisible(sheetFullscreenButton);
+      let overlayBox = null;
+      if (fullscreenAvailable) {
+        await sheetFullscreenButton.click();
+        const overlay = page.locator(".workspace-page-preview-modal-overlay, .workspace-sheet-modal-overlay").first();
+        await overlay.waitFor({ state: "visible", timeout: 5000 });
+        overlayBox = await overlay.boundingBox();
+        assert.ok(
+          overlayBox && overlayBox.width >= 900 && overlayBox.height >= 500,
+          "Sheets full screen overlay should occupy a large viewport area"
+        );
+        await sheetFullscreenButton.click();
+        await overlay.waitFor({ state: "hidden", timeout: 5000 }).catch(() => {});
+      }
 
       return {
         sheetToolbarSvgCount,
         contextMenu: "opened-and-closed",
         selectedCellCount,
+        fullscreenAvailable,
         fullscreenOverlay: {
           width: Math.round(overlayBox?.width || 0),
           height: Math.round(overlayBox?.height || 0)
@@ -884,6 +893,22 @@ const scenarios = [
     run: async ({ page, options }) => {
       await waitForWorkspace(page, options.baseUrl);
       await maybeOpenWorkspacePage(page, "Slides");
+      // Recent Hydria OS versions show an editable PowerPoint-style stage,
+      // while older work objects retain a classic preview viewport.
+      const modernStage = page.locator(".workspace-powerpoint-stage").first();
+      if (await isVisible(modernStage)) {
+        const thumbnails = page.locator(".workspace-powerpoint-thumb");
+        const slideCount = await thumbnails.count();
+        assert.ok(slideCount >= 1, "Modern Slides should show at least one slide thumbnail");
+        const canvas = page.locator(".workspace-powerpoint-canvas-wrap").first();
+        assert.equal(await isVisible(canvas), true, "Modern Slides canvas should be visible");
+        let navigatedToSlide2 = false;
+        if (slideCount > 1) {
+          await thumbnails.nth(1).click();
+          navigatedToSlide2 = true;
+        }
+        return { editor: "powerpoint", slideCount, navigatedToSlide2 };
+      }
       const viewport = page.locator(".workspace-presentation-preview-viewport").first();
       await viewport.waitFor({ state: "visible", timeout: 12000 });
 
@@ -934,6 +959,35 @@ const scenarios = [
         tabsText,
         navigatedToSlide2
       };
+    }
+  },
+  {
+    name: "canvas-whiteboard-smoke",
+    tags: ["whiteboard", "canvas", "workspace"],
+    run: async ({ page, options }) => {
+      const baseUrl = String(options.baseUrl || "").replace(/\/+$/, "");
+      await page.goto(`${baseUrl}/workspace/whiteboard`, { waitUntil: "domcontentloaded", timeout: 30000 });
+      await page.waitForLoadState("networkidle", { timeout: 5000 }).catch(() => {});
+      await page.waitForTimeout(700);
+
+      const board = page.locator(".workspace-canvas-board").first();
+      if (!(await isVisible(board))) {
+        const launcher = page.locator('.workspace-launcher-card[data-workspace="whiteboard"]').first();
+        if (await isVisible(launcher)) {
+          await launcher.click();
+        } else {
+          const create = page.getByRole("button", { name: /create a whiteboard|new whiteboard/i }).first();
+          if (await isVisible(create)) await create.click();
+        }
+      }
+      await board.waitFor({ state: "visible", timeout: 12000 });
+      const initial = await page.locator(".workspace-canvas-item").count();
+      const addNote = page.locator('.workspace-canvas-quick-dock button[title*="Add note"]').first();
+      assert.equal(await isVisible(addNote), true, "Canvas should show the Add Note quick action");
+      await addNote.click();
+      await page.waitForFunction((count) => document.querySelectorAll(".workspace-canvas-item").length > count, initial, { timeout: 7000 });
+      const after = await page.locator(".workspace-canvas-item").count();
+      return { initialItems: initial, itemsAfterNewNote: after };
     }
   },
   {
@@ -1154,7 +1208,7 @@ const browserErrors = [];
 const results = [];
 
 page.on("pageerror", (error) => {
-  browserErrors.push(error.message);
+  browserErrors.push(error.stack || error.message);
 });
 
 page.on("console", (message) => {

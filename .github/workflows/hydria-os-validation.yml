@@ -1,0 +1,96 @@
+name: Hydria OS integration validation
+on:
+  push:
+    branches:
+      - integration/harmonisation-2026-10-15
+      - main
+  pull_request:
+    branches:
+      - main
+permissions:
+  contents: read
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Bundle frontend and validate module exports
+        run: npx --yes esbuild@0.25.10 frontend/app.js --bundle --format=esm --platform=browser --outfile=/tmp/hydria-integration.js
+      - name: Check JavaScript syntax for integrated files
+        run: |
+          for file in frontend/app.js frontend/components/workspaceCanvasPanel.js frontend/components/workspacePanel.js frontend/components/workspaceMenuUi.js backend/server.js backend/routes/canvas.js; do
+            node --check "$file"
+          done
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend dependencies
+        run: npm ci --prefix backend --no-audit --no-fund
+      - name: Core adapter smoke
+        run: npm run smoke:hydria-core-adapter --prefix backend
+      - name: Workspace tool integration
+        run: npm run gate:workspace --prefix backend
+      - name: Work objects and revision history
+        run: npm run gate:work-object-library --prefix backend
+      - name: Collaboration and formulas
+        run: npm run gate:collaboration-formulas --prefix backend
+      - name: Hydria interactions API
+        run: npm run gate:hydria-interactions --prefix backend
+      - name: Launch Hydria OS and verify Canvas PDF API
+        run: |
+          npm run start --prefix backend > /tmp/hydria-os.log 2>&1 &
+          alive=false
+          for i in {1..25}; do
+            if curl --silent --fail http://127.0.0.1:3001/api/health >/dev/null; then
+              alive=true
+              break
+            fi
+            sleep 1
+          done
+          if [ "$alive" != "true" ]; then cat /tmp/hydria-os.log; exit 1; fi
+          node --input-type=module -e '
+          import assert from "node:assert/strict";
+          const response = await fetch("http://127.0.0.1:3001/api/canvas/export-pdf", {
+            method:"POST",
+            headers:{"content-type":"application/json"},
+            body:JSON.stringify({title:"Hydria Canvas CI",elements:[{id:"e1",type:"note",x:40,y:50,width:250,height:130,title:"Note",body:"Canvas PDF export"}]})
+          });
+          assert.equal(response.status, 200);
+          assert.equal((response.headers.get("content-type")||"").startsWith("application/pdf"), true);
+          const bytes=new Uint8Array(await response.arrayBuffer());
+          assert.equal(new TextDecoder().decode(bytes.slice(0,4)),"%PDF");
+          console.log("Hydria Canvas API PDF export verified; bytes:",bytes.length);
+          '
+
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci --prefix backend --no-audit --no-fund
+      - run: npx --prefix backend playwright install --with-deps chromium
+      - name: Start Hydria for visual smoke tests
+        run: |
+          npm run start --prefix backend > /tmp/hydria-visual.log 2>&1 &
+          ready=false
+          for i in {1..25}; do
+            if curl --fail --silent http://127.0.0.1:3001/api/health >/dev/null; then ready=true; break; fi
+            sleep 1
+          done
+          if [ "$ready" != "true" ]; then cat /tmp/hydria-visual.log; exit 1; fi
+          curl --fail --silent --show-error -X POST http://127.0.0.1:3001/api/users -H "Content-Type: application/json" -d '{"username":"hydria-visual-ci"}'
+      - name: Test Docs Sheets and Slides after harmonisation
+        run: npm run test:visual-workspace --prefix backend -- --scenario "shared-command-adapters,docs-shared-menu-definitions,docs-context-menu-helper,sheets-toolbar-context-menu-fullscreen,slides-presentation-smoke,canvas-whiteboard-smoke"

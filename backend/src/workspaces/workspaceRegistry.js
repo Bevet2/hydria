@@ -152,6 +152,29 @@ export const WORKSPACE_REGISTRY = [
       "builder"
     ]
   }),
+  createWorkspaceFamily("canvas_board", {
+    label: "Canvas",
+    description: "Tableau blanc libre pour idees, notes et organisation visuelle.",
+    preferredShape: "design",
+    shapes: ["design"],
+    objectKinds: ["design"],
+    defaultSurfaces: ["canvas", "design", "edit", "structure"],
+    defaultSurface: "canvas",
+    runtimeMode: "interactive",
+    continuityMode: "object_first",
+    capabilityFamilies: ["canvas", "brainstorm", "visual"],
+    keywords: [
+      "canvas",
+      "whiteboard",
+      "tableau blanc",
+      "miro",
+      "figjam",
+      "brainstorm",
+      "sticky notes",
+      "board",
+      "moodboard"
+    ]
+  }),
   createWorkspaceFamily("design", {
     label: "Design",
     description: "UI, UX, wireframes, design systems, layouts.",
