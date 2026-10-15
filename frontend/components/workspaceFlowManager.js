@@ -106,6 +106,23 @@ export function parseCSV(text) {
   if (rows.length > 20000) throw new Error("Table exceeds 20,000 rows");
   return rows.map((line) => Object.fromEntries(headers.map((header, index) => [header, (line[index] ?? "").slice(0, 10000)])));
 }
+export function normalizedJsonApiRows(payload) {
+  const rows = Array.isArray(payload) ? payload :
+    Array.isArray(payload?.data) ? payload.data :
+    Array.isArray(payload?.rows) ? payload.rows : null;
+  if (!rows || rows.length > 20000) throw new Error("REST JSON source must contain up to 20,000 object rows");
+  return rows.map((row, index) => {
+    if (!row || typeof row !== "object" || Array.isArray(row) || Object.keys(row).length > 100) {
+      throw new Error("Invalid REST JSON object row " + (index + 1));
+    }
+    return Object.fromEntries(Object.entries(row).map(([key, value]) => [
+      String(key).slice(0, 100),
+      value === null ? null : typeof value === "object"
+        ? JSON.stringify(value).slice(0, 10000)
+        : typeof value === "string" ? value.slice(0, 10000) : value
+    ]));
+  });
+}
 export function spreadsheetSheetToFlowRows(sheet = {}) {
   const names = sheet?.columns;
   if (!Array.isArray(names) || names.length === 0 || names.length > 100) {
@@ -425,6 +442,147 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
         }
       });
       inspector.append(excel, button("Import Excel (XLSX)", () => excel.click(), "hydria-flow-secondary"));
+
+      // The SQLite connector is opted into by a server administrator.
+      // The token stays in this temporary password field and is NEVER saved
+      // to workflow.json, node config, browser local storage or the API URL.
+      const dbPanel = element("div", "hydria-flow-sqlite-source");
+      dbPanel.appendChild(element("h4", "", "SQLite source"));
+      const tokenLabel = element("label", "hydria-flow-field");
+      tokenLabel.appendChild(element("span", "", "Connector token (not saved)"));
+      const tokenInput = element("input");
+      tokenInput.type = "password";
+      tokenInput.autocomplete = "off";
+      tokenInput.placeholder = "Server connector token";
+      tokenLabel.appendChild(tokenInput);
+      dbPanel.appendChild(tokenLabel);
+      const tableLabel = element("label", "hydria-flow-field");
+      tableLabel.appendChild(element("span", "", "Table"));
+      const tableSelect = element("select");
+      tableSelect.disabled = true;
+      tableLabel.appendChild(tableSelect);
+      dbPanel.appendChild(tableLabel);
+      const limitLabel = element("label", "hydria-flow-field");
+      limitLabel.appendChild(element("span", "", "Maximum rows"));
+      const limitInput = element("input");
+      limitInput.type = "number"; limitInput.min = "1"; limitInput.max = "20000";
+      limitInput.value = "1000";
+      limitLabel.appendChild(limitInput);
+      dbPanel.appendChild(limitLabel);
+      const parseConnectorResponse = async (response) => {
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok || payload.success !== true) {
+          throw new Error(String(payload.error || "SQL connector request failed"));
+        }
+        return payload;
+      };
+      dbPanel.appendChild(button("List SQLite tables", async () => {
+        try {
+          const token = tokenInput.value.trim();
+          if (!token) throw new Error("Enter the connector token");
+          const payload = await parseConnectorResponse(await fetch("/api/flow-sources/sqlite/tables", {
+            headers: { "x-hydria-flow-token": token }
+          }));
+          tableSelect.replaceChildren();
+          (payload.tables || []).forEach((table) => {
+            const option = element("option", "", table);
+            option.value = table;
+            tableSelect.appendChild(option);
+          });
+          tableSelect.disabled = !(payload.tables || []).length;
+          state.error = tableSelect.disabled ? "No accessible SQLite tables" : "";
+          renderConsole();
+        } catch (error) {
+          state.error = String(error.message || error);
+          renderConsole();
+        }
+      }, "hydria-flow-secondary"));
+      dbPanel.appendChild(button("Import selected SQLite table", async () => {
+        try {
+          const token = tokenInput.value.trim();
+          const table = tableSelect.value;
+          const limit = Number(limitInput.value);
+          if (!token || tableSelect.disabled || !table) throw new Error("Authenticate and select a table first");
+          if (!Number.isInteger(limit) || limit < 1 || limit > 20000) throw new Error("Choose 1–20,000 rows");
+          const payload = await parseConnectorResponse(await fetch("/api/flow-sources/sqlite/read", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-hydria-flow-token": token
+            },
+            body: JSON.stringify({ table, limit })
+          }));
+          const target = nodeById(node.id);
+          if (!target) throw new Error("The source node has been removed");
+          mutate(() => {
+            target.config = { ...(target.config || {}), data: JSON.stringify(payload.rows || []) };
+            target.label = "SQLite · " + table;
+          });
+          state.error = "";
+          renderConsole();
+        } catch (error) {
+          state.error = String(error.message || error);
+          renderConsole();
+        }
+      }, "hydria-flow-secondary"));
+      inspector.appendChild(dbPanel);
+
+      // Explicit public/CORS-accessible REST JSON data import. The browser
+      // never forwards cookies, secrets or privileged backend credentials.
+      const restPanel = element("div", "hydria-flow-rest-source");
+      restPanel.appendChild(element("h4", "", "REST JSON source"));
+      const urlLabel = element("label", "hydria-flow-field");
+      urlLabel.appendChild(element("span", "", "Public HTTPS JSON URL"));
+      const urlInput = element("input");
+      urlInput.type = "url";
+      urlInput.placeholder = "https://example.com/data.json";
+      urlInput.autocomplete = "off";
+      urlLabel.appendChild(urlInput);
+      restPanel.appendChild(urlLabel);
+      restPanel.appendChild(button("Import REST JSON (CORS)", async () => {
+        try {
+          const address = new URL(urlInput.value.trim());
+          if (address.protocol !== "https:" &&
+              !(address.protocol === "http:" && ["localhost", "127.0.0.1"].includes(address.hostname))) {
+            throw new Error("Only HTTPS URLs are supported (HTTP on localhost for development)");
+          }
+          if (address.username || address.password) throw new Error("Credentials must not be embedded in URLs");
+          const response = await fetch(address.href, {
+            mode: "cors", credentials: "omit", redirect: "error",
+            headers: { Accept: "application/json" }
+          });
+          if (!response.ok) throw new Error("REST source returned HTTP " + response.status);
+          if (Number(response.headers.get("content-length") || 0) > 2_000_000) throw new Error("REST source exceeds 2 MB");
+          const reader = response.body?.getReader();
+          if (!reader) throw new Error("REST source response has no readable body");
+          const decoder = new TextDecoder();
+          let text = "", bytes = 0;
+          try {
+            while (true) {
+              const { value, done } = await reader.read();
+              if (done) break;
+              bytes += value.byteLength;
+              if (bytes > 2_000_000) {
+                await reader.cancel();
+                throw new Error("REST source exceeds 2 MB");
+              }
+              text += decoder.decode(value, { stream: true });
+            }
+            text += decoder.decode();
+          } finally { reader.releaseLock(); }
+          const rows = normalizedJsonApiRows(JSON.parse(text));
+          const target = nodeById(node.id);
+          if (!target) throw new Error("The source node has been removed");
+          mutate(() => {
+            target.config = { ...(target.config || {}), data: JSON.stringify(rows) };
+            target.label = "REST · " + address.hostname;
+          });
+        } catch (error) {
+          state.error = "REST import: " + String(error.message || error);
+          renderConsole();
+        }
+      }, "hydria-flow-secondary"));
+      inspector.appendChild(restPanel);
     }
 
     inspector.appendChild(button("Delete node", removeSelected, "hydria-flow-danger"));

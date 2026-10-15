@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { FLOW_NODE_CATALOG, runFlow, validateFlow } from "../services/flow/flowEngine.js";
-import { parseCSV, spreadsheetSheetToFlowRows } from "../../frontend/components/workspaceFlowManager.js";
+import { parseCSV, spreadsheetSheetToFlowRows, normalizedJsonApiRows } from "../../frontend/components/workspaceFlowManager.js";
 function node(id, type, config = {}) { return { id, type, label: id, config }; }
 function link(from, to, toPort = 0) { return { id: from + "-" + to + "-" + toPort, from, to, toPort }; }
 const sample = {
@@ -184,4 +184,12 @@ assert.equal(twoOutputs.success,true);
 assert.equal(twoOutputs.outputs.length,2);
 assert.deepEqual(twoOutputs.outputs.find((item)=>item.id==="all").data.map((r)=>r.city),["Paris","Lyon"]);
 assert.deepEqual(twoOutputs.outputs.find((item)=>item.id==="paris").data.map((r)=>r.city),["Paris"]);
+assert.deepEqual(
+  normalizedJsonApiRows({ data: [{name:"Paris",value:3,missing:null},{name:"Lyon",value:5}] }),
+  [{name:"Paris",value:3,missing:null},{name:"Lyon",value:5}]
+);
+assert.deepEqual(normalizedJsonApiRows({rows:[{name:"France"}]}),[{name:"France"}]);
+assert.throws(()=>normalizedJsonApiRows({error:"no rows"}),/REST JSON source/);
+assert.throws(()=>normalizedJsonApiRows([null]),/object row/);
+assert.throws(()=>normalizedJsonApiRows([{a:1,b:2}].map(()=>Object.fromEntries(Array.from({length:101},(_,i)=>["c"+i,i])))),/object row/);
 console.log("Hydria dataflow integration gate passed (ETL transforms, CSV/TSV/XLSX inputs, joins, cleanup, type conversion, column profiling, limits and errors).");
