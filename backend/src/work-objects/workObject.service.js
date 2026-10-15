@@ -419,7 +419,7 @@ function buildBlankWorkspaceFiles(kind = "document", title = "Hydria Workspace",
     };
   }
 
-  if (kind === "workflow" && workspaceFamilyId === "workflow_automation") {
+  if (kind === "workflow" && workspaceFamilyId === "data_flow") {
     return {
       sourceFormat: "json",
       primaryPath: "workflow.json",
