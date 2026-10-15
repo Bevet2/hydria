@@ -158,11 +158,13 @@ export function renderWorkspaceFileExplorer(container, {
             if (nextPath == null || nextPath.trim() === file.path) return;
             move.disabled = true;
             try {
-              await onMove(file.path, nextPath.trim());
-              if (favorites.delete(file.path)) {
+              const success = await onMove(file.path, nextPath.trim());
+              if (success && favorites.delete(file.path)) {
                 favorites.add(nextPath.trim());
                 writeFavorites(favKey, favorites);
               }
+            } catch {
+              // The application-level handler reports failures in the OS status.
             } finally {
               move.disabled = false;
             }
