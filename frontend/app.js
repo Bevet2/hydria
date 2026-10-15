@@ -18901,7 +18901,20 @@ async function init() {
   cache();
   workspaceCommandPalette = installWorkspaceCommandPalette({
     getActions: () => WORKSPACE_PAGES,
-    getObjects: () => allWorkspaceWorkObjects(),
+    getObjects: () => state.workObjects.flatMap((workObject) => {
+      const editablePaths = getEditableFiles(workObject).filter((path) => path && path !== workObject.primaryFile);
+      return [
+        workObject,
+        ...editablePaths.map((path) => ({
+          id: workObject.id,
+          title: path,
+          primaryFile: path,
+          kind: "file",
+          objectKind: "File · " + (workObject.title || "Work object"),
+          workspaceFamilyId: workObject.workspaceFamilyId
+        }))
+      ];
+    }),
     openAction: (page) => activateWorkspacePage(page).catch(handleError),
     openObject: (object) => selectWorkObject(object.id, object.primaryFile || "").catch(handleError),
     onSave: () => { if (state.currentWorkObjectId && state.editorDirty) saveWorkObjectChanges().catch(handleError); }
