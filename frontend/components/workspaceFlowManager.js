@@ -425,6 +425,90 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
         }
       });
       inspector.append(excel, button("Import Excel (XLSX)", () => excel.click(), "hydria-flow-secondary"));
+
+      // The SQLite connector is opted into by a server administrator.
+      // The token stays in this temporary password field and is NEVER saved
+      // to workflow.json, node config, browser local storage or the API URL.
+      const dbPanel = element("div", "hydria-flow-sqlite-source");
+      dbPanel.appendChild(element("h4", "", "SQLite source"));
+      const tokenLabel = element("label", "hydria-flow-field");
+      tokenLabel.appendChild(element("span", "", "Connector token (not saved)"));
+      const tokenInput = element("input");
+      tokenInput.type = "password";
+      tokenInput.autocomplete = "off";
+      tokenInput.placeholder = "Server connector token";
+      tokenLabel.appendChild(tokenInput);
+      dbPanel.appendChild(tokenLabel);
+      const tableLabel = element("label", "hydria-flow-field");
+      tableLabel.appendChild(element("span", "", "Table"));
+      const tableSelect = element("select");
+      tableSelect.disabled = true;
+      tableLabel.appendChild(tableSelect);
+      dbPanel.appendChild(tableLabel);
+      const limitLabel = element("label", "hydria-flow-field");
+      limitLabel.appendChild(element("span", "", "Maximum rows"));
+      const limitInput = element("input");
+      limitInput.type = "number"; limitInput.min = "1"; limitInput.max = "20000";
+      limitInput.value = "1000";
+      limitLabel.appendChild(limitInput);
+      dbPanel.appendChild(limitLabel);
+      const parseConnectorResponse = async (response) => {
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok || payload.success !== true) {
+          throw new Error(String(payload.error || "SQL connector request failed"));
+        }
+        return payload;
+      };
+      dbPanel.appendChild(button("List SQLite tables", async () => {
+        try {
+          const token = tokenInput.value.trim();
+          if (!token) throw new Error("Enter the connector token");
+          const payload = await parseConnectorResponse(await fetch("/api/flow-sources/sqlite/tables", {
+            headers: { "x-hydria-flow-token": token }
+          }));
+          tableSelect.replaceChildren();
+          (payload.tables || []).forEach((table) => {
+            const option = element("option", "", table);
+            option.value = table;
+            tableSelect.appendChild(option);
+          });
+          tableSelect.disabled = !(payload.tables || []).length;
+          state.error = tableSelect.disabled ? "No accessible SQLite tables" : "";
+          renderConsole();
+        } catch (error) {
+          state.error = String(error.message || error);
+          renderConsole();
+        }
+      }, "hydria-flow-secondary"));
+      dbPanel.appendChild(button("Import selected SQLite table", async () => {
+        try {
+          const token = tokenInput.value.trim();
+          const table = tableSelect.value;
+          const limit = Number(limitInput.value);
+          if (!token || tableSelect.disabled || !table) throw new Error("Authenticate and select a table first");
+          if (!Number.isInteger(limit) || limit < 1 || limit > 20000) throw new Error("Choose 1–20,000 rows");
+          const payload = await parseConnectorResponse(await fetch("/api/flow-sources/sqlite/read", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-hydria-flow-token": token
+            },
+            body: JSON.stringify({ table, limit })
+          }));
+          const target = nodeById(node.id);
+          if (!target) throw new Error("The source node has been removed");
+          mutate(() => {
+            target.config = { ...(target.config || {}), data: JSON.stringify(payload.rows || []) };
+            target.label = "SQLite · " + table;
+          });
+          state.error = "";
+          renderConsole();
+        } catch (error) {
+          state.error = String(error.message || error);
+          renderConsole();
+        }
+      }, "hydria-flow-secondary"));
+      inspector.appendChild(dbPanel);
     }
 
     inspector.appendChild(button("Delete node", removeSelected, "hydria-flow-danger"));
