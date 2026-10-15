@@ -6,7 +6,7 @@ function make(tag, cls, text) {
   if (text) el.textContent = text;
   return el;
 }
-export function installWorkspaceCommandPalette({ getActions, getObjects, openAction, openObject }) {
+export function installWorkspaceCommandPalette({ getActions, getObjects, openAction, openObject, onSave }) {
   const backdrop = make("div", "hydria-command-backdrop");
   backdrop.hidden = true;
   const panel = make("section", "hydria-command-panel");
@@ -72,7 +72,12 @@ export function installWorkspaceCommandPalette({ getActions, getObjects, openAct
     });
   }
   document.addEventListener("keydown", (event) => {
-    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
+      event.preventDefault();
+      if (typeof onSave === "function") onSave();
+      return;
+    }
+    if ((event.metaKey || event.ctrlKey) && ((event.key.toLowerCase() === "k") || (event.shiftKey && event.key.toLowerCase() === "f"))) {
       event.preventDefault(); backdrop.hidden ? open() : close(); return;
     }
     if (backdrop.hidden) return;
