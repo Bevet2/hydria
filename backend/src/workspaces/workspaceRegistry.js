@@ -270,6 +270,19 @@ export const WORKSPACE_REGISTRY = [
       "planning session"
     ]
   }),
+  createWorkspaceFamily("data_flow", {
+    label: "Data Flow Manager",
+    description: "Visual local ETL: sources, filtering, calculation, aggregation, joins and outputs.",
+    preferredShape: "workflow",
+    shapes: ["workflow"],
+    objectKinds: ["workflow"],
+    defaultSurfaces: ["workflow", "edit", "structure"],
+    defaultSurface: "workflow",
+    runtimeMode: "interactive",
+    continuityMode: "object_first",
+    capabilityFamilies: ["data", "etl", "transformation", "workflow"],
+    keywords: ["data flow", "data pipeline", "etl", "knime", "data processing"]
+  }),
   createWorkspaceFamily("workflow_automation", {
     label: "Workflow / Automation",
     description: "Process automation, integrations, orchestration flows.",
