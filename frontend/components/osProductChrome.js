@@ -142,8 +142,12 @@ function enhanceLauncher() {
     return;
   }
   const title=header.querySelector("h3"), subtitle=header.querySelector("p");
-  if(title)title.textContent="Que souhaitez-vous faire ?";
-  if(subtitle)subtitle.textContent="Créez un fichier ou retrouvez votre espace de travail.";
+  const pageTitle=document.getElementById("workspace-title");
+  const pageSubtitle=document.getElementById("workspace-subtitle");
+  if(pageTitle)pageTitle.textContent="Accueil";
+  if(pageSubtitle)pageSubtitle.textContent="Retrouvez votre travail ou créez un nouvel élément.";
+  if(title)title.textContent="Démarrer";
+  if(subtitle)subtitle.textContent="Choisissez un outil pour commencer.";
   const quick=document.createElement("section");
   quick.className="os-home-section";
   const quickTitle=document.createElement("h4");quickTitle.textContent="Nouveau";
