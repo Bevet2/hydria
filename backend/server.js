@@ -3,7 +3,8 @@ import express from "express";
 import cors from "cors";
 import { proxyCrmApi } from "./middleware/crmApiProxy.js";
 import config from "./config/hydria.config.js";
-import { initDatabase } from "./db/sqlite.js";
+import { initDatabase, db } from "./db/sqlite.js";
+import { executeDueFlowSchedules } from "./services/flow/flowScheduler.js";
 import { AppError, normalizeError } from "./utils/errors.js";
 import logger from "./utils/logger.js";
 import healthRouter from "./routes/health.js";
@@ -116,3 +117,21 @@ app.use((error, req, res, next) => {
 app.listen(config.port, () => {
   logger.info(`Hydria listening on http://localhost:${config.port}`);
 });
+if (process.env.HYDRIA_FLOW_CONNECTOR_TOKEN && process.env.HYDRIA_FLOW_SCHEDULER_ENABLED !== "false") {
+  // One scheduler per backend process; deployments with multiple workers need
+  // an external coordinator before enabling this interval in every instance.
+  const scheduler = setInterval(() => {
+    try {
+      for (const run of executeDueFlowSchedules(db)) {
+        logger.info("Scheduled Hydria flow", {
+          flowKey: run.flowKey, status: run.status, outputRows: run.outputRows,
+          ...(run.error ? { error: run.error } : {})
+        });
+      }
+    } catch (error) {
+      logger.error("Scheduled flow tick failed", { error: String(error?.message || error) });
+    }
+  }, 60_000);
+  scheduler.unref();
+}
+
