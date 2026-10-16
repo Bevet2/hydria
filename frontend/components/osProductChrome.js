@@ -184,3 +184,29 @@ if(launcher){
   }).observe(launcher,{childList:true});
   enhanceLauncher();
 }
+
+/* Mobile document navigator: the file explorer becomes an on-demand panel
+   instead of permanently pushing the working editor off-screen. */
+const mobileFiles=document.getElementById("os-mobile-files");
+const workspaceRoot=document.getElementById("workspace-panel-root");
+function updateMobileFiles() {
+  if(!workspaceRoot || !mobileFiles)return;
+  const hasObject=workspaceRoot.dataset.hasWorkspace==="true";
+  mobileFiles.hidden=!hasObject;
+  if(!hasObject){
+    document.body.classList.remove("os-workspace-files-open");
+    mobileFiles.setAttribute("aria-expanded","false");
+  }
+}
+mobileFiles?.addEventListener("click",()=>{
+  const open=!document.body.classList.contains("os-workspace-files-open");
+  document.body.classList.toggle("os-workspace-files-open",open);
+  mobileFiles.setAttribute("aria-expanded",String(open));
+  mobileFiles.setAttribute("aria-label",open?"Masquer les fichiers":"Afficher les fichiers");
+  mobileFiles.title=open?"Masquer les fichiers":"Afficher les fichiers";
+  if(open)workspaceRoot?.querySelector(".workspace-sidebar")?.scrollIntoView({block:"nearest",behavior:"instant"});
+});
+if(workspaceRoot){
+  new MutationObserver(updateMobileFiles).observe(workspaceRoot,{attributes:true,attributeFilter:["data-has-workspace"]});
+  updateMobileFiles();
+}
