@@ -6,6 +6,7 @@ import {
   Footer,
   Header,
   HeadingLevel,
+  ImageRun,
   PageNumber,
   PageOrientation,
   Packer,
@@ -21,6 +22,87 @@ import { AppError } from "../utils/errors.js";
 
 const router = Router();
 const DOCX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+const MAX_EMBEDDED_IMAGES = 8;
+const MAX_IMAGE_BYTES = 1_000_000;
+const MAX_DOCUMENT_IMAGE_BYTES = 3_000_000;
+
+function nativeImageSize(buffer, type) {
+  if (type === "png") {
+    if (buffer.length < 24 || buffer.subarray(0,8).toString("hex") !== "89504e470d0a1a0a") {
+      throw new AppError("Invalid embedded PNG image", 400);
+    }
+    return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20) };
+  }
+  if (buffer.length < 4 || buffer[0] !== 0xff || buffer[1] !== 0xd8) {
+    throw new AppError("Invalid embedded JPEG image", 400);
+  }
+  for (let offset = 2; offset + 9 < buffer.length;) {
+    if (buffer[offset] !== 0xff) { offset++; continue; }
+    let marker = buffer[offset + 1];
+    if (marker === 0xd9 || marker === 0xda) break;
+    if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) {
+      offset += 2; continue;
+    }
+    const length = buffer.readUInt16BE(offset + 2);
+    if (length < 2 || offset + 2 + length > buffer.length) break;
+    if ([0xc0,0xc1,0xc2,0xc3,0xc5,0xc6,0xc7,0xc9,0xca,0xcb,0xcd,0xce,0xcf].includes(marker)) {
+      return { height: buffer.readUInt16BE(offset + 5), width: buffer.readUInt16BE(offset + 7) };
+    }
+    offset += 2 + length;
+  }
+  throw new AppError("Unsupported embedded JPEG image", 400);
+}
+
+function parseImageLength(value) {
+  const match = String(value || "").match(/^\s*(\d+(?:\.\d+)?)\s*(?:px)?\s*$/i);
+  return match ? Number(match[1]) : null;
+}
+
+function prepareEmbeddedImages($) {
+  const images = new WeakMap();
+  let count = 0, totalBytes = 0;
+  $("img").each((_, node) => {
+    const src = String(node.attribs?.src || "").trim();
+    if (!src.startsWith("data:image/")) return;
+    const match = src.match(/^data:image\/(png|jpeg|jpg);base64,([A-Za-z0-9+/=]+)$/i);
+    if (!match) return; // SVG, external URL and unsupported formats use alt fallback.
+    count++;
+    if (count > MAX_EMBEDDED_IMAGES) throw new AppError("Too many embedded document images (max 8)", 413);
+    if (match[2].length > Math.ceil(MAX_IMAGE_BYTES * 4 / 3) + 4) {
+      throw new AppError("Document image exceeds 1 MB", 413);
+    }
+    const data = Buffer.from(match[2], "base64");
+    totalBytes += data.length;
+    if (data.length > MAX_IMAGE_BYTES || totalBytes > MAX_DOCUMENT_IMAGE_BYTES) {
+      throw new AppError("Document embedded images exceed size limits", 413);
+    }
+    const type = match[1].toLowerCase() === "png" ? "png" : "jpg";
+    const original = nativeImageSize(data, type);
+    if (!original.width || !original.height || original.width > 4096 || original.height > 4096) {
+      throw new AppError("Embedded image dimensions are invalid or too large", 413);
+    }
+    const css = String(node.attribs?.style || "");
+    const cssWidth = css.match(/(?:^|;)\s*width\s*:\s*(\d+(?:\.\d+)?)px/i)?.[1];
+    const cssHeight = css.match(/(?:^|;)\s*height\s*:\s*(\d+(?:\.\d+)?)px/i)?.[1];
+    const preferredWidth = parseImageLength(node.attribs?.width) ?? parseImageLength(cssWidth);
+    const preferredHeight = parseImageLength(node.attribs?.height) ?? parseImageLength(cssHeight);
+    let width = preferredWidth || (preferredHeight ? preferredHeight * original.width / original.height : Math.min(original.width, 500));
+    let height = preferredHeight || width * original.height / original.width;
+    const scale = Math.min(1, 520 / width, 650 / height);
+    width = Math.max(1, Math.round(width * scale));
+    height = Math.max(1, Math.round(height * scale));
+    images.set(node, { data, type, width, height, alt: String(node.attribs?.alt || "Image").slice(0, 200) });
+  });
+  return images;
+}
+function docxImageRun(image) {
+  return new ImageRun({
+    type: image.type, data: image.data,
+    transformation: { width: image.width, height: image.height },
+    altText: { name: image.alt || "Image", title: image.alt || "Image", description: image.alt || "Image" }
+  });
+}
+
 
 function safeExportFilename(value = "hydria-document.docx", extension = "docx") {
   const fallback = `hydria-document.${extension}`;
@@ -147,7 +229,7 @@ function mergeInlineStyle(base = {}, node = {}) {
   return next;
 }
 
-function collectDocxTextRuns($, node, inheritedStyle = {}) {
+function collectDocxTextRuns($, node, inheritedStyle = {}, images = null) {
   if (!node) {
     return [];
   }
@@ -159,14 +241,15 @@ function collectDocxTextRuns($, node, inheritedStyle = {}) {
     return [];
   }
   const tagName = String(node.name || "").toLowerCase();
+  if (tagName === "img" && images?.has(node)) return [docxImageRun(images.get(node))];
   if (tagName === "br") {
     return [new TextRun({ text: "\n" })];
   }
   const nextStyle = mergeInlineStyle(inheritedStyle, node);
-  return (node.children || []).flatMap((child) => collectDocxTextRuns($, child, nextStyle));
+  return (node.children || []).flatMap((child) => collectDocxTextRuns($, child, nextStyle, images));
 }
 
-function collectDocxInlineTextRuns($, node, inheritedStyle = {}) {
+function collectDocxInlineTextRuns($, node, inheritedStyle = {}, images = null) {
   if (!node) {
     return [];
   }
@@ -177,15 +260,16 @@ function collectDocxInlineTextRuns($, node, inheritedStyle = {}) {
   if (node.type !== "tag" || isListNode(node) || getTagName(node) === "table") {
     return [];
   }
+  if (getTagName(node) === "img" && images?.has(node)) return [docxImageRun(images.get(node))];
   if (getTagName(node) === "br") {
     return [new TextRun({ text: "\n" })];
   }
   const nextStyle = mergeInlineStyle(inheritedStyle, node);
-  return (node.children || []).flatMap((child) => collectDocxInlineTextRuns($, child, nextStyle));
+  return (node.children || []).flatMap((child) => collectDocxInlineTextRuns($, child, nextStyle, images));
 }
 
-function collectDocxListItemRuns($, itemNode) {
-  const runs = (itemNode.children || []).flatMap((child) => collectDocxInlineTextRuns($, child));
+function collectDocxListItemRuns($, itemNode, images = null) {
+  const runs = (itemNode.children || []).flatMap((child) => collectDocxInlineTextRuns($, child, {}, images));
   if (runs.length) {
     return runs;
   }
@@ -193,8 +277,8 @@ function collectDocxListItemRuns($, itemNode) {
   return fallbackText ? [new TextRun(fallbackText)] : [new TextRun("")];
 }
 
-function createDocxParagraph($, node, options = {}) {
-  const runs = collectDocxTextRuns($, node);
+function createDocxParagraph($, node, options = {}, images = null) {
+  const runs = collectDocxTextRuns($, node, {}, images);
   const text = runs.length ? undefined : getNodeText($, node);
   return new Paragraph({
     heading: options.heading,
@@ -204,7 +288,7 @@ function createDocxParagraph($, node, options = {}) {
   });
 }
 
-function appendDocxList(children, $, listNode, level = 0) {
+function appendDocxList(children, $, listNode, level = 0, images = null) {
   const tagName = getTagName(listNode);
   let orderedIndex = 1;
   (listNode.children || []).forEach((child) => {
@@ -212,7 +296,7 @@ function appendDocxList(children, $, listNode, level = 0) {
       return;
     }
     if (getTagName(child) === "li") {
-      const runs = collectDocxListItemRuns($, child);
+      const runs = collectDocxListItemRuns($, child, images);
       const safeLevel = Math.min(Math.max(level, 0), 8);
       if (tagName === "ol") {
         children.push(
@@ -234,14 +318,14 @@ function appendDocxList(children, $, listNode, level = 0) {
       orderedIndex += 1;
       (child.children || [])
         .filter((nestedChild) => nestedChild.type === "tag" && isListNode(nestedChild))
-        .forEach((nestedList) => appendDocxList(children, $, nestedList, level + 1));
+        .forEach((nestedList) => appendDocxList(children, $, nestedList, level + 1, images));
       return;
     }
 
     // Browsers can produce invalid-but-common contenteditable HTML such as
     // <ul><li>Parent</li><ul><li>Child</li></ul></ul>. Keep those children.
     if (isListNode(child)) {
-      appendDocxList(children, $, child, level + 1);
+      appendDocxList(children, $, child, level + 1, images);
     }
   });
 }
@@ -280,7 +364,7 @@ function appendDocxTable(children, $, tableNode) {
   }
 }
 
-function appendDocxNode(children, $, node) {
+function appendDocxNode(children, $, node, images = null) {
   if (!node) {
     return;
   }
@@ -296,23 +380,23 @@ function appendDocxNode(children, $, node) {
   }
   const tagName = getTagName(node);
   if (tagName === "h1") {
-    children.push(createDocxParagraph($, node, { heading: HeadingLevel.HEADING_1, after: 220 }));
+    children.push(createDocxParagraph($, node, { heading: HeadingLevel.HEADING_1, after: 220 }, images));
     return;
   }
   if (tagName === "h2") {
-    children.push(createDocxParagraph($, node, { heading: HeadingLevel.HEADING_2, after: 180 }));
+    children.push(createDocxParagraph($, node, { heading: HeadingLevel.HEADING_2, after: 180 }, images));
     return;
   }
   if (tagName === "h3" || tagName === "h4") {
-    children.push(createDocxParagraph($, node, { heading: HeadingLevel.HEADING_3, after: 160 }));
+    children.push(createDocxParagraph($, node, { heading: HeadingLevel.HEADING_3, after: 160 }, images));
     return;
   }
   if (tagName === "p" || tagName === "blockquote" || tagName === "figcaption") {
-    children.push(createDocxParagraph($, node));
+    children.push(createDocxParagraph($, node, {}, images));
     return;
   }
   if (tagName === "ul" || tagName === "ol") {
-    appendDocxList(children, $, node);
+    appendDocxList(children, $, node, 0, images);
     return;
   }
   if (tagName === "table") {
@@ -324,11 +408,16 @@ function appendDocxNode(children, $, node) {
     return;
   }
   if (tagName === "img") {
-    const alt = String(node.attribs?.alt || "Image").trim();
-    children.push(new Paragraph({ children: [new TextRun(`[${alt}]`)] }));
+    const image = images?.get(node);
+    if (image) {
+      children.push(new Paragraph({ children: [docxImageRun(image)] }));
+    } else {
+      const alt = String(node.attribs?.alt || "Image").trim();
+      children.push(new Paragraph({ children: [new TextRun(`[${alt}]`)] }));
+    }
     return;
   }
-  (node.children || []).forEach((child) => appendDocxNode(children, $, child));
+  (node.children || []).forEach((child) => appendDocxNode(children, $, child, images));
 }
 
 function extractDocsPageSettings($) {
@@ -388,10 +477,11 @@ function buildDocxHeaderFooterParagraphs(text = "", showPageNumber = false) {
 async function buildDocxBuffer({ title, html }) {
   const $ = cheerio.load(`<main>${html}</main>`);
   const pageSettings = extractDocsPageSettings($);
+  const images = prepareEmbeddedImages($);
   const children = [];
   $("main")
     .contents()
-    .each((_, node) => appendDocxNode(children, $, node));
+    .each((_, node) => appendDocxNode(children, $, node, images));
 
   const document = new Document({
     creator: "Hydria",
