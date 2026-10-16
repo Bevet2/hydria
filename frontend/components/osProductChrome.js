@@ -57,7 +57,7 @@ function refreshNavigation(){
 }
 function scheduleNav(){if(!scheduled){scheduled=true;requestAnimationFrame(refreshNavigation);}}
 if(nav){
-  new MutationObserver(scheduleNav).observe(nav,{childList:true,subtree:false});
+  new MutationObserver(refreshNavigation).observe(nav,{childList:true,subtree:false});
   // Rendering replaces nav children; no need for repeated polling or extra events.
   scheduleNav();
 }
