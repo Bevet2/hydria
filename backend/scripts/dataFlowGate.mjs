@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { FLOW_NODE_CATALOG, runFlow, validateFlow } from "../services/flow/flowEngine.js";
-import { parseCSV, spreadsheetSheetToFlowRows, normalizedJsonApiRows } from "../../frontend/components/workspaceFlowManager.js";
+import { parseCSV, spreadsheetSheetToFlowRows, normalizedJsonApiRows, selectableExcelSheets } from "../../frontend/components/workspaceFlowManager.js";
 function node(id, type, config = {}) { return { id, type, label: id, config }; }
 function link(from, to, toPort = 0) { return { id: from + "-" + to + "-" + toPort, from, to, toPort }; }
 const sample = {
@@ -109,6 +109,15 @@ const delimitedFlow = runFlow({
 });
 assert.equal(delimitedFlow.success,true);
 assert.deepEqual(delimitedFlow.outputs[0].preview,[{city:"Paris",amount:"42"}]);
+assert.deepEqual(selectableExcelSheets({sheets:[
+  {name:"Hidden",hidden:true,columns:["id"],rows:[["secret"]]},
+  {name:"Visible A",hidden:false,columns:["id"],rows:[["a"]]},
+  {name:"Visible B",columns:["id"],rows:[["b"]]}
+]}).map(sheet => sheet.name),["Visible A","Visible B"]);
+assert.deepEqual(selectableExcelSheets({sheets:[
+  {name:"Hidden",hidden:true,columns:["id"],rows:[["private"]]}
+]}).map(sheet => sheet.name),["Hidden"]);
+assert.deepEqual(selectableExcelSheets({sheets:[]}),[]);
 assert.deepEqual(
   spreadsheetSheetToFlowRows({
     columns: ["City", "Amount", "City"],
