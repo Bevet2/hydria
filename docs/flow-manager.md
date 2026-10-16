@@ -206,3 +206,26 @@ encrypted stored input rows, retries, an audit trail, and distributed
 coordination are still required for production multi-tenant use.
 
 Validate it with `node backend/scripts/flowSchedulerGate.mjs`.
+
+## Live Flow dashboard (first dynamic visualization)
+
+From the Flow Manager toolbar, click **Live dashboard** after running a
+workflow once. This opens `/flow-dashboard.html?flowKey=<UUID>` on the same
+Hydria OS server. Enter the `HYDRIA_FLOW_CONNECTOR_TOKEN` to fetch its saved
+datasets. The token is kept only in the browser tab's memory; it is not stored
+in the URL, history, local storage, or the flow definition.
+
+Features: dashboard of the latest snapshot, selection of historical snapshots,
+category grouping, sum/average/count aggregation, a row text filter, a bounded
+table preview, and a refresh button. While the tab is visible, it checks
+for newer saved snapshots every 60 seconds. The data is displayed with safe
+DOM text nodes rather than interpolated HTML.
+
+This works with **existing persisted snapshots** and scheduled jobs that
+publish their results. It does not connect directly to a live external DB,
+stream input tables, or modify the existing dashboard work-object editor.
+It is a dedicated, read-only dynamic data view, not yet the full dashboard
+builder integration. Requires server-side token configuration and the same
+access-control precautions documented for the snapshot APIs.
+
+Validation: `node backend/scripts/flowDashboardGate.mjs`.
