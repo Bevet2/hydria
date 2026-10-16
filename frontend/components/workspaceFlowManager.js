@@ -739,6 +739,21 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
         } catch (error) { state.error = error.message || String(error); renderConsole(); }
       }, "hydria-flow-secondary"));
       if ((state.results.outputs || []).length > 1) {
+        consoleView.appendChild(button("Download all outputs Excel", async () => {
+          try {
+            const response = await fetch("/api/flows/export-workbook", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ flow: state.flow })
+            });
+            if (!response.ok) {
+              const reason = await response.json().catch(() => ({}));
+              throw new Error((reason.errors || []).join("; ") || "Multi-output Excel export failed");
+            }
+            download("hydria-flow-all-outputs.xlsx", await response.blob(),
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+          } catch (error) { state.error = error.message || String(error); renderConsole(); }
+        }, "hydria-flow-secondary"));
         consoleView.appendChild(button("Download all outputs (ZIP)", async () => {
           try {
             const response = await fetch("/api/flows/export-bundle", {
