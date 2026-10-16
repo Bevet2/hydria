@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import AdmZip from "adm-zip";
 import XLSX from "xlsx";
 import { runFlow } from "../services/flow/flowEngine.js";
-import { spreadsheetSheetToFlowRows } from "../../frontend/components/workspaceFlowManager.js";
+import { spreadsheetSheetToFlowRows, selectableExcelSheets } from "../../frontend/components/workspaceFlowManager.js";
 const baseUrl = process.env.HYDRIA_VISUAL_BASE_URL || "http://127.0.0.1:3001";
 
 async function exportFile(path, body, contentType) {
@@ -137,6 +137,22 @@ assert.equal(flowManifest.outputs.length,2);
 assert.equal(flowManifest.outputs[0].rows,2);
 assert.match(flowArchive.readAsText("output-01.csv"),/Paris,42/);
 assert.match(flowArchive.readAsText("output-02.csv"),/Lyon,25/);
+const multiModel = {
+  kind:"hydria-sheet",activeSheetId:"sheet-a",sheets:[
+    {id:"sheet-a",name:"Alpha",columns:["City"],rows:[["Paris"]],charts:[]},
+    {id:"sheet-b",name:"Beta",columns:["City"],rows:[["Lyon"]],charts:[]}
+  ]
+};
+const multiWorkbook = await exportFile("/api/sheets/export-xlsx", {model:multiModel}, /spreadsheetml\.sheet/);
+const sheetSelectionForm = new FormData();
+sheetSelectionForm.append("workbook",new Blob([multiWorkbook]),"multi-sheets.xlsx");
+const selectionResponse = await fetch(baseUrl + "/api/sheets/import-xlsx",{method:"POST",body:sheetSelectionForm});
+assert.equal(selectionResponse.status,200);
+const selectionImport = await selectionResponse.json();
+const selectable = selectableExcelSheets(selectionImport.model);
+assert.deepEqual(selectable.map(sheet=>sheet.name),["Alpha","Beta"]);
+assert.deepEqual(spreadsheetSheetToFlowRows(selectable[1]),[{City:"Lyon"}]);
+
 const sheetPdf = await exportFile("/api/sheets/export-pdf", { filename: "hydria-test.pdf", model }, /application\/pdf/);
 assert.equal(sheetPdf.subarray(0, 4).toString("utf8"), "%PDF");
 const pptx = await exportFile("/api/work-objects/export-smoke/presentation-export", {
