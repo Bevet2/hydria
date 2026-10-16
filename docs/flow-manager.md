@@ -201,12 +201,20 @@ code execution.
 
 The scheduler starts only when `HYDRIA_FLOW_CONNECTOR_TOKEN` is set. Set
 `HYDRIA_FLOW_SCHEDULER_ENABLED=false` to disable the background tick while
-keeping management endpoints available. Because this is a single-process
-worker, **do not run several backend replicas with it enabled** until a
-distributed lease mechanism is added. It uses at-most-once due-time claims,
-not a guaranteed exactly-once job system. Per-workspace authorization,
-encrypted stored input rows, retries, an audit trail, and distributed
-coordination are still required for production multi-tenant use.
+keeping management endpoints available. Each scheduled execution now claims
+an **atomic SQLite lease** (10-minute expiry, random claim token). A second
+execution of the same workflow gets an HTTP 409 until the first one releases
+the lease; competing due-time workers skip the claim rather than executing
+twice. Existing installations receive the new lease columns automatically.
+A stopped process leaves a lease that expires after ten minutes.
+
+This is crash-recovery and concurrency protection for processes that use
+the **same reliable SQLite database file**, not a fully distributed job queue
+or a guarantee of exactly-once side effects. Avoid multiple backend replicas
+with independent databases or SQLite on unsafe network shares. Per-workspace
+authorization, encrypted stored input rows, retries, an audit trail, and
+true distributed coordination are still required for production multi-tenant
+use.
 
 Validate it with `node backend/scripts/flowSchedulerGate.mjs`.
 
