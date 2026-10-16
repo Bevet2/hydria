@@ -216,7 +216,7 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
   }
   host.replaceChildren();
   const state = { flow: structuredClone(model), selected: model.stages[0]?.id || "", activeOutputId: "", pending: "", zoom: 1, results: null, error: "", running: false, history: [], future: [], runHistory: [], snapshotToken: "", snapshots: [], loadedSnapshot: null, snapshotBusy: false, schedule: null, scheduleMinutes: 60,
-    paletteOpen: true, inspectorOpen: true, consoleOpen: true, searchQuery: "" };
+    paletteOpen: window.innerWidth >= 720, inspectorOpen: window.innerWidth >= 1180, consoleOpen: true, searchQuery: "" };
   const root = element("section", "hydria-flow-manager");
   const toolbar = element("div", "hydria-flow-toolbar");
   const name = element("div", "hydria-flow-title");
