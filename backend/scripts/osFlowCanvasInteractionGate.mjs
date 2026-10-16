@@ -16,6 +16,8 @@ try {
       if(!btn)return false;btn.click();return true;
     });
     assert.equal(created,true);
+    await page.locator('#workspace-panel-root[data-has-workspace="true"]')
+      .waitFor({state:"visible",timeout:22000});
   }
   const manager=page.locator(".hydria-flow-manager");
   await manager.waitFor({state:"attached",timeout:20000});
