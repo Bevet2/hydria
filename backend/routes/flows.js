@@ -13,25 +13,26 @@ router.post("/validate", (req, res) => {
   res.json({ success: true, valid: result.valid, errors: result.errors, order: result.order });
 });
 const FLOW_HISTORY_KEY = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const insertFlowRun = db.prepare(`
-  INSERT INTO flow_run_history
-    (flow_key, started_at, status, duration_ms, step_count, output_rows, error_count)
-  VALUES (?, ?, ?, ?, ?, ?, ?)
-`);
-const pruneFlowRuns = db.prepare(`
-  DELETE FROM flow_run_history
-  WHERE flow_key = ? AND id NOT IN (
-    SELECT id FROM flow_run_history WHERE flow_key = ? ORDER BY id DESC LIMIT 50
-  )
-`);
-const recordFlowRun = db.transaction((key, timestamp, result, durationMs) => {
-  insertFlowRun.run(
-    key, timestamp, result.success ? "success" : "failed", durationMs,
-    result.steps.length, result.outputs.reduce((total, item) => total + item.rows, 0),
-    result.errors.length
-  );
-  pruneFlowRuns.run(key, key);
-});
+// Database schema is initialized after route imports during server startup.
+// Prepare statements lazily when the run endpoint is called.
+function recordFlowRun(key, timestamp, result, durationMs) {
+  db.transaction(() => {
+    db.prepare(`
+      INSERT INTO flow_run_history
+        (flow_key, started_at, status, duration_ms, step_count, output_rows, error_count)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(key, timestamp, result.success ? "success" : "failed", durationMs,
+      result.steps.length, result.outputs.reduce((total, item) => total + item.rows, 0),
+      result.errors.length
+    );
+    db.prepare(`
+      DELETE FROM flow_run_history
+      WHERE flow_key = ? AND id NOT IN (
+        SELECT id FROM flow_run_history WHERE flow_key = ? ORDER BY id DESC LIMIT 50
+      )
+    `).run(key, key);
+  })();
+}
 
 router.get("/history/:flowKey", (req, res) => {
   const flowKey = String(req.params.flowKey || "");
