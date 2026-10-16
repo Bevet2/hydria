@@ -37,7 +37,8 @@ jobs:
         run: |
           set -euo pipefail
           docker volume create hydria-os-test-data >/dev/null
-          trap 'docker rm -f hydria-os-smoke >/dev/null 2>&1 || true; docker volume rm hydria-os-test-data >/dev/null 2>&1 || true' EXIT
+          docker volume create hydria-os-test-backups >/dev/null
+          trap 'docker rm -f hydria-os-smoke >/dev/null 2>&1 || true; docker volume rm hydria-os-test-data >/dev/null 2>&1 || true; docker volume rm hydria-os-test-backups >/dev/null 2>&1 || true' EXIT
           docker run -d --name hydria-os-smoke \
             -p 127.0.0.1:39991:3001 \
             -e NODE_ENV=production \
@@ -47,7 +48,8 @@ jobs:
             -e LOCAL_LLM_ENABLED=false \
             -e ENABLE_LOCAL_TOOLS=false \
             -e HYDRIA_FLOW_SCHEDULER_ENABLED=false \
-            -v hydria-os-test-data:/app/data hydria-os:ci >/dev/null
+            -v hydria-os-test-data:/app/data \
+            -v hydria-os-test-backups:/app/backups hydria-os:ci >/dev/null
           alive=false
           for i in {1..60}; do
             if curl -fsS http://127.0.0.1:39991/livez >/dev/null; then alive=true; break; fi
@@ -70,6 +72,16 @@ jobs:
             -u hydria_owner:ci-owner-password-over-20-characters \
             -d '{"username":"docker_persisted_user"}' \
             http://127.0.0.1:39991/api/users)" == 201 ]]
+          docker exec hydria-os-smoke node backend/scripts/osBackup.mjs backup /app/backups/checkpoint
+          docker exec hydria-os-smoke node backend/scripts/osBackup.mjs verify /app/backups/checkpoint
+          docker exec hydria-os-smoke node backend/scripts/osBackup.mjs restore /app/backups/checkpoint /app/backups/restored
+          docker exec hydria-os-smoke node -e '
+            const Database=require("./backend/node_modules/better-sqlite3");
+            const db=new Database("/app/backups/restored/hydria.sqlite",{readonly:true});
+            if(!db.prepare("SELECT username FROM users WHERE username=?").get("docker_persisted_user"))process.exit(1);
+            db.close();
+            console.log("Restored Hydria OS data verified inside production container");
+          '
           docker restart hydria-os-smoke >/dev/null
           alive=false
           for i in {1..60}; do
