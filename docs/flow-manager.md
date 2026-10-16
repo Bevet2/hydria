@@ -206,3 +206,54 @@ encrypted stored input rows, retries, an audit trail, and distributed
 coordination are still required for production multi-tenant use.
 
 Validate it with `node backend/scripts/flowSchedulerGate.mjs`.
+
+## PostgreSQL connector (server-side, read-only)
+
+A new optional PostgreSQL table reader is available through the Flow Manager
+source inspector. It lists up to 100 visible database tables and allows a
+bounded read of a single table into an `input.table` node. An administrator
+must install the **PostgreSQL psql command-line client** on the backend host;
+Hydria does not download or embed a driver.
+
+Environment example in `backend/.env`:
+
+```env
+HYDRIA_FLOW_CONNECTOR_TOKEN=a-long-random-admin-token
+HYDRIA_FLOW_PG_HOST=127.0.0.1
+HYDRIA_FLOW_PG_PORT=5432
+HYDRIA_FLOW_PG_DATABASE=business
+HYDRIA_FLOW_PG_USER=hydria_reader
+HYDRIA_FLOW_PG_PASSWORD=server-only-password
+HYDRIA_FLOW_PG_SSLMODE=require
+# Optional path to psql if not on PATH
+# HYDRIA_FLOW_PSQL_BIN=/usr/bin/psql
+```
+
+Use a **database role with SELECT access only** to required schemas/tables.
+Use `verify-full` plus correct CA configuration when accessing a remote
+database over TLS; `require` encrypts the connection but doesn't provide
+the same hostname verification. `disable` is intended only for local
+development.
+
+Protected endpoints:
+
+- `GET /api/flow-sources/postgres/tables` returns `{schema,name}` entries
+- `POST /api/flow-sources/postgres/read` with
+  `{"schema":"public","table":"sales","limit":1000}`
+
+Both require `x-hydria-flow-token`. The backend runs only fixed, read-only
+metadata queries and bounded table SELECTs, without arbitrary submitted SQL,
+shell execution or user-supplied connection settings. Table identifiers are
+checked against the catalog and validated. Limits: 20,000 rows, 100 columns
+and 2 MB of JSON output, with PostgreSQL statement and process timeouts.
+
+**Important:** Importing into a source node makes a static copy of the rows.
+Scheduled flows run this copy; they do not currently reconnect to PostgreSQL
+on each interval. Credentials are never written to workflow files. Do not use
+this connector to import highly sensitive information into workflows unless
+the Hydria OS workspace is properly access-controlled and encrypted at rest.
+
+Run `node backend/scripts/flowPostgresSourceGate.mjs` for mock-backed
+identifier validation, query, limit, permission and secret-handling tests.
+Full connectivity should also be tested against a real PostgreSQL database
+in the target environment.
