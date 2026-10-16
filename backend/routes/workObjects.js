@@ -688,7 +688,7 @@ function pctToInches(value = 0, axis = "x") {
   return (Number(value || 0) / 100) * size;
 }
 
-function addPresentationElementToPptxSlide(pptx, slide, element = {}) {
+function addPresentationElementToPptxSlide(pptx, slide, element = {}, imageBudget = null) {
   const x = pctToInches(element.x, "x");
   const y = pctToInches(element.y, "y");
   const w = pctToInches(element.w, "x");
@@ -718,6 +718,36 @@ function addPresentationElementToPptxSlide(pptx, slide, element = {}) {
   };
 
   if (element.type === "image") {
+    // Only embedded PNG/JPEG data URIs can become media in the PPTX.
+    // Never fetch remote images, resolve local paths, or load arbitrary URLs.
+    const match = element.src.match(/^data:image\/(png|jpe?g);base64,([A-Za-z0-9+/=]+)$/i);
+    if (match) {
+      if (match[2].length > 1_340_000) {
+        throw new AppError("PowerPoint image exceeds the 1 MB limit", 413);
+      }
+      const bytes = Buffer.from(match[2], "base64");
+      if (!bytes.length || bytes.length > 1_000_000) {
+        throw new AppError("PowerPoint image exceeds the 1 MB limit", 413);
+      }
+      const type = match[1].toLowerCase();
+      const valid = type === "png"
+        ? bytes.length > 24 && bytes.subarray(0,8).toString("hex") === "89504e470d0a1a0a"
+        : bytes.length > 4 && bytes[0] === 0xff && bytes[1] === 0xd8;
+      if (!valid) throw new AppError("Invalid embedded PowerPoint image", 400);
+      if (imageBudget) {
+        imageBudget.count++;
+        imageBudget.bytes += bytes.length;
+        if (imageBudget.count > 8 || imageBudget.bytes > 3_000_000) {
+          throw new AppError("PowerPoint embedded images exceed export limits", 413);
+        }
+      }
+      slide.addImage({
+        data: element.src.slice(5), x, y, w, h,
+        sizing: { type: "contain", w, h },
+        altText: (element.text || "Hydria slide image").slice(0, 200)
+      });
+      return;
+    }
     if (/^https?:\/\//i.test(element.src)) {
       slide.addText(element.text || "Image URL", {
         ...baseOptions,
@@ -787,6 +817,7 @@ async function renderPptxArtifact({ title = "Presentation", markdown = "" } = {}
   pptx.title = deck.title;
   pptx.lang = "fr-FR";
 
+  const imageBudget = { count: 0, bytes: 0 };
   for (const deckSlide of deck.slides) {
     const slide = pptx.addSlide();
     const background = normalizePptxColor(deckSlide.meta?.background || "#ffffff", "FFFFFF");
@@ -797,7 +828,7 @@ async function renderPptxArtifact({ title = "Presentation", markdown = "" } = {}
     )
       .map((element, index) => normalizePresentationElementForPptx(element, index))
       .sort((left, right) => Number(left.z || 0) - Number(right.z || 0));
-    elements.forEach((element) => addPresentationElementToPptxSlide(pptx, slide, element));
+    elements.forEach((element) => addPresentationElementToPptxSlide(pptx, slide, element, imageBudget));
     if (deckSlide.meta?.notes) {
       slide.addNotes(String(deckSlide.meta.notes));
     }

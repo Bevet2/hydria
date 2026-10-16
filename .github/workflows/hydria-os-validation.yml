@@ -190,6 +190,8 @@ jobs:
           '
       - name: Validate DOCX PDF XLSX and PPTX roundtrip exports
         run: node backend/scripts/osExportSmoke.mjs
+      - name: Verify PowerPoint embedded image export and limits
+        run: node backend/scripts/pptxImageExportGate.mjs
 
   browser:
     runs-on: ubuntu-latest
