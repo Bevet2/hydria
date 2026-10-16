@@ -391,11 +391,6 @@ function appendDocxNode(children, $, node, images = null) {
     children.push(createDocxParagraph($, node, { heading: HeadingLevel.HEADING_3, after: 160 }, images));
     return;
   }
-  if ((tagName === "p" || tagName === "figure") && $(node).find("img").length) {
-    (node.children || []).forEach((child) => writePdfNode(doc, $, child, images));
-    doc.moveDown(0.2);
-    return;
-  }
   if (tagName === "p" || tagName === "blockquote" || tagName === "figcaption") {
     children.push(createDocxParagraph($, node, {}, images));
     return;
@@ -643,6 +638,11 @@ function writePdfNode(doc, $, node, images = null) {
     doc.moveDown(0.35);
     return;
   }
+  if ((tagName === "p" || tagName === "figure") && $(node).find("img").length) {
+    (node.children || []).forEach((child) => writePdfNode(doc, $, child, images));
+    doc.moveDown(0.2);
+    return;
+  }
   if (tagName === "p" || tagName === "blockquote" || tagName === "figcaption") {
     doc.font(tagName === "blockquote" ? "Helvetica-Oblique" : "Helvetica").fontSize(11).fillColor("#111827").text(text, { lineGap: 3 });
     doc.moveDown(0.45);
@@ -685,7 +685,7 @@ function writePdfNode(doc, $, node, images = null) {
     }
     return;
   }
-  (node.children || []).forEach((child) => writePdfNode(doc, $, child));
+  (node.children || []).forEach((child) => writePdfNode(doc, $, child, images));
 }
 
 async function buildPdfBuffer({ title, html }) {
