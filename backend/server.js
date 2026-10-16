@@ -4,7 +4,7 @@ import cors from "cors";
 import { productionSettings, createProductionAccessGate } from "./middleware/osProductionAccess.js";
 import { proxyCrmApi } from "./middleware/crmApiProxy.js";
 import config from "./config/hydria.config.js";
-import { initDatabase, db } from "./db/sqlite.js";
+import { initDatabase, db, closeDatabase } from "./db/sqlite.js";
 import { executeDueFlowSchedules } from "./services/flow/flowScheduler.js";
 import { AppError, normalizeError } from "./utils/errors.js";
 import logger from "./utils/logger.js";
@@ -121,14 +121,15 @@ app.use((error, req, res, next) => {
   });
 });
 
-app.listen(config.port, () => {
+const server = app.listen(config.port, () => {
   logger.info(`Hydria listening on http://localhost:${config.port}`);
 });
+let scheduler;
 if (process.env.HYDRIA_FLOW_CONNECTOR_TOKEN && process.env.HYDRIA_FLOW_SCHEDULER_ENABLED !== "false") {
   // One scheduler per backend process; deployments with multiple workers need
   // an external coordinator before enabling this interval in every instance.
   let scheduleTickRunning = false;
-  const scheduler = setInterval(async () => {
+  scheduler = setInterval(async () => {
     if (scheduleTickRunning) return;
     scheduleTickRunning = true;
     try {
@@ -147,3 +148,22 @@ if (process.env.HYDRIA_FLOW_CONNECTOR_TOKEN && process.env.HYDRIA_FLOW_SCHEDULER
   scheduler.unref();
 }
 
+let shuttingDown = false;
+function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  if (scheduler) clearInterval(scheduler);
+  logger.info("Hydria OS shutdown requested", { signal });
+  const watchdog = setTimeout(() => process.exit(1), 10_000);
+  watchdog.unref();
+  server.close((err) => {
+    try { closeDatabase(); }
+    catch (closeError) {
+      logger.error("SQLite shutdown failed", { error: String(closeError?.message || closeError) });
+    }
+    clearTimeout(watchdog);
+    process.exit(err ? 1 : 0);
+  });
+}
+process.once("SIGTERM", () => shutdown("SIGTERM"));
+process.once("SIGINT", () => shutdown("SIGINT"));
