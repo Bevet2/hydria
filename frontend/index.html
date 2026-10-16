@@ -11,46 +11,52 @@
       href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="/styles.css?v=20260617-slides-ui-1" />
+    <link rel="stylesheet" href="/styles.css?v=20261016-os-ui" />
+    <link rel="stylesheet" href="/os-product-ui.css?v=20261016-a" />
   </head>
   <body>
     <div class="app-shell">
-      <aside class="sidebar">
+      <aside class="sidebar" id="os-sidebar" aria-label="Navigation principale">
         <section class="panel brand-panel">
           <div class="brand-row">
-            <div>
-              <p class="eyebrow">Hydria OS</p>
+            <span class="os-brand-symbol" aria-hidden="true">H</span>
+            <div class="os-brand-name">
               <h1>Hydria</h1>
+              <span class="os-brand-edition">Workspace OS</span>
             </div>
-            <span class="badge">Live</span>
+            <button type="button" class="os-icon-control os-sidebar-toggle" id="os-collapse-sidebar"
+              aria-label="Réduire la navigation" title="Réduire la navigation">
+              <svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></svg>
+            </button>
           </div>
-          <p class="muted">
-            Create something usable, see it instantly, and keep improving it without leaving your space.
-          </p>
         </section>
+        <div class="os-sidebar-navigation">
+          <p class="os-sidebar-heading">ESPACES</p>
+          <nav id="workspace-switcher" class="workspace-switcher" aria-label="Espaces Hydria"></nav>
+        </div>
 
-        <section class="panel">
+        <section class="panel os-library-panel">
           <div class="section-header">
-            <h2>Projects</h2>
+            <h2>Projets</h2>
             <div class="button-row">
               <span class="tiny" id="project-count">0</span>
               <button id="new-project-button" class="secondary-button" type="button">
-                New project
+                + Nouveau
               </button>
             </div>
           </div>
           <div id="project-list" class="conversation-list"></div>
         </section>
 
-        <section class="panel">
+        <section class="panel os-conversations-panel">
           <div class="section-header">
-            <h2 id="conversation-header-title">Project chats</h2>
+            <h2 id="conversation-header-title">Conversations</h2>
             <div class="button-row">
               <button id="new-conversation-button" class="secondary-button">
-                New chat
+                + Nouveau
               </button>
               <button id="clear-conversation-button" class="ghost-button">
-                Clear
+                Effacer
               </button>
             </div>
           </div>
@@ -58,7 +64,7 @@
         </section>
 
         <details class="panel utility-panel">
-          <summary>Settings</summary>
+          <summary>Paramètres</summary>
           <div class="section-header">
             <h2>Users</h2>
             <span class="tiny" id="user-count">0</span>
@@ -113,7 +119,35 @@
           </div>
         </header>
 
-        <nav id="workspace-switcher" class="workspace-switcher" aria-label="Hydria workspaces"></nav>
+        <header class="os-command-bar" aria-label="Commandes du workspace">
+          <div class="os-command-location">
+            <button type="button" class="os-icon-control os-mobile-menu" id="os-mobile-menu"
+              aria-label="Ouvrir la navigation" aria-controls="os-sidebar" aria-expanded="false">
+              <svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+            </button>
+            <span class="os-command-parent">Hydria</span>
+            <span class="os-command-separator" aria-hidden="true">/</span>
+            <strong id="os-active-workspace">Accueil</strong>
+          </div>
+          <div class="os-command-actions">
+            <button class="os-icon-control os-mobile-files" id="os-mobile-files"
+              type="button" aria-label="Afficher les fichiers" aria-expanded="false"
+              aria-controls="workspace-layout" title="Afficher les fichiers">
+              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10H3z"/><path d="M3 10h18"/></svg>
+            </button>
+            <button class="os-command-search" id="os-command-search" type="button"
+              aria-label="Rechercher dans Hydria">
+              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="m16 16 4 4"/></svg>
+              <span>Rechercher</span><kbd>⌘ K</kbd>
+            </button>
+            <button class="os-icon-control" id="os-theme-toggle" type="button"
+              aria-label="Changer le thème" title="Changer le thème">
+              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32 1.41 1.41M2 12h2m16 0h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+            </button>
+          </div>
+        </header>
+        <button class="os-sidebar-scrim" id="os-sidebar-scrim" type="button" tabindex="-1"
+          aria-label="Fermer la navigation"></button>
         <section id="workspace-panel-root" class="panel work-object-panel workspace-panel">
           <div class="workspace-shell-header">
             <div class="workspace-title-group">
@@ -368,7 +402,8 @@
       </main>
     </div>
 
-    <script type="module" src="/app.js?v=20260617-slides-ui-1"></script>
+    <script type="module" src="/app.js?v=20261016-os-ui"></script>
+    <script type="module" src="/components/osProductChrome.js?v=20261016-a"></script>
   </body>
 </html>
 
