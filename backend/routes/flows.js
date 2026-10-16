@@ -1,5 +1,6 @@
 import { Router } from "express";
 import XLSX from "xlsx";
+import AdmZip from "adm-zip";
 import { FLOW_NODE_CATALOG, runFlow, validateFlow } from "../services/flow/flowEngine.js";
 const router = Router();
 
@@ -96,6 +97,35 @@ router.post("/export-xlsx", (req, res, next) => {
   } catch (error) {
     next(error);
   }
+});
+
+// Export every table output in a single portable archive.
+router.post("/export-bundle", (req, res, next) => {
+  try {
+    const result = runFlow(req.body?.flow || {}, { includeAllOutputs: true });
+    if (!result.success) return res.status(422).json({ success: false, errors: result.errors });
+    if (!result.outputs.length) return res.status(422).json({ success: false, errors: ["No table outputs to export."] });
+    const zip = new AdmZip();
+    const manifest = [];
+    let totalBytes = 0;
+    for (const [index, output] of result.outputs.entries()) {
+      const data = output.data || [];
+      const columns = [...new Set(data.flatMap((row) => Object.keys(row)))];
+      if (columns.length > 100) return res.status(413).json({ success: false, errors: ["An output exceeds 100 columns."] });
+      const csv = [columns.map(csvCell).join(","), ...data.map((row) => columns.map((key) => csvCell(row[key])).join(","))].join("\r\n");
+      const bytes = Buffer.from(csv, "utf8");
+      totalBytes += bytes.length;
+      if (totalBytes > 25_000_000) return res.status(413).json({ success: false, errors: ["Outputs exceed the 25 MB bundle limit."] });
+      const filename = `output-${String(index + 1).padStart(2, "0")}.csv`;
+      zip.addFile(filename, bytes);
+      manifest.push({ id: output.id, filename, rows: data.length, columns });
+    }
+    zip.addFile("manifest.json", Buffer.from(JSON.stringify({ version: 1, outputs: manifest }, null, 2)));
+    const bytes = zip.toBuffer();
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader("Content-Disposition", 'attachment; filename="hydria-flow-outputs.zip"');
+    res.send(bytes);
+  } catch (error) { next(error); }
 });
 
 export default router;

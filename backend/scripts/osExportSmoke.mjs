@@ -122,6 +122,21 @@ const invalidOutput = await fetch(baseUrl + "/api/flows/export-xlsx", {
 });
 assert.equal(invalidOutput.status,422,"Invalid output IDs must be rejected");
 
+const bundleFlow = {
+  stages: [
+    {id:"source",type:"input.table",config:{data:JSON.stringify([{city:"Paris",amount:42},{city:"Lyon",amount:25}])}},
+    {id:"a",type:"output.table",config:{}},
+    {id:"b",type:"output.table",config:{}}
+  ],
+  links: [{from:"source",to:"a",toPort:0},{from:"source",to:"b",toPort:0}]
+};
+const flowBundle = await exportFile("/api/flows/export-bundle", {flow:bundleFlow}, /application\/zip/);
+const flowArchive = new AdmZip(flowBundle);
+const flowManifest = JSON.parse(flowArchive.readAsText("manifest.json"));
+assert.equal(flowManifest.outputs.length,2);
+assert.equal(flowManifest.outputs[0].rows,2);
+assert.match(flowArchive.readAsText("output-01.csv"),/Paris,42/);
+assert.match(flowArchive.readAsText("output-02.csv"),/Lyon,25/);
 const sheetPdf = await exportFile("/api/sheets/export-pdf", { filename: "hydria-test.pdf", model }, /application\/pdf/);
 assert.equal(sheetPdf.subarray(0, 4).toString("utf8"), "%PDF");
 const pptx = await exportFile("/api/work-objects/export-smoke/presentation-export", {
