@@ -215,7 +215,7 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
     return;
   }
   host.replaceChildren();
-  const state = { flow: structuredClone(model), selected: model.stages[0]?.id || "", activeOutputId: "", pending: "", zoom: 1, results: null, error: "", running: false, history: [], future: [], runHistory: [], snapshotToken: "", snapshots: [], loadedSnapshot: null, snapshotBusy: false };
+  const state = { flow: structuredClone(model), selected: model.stages[0]?.id || "", activeOutputId: "", pending: "", zoom: 1, results: null, error: "", running: false, history: [], future: [], runHistory: [], snapshotToken: "", snapshots: [], loadedSnapshot: null, snapshotBusy: false, schedule: null, scheduleMinutes: 60 };
   const root = element("section", "hydria-flow-manager");
   const toolbar = element("div", "hydria-flow-toolbar");
   const name = element("div", "hydria-flow-title");
@@ -701,6 +701,43 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
       tokenField.appendChild(tokenInput);
       saved.appendChild(tokenField);
       saved.appendChild(button("Refresh saved datasets", () => { void loadSnapshots(); }, "hydria-flow-secondary"));
+      const schedulerPanel = element("div", "hydria-flow-schedule-panel");
+      schedulerPanel.appendChild(element("h4", "", "Automated execution"));
+      schedulerPanel.appendChild(element("p", "flow-muted",
+        "Server-side interval schedule · deterministic sources only · minimum 15 minutes."));
+      const intervalLabel = element("label", "hydria-flow-field");
+      intervalLabel.appendChild(element("span", "", "Interval in minutes (15–1440)"));
+      const intervalInput = element("input");
+      intervalInput.type = "number"; intervalInput.min = "15"; intervalInput.max = "1440";
+      intervalInput.value = String(state.schedule?.intervalMinutes || state.scheduleMinutes);
+      intervalInput.addEventListener("input", () => { state.scheduleMinutes = Number(intervalInput.value); });
+      intervalLabel.appendChild(intervalInput);
+      schedulerPanel.appendChild(intervalLabel);
+      const scheduleStatus = state.schedule
+        ? (state.schedule.enabled ? "Enabled" : "Paused") +
+          " · " + (state.schedule.lastStatus || "not run yet") +
+          " · next " + (state.schedule.nextRunAt
+            ? new Date(state.schedule.nextRunAt).toLocaleString() : "not scheduled") +
+          (state.schedule.lastError ? " · " + state.schedule.lastError : "")
+        : "No schedule configured for this workflow.";
+      schedulerPanel.appendChild(element("p", "flow-muted", scheduleStatus));
+      schedulerPanel.appendChild(button("Refresh schedule", () => { void loadSchedule(); }, "hydria-flow-secondary"));
+      schedulerPanel.appendChild(button(state.schedule ? "Update schedule" : "Create schedule", () => {
+        void saveSchedule(true);
+      }, "hydria-flow-secondary"));
+      if (state.schedule) {
+        schedulerPanel.appendChild(button(state.schedule.enabled ? "Pause" : "Resume", () => {
+          void saveSchedule(!state.schedule.enabled);
+        }, "hydria-flow-secondary"));
+        schedulerPanel.appendChild(button("Run scheduled flow now", () => {
+          void runScheduleNow();
+        }, "hydria-flow-secondary"));
+        schedulerPanel.appendChild(button("Remove schedule", () => {
+          void removeSchedule();
+        }, "hydria-flow-secondary"));
+      }
+      saved.appendChild(schedulerPanel);
+
       for (const entry of state.snapshots) {
         const item = element("div", "hydria-flow-run-step");
         item.appendChild(element("span", "", entry.label + " · " + entry.rowCount +
@@ -903,6 +940,72 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
     } catch (error) {
       state.error = "Delete dataset: " + String(error.message || error); renderConsole();
     }
+  }
+
+  async function loadSchedule() {
+    const key = state.flow.executionHistoryId;
+    if (!key) return;
+    try {
+      const payload = await snapshotRequest("/api/flows/schedules/" + encodeURIComponent(key));
+      state.schedule = payload.schedule;
+      state.scheduleMinutes = payload.schedule.intervalMinutes;
+      state.error = "";
+    } catch (error) {
+      if (String(error.message || error).includes("Schedule not found")) {
+        state.schedule = null;
+      } else {
+        state.error = "Schedule: " + String(error.message || error);
+      }
+    }
+    renderConsole();
+  }
+  async function saveSchedule(enabled) {
+    const key = state.flow.executionHistoryId;
+    const minutes = Number(state.scheduleMinutes);
+    const outputId = state.activeOutputId || state.results?.outputs?.[0]?.id || state.schedule?.outputId;
+    if (!outputId) {
+      state.error = "Run the flow once and select a Table output before scheduling.";
+      renderConsole(); return;
+    }
+    try {
+      const payload = await snapshotRequest("/api/flows/schedules/" + encodeURIComponent(key), {
+        method: "PUT",
+        body: JSON.stringify({
+          flow: state.flow, outputId, intervalMinutes: minutes,
+          enabled, publishSnapshot: true
+        })
+      });
+      state.schedule = payload.schedule;
+      state.error = "";
+    } catch (error) {
+      state.error = "Schedule: " + String(error.message || error);
+    }
+    renderConsole();
+  }
+  async function runScheduleNow() {
+    try {
+      await snapshotRequest("/api/flows/schedules/" +
+        encodeURIComponent(state.flow.executionHistoryId) + "/run", { method: "POST" });
+      await loadSchedule();
+      await loadSnapshots();
+      await loadRunHistory();
+      state.error = "";
+    } catch (error) {
+      state.error = "Scheduled execution: " + String(error.message || error);
+    }
+    renderConsole();
+  }
+  async function removeSchedule() {
+    if (!window.confirm("Remove this flow's schedule? Saved datasets are retained.")) return;
+    try {
+      await snapshotRequest("/api/flows/schedules/" +
+        encodeURIComponent(state.flow.executionHistoryId), { method: "DELETE" });
+      state.schedule = null;
+      state.error = "";
+    } catch (error) {
+      state.error = "Schedule: " + String(error.message || error);
+    }
+    renderConsole();
   }
   async function loadRunHistory() {
     if (!state.flow.executionHistoryId) return;
