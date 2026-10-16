@@ -16,7 +16,8 @@ try {
   await page.locator("#workspace-switcher .workspace-switcher-chip.active").first()
     .waitFor({state:"visible",timeout:20000});
   assert.equal(await page.locator("#workspace-switcher .workspace-switcher-chip").count()>=12,true);
-  assert.equal(await page.locator(".os-nav-icon").count()>=12,true);
+  await page.locator("#workspace-switcher .os-nav-icon").first().waitFor({state:"attached",timeout:10000});
+  assert.equal(await page.locator(".os-nav-icon").count()>=12,true,`Navigation icons missing; browser errors: ${errors.join(", ")}`);
   assert.equal(await page.locator("#os-active-workspace").innerText(),"Accueil");
   const desktop=await page.evaluate(()=>{
     const nav=document.querySelector(".sidebar").getBoundingClientRect();
