@@ -116,3 +116,9 @@ The Flow Manager includes deterministic Pivot (sum/average/count/min/max)
 and Unpivot nodes, each respecting the 20,000-row/100-column limits.
 For multi-tab XLSX imports, select the worksheet explicitly before loading
 source rows. Hidden worksheets are excluded when visible ones exist.
+
+
+A workflow with multiple `Table output` nodes can export every result as one
+multi-sheet XLSX workbook (`POST /api/flows/export-workbook`), using one
+worksheet per output. This complements the ZIP of individual CSVs. Export
+limits: 100 columns/output, 250,000 workbook cells and 25 MB total.

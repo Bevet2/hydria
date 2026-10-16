@@ -184,6 +184,23 @@ const selectable = selectableExcelSheets(selectionImport.model);
 assert.deepEqual(selectable.map(sheet=>sheet.name),["Alpha","Beta"]);
 assert.deepEqual(spreadsheetSheetToFlowRows(selectable[1]),[{City:"Lyon"}]);
 
+const allOutputsXlsx = await exportFile("/api/flows/export-workbook", {flow:bundleFlow}, /spreadsheetml\.sheet/);
+officeZip(allOutputsXlsx,"xl/workbook.xml");
+const outputsWorkbook = XLSX.read(allOutputsXlsx,{type:"buffer"});
+assert.deepEqual(outputsWorkbook.SheetNames,["Output 1","Output 2"]);
+for (const name of outputsWorkbook.SheetNames) {
+  assert.deepEqual(
+    XLSX.utils.sheet_to_json(outputsWorkbook.Sheets[name],{header:1}),
+    [["city","amount"],["Paris",42],["Lyon",25]],
+    "Multi-output XLSX must keep each table in its own sheet"
+  );
+}
+const noOutputWorkbook = await fetch(baseUrl + "/api/flows/export-workbook",{
+  method:"POST",headers:{"content-type":"application/json"},
+  body:JSON.stringify({flow:{stages:[{id:"src",type:"input.table",config:{data:'[]'}}],links:[]}})
+});
+assert.equal(noOutputWorkbook.status,422);
+
 const sheetPdf = await exportFile("/api/sheets/export-pdf", { filename: "hydria-test.pdf", model }, /application\/pdf/);
 assert.equal(sheetPdf.subarray(0, 4).toString("utf8"), "%PDF");
 const pptx = await exportFile("/api/work-objects/export-smoke/presentation-export", {
