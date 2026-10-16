@@ -229,7 +229,9 @@ export function resolveWorkspacePageForWorkObject(
     return workspacePageFromSlug("crm");
   }
   if (kind === "workflow") {
-    return workspacePageFromSlug("automation");
+    return family === "data_flow"
+      ? workspacePageFromSlug("flows")
+      : workspacePageFromSlug("automation");
   }
   if (kind === "design") {
     return workspacePageFromSlug("whiteboard");
