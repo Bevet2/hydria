@@ -45,8 +45,11 @@ function catalogFromConfig(settings = process.env) {
     if (path && !PATH.test(path)) invalid("Invalid API itemsPath.", 503);
     const authHeader = String(item.authHeader || "");
     const authEnv = String(item.authEnv || "");
+    const authScheme = String(item.authScheme || "raw").toLowerCase();
     if ((authHeader && !authEnv) || (authEnv && !authHeader) ||
-        (authHeader && (!HEADER.test(authHeader) || /^(host|cookie|authorization|content-length|connection)$/i.test(authHeader))) ||
+        (authHeader && (!HEADER.test(authHeader) || /^(host|cookie|content-length|connection|transfer-encoding|proxy-authorization)$/i.test(authHeader))) ||
+        !["raw", "bearer"].includes(authScheme) ||
+        (authScheme === "bearer" && authHeader.toLowerCase() !== "authorization") ||
         (authEnv && !/^HYDRIA_FLOW_API_[A-Z0-9_]{1,72}$/.test(authEnv))) {
       invalid("Invalid API authentication configuration.", 503);
     }
@@ -65,7 +68,7 @@ function catalogFromConfig(settings = process.env) {
     return Object.freeze({
       id: item.id,
       label: String(item.label || item.id).slice(0, 100),
-      url: url.href, itemsPath: path, authHeader, authEnv,
+      url: url.href, itemsPath: path, authHeader, authEnv, authScheme,
       maxPages: pages, pageParam, firstPage, pageSizeParam, pageSize
     });
   });
@@ -156,7 +159,7 @@ export async function readFlowApiSource({
   if (source.authEnv) {
     const secret = String(settings[source.authEnv] || "");
     if (!secret) invalid("API source credentials are not configured.", 503);
-    headers[source.authHeader] = secret;
+    headers[source.authHeader] = source.authScheme === "bearer" ? "Bearer " + secret : secret;
   }
   const rows = [];
   let responseBytes = 0;
