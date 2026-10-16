@@ -145,6 +145,38 @@ try {
   });
   assert.equal(apiFailure.status,"failed");
   assert.match(apiFailure.error,/temporary error/);
+  // Concurrent run-now requests cannot execute the same schedule twice.
+  saveFlowSchedule(db,{flowKey,flow:liveApi,outputId:"out",intervalMinutes:15},start);
+  let releaseRequest;
+  const pendingFetch = async () => new Promise((resolve) => { releaseRequest = resolve; });
+  const pending = executeScheduledFlow(db,flowKey,start+3000,{fetchApi:pendingFetch});
+  assert.equal(typeof releaseRequest,"function");
+  const running = db.prepare("SELECT run_token,run_until FROM flow_schedules WHERE flow_key=?").get(flowKey);
+  assert.match(running.run_token,/^[0-9a-f-]{36}$/);
+  assert.ok(running.run_until);
+  await assert.rejects(
+    executeScheduledFlow(db,flowKey,start+3000,{fetchApi}),
+    (error) => error.status === 409
+  );
+  releaseRequest({rows:[{city:"Paris",amount:40}]});
+  assert.equal((await pending).status,"success");
+  assert.equal(db.prepare("SELECT run_token FROM flow_schedules WHERE flow_key=?").get(flowKey).run_token,null);
+  assert.equal((await executeScheduledFlow(db,flowKey,start+4000,{fetchApi})).status,"success");
+
+  const migratedDb = new Database(":memory:");
+  try {
+    migratedDb.exec(`CREATE TABLE flow_schedules (
+      flow_key TEXT PRIMARY KEY, flow_json TEXT NOT NULL,
+      output_id TEXT NOT NULL, interval_minutes INTEGER NOT NULL,
+      publish_snapshot INTEGER NOT NULL DEFAULT 1, enabled INTEGER NOT NULL DEFAULT 1,
+      next_run_at TEXT, last_run_at TEXT, last_status TEXT, last_error TEXT,
+      run_count INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL
+    )`);
+    initFlowSchedules(migratedDb);
+    initFlowSchedules(migratedDb);
+    const names = migratedDb.prepare("PRAGMA table_info(flow_schedules)").all().map(x=>x.name);
+    assert.ok(names.includes("run_token") && names.includes("run_until"));
+  } finally { migratedDb.close(); }
   assert.deepEqual(deleteFlowSchedule(db, flowKey),{deleted:true});
   assert.equal(getFlowSchedule(db, flowKey),null);
   assert.throws(() => deleteFlowSchedule(db, flowKey),(e)=>e.status===404);

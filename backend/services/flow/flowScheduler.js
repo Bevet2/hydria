@@ -1,6 +1,7 @@
 // Hydria OS scheduled data flows. A single-process, bounded SQLite scheduler.
 // It deliberately accepts only the existing deterministic flow graph and never
 // persists connection tokens. Configure a dedicated admin token at the API layer.
+import { randomUUID } from "node:crypto";
 import { validateFlow, runFlow } from "./flowEngine.js";
 import { saveFlowResult, FLOW_KEY_PATTERN } from "./flowResults.js";
 import { readFlowPostgresTable } from "./flowPostgresSource.js";
@@ -39,11 +40,18 @@ export function initFlowSchedules(db) {
       last_status TEXT,
       last_error TEXT,
       run_count INTEGER NOT NULL DEFAULT 0,
-      updated_at TEXT NOT NULL
+      updated_at TEXT NOT NULL,
+      run_token TEXT,
+      run_until TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_flow_schedules_due
       ON flow_schedules(enabled, next_run_at);
   `);
+  // Backward compatible with schedules created before the lease columns.
+  const columns = new Set(db.prepare("PRAGMA table_info(flow_schedules)").all()
+    .map((item) => item.name));
+  if (!columns.has("run_token")) db.exec("ALTER TABLE flow_schedules ADD COLUMN run_token TEXT");
+  if (!columns.has("run_until")) db.exec("ALTER TABLE flow_schedules ADD COLUMN run_until TEXT");
 }
 function metadata(record) {
   if (!record) return null;
@@ -58,7 +66,8 @@ function metadata(record) {
     lastStatus: record.last_status,
     lastError: record.last_error,
     runCount: record.run_count,
-    updatedAt: record.updated_at
+    updatedAt: record.updated_at,
+    running: Boolean(record.run_token && record.run_until && record.run_until > new Date().toISOString())
   };
 }
 function getRecord(db, flowKey) {
@@ -171,7 +180,8 @@ function recordHistory(db, key, startedAt, status, durationMs, steps, outputRows
 }
 export async function executeScheduledFlow(db, flowKey, now = Date.now(), {
   fetchPostgres = readFlowPostgresTable,
-  fetchApi = readFlowApiSource
+  fetchApi = readFlowApiSource,
+  dueOnly = false
 } = {}) {
   const key = validKey(flowKey);
   const record = getRecord(db, key);
@@ -180,10 +190,20 @@ export async function executeScheduledFlow(db, flowKey, now = Date.now(), {
   const startedAt = new Date(now).toISOString();
   const nextRunAt = new Date(now + record.interval_minutes * 60_000).toISOString();
 
-  // Claim the run before execution. An interrupted process will not endlessly
-  // replay the same due time on restart (at-most-once, not exactly-once).
-  db.prepare("UPDATE flow_schedules SET next_run_at = ?, last_run_at = ? WHERE flow_key = ?")
-    .run(nextRunAt, startedAt, key);
+  // Single atomic UPDATE makes competing backend processes sharing one
+  // SQLite file respect the same 10-minute lease. A crashed process releases
+  // it by expiry. The due-time condition prevents duplicate scheduled runs.
+  const token = randomUUID();
+  const leaseEnd = new Date(now + 10 * 60_000).toISOString();
+  const claimed = db.prepare(`
+    UPDATE flow_schedules
+    SET run_token = ?, run_until = ?, next_run_at = ?, last_run_at = ?
+    WHERE flow_key = ? AND enabled = 1
+      AND (run_token IS NULL OR run_until IS NULL OR run_until <= ?)
+      AND (? = 0 OR next_run_at <= ?)
+  `).run(token, leaseEnd, nextRunAt, startedAt, key, startedAt,
+    dueOnly ? 1 : 0, startedAt);
+  if (!claimed.changes) throw new FlowScheduleError("Flow is already running or not due.", 409);
   const began = Date.now();
   let status = "success", error = "", stepCount = 0, outputRows = 0, snapshotId = null;
   try {
@@ -227,11 +247,13 @@ export async function executeScheduledFlow(db, flowKey, now = Date.now(), {
     error = String(err?.message || err).slice(0, 500);
   }
   db.transaction(() => {
-    db.prepare(`
+    const done = db.prepare(`
       UPDATE flow_schedules SET last_status = ?, last_error = ?,
-        run_count = run_count + 1 WHERE flow_key = ?
-    `).run(status, error || null, key);
-    recordHistory(db, key, startedAt, status, Date.now() - began, stepCount, outputRows);
+        run_count = run_count + 1, run_token = NULL, run_until = NULL
+      WHERE flow_key = ? AND run_token = ?
+    `).run(status, error || null, key, token);
+    if (done.changes) recordHistory(db, key, startedAt, status,
+      Date.now() - began, stepCount, outputRows);
   })();
   return { flowKey: key, startedAt, status, error: error || null, outputRows, snapshotId, nextRunAt };
 }
@@ -244,7 +266,12 @@ export async function executeDueFlowSchedules(db, now = Date.now(), maxPerTick =
   `).all(new Date(now).toISOString(), limit);
   const results = [];
   for (const { flow_key } of due) {
-    results.push(await executeScheduledFlow(db, flow_key, now, options));
+    try {
+      results.push(await executeScheduledFlow(db, flow_key, now, { ...options, dueOnly: true }));
+    } catch (error) {
+      if (!(error instanceof FlowScheduleError && error.status === 409)) throw error;
+      // Another process claimed the due run. Skip it, don't claim failure.
+    }
   }
   return results;
 }
