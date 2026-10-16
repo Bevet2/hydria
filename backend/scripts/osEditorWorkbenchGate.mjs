@@ -32,16 +32,36 @@ try {
       null,{timeout:16000}
     );
     if(await page.locator("#workspace-panel-root").getAttribute("data-has-workspace")!=="true"){
-      // The launcher may be rebuilt during asynchronous workspace bootstrap.
-      // Dispatch the original native button click inside the current DOM frame.
-      const invoked=await page.evaluate(()=>{
-        const card=document.querySelector(".workspace-launcher-grid-single .workspace-launcher-card");
-        if(!card)return false;
-        card.click();
-        return true;
-      });
-      assert.equal(invoked,true,item.slug+" create action available");
-      await page.locator('#workspace-panel-root[data-has-workspace="true"]').waitFor({state:"visible",timeout:22000});
+      // React to async launcher replacement: retry only while the actual
+      // "create" button still exists and there is no opened work object.
+      // This exercises the same native create handler, never a synthetic editor.
+      let opened=false;
+      for(let attempt=0;attempt<3 && !opened;attempt++){
+        const state=await page.evaluate(()=>{
+          const root=document.querySelector("#workspace-panel-root");
+          const card=document.querySelector(".workspace-launcher-grid-single .workspace-launcher-card");
+          if(root?.dataset.hasWorkspace==="true")return "opened";
+          if(!card)return "waiting";
+          card.click();
+          return "clicked";
+        });
+        if(state==="opened"){opened=true;break;}
+        try {
+          await page.locator('#workspace-panel-root[data-has-workspace="true"]')
+            .waitFor({state:"visible",timeout:7000});
+          opened=true;
+        } catch {
+          const diagnostic=await page.evaluate(()=>({
+            page:document.body.dataset.workspacePage,
+            hasWorkspace:document.querySelector("#workspace-panel-root")?.dataset.hasWorkspace,
+            launcher:!!document.querySelector(".workspace-launcher-grid-single .workspace-launcher-card"),
+            title:document.querySelector("#workspace-title")?.textContent,
+            notifications:[...document.querySelectorAll('[role="alert"]')].map(el=>el.textContent?.trim()).slice(0,3)
+          }));
+          console.log("WORKBENCH_OPEN_RETRY",item.slug,attempt+1,state,JSON.stringify(diagnostic));
+        }
+      }
+      assert.ok(opened,item.slug+" must open a real editable work object");
     }
     const editor=page.locator(item.className).first();
     await editor.waitFor({state:"attached",timeout:22000});
