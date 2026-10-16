@@ -32,7 +32,15 @@ try {
       null,{timeout:16000}
     );
     if(await page.locator("#workspace-panel-root").getAttribute("data-has-workspace")!=="true"){
-      await page.locator(".workspace-launcher-grid-single .workspace-launcher-card").first().click();
+      // The launcher may be rebuilt during asynchronous workspace bootstrap.
+      // Dispatch the original native button click inside the current DOM frame.
+      const invoked=await page.evaluate(()=>{
+        const card=document.querySelector(".workspace-launcher-grid-single .workspace-launcher-card");
+        if(!card)return false;
+        card.click();
+        return true;
+      });
+      assert.equal(invoked,true,item.slug+" create action available");
       await page.locator('#workspace-panel-root[data-has-workspace="true"]').waitFor({state:"visible",timeout:22000});
     }
     const editor=page.locator(item.className).first();
