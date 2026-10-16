@@ -470,3 +470,46 @@ html body[data-os-theme="dark"] .os-mobile-files[aria-expanded="true"]{
   .sidebar .brand-panel .os-brand-name {display:flex !important;flex:1 1 auto;min-width:0;}
   .sidebar .brand-panel .os-sidebar-toggle {margin:0 0 0 auto !important;flex-shrink:0;}
 }
+
+/* Focus mode: deliberate editor-only composition, not a CSS zoom or a second
+   full-screen implementation. Original DOM/state and saving remain intact. */
+.os-focus-toggle[hidden]{display:none !important;}
+.os-focus-toggle[aria-pressed="true"]{
+  background:#eef2ff;border-color:#c7d2fe;color:#4338ca;
+}
+body.os-focus-mode .app-shell{grid-template-columns:minmax(0,1fr) !important;}
+body.os-focus-mode .sidebar{display:none !important;}
+body.os-focus-mode .os-command-bar{padding-inline:26px;}
+body.os-focus-mode #workspace-panel-root[data-has-workspace="true"]{
+  padding:18px 25px 36px !important;
+}
+body.os-focus-mode #workspace-panel-root[data-has-workspace="true"] .workspace-layout {
+  display:grid !important;grid-template-columns:minmax(0,1fr) !important;gap:0 !important;
+}
+body.os-focus-mode #workspace-panel-root[data-has-workspace="true"] .workspace-sidebar {
+  display:none !important;
+}
+body.os-focus-mode #workspace-panel-root[data-has-workspace="true"] #workspace-action-guide {
+  display:none !important;
+}
+body.os-focus-mode #workspace-panel-root[data-has-workspace="true"] .workspace-shell-header{
+  margin-bottom:12px !important;
+}
+body.os-focus-mode #workspace-panel-root[data-has-workspace="true"] .workspace-main,
+body.os-focus-mode #workspace-panel-root[data-has-workspace="true"] .workspace-stage,
+body.os-focus-mode #workspace-panel-root[data-has-workspace="true"] .workspace-preview-pane{
+  width:100% !important;min-width:0 !important;
+}
+body.os-focus-mode #workspace-panel-root[data-has-workspace="true"] .workspace-preview{
+  max-height:none !important;
+}
+html body[data-os-theme="dark"] .os-focus-toggle[aria-pressed="true"]{
+  background:#333a62;color:#dbe4ff;border-color:#4b5284;
+}
+@media(max-width:960px){
+  .os-focus-toggle:not([aria-pressed="true"]){display:none !important;}
+  body.os-focus-mode #workspace-panel-root[data-has-workspace="true"]{
+    padding-inline:14px !important;
+  }
+  body.os-focus-mode .os-mobile-files {display:none !important;}
+}
