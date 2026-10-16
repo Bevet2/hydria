@@ -236,5 +236,15 @@ jobs:
           path: /tmp/hydria-product-ui/*.png
           if-no-files-found: ignore
           retention-days: 7
+      - name: Six editor workbenches and functional inspector checks
+        run: node backend/scripts/osEditorWorkbenchGate.mjs
+      - name: Upload workbench review captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hydria-os-six-editor-workbenches
+          path: /tmp/hydria-workbench-review/*.png
+          retention-days: 7
+          if-no-files-found: ignore
       - name: Test Docs Sheets and Slides after harmonisation
         run: npm run test:visual-workspace --prefix backend -- --scenario "shared-command-adapters,docs-shared-menu-definitions,docs-context-menu-helper,sheets-toolbar-context-menu-fullscreen,slides-presentation-smoke,canvas-whiteboard-smoke,dashboard-editor-smoke,dataflow-workbench-smoke,os-global-command-palette,os-project-explorer,os-per-file-tree-smoke,shared-icons,shared-context-menu-helper,docs-word-review-layout,docs-context-format-page-break"

@@ -1,0 +1,280 @@
+/* Hydria OS editors — consistent production workbenches.
+   Scoped to internal tools: does not change formulas, document content, or graph data. */
+:root {
+  --os-editor-border: #dfe5ee;
+  --os-editor-surface: #ffffff;
+  --os-editor-muted: #f8fafc;
+  --os-editor-active: #eef2ff;
+  --os-editor-ink: #273346;
+  --os-editor-secondary: #65758a;
+  --os-editor-selection: #4f46e5;
+}
+#workspace-panel-root[data-has-workspace="true"] .workspace-main {
+  min-width:0;
+}
+#workspace-panel-root[data-has-workspace="true"] .workspace-preview-pane,
+#workspace-panel-root[data-has-workspace="true"] .workspace-preview {
+  border-color: var(--os-editor-border);
+}
+#workspace-panel-root[data-has-workspace="true"] .workspace-structured-editor {
+  min-width: 0;
+}
+/* Undo/show focus ring explicitly; editor controls should be discoverable via keyboard. */
+:where(.workspace-docs-menu-item,.workspace-docs-menu-action,.workspace-sheet-toolbar-button,
+.workspace-sheet-tab,.workspace-powerpoint-command,.workspace-powerpoint-tab,
+.workspace-powerbi-rail-button,.workspace-dashboard-command-button,
+.workspace-canvas-tool,.workspace-canvas-icon-button,
+.hydria-flow-actions button,.hydria-flow-catalog-item):focus-visible {
+  outline: 2px solid #4f46e5 !important;
+  outline-offset: -2px;
+  box-shadow: 0 0 0 3px rgba(99,102,241,.17) !important;
+}
+:where(.workspace-docs-menubar,.workspace-sheet-menubar,.workspace-powerpoint-tabs,
+.workspace-powerbi-commandbar,.workspace-dashboard-command-group) {
+  scrollbar-width: thin;
+  scrollbar-color:#bec7d6 transparent;
+}
+/* Docs: restore a useful document-first editing area, cut decorative chrome. */
+.workspace-document-preview-shell-docs,
+.workspace-docs-workspace,
+.workspace-docs-editor-root {border-radius:8px;box-shadow:none !important;}
+.workspace-docs-menubar {
+  min-height:34px;padding-inline:9px;gap:3px;
+  border:1px solid var(--os-editor-border);border-radius:8px 8px 0 0;
+  background:#fff;box-shadow:none;
+}
+.workspace-docs-menu-item {
+  min-height:34px;padding:6px 11px;font-size:12px;font-weight:550;
+  border-bottom-width:2px;border-radius:0;color:#435267;
+}
+.workspace-docs-menu-item:hover{background:#f1f5f9;color:#24334a;}
+.workspace-docs-menu-item.is-active,
+.workspace-docs-menu-item[aria-selected="true"]{
+  background:#eef2ff;color:#3730a3;border-bottom-color:#6366f1;
+}
+.workspace-docs-menu-panel {
+  min-height:58px;padding:6px 9px 5px;gap:0;
+  border:1px solid var(--os-editor-border);border-top:0;border-radius:0 0 8px 8px;
+  background:#f9fafc;box-shadow:none;
+}
+.workspace-docs-ribbon-group {padding-inline:8px;border-color:#e1e6ee;grid-template-rows:minmax(30px,1fr) auto;}
+.workspace-docs-ribbon-group-body{min-height:32px;gap:4px;}
+.workspace-docs-ribbon-group-label{font-size:9px;letter-spacing:.035em;margin-top:2px;color:#8190a3;}
+.workspace-docs-menu-action {min-height:29px;padding:4px 7px;font-size:11px;border-color:#e1e7ef;border-radius:5px;}
+.workspace-docs-menu-action:hover{background:#eef2ff;border-color:#a5b4fc;}
+.workspace-docs-header-actions .workspace-docs-header-action {border-radius:6px;box-shadow:none;}
+.workspace-docs-page-header {padding-block:7px;border-bottom:1px solid #e2e8f0;}
+.workspace-docs-statusbar{background:#f8fafc;border-top:1px solid var(--os-editor-border);box-shadow:none;}
+.workspace-document-page-stage,.workspace-document-page-stage-body{min-width:0;}
+/* Sheets: grid fills available width; menu/ribbon is deliberately compact. */
+.workspace-sheet-app {
+  border:1px solid var(--os-editor-border);border-radius:8px !important;
+  box-shadow:none !important;
+}
+.workspace-sheet-topbar {
+  min-height:40px;padding:5px 10px;background:#fff;border-color:#e1e6ee;
+}
+.workspace-sheet-menubar {
+  min-height:32px;padding:0 8px;background:#f9fbfe;border-color:#e1e6ee;
+}
+.workspace-sheet-command-search {height:30px;border-radius:6px;box-shadow:none;}
+.workspace-sheet-toolbar {
+  gap:5px;padding:4px 8px;background:#f8fafc;border-color:#e1e6ee;
+  scrollbar-width:thin;
+}
+.workspace-sheet-toolbar-group {padding-right:7px;}
+.workspace-sheet-toolbar-group-body{min-height:29px;}
+.workspace-sheet-toolbar-button,
+.workspace-sheet-toolbar-select {border-radius:5px !important;}
+.workspace-sheet-toolbar-button:hover {background:#eef2ff !important;}
+.workspace-sheet-toolbar-group-label{color:#8994a5;}
+.workspace-formula-bar {
+  padding:5px 7px;border-radius:5px;border-color:#e1e6ee;
+  background:#fff;
+}
+.workspace-sheet-name-box {border-radius:5px;background:#f8fafc;}
+.workspace-sheet-tabs {gap:3px;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:thin;}
+.workspace-sheet-tab{border-radius:5px 5px 0 0;padding:6px 11px;white-space:nowrap;}
+.workspace-sheet-tab.active{border-color:#b4b8fa;color:#4338ca;}
+.workspace-sheet-chart-inspector,.workspace-sheet-chart-stage{box-shadow:none;}
+/* Slides: the presentation canvas should dominate; native inspector/slide rail remain operational. */
+.workspace-powerpoint-app {
+  border:1px solid var(--os-editor-border);border-radius:8px !important;
+  box-shadow:none !important;color-scheme:light;
+}
+.workspace-powerpoint-ribbon {border-color:#e1e6ef;background:#f8fafc;}
+.workspace-powerpoint-tabs {background:#fff;border-color:#e1e6ef;}
+.workspace-powerpoint-ribbon-body{background:#f8fafc;}
+.workspace-powerpoint-command {border-radius:5px !important;box-shadow:none !important;}
+.workspace-powerpoint-command:hover {background:#eef2ff;color:#3730a3;}
+.workspace-powerpoint-slide-rail {background:#f5f7fb;border-color:#e1e6ee;}
+.workspace-powerpoint-inspector {background:#fff;border-color:#e1e6ee;box-shadow:none;}
+.workspace-powerpoint-inspector-section {border-color:#e3e8f1;}
+.workspace-powerpoint-stage {background:#eef1f7;}
+.workspace-powerpoint-stage-toolbar {border-color:#e1e6ee;background:#f8fafc;}
+/* Dashboard: presentation surfaces should be neutral, charts should own attention. */
+.workspace-dashboard-powerbi,
+.workspace-dashboard-shell {
+  border-color:var(--os-editor-border);border-radius:8px;
+  box-shadow:none !important;
+}
+.workspace-powerbi-rail {background:#f7f9fd;border-color:#e1e6ee;}
+.workspace-powerbi-commandbar {border-color:#e1e6ee;background:#fff;}
+.workspace-powerbi-rail-button {border-radius:6px;font-size:11px;}
+.workspace-powerbi-rail-button.is-active,
+.workspace-powerbi-rail-button:hover{background:#eef2ff;color:#4338ca;}
+.workspace-powerbi-properties-panel {
+  background:#fff;border-color:#e1e6ee;box-shadow:none;
+}
+.workspace-powerbi-properties-header{min-height:42px;padding:10px 12px 8px;}
+.workspace-powerbi-properties-tabs{gap:12px;padding:0 12px 8px;}
+.workspace-dashboard-kpi,.workspace-dashboard-chart-card {
+  border:1px solid #e2e8f0;border-radius:8px;
+  box-shadow:none;background:#fff;padding:14px;
+}
+.workspace-dashboard-metrics {gap:9px;}
+.workspace-dashboard-chart-grid{gap:12px;}
+.workspace-dashboard-delta{border-radius:5px;}
+/* Flow Manager: real workbench with configurable panels and larger canvas. */
+.hydria-flow-manager {
+  --flow-accent:#4f46e5;
+  min-height:690px;
+  background:#fff;
+  border:1px solid var(--os-editor-border);
+  border-radius:8px;
+  color:#1e293b;
+  box-shadow:none;
+}
+.hydria-flow-toolbar {
+  padding:8px 11px;min-height:48px;background:#fff;
+  border-color:#dfe5ed;align-items:center;
+}
+.hydria-flow-title strong{font-size:13px;letter-spacing:-.01em;}
+.hydria-flow-title span{font-size:10px;color:#8792a2;}
+.hydria-flow-actions {gap:4px;}
+.hydria-flow-actions button,.hydria-flow-secondary{
+  min-height:29px;padding:5px 9px;border-color:#dce3ed;
+  font-size:11px;border-radius:5px;background:#fff;
+}
+.hydria-flow-actions .hydria-flow-primary{background:#4f46e5;border-color:#4f46e5;color:#fff;}
+.hydria-flow-actions .hydria-flow-primary:hover{background:#4338ca;color:#fff;}
+.hydria-flow-pane-toggle[aria-pressed="true"]{
+  background:#eef2ff;color:#3730a3;border-color:#b7bef9;
+}
+.hydria-flow-layout{grid-template-columns:184px minmax(0,1fr) 238px;min-height:620px;}
+.hydria-flow-manager.is-palette-closed .hydria-flow-layout{grid-template-columns:minmax(0,1fr) 238px;}
+.hydria-flow-manager.is-inspector-closed .hydria-flow-layout{grid-template-columns:184px minmax(0,1fr);}
+.hydria-flow-manager.is-palette-closed.is-inspector-closed .hydria-flow-layout{grid-template-columns:minmax(0,1fr);}
+.hydria-flow-palette[hidden],.hydria-flow-inspector[hidden],
+.hydria-flow-console[hidden]{display:none !important;}
+.hydria-flow-palette,.hydria-flow-inspector {
+  padding:11px;background:#fafbfe;border-color:#e2e8f0;
+  scrollbar-width:thin;
+}
+.hydria-flow-palette h3,.hydria-flow-inspector h3{
+  margin:0 0 9px;font-weight:700;font-size:12px;color:#344157;
+}
+.hydria-flow-palette h4{margin:12px 0 5px;color:#8190a2;font-size:9px;}
+.hydria-flow-catalog{gap:3px;}
+.hydria-flow-catalog-item {padding:7px 9px;border-radius:5px;border-color:transparent;background:transparent;color:#475569;}
+.hydria-flow-catalog-item:hover {background:#e9edff;border-color:#c7d2fe;color:#3730a3;}
+.hydria-flow-search,.hydria-flow-field :is(input,select,textarea) {
+  padding:7px 8px;border-radius:5px;border-color:#dce3ed;background:#fff;font-size:11px;
+}
+.hydria-flow-scroll {
+  min-height:470px;background-color:#f8fafc;
+  background-image:radial-gradient(#d6deeb 1px,transparent 1px);
+  background-size:20px 20px;
+}
+.hydria-flow-console {
+  min-height:95px;max-height:195px;padding:9px 11px;
+  border-color:#e2e8f0;background:#fff;
+}
+.hydria-flow-console-header {margin:0 0 5px;color:#334155;}
+.hydria-flow-table th {background:#f1f5f9;color:#334155;}
+/* Canvas: clear working surface, subdued metrics and floating creation controls. */
+.workspace-canvas-surface {gap:10px;}
+.workspace-canvas-toolbar {
+  align-items:center;gap:8px;padding:9px 11px;
+  border:1px solid var(--os-editor-border);border-radius:8px;background:#fff;
+}
+.workspace-canvas-toolbar-copy{gap:1px;}
+.workspace-canvas-toolbar-copy > strong{font-size:13px;color:#243449;}
+.workspace-canvas-toolbar-label{font-size:9px;letter-spacing:.075em;color:#7b8798;}
+.workspace-canvas-toolbar-subtitle{font-size:11px;line-height:1.25;color:#8b97a6;}
+.workspace-canvas-metrics {gap:5px;}
+.workspace-canvas-metric {
+  min-width:58px;padding:5px 8px;gap:0;border-radius:6px;
+  border-color:#e6ebf2;background:#f8fafc;
+}
+.workspace-canvas-metric span {font-size:9px;color:#8491a2;letter-spacing:0;}
+.workspace-canvas-tools {gap:4px;}
+.workspace-canvas-tool {min-height:31px;padding:5px 9px;font-size:11px;border-color:#dfe5ee;border-radius:5px;}
+.workspace-canvas-tool:hover,.workspace-canvas-tool:focus-visible {background:#eef2ff;border-color:#a5b4fc;color:#3730a3;}
+.workspace-canvas-viewport {
+  min-height:620px;padding:12px;background:#f4f6fa;
+  border:1px solid #dfe5ee;border-radius:8px;
+}
+.workspace-canvas-quick-dock {
+  padding:5px;gap:2px;bottom:14px;border-radius:9px;
+  background:rgba(255,255,255,.96);border-color:#dce3ed;
+  box-shadow:0 8px 24px rgba(15,23,42,.12);
+}
+.workspace-canvas-icon-button {min-height:32px;padding:5px 8px;border-radius:6px;}
+.workspace-canvas-icon-button:hover,
+.workspace-canvas-icon-button.is-active {background:#eef2ff;color:#4338ca;box-shadow:none;}
+/* Focus mode: one action for all six app editors; Escape restores navigation. */
+.os-editor-focus-button[hidden]{display:none !important;}
+body.os-editor-focus:not(.os-sidebar-open) .app-shell {
+  grid-template-columns:minmax(0,1fr) !important;
+}
+body.os-editor-focus:not(.os-sidebar-open) .sidebar{display:none !important;}
+body.os-editor-focus #workspace-panel-root.workspace-panel{
+  padding:12px 15px 26px !important;
+}
+body.os-editor-focus #workspace-panel-root[data-has-workspace="true"] .workspace-shell-header{
+  margin-bottom:7px !important;
+}
+body.os-editor-focus #workspace-panel-root[data-has-workspace="true"] .workspace-sidebar {
+  display:none !important;
+}
+body.os-editor-focus #workspace-panel-root[data-has-workspace="true"] .workspace-layout{
+  grid-template-columns:minmax(0,1fr) !important;
+}
+body.os-editor-focus #workspace-panel-root[data-has-workspace="true"] #workspace-action-guide{
+  display:none !important;
+}
+body.os-editor-focus .os-command-bar{height:45px;min-height:45px;}
+body.os-editor-focus #os-editor-focus {
+  background:#eef2ff;color:#4338ca;border-color:#c7d2fe;
+}
+body.os-editor-focus #workspace-panel-root[data-has-workspace="true"] .workspace-title-group h2{
+  font-size:17px !important;
+}
+@media(max-width:1150px){
+  .hydria-flow-toolbar{flex-wrap:wrap;}
+  .hydria-flow-actions{width:100%;justify-content:flex-start;}
+  .hydria-flow-layout{grid-template-columns:162px minmax(0,1fr) 215px;}
+  .hydria-flow-manager.is-inspector-closed .hydria-flow-layout{grid-template-columns:162px minmax(0,1fr);}
+  .hydria-flow-manager.is-palette-closed .hydria-flow-layout{grid-template-columns:minmax(0,1fr) 215px;}
+}
+@media(max-width:850px){
+  .hydria-flow-layout,.hydria-flow-manager.is-inspector-closed .hydria-flow-layout,
+  .hydria-flow-manager.is-palette-closed .hydria-flow-layout{
+    grid-template-columns:minmax(0,1fr) !important;
+  }
+  .hydria-flow-palette:not([hidden]),.hydria-flow-inspector:not([hidden]){
+    max-height:230px;min-height:0;border-bottom:1px solid #e2e8f0;
+  }
+  .hydria-flow-console{max-height:180px;}
+  .workspace-canvas-toolbar{flex-wrap:wrap;}
+  .workspace-canvas-toolbar-subtitle{display:none;}
+  .workspace-canvas-metrics{order:3;width:100%;}
+  .workspace-canvas-viewport{min-height:430px;}
+  .workspace-dashboard-powerbi{min-height:540px;}
+  .workspace-powerpoint-app{min-height:560px;}
+}
+@media (prefers-reduced-motion:reduce) {
+  .workspace-canvas-icon-button,.workspace-sheet-toolbar-button,
+  .workspace-powerpoint-command{transition:none !important;}
+}

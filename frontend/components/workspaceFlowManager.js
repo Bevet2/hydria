@@ -215,7 +215,8 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
     return;
   }
   host.replaceChildren();
-  const state = { flow: structuredClone(model), selected: model.stages[0]?.id || "", activeOutputId: "", pending: "", zoom: 1, results: null, error: "", running: false, history: [], future: [], runHistory: [], snapshotToken: "", snapshots: [], loadedSnapshot: null, snapshotBusy: false, schedule: null, scheduleMinutes: 60 };
+  const state = { flow: structuredClone(model), selected: model.stages[0]?.id || "", activeOutputId: "", pending: "", zoom: 1, results: null, error: "", running: false, history: [], future: [], runHistory: [], snapshotToken: "", snapshots: [], loadedSnapshot: null, snapshotBusy: false, schedule: null, scheduleMinutes: 60,
+    paletteOpen: window.innerWidth >= 720, inspectorOpen: window.innerWidth >= 1180, consoleOpen: true, searchQuery: "" };
   const root = element("section", "hydria-flow-manager");
   const toolbar = element("div", "hydria-flow-toolbar");
   const name = element("div", "hydria-flow-title");
@@ -224,7 +225,11 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
   toolbar.append(name, actions);
   const body = element("div", "hydria-flow-layout");
   const palette = element("aside", "hydria-flow-palette"), middle = element("div", "hydria-flow-central");
+  palette.id = "hydria-flow-palette-" + (++sequence);
+  palette.setAttribute("aria-label", "Node library");
   const inspector = element("aside", "hydria-flow-inspector");
+  inspector.id = "hydria-flow-inspector-" + (++sequence);
+  inspector.setAttribute("aria-label", "Selected node properties");
   const graphWrapper = element("div", "hydria-flow-scroll");
   const graph = element("div", "hydria-flow-graph");
   const wires = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -234,6 +239,7 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
   graph.append(wires);
   graphWrapper.appendChild(graph);
   const consoleView = element("section", "hydria-flow-console");
+  consoleView.id = "hydria-flow-console-" + (++sequence);
   middle.append(graphWrapper, consoleView);
   body.append(palette, middle, inspector);
   root.append(toolbar, body); host.appendChild(root);
@@ -826,6 +832,8 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
     palette.replaceChildren(element("h3", "", "Node repository"));
     const search = element("input", "hydria-flow-search");
     search.type = "search"; search.placeholder = "Search nodes…";
+    search.value = state.searchQuery;
+    search.setAttribute("aria-label", "Search flow operations");
     palette.appendChild(search);
     const list = element("div", "hydria-flow-catalog");
     palette.appendChild(list);
@@ -839,7 +847,7 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
         items.forEach((spec) => list.appendChild(button("+  " + spec.label, () => addNode(spec.type), "hydria-flow-catalog-item")));
       });
     };
-    search.addEventListener("input", draw);
+    search.addEventListener("input", () => { state.searchQuery = search.value; draw(); });
     draw();
   }
   function renderConsole() {
@@ -1223,6 +1231,14 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
   }
   function renderActions() {
     actions.replaceChildren();
+    const paneToggle = (label, property, control) => {
+      const pressed = state[property];
+      const el = button(label, () => { state[property] = !state[property]; renderActions(); syncPanels(); }, "hydria-flow-pane-toggle");
+      el.setAttribute("aria-pressed", String(pressed));
+      el.setAttribute("aria-controls", control.id);
+      el.title = (pressed ? "Hide " : "Show ") + label.toLowerCase();
+      return el;
+    };
     actions.append(
       button("▶ Run", () => { void run(); }, "hydria-flow-primary"),
       button("Undo", undo, "hydria-flow-secondary"),
@@ -1238,6 +1254,11 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
         window.open("/flow-dashboard.html?flowKey=" +
           encodeURIComponent(state.flow.executionHistoryId), "_blank", "noopener");
       }, "hydria-flow-secondary")
+    );
+    actions.append(
+      paneToggle("Nodes", "paletteOpen", palette),
+      paneToggle("Properties", "inspectorOpen", inspector),
+      paneToggle("Results", "consoleOpen", consoleView)
     );
     const importInput = element("input"); importInput.type = "file"; importInput.accept = ".json,application/json"; importInput.hidden = true;
     importInput.addEventListener("change", async () => {
@@ -1256,11 +1277,19 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
       renderActions();
     }, "hydria-flow-secondary"));
   }
+  function syncPanels() {
+    root.classList.toggle("is-palette-closed", !state.paletteOpen);
+    root.classList.toggle("is-inspector-closed", !state.inspectorOpen);
+    root.classList.toggle("is-console-closed", !state.consoleOpen);
+    palette.hidden = !state.paletteOpen;
+    inspector.hidden = !state.inspectorOpen;
+    consoleView.hidden = !state.consoleOpen;
+  }
   function renderScale() {
     graph.style.transform = "scale(" + state.zoom + ")";
     graphWrapper.style.setProperty("--flow-zoom", String(state.zoom));
   }
-  function render() { renderActions(); renderPalette(); renderInspector(); renderNodes(); renderWires(); renderConsole(); renderScale(); }
+  function render() { renderActions(); renderPalette(); renderInspector(); renderNodes(); renderWires(); renderConsole(); renderScale(); syncPanels(); }
   render();
   if (state.flow.executionHistoryId) void loadRunHistory();
 }
