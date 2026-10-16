@@ -142,6 +142,44 @@ router.post("/export-xlsx", (req, res, next) => {
   }
 });
 
+// Export all outputs as a native multi-tab Excel workbook.
+router.post("/export-workbook", (req, res, next) => {
+  try {
+    const result = runFlow(req.body?.flow || {}, { includeAllOutputs: true });
+    if (!result.success) return res.status(422).json({ success: false, errors: result.errors });
+    if (!result.outputs.length) return res.status(422).json({ success: false, errors: ["No table outputs to export."] });
+    const workbook = XLSX.utils.book_new();
+    let totalCells = 0;
+    for (const [index, output] of result.outputs.entries()) {
+      const data = output.data || [];
+      const columns = [...new Set(data.flatMap((row) => Object.keys(row)))];
+      if (columns.length > 100) return res.status(413).json({ success: false, errors: ["An output exceeds 100 columns."] });
+      totalCells += Math.max(1, data.length + 1) * Math.max(1, columns.length);
+      if (totalCells > 250000) return res.status(413).json({ success: false, errors: ["Workbook exceeds 250,000 cells."] });
+      const table = columns.length
+        ? [columns, ...data.map((row) => columns.map((name) => row[name] ?? null))]
+        : [["No rows"]];
+      const sheet = XLSX.utils.aoa_to_sheet(table);
+      for (const address of Object.keys(sheet)) {
+        if (address.startsWith("!")) continue;
+        const cell = sheet[address];
+        if (typeof cell.v === "string") {
+          cell.t = "s";
+          delete cell.f;
+        }
+      }
+      XLSX.utils.book_append_sheet(workbook, sheet, "Output " + (index + 1));
+    }
+    const bytes = XLSX.write(workbook, { bookType: "xlsx", type: "buffer" });
+    if (bytes.length > 25_000_000) {
+      return res.status(413).json({ success: false, errors: ["Workbook exceeds 25 MB."] });
+    }
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", 'attachment; filename="hydria-flow-all-outputs.xlsx"');
+    res.send(bytes);
+  } catch (error) { next(error); }
+});
+
 // Export every table output in a single portable archive.
 router.post("/export-bundle", (req, res, next) => {
   try {
