@@ -899,6 +899,16 @@ function createCanvasElement(data, context) {
   node.dataset.id = data.id
   node.dataset.type = data.type
   node.dataset.shape = data.shape || "rect"
+  node.tabIndex = 0
+  node.setAttribute("role", "group")
+  node.setAttribute("aria-label", (data.title || "Canvas block") + ". Use Enter to select, arrow keys to move after selection.")
+  node.addEventListener("keydown", (event) => {
+    if ((event.key === "Enter" || event.key === " ") && !isCanvasEditingTarget(event.target)) {
+      event.preventDefault()
+      event.stopPropagation()
+      onActivate(data.id)
+    }
+  })
   node.style.left = `${data.x}px`
   node.style.top = `${data.y}px`
   node.style.width = `${data.width}px`
@@ -2443,7 +2453,7 @@ export function renderWorkspaceCanvasPanel(
       const to = getElementById(activeLink.to)
       helperText.textContent = `Arrow selected: ${from?.title || "Source"} to ${to?.title || "Target"}. Right-click it for options.`
     } else if (selectedElement) {
-      helperText.textContent = `Selected: ${selectedElement.title || "Untitled block"}. Use Link or right-click for more options.`
+      helperText.textContent = `Selected: ${selectedElement.title || "Untitled block"}. Arrows move 10 px; Shift + arrows move 20 px. Right-click for options.`
     } else {
       helperText.textContent = "Tip: right-click a block for options, or start an arrow then click another block."
     }
@@ -3111,6 +3121,27 @@ export function renderWorkspaceCanvasPanel(
         void exitCanvasFullscreen()
       }
       return
+    }
+
+    if (boardContentIsEditable && selectedId &&
+      ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key) &&
+      !event.altKey && !event.ctrlKey && !event.metaKey) {
+      const selected=getSelectedCanvasElement()
+      if (selected) {
+        event.preventDefault()
+        const step=event.shiftKey ? 20 : 10
+        const delta={
+          ArrowLeft:[-step,0],ArrowRight:[step,0],
+          ArrowUp:[0,-step],ArrowDown:[0,step]
+        }[event.key]
+        const nextX=Math.max(0,Math.min(CANVAS_BOARD_WIDTH-selected.width,selected.x+delta[0]))
+        const nextY=Math.max(0,Math.min(CANVAS_BOARD_HEIGHT-selected.height,selected.y+delta[1]))
+        if (nextX!==selected.x || nextY!==selected.y) {
+          updateElement(selectedId,{x:nextX,y:nextY})
+          focusCanvasViewport()
+        }
+        return
+      }
     }
 
     if (event.key === "Delete" || event.key === "Backspace") {
