@@ -41,6 +41,8 @@ jobs:
         run: node backend/scripts/dataFlowGate.mjs
       - name: Flow SQLite source and permission limits
         run: node backend/scripts/flowSqliteSourceGate.mjs
+      - name: Flow persisted snapshots and retention
+        run: node backend/scripts/flowResultSnapshotGate.mjs
       - name: Workspace tool integration
         run: npm run gate:workspace --prefix backend
       - name: Work objects and revision history
@@ -51,7 +53,7 @@ jobs:
         run: npm run gate:hydria-interactions --prefix backend
       - name: Launch Hydria OS and verify Canvas PDF API
         run: |
-          npm run start --prefix backend > /tmp/hydria-os.log 2>&1 &
+          HYDRIA_FLOW_CONNECTOR_TOKEN=ci-flow-results-token npm run start --prefix backend > /tmp/hydria-os.log 2>&1 &
           alive=false
           for i in {1..25}; do
             if curl --silent --fail http://127.0.0.1:3001/api/health >/dev/null; then
@@ -96,6 +98,38 @@ jobs:
           assert.match(body,/city,sales/);
           assert.equal(body.trim().split("\r\n").length,4);
           console.log("Full CSV export verified");
+          '
+      - name: Validate authenticated Flow snapshot API
+        run: |
+          node --input-type=module -e '
+          import assert from "node:assert/strict";
+          const base = "http://127.0.0.1:3001/api/flows/snapshots";
+          const flowKey = "11111111-1111-4111-8111-111111111111";
+          const flow = {
+            stages:[
+              {id:"src",type:"input.table",config:{data:JSON.stringify([{city:"Paris",count:2}])}},
+              {id:"out",type:"output.table",label:"Result table",config:{}}
+            ],
+            links:[{id:"edge",from:"src",to:"out",toPort:0}]
+          };
+          const unauthorized = await fetch(base + "/" + flowKey);
+          assert.equal(unauthorized.status, 403);
+          const headers = {"content-type":"application/json","x-hydria-flow-token":"ci-flow-results-token"};
+          const created = await fetch(base,{method:"POST",headers,body:JSON.stringify({flow,historyId:flowKey,outputId:"out"})});
+          assert.equal(created.status,201);
+          const saved = await created.json();
+          assert.equal(saved.snapshot.rowCount,1);
+          const listResponse = await fetch(base + "/" + flowKey,{headers});
+          assert.equal(listResponse.status,200);
+          assert.equal((await listResponse.json()).snapshots.length,1);
+          const opened = await fetch(base + "/" + flowKey + "/" + saved.snapshot.id,{headers});
+          assert.equal(opened.status,200);
+          assert.deepEqual((await opened.json()).snapshot.rows,[{city:"Paris",count:2}]);
+          const removed = await fetch(base + "/" + flowKey + "/" + saved.snapshot.id,{method:"DELETE",headers});
+          assert.equal(removed.status,200);
+          const notFound = await fetch(base + "/" + flowKey + "/" + saved.snapshot.id,{headers});
+          assert.equal(notFound.status,404);
+          console.log("Flow snapshots API save/list/read/delete and access restriction verified.");
           '
       - name: Validate DOCX PDF XLSX and PPTX roundtrip exports
         run: node backend/scripts/osExportSmoke.mjs
