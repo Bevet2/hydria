@@ -17164,6 +17164,27 @@ function renderWorkspace() {
         });
       } catch (error) { handleError(error); }
     } : null,
+    onDuplicate: ["project", "code"].includes(workObject?.kind) ? async (entryPath, nextPath) => {
+      await flushPendingWorkObjectChanges();
+      try {
+        const source = await apiClient.getWorkObject(workObject.id, entryPath);
+        const content = source.workObject?.file?.content;
+        if (typeof content !== "string") throw new Error("Cannot read source file to duplicate");
+        const result = await apiClient.createWorkObjectFile(workObject.id, {
+          entryPath: nextPath.trim(),
+          content,
+          userId: state.currentUserId,
+          expectedRevision: state.currentWorkObject?.revision
+        });
+        mergeWorkObject(result.workObject);
+        await selectWorkObject(workObject.id, nextPath.trim(), {
+          syncProject: false,
+          preserveDimension: true,
+          preserveSurface: true,
+          preserveMode: true
+        });
+      } catch (error) { handleError(error); }
+    } : null,
     onMove: ["project", "code"].includes(workObject?.kind) ? async (entryPath, nextPath) => {
       await flushPendingWorkObjectChanges();
       try {
