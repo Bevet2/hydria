@@ -57,6 +57,10 @@ try {
   assert.equal((await fetch(base+"/")).status,401);
   assert.equal((await fetch(base+"/api/health")).status,401);
   assert.equal((await fetch(base+"/api/users")).status,401);
+  assert.equal((await fetch(base+"/api/health/ready")).status,401);
+  const readiness=await fetch(base+"/api/health/ready",{headers:auth});
+  assert.equal(readiness.status,200);
+  assert.equal((await readiness.json()).status,"ready");
   assert.equal((await fetch(base+"/api/users",{headers:auth})).status,200);
   assert.equal((await fetch(base+"/api/users",{headers:{authorization:"Basic invalid"}})).status,401);
   assert.equal((await fetch(base+"/")).status,401);
