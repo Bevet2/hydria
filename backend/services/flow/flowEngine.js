@@ -14,6 +14,8 @@ export const FLOW_NODE_CATALOG = Object.freeze([
   { type: "transform.sort", group: "Transform", label: "Sort rows", inputs: 1, outputs: 1, description: "Sort by field (ascending/descending)", defaults: { column: "sales", direction: "desc" } },
   { type: "transform.derive", group: "Transform", label: "Derived column", inputs: 1, outputs: 1, description: "Use safe arithmetic on a numeric column", defaults: { column: "sales", target: "with_tax", operator: "multiply", value: "1.2" } },
   { type: "transform.aggregate", group: "Transform", label: "Group by", inputs: 1, outputs: 1, description: "Group rows and aggregate a numeric column", defaults: { groupBy: "city", column: "sales", operation: "sum", target: "total_sales" } },
+  { type: "transform.pivot", group: "Reshape", label: "Pivot table", inputs: 1, outputs: 1, description: "Turn category values into columns with aggregations", defaults: { index: "city", pivotColumn: "year", valueColumn: "sales", operation: "sum" } },
+  { type: "transform.unpivot", group: "Reshape", label: "Unpivot columns", inputs: 1, outputs: 1, description: "Turn selected columns into field/value rows", defaults: { columns: "sales,cost", nameColumn: "field", valueColumn: "amount" } },
   { type: "transform.join", group: "Transform", label: "Join tables", inputs: 2, outputs: 1, description: "Join two tables using matching fields", defaults: { leftKey: "id", rightKey: "id", how: "left" } },
   { type: "output.table", group: "Outputs", label: "Table output", inputs: 1, outputs: 0, description: "Inspect the final table", defaults: {} }
 ]);
@@ -240,6 +242,69 @@ function compute(type, inputTables, config) {
         : operation === "max" ? Math.max(...values) : flowError("Invalid aggregate operation.");
       return { [groupBy]: group, [target]: value };
     });
+  }
+  if (type === "transform.pivot") {
+    const index = [...new Set(String(config.index || "").split(",").map((key) => key.trim()).filter(Boolean))];
+    const pivotColumn = safeString(config.pivotColumn || "").trim();
+    const valueColumn = safeString(config.valueColumn || "").trim();
+    const operation = String(config.operation || "sum");
+    if (!index.length || !pivotColumn || !valueColumn) flowError("Pivot needs index, pivot and value columns.");
+    if (!["sum", "avg", "count", "min", "max"].includes(operation)) flowError("Unsupported pivot aggregation.");
+    const pivotLabels = new Set(), groups = new Map();
+    for (const row of rows) {
+      const label = safeString(row[pivotColumn] == null ? "(blank)" : row[pivotColumn]).trim() || "(blank)";
+      if (index.includes(label)) flowError("Pivot category conflicts with an index column: " + label);
+      pivotLabels.add(label);
+      if (index.length + pivotLabels.size > 100) flowError("Pivot exceeds the 100 column limit.");
+      const values = index.map((key) => row[key] ?? null);
+      const groupKey = JSON.stringify(values);
+      let group = groups.get(groupKey);
+      if (!group) {
+        group = { values, buckets: new Map() };
+        groups.set(groupKey, group);
+      }
+      const bucket = group.buckets.get(label) || { sum: 0, count: 0, min: Infinity, max: -Infinity };
+      let number = 0;
+      if (operation !== "count") number = numerical(row[valueColumn], valueColumn);
+      bucket.sum += number;
+      bucket.count++;
+      bucket.min = Math.min(bucket.min, number);
+      bucket.max = Math.max(bucket.max, number);
+      group.buckets.set(label, bucket);
+    }
+    const labels = [...pivotLabels];
+    return [...groups.values()].map((group) => Object.fromEntries([
+      ...index.map((key, idx) => [key, group.values[idx]]),
+      ...labels.map((label) => {
+        const bucket = group.buckets.get(label);
+        if (!bucket) return [label, null];
+        const value = operation === "count" ? bucket.count :
+          operation === "sum" ? bucket.sum :
+          operation === "avg" ? bucket.sum / bucket.count :
+          operation === "min" ? bucket.min : bucket.max;
+        if (!Number.isFinite(value)) flowError("Invalid pivot aggregation value.");
+        return [label, value];
+      })
+    ]));
+  }
+  if (type === "transform.unpivot") {
+    const columns = [...new Set(String(config.columns || "").split(",").map((key) => key.trim()).filter(Boolean))];
+    const nameColumn = safeString(config.nameColumn || "field").trim();
+    const valueColumn = safeString(config.valueColumn || "value").trim();
+    if (!columns.length || !nameColumn || !valueColumn || nameColumn === valueColumn) {
+      flowError("Unpivot needs source columns and two distinct destination columns.");
+    }
+    if (rows.length * columns.length > MAX_ROWS) flowError("Unpivot exceeds the 20,000 row limit.");
+    const preservedColumns = new Set(rows.flatMap((row) => Object.keys(row).filter((key) => !columns.includes(key))));
+    if (preservedColumns.has(nameColumn) || preservedColumns.has(valueColumn)) {
+      flowError("Unpivot would overwrite an existing preserved column.");
+    }
+    if (preservedColumns.size + 2 > 100) flowError("Unpivot exceeds the 100 column limit.");
+    return rows.flatMap((row) => columns.map((column) => ({
+      ...Object.fromEntries(Object.entries(row).filter(([key]) => !columns.includes(key))),
+      [nameColumn]: column,
+      [valueColumn]: row[column] ?? null
+    })));
   }
   if (type === "transform.join") {
     const right = inputTables[1] || [];
