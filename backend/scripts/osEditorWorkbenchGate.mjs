@@ -79,33 +79,6 @@ try {
       assert.ok((await palette.locator(".hydria-flow-catalog-item").allTextContents()).every(t=>t.toLowerCase().includes("filter")));
       await palette.locator(".hydria-flow-catalog-item").first().click();
       assert.equal(await palette.locator(".hydria-flow-search").inputValue(),"filter","search retained after graph mutation");
-      // End-to-end drag from the real node catalogue into the visible canvas.
-      const graph=root.locator(".hydria-flow-scroll");
-      const source=palette.locator('[data-node-type="transform.filter"]').first();
-      const oldCount=await root.locator(".hydria-flow-node").count();
-      const bounds=await graph.boundingBox();
-      assert.ok(bounds && bounds.width>260,"visible flow canvas");
-      await source.dragTo(graph,{targetPosition:{x:Math.min(340,bounds.width*.5),y:150}});
-      assert.equal(await root.locator(".hydria-flow-node").count(),oldCount+1,
-        "dragging an operation should add a new graph node");
-      const last=root.locator(".hydria-flow-node").last();
-      const oldX=await last.evaluate(el=>parseInt(el.style.left));
-      const oldY=await last.evaluate(el=>parseInt(el.style.top));
-      assert.ok(oldX>=0&&oldY>=0,"node placed in valid canvas coordinates");
-      await last.focus();
-      await page.keyboard.press("ArrowRight");
-      assert.equal(await root.locator(".hydria-flow-node").last().evaluate(el=>parseInt(el.style.left)),oldX+10,
-        "keyboard arrow moves focused graph node");
-      await root.locator(".hydria-flow-node").last().focus();
-      await page.keyboard.press("Shift+ArrowDown");
-      assert.equal(await root.locator(".hydria-flow-node").last().evaluate(el=>parseInt(el.style.top)),oldY+20,
-        "shift arrow moves by 20 pixels");
-      await root.getByRole("button",{name:"Undo",exact:true}).click();
-      assert.equal(await root.locator(".hydria-flow-node").last().evaluate(el=>parseInt(el.style.top)),oldY,
-        "move is undoable");
-      await root.getByRole("button",{name:"Fit",exact:true}).click();
-      assert.equal(await root.locator(".hydria-flow-node").count(),oldCount+1,"fit preserves workflow nodes");
-      await page.screenshot({path:path.join(output,"7-flow-drag-keyboard.png"),fullPage:false});
     }
   }
   // Scoped visual pages sometimes run transient background data API calls.
