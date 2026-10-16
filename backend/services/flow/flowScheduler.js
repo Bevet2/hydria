@@ -4,6 +4,7 @@
 import { validateFlow, runFlow } from "./flowEngine.js";
 import { saveFlowResult, FLOW_KEY_PATTERN } from "./flowResults.js";
 import { readFlowPostgresTable } from "./flowPostgresSource.js";
+import { readFlowApiSource } from "./flowApiSource.js";
 
 const MIN_INTERVAL = 15;
 const MAX_INTERVAL = 1440;
@@ -97,25 +98,33 @@ export function saveFlowSchedule(db, {
   let liveSources = 0;
   const storedStages = validation.flow.stages.map((stage) => {
     const pg = stage.config?.postgresSource;
-    if (pg === undefined) return stage;
-    if ((stage.type || stage.kind) !== "input.table" ||
-        !pg || pg.kind !== "postgres" ||
-        !/^[A-Za-z_][A-Za-z0-9_]{0,62}$/.test(String(pg.schema || "")) ||
-        !/^[A-Za-z_][A-Za-z0-9_]{0,62}$/.test(String(pg.table || "")) ||
-        !Number.isInteger(Number(pg.limit)) || Number(pg.limit) < 1 || Number(pg.limit) > 20000) {
-      throw new FlowScheduleError("Invalid live PostgreSQL source reference.");
+    const api = stage.config?.apiSource;
+    if (pg === undefined && api === undefined) return stage;
+    if ((stage.type || stage.kind) !== "input.table" || (pg && api)) {
+      throw new FlowScheduleError("Invalid live source configuration.");
     }
-    if (++liveSources > 3) throw new FlowScheduleError("Maximum three live PostgreSQL sources per scheduled flow.");
-    return {
-      ...stage,
-      config: {
-        ...(stage.config || {}),
-        data: "[]",
-        postgresSource: {
-          kind: "postgres", schema: pg.schema, table: pg.table, limit: Number(pg.limit)
-        }
+    if (++liveSources > 3) throw new FlowScheduleError("Maximum three live sources per scheduled flow.");
+    let reference;
+    if (pg !== undefined) {
+      if (!pg || pg.kind !== "postgres" ||
+          !/^[A-Za-z_][A-Za-z0-9_]{0,62}$/.test(String(pg.schema || "")) ||
+          !/^[A-Za-z_][A-Za-z0-9_]{0,62}$/.test(String(pg.table || "")) ||
+          !Number.isInteger(pg.limit) || pg.limit < 1 || pg.limit > 20000) {
+        throw new FlowScheduleError("Invalid live PostgreSQL source reference.");
       }
-    };
+      reference = { postgresSource: { kind: "postgres", schema: pg.schema, table: pg.table, limit: pg.limit } };
+    } else {
+      if (!api || api.kind !== "api" ||
+          !/^[a-z][a-z0-9_-]{0,63}$/.test(String(api.sourceId || "")) ||
+          !Number.isInteger(api.limit) || api.limit < 1 || api.limit > 20000) {
+        throw new FlowScheduleError("Invalid managed API source reference.");
+      }
+      // Only an opaque allowlisted ID and limit survive serialization. Never
+      // store an API URL, credential, HTTP header or bearer token.
+      reference = { apiSource: { kind: "api", sourceId: api.sourceId, limit: api.limit } };
+    }
+    const { apiSource, postgresSource, ...other } = stage.config || {};
+    return { ...stage, config: { ...other, data: "[]", ...reference } };
   });
   const stored = JSON.stringify({
     kind: "hydria-dataflow", version: 1,
@@ -161,7 +170,8 @@ function recordHistory(db, key, startedAt, status, durationMs, steps, outputRows
   `).run(key, key);
 }
 export async function executeScheduledFlow(db, flowKey, now = Date.now(), {
-  fetchPostgres = readFlowPostgresTable
+  fetchPostgres = readFlowPostgresTable,
+  fetchApi = readFlowApiSource
 } = {}) {
   const key = validKey(flowKey);
   const record = getRecord(db, key);
@@ -179,14 +189,22 @@ export async function executeScheduledFlow(db, flowKey, now = Date.now(), {
   try {
     const liveFlow = JSON.parse(record.flow_json);
     for (const stage of liveFlow.stages) {
-      const source = stage.config?.postgresSource;
-      if (!source) continue;
-      if (source.kind !== "postgres") throw new FlowScheduleError("Unsupported live source.");
-      const refreshed = await fetchPostgres({
-        schema: source.schema, table: source.table, limit: source.limit
-      });
-      if (!Array.isArray(refreshed.rows) || refreshed.rows.length > source.limit) {
-        throw new FlowScheduleError("Invalid refreshed PostgreSQL result.");
+      const pg = stage.config?.postgresSource;
+      const api = stage.config?.apiSource;
+      if (!pg && !api) continue;
+      if (pg && api) throw new FlowScheduleError("Ambiguous live source.");
+      let refreshed, limit;
+      if (pg) {
+        if (pg.kind !== "postgres") throw new FlowScheduleError("Unsupported PostgreSQL reference.");
+        refreshed = await fetchPostgres({ schema: pg.schema, table: pg.table, limit: pg.limit });
+        limit = pg.limit;
+      } else {
+        if (api.kind !== "api") throw new FlowScheduleError("Unsupported API reference.");
+        refreshed = await fetchApi({ sourceId: api.sourceId, limit: api.limit });
+        limit = api.limit;
+      }
+      if (!Array.isArray(refreshed.rows) || refreshed.rows.length > limit) {
+        throw new FlowScheduleError("Invalid refreshed source result.");
       }
       stage.config.data = JSON.stringify(refreshed.rows);
     }
