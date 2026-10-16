@@ -54,6 +54,21 @@ try {
     .waitFor({state:"visible",timeout:25000});
   assert.ok(await page.locator("#workspace-title").innerText());
   await page.screenshot({path:path.join(output,"04-docs-editor.png"),fullPage:false});
+  // Real focus mode: hide both navigators, preserve title and editor, then restore.
+  const titleBefore=await page.locator("#workspace-title").innerText();
+  await page.locator("#os-focus-toggle").waitFor({state:"visible"});
+  await page.locator("#os-focus-toggle").click();
+  assert.equal(await page.locator("body").evaluate(el=>el.classList.contains("os-focus-mode")),true);
+  assert.equal(await page.locator("#os-focus-toggle").getAttribute("aria-pressed"),"true");
+  assert.equal(await page.locator(".sidebar").isVisible(),false);
+  assert.equal(await page.locator('#workspace-panel-root[data-has-workspace="true"] .workspace-sidebar').isVisible(),false);
+  assert.equal(await page.locator("#workspace-title").innerText(),titleBefore);
+  await page.screenshot({path:path.join(output,"07-docs-focus-mode.png"),fullPage:false});
+  await page.locator("#os-focus-toggle").click();
+  assert.equal(await page.locator("body").evaluate(el=>el.classList.contains("os-focus-mode")),false);
+  assert.equal(await page.locator(".sidebar").isVisible(),true);
+  assert.equal(await page.locator('#workspace-panel-root[data-has-workspace="true"] .workspace-sidebar').isVisible(),true);
+  assert.equal(await page.locator("#workspace-title").innerText(),titleBefore);
 
   await page.setViewportSize({width:390,height:844});
   await page.locator("#os-mobile-menu").waitFor({state:"visible"});
@@ -76,7 +91,7 @@ try {
   const mobileOverflow=await page.evaluate(()=>document.documentElement.scrollWidth>window.innerWidth+2);
   assert.equal(mobileOverflow,false,"Mobile app shell must not cause horizontal overflow");
   assert.deepEqual(errors,[],"No browser JS exceptions should be emitted");
-  console.log("Hydria product UI desktop, document editor, dark mode, collapsing sidebar and mobile drawer validated");
+  console.log("Hydria product UI desktop, document focus mode, dark theme, collapsing sidebar and mobile editor validated");
 }finally {
   await browser.close();
 }
