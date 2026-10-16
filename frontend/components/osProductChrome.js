@@ -106,3 +106,81 @@ document.addEventListener("keydown",(event)=>{
   if(event.key==="Escape"&&document.body.classList.contains("os-sidebar-open"))
     setMobileOpen(false);
 });
+
+/* The original workspaces are real buttons with native creation callbacks.
+   Recompose their DOM into a more useful home layout without replacing events. */
+const launcher=document.getElementById("workspace-launcher");
+const quickTools=new Set(["docs","sheets","slides","flows"]);
+function enhanceLauncher() {
+  if(!launcher || launcher.classList.contains("hidden") || launcher.dataset.osEnhanced==="1")return;
+  const grid=launcher.querySelector(".workspace-launcher-grid");
+  const header=launcher.querySelector(".workspace-launcher-header");
+  if(!grid||!header)return;
+  const cards=[...grid.querySelectorAll(":scope > .workspace-launcher-card")];
+  if(!cards.length)return;
+  launcher.dataset.osEnhanced="1";
+  // A single workspace page must preserve the original create-object click.
+  if(grid.classList.contains("workspace-launcher-grid-single")){
+    const card=cards[0],kind=card.dataset.workspace||"docs";
+    const translated={
+      docs:["Créer un document","Rédigez et mettez en forme dans l’éditeur Docs."],
+      sheets:["Créer un tableur","Analysez vos données avec Sheets et les formules."],
+      slides:["Créer une présentation","Composez vos diapositives dans Slides."],
+      dashboard:["Créer un tableau de bord","Visualisez des indicateurs et des graphiques."],
+      flows:["Créer un flux de données","Assemblez vos nœuds et exécutez des transformations."],
+      automation:["Créer une automatisation","Configurez des étapes et des déclencheurs."],
+      whiteboard:["Créer un tableau blanc","Organisez des notes, blocs et connexions."],
+      "app-builder":["Créer une application","Construisez et prévisualisez votre interface."],
+      "code":["Créer un projet code","Ouvrez un espace de développement."]
+    };
+    const copy=translated[kind];
+    if(copy){
+      card.querySelector("strong").textContent=copy[0];
+      card.querySelector("span").textContent=copy[1];
+    }
+    card.classList.add("os-create-card");
+    return;
+  }
+  const title=header.querySelector("h3"), subtitle=header.querySelector("p");
+  if(title)title.textContent="Que souhaitez-vous faire ?";
+  if(subtitle)subtitle.textContent="Créez un fichier ou retrouvez votre espace de travail.";
+  const quick=document.createElement("section");
+  quick.className="os-home-section";
+  const quickTitle=document.createElement("h4");quickTitle.textContent="Nouveau";
+  const quickGrid=document.createElement("div");quickGrid.className="os-quick-grid";
+  const explore=document.createElement("section");
+  explore.className="os-home-section os-home-explore";
+  const exploreTitle=document.createElement("h4");exploreTitle.textContent="Explorer les espaces";
+  const exploreGrid=document.createElement("div");exploreGrid.className="os-explore-grid";
+  for(const card of cards){
+    const kind=card.dataset.workspace||"builder";
+    const icon=document.createElement("span");icon.className="os-home-card-icon";
+    icon.innerHTML=svg(kind==="app-builder"?"builder":kind);
+    card.prepend(icon);
+    card.setAttribute("title",card.querySelector("strong")?.textContent||kind);
+    if(quickTools.has(kind)){
+      card.classList.add("os-quick-card");
+      quickGrid.appendChild(card);
+    }else {
+      card.classList.add("os-explore-card");
+      const arrow=document.createElement("span");
+      arrow.className="os-explore-arrow";
+      arrow.textContent="→";
+      arrow.setAttribute("aria-hidden","true");
+      card.append(arrow);
+      exploreGrid.appendChild(card);
+    }
+  }
+  quick.append(quickTitle,quickGrid);
+  explore.append(exploreTitle,exploreGrid);
+  grid.replaceWith(quick,explore);
+}
+if(launcher){
+  let launcherScheduled=false;
+  new MutationObserver(()=>{
+    if(launcherScheduled)return;
+    launcherScheduled=true;
+    requestAnimationFrame(()=>{launcherScheduled=false;enhanceLauncher();});
+  }).observe(launcher,{childList:true});
+  enhanceLauncher();
+}
