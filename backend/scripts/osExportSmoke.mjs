@@ -137,6 +137,37 @@ assert.equal(flowManifest.outputs.length,2);
 assert.equal(flowManifest.outputs[0].rows,2);
 assert.match(flowArchive.readAsText("output-01.csv"),/Paris,42/);
 assert.match(flowArchive.readAsText("output-02.csv"),/Lyon,25/);
+// Flow execution metadata survive across requests, without storing row data.
+const historyId = crypto.randomUUID();
+const historyFlow = {
+  stages:[
+    {id:"source",type:"input.table",config:{data:JSON.stringify([{secret:"never-persist-this-value",amount:42}])}},
+    {id:"output",type:"output.table",config:{}}
+  ],
+  links:[{from:"source",to:"output",toPort:0}]
+};
+const runResponse = await fetch(baseUrl + "/api/flows/run", {
+  method:"POST",headers:{"content-type":"application/json"},
+  body:JSON.stringify({flow:historyFlow,historyId})
+});
+assert.equal(runResponse.status,200);
+const runListResponse = await fetch(baseUrl + "/api/flows/history/" + historyId);
+assert.equal(runListResponse.status,200);
+const runList = await runListResponse.json();
+assert.equal(runList.runs.length,1);
+assert.equal(runList.runs[0].status,"success");
+assert.equal(runList.runs[0].outputRows,1);
+assert.ok(!JSON.stringify(runList).includes("never-persist-this-value"),"History must not expose row data");
+assert.equal((await fetch(baseUrl + "/api/flows/history/not-a-uuid")).status,400);
+const failedResponse = await fetch(baseUrl + "/api/flows/run", {
+  method:"POST",headers:{"content-type":"application/json"},
+  body:JSON.stringify({flow:{stages:[{id:"broken",type:"input.table",config:{data:"invalid"}}],links:[]},historyId})
+});
+assert.equal(failedResponse.status,422);
+const failedHistory = await (await fetch(baseUrl + "/api/flows/history/" + historyId)).json();
+assert.equal(failedHistory.runs[0].status,"failed");
+assert.equal(failedHistory.runs[1].status,"success");
+
 const sheetPdf = await exportFile("/api/sheets/export-pdf", { filename: "hydria-test.pdf", model }, /application\/pdf/);
 assert.equal(sheetPdf.subarray(0, 4).toString("utf8"), "%PDF");
 const pptx = await exportFile("/api/work-objects/export-smoke/presentation-export", {

@@ -41,6 +41,21 @@ export function initDatabase() {
   db.exec(
     "CREATE INDEX IF NOT EXISTS idx_messages_generation_id ON messages(generation_id)"
   );
+  // Bounded execution metadata only; never persist source data or previews.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS flow_run_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      flow_key TEXT NOT NULL,
+      started_at TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('success', 'failed')),
+      duration_ms INTEGER NOT NULL,
+      step_count INTEGER NOT NULL,
+      output_rows INTEGER NOT NULL,
+      error_count INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_flow_run_history_key
+      ON flow_run_history(flow_key, id DESC);
+  `);
   logger.info("SQLite initialized", { file: config.paths.databaseFile });
 }
 

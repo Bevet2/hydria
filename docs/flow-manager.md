@@ -91,3 +91,20 @@ bounded count of at most 20,000 rows, 100 columns, and 2 MB returned JSON.
 The returned `rows` can be used as the JSON data of an `input.table` source
 in a Flow Manager graph. This is a local SQL source foundation, **not** a
 PostgreSQL connector, credential vault, scheduled refresh or managed catalog.
+
+
+## Execution history
+
+When a Flow Manager workflow is executed from the editor, it receives a
+random UUID history key saved with the workflow definition. The local SQLite
+database keeps up to 50 metadata records per workflow: timestamp, success or
+failure, elapsed milliseconds, executed steps, number of output rows and errors.
+Data rows, previews and source credentials are **not stored** in this history.
+The editor exposes a collapsible recent-run view and a refresh action.
+The API endpoints are `POST /api/flows/run` (with `historyId`) and
+`GET /api/flows/history/:flowKey`.
+
+The opaque UUID is a local lookup key, **not an authentication boundary**.
+Do not expose these endpoints to untrusted users without adding authenticated
+workspace authorization first. This is execution metadata only, not durable
+output datasets, job scheduling or recovery.

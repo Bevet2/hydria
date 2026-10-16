@@ -206,7 +206,7 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
     return;
   }
   host.replaceChildren();
-  const state = { flow: structuredClone(model), selected: model.stages[0]?.id || "", activeOutputId: "", pending: "", zoom: 1, results: null, error: "", running: false, history: [], future: [] };
+  const state = { flow: structuredClone(model), selected: model.stages[0]?.id || "", activeOutputId: "", pending: "", zoom: 1, results: null, error: "", running: false, history: [], future: [], runHistory: [] };
   const root = element("section", "hydria-flow-manager");
   const toolbar = element("div", "hydria-flow-toolbar");
   const name = element("div", "hydria-flow-title");
@@ -621,7 +621,25 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
     const header = element("div", "hydria-flow-console-header");
     header.appendChild(element("strong", "", "Execution & previews"));
     if (state.running) header.appendChild(element("span", "flow-muted", "Executing…"));
+    if (state.flow.executionHistoryId) {
+      header.appendChild(button("Refresh history", () => { void loadRunHistory(); }, "hydria-flow-secondary"));
+    }
     consoleView.appendChild(header);
+    if (state.runHistory.length) {
+      const historySection = element("details", "hydria-flow-run-history");
+      const summary = element("summary", "", "Run history · " + state.runHistory.length + " recent runs");
+      historySection.appendChild(summary);
+      const entries = element("ul", "hydria-flow-run-list");
+      state.runHistory.slice(0, 10).forEach((run) => {
+        const item = element("li", "", (run.status === "success" ? "✓ " : "✕ ") +
+          new Date(run.startedAt).toLocaleString() + " · " + run.status +
+          " · " + run.stepCount + " steps · " + run.outputRows + " output rows · " +
+          run.durationMs + " ms");
+        entries.appendChild(item);
+      });
+      historySection.appendChild(entries);
+      consoleView.appendChild(historySection);
+    }
     if (state.pending) consoleView.appendChild(element("p", "hydria-flow-banner", "Connecting from " + (nodeById(state.pending)?.label || state.pending) + " · click an input port · Escape cancels"));
     if (state.error) consoleView.appendChild(element("p", "hydria-flow-error", state.error));
     if (!state.results) {
@@ -708,10 +726,27 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
       }, "hydria-flow-secondary"));
     }
   }
+  async function loadRunHistory() {
+    if (!state.flow.executionHistoryId) return;
+    try {
+      const response = await fetch("/api/flows/history/" + encodeURIComponent(state.flow.executionHistoryId));
+      if (!response.ok) throw new Error("Cannot load flow execution history");
+      const body = await response.json();
+      state.runHistory = Array.isArray(body.runs) ? body.runs : [];
+      renderConsole();
+    } catch (error) {
+      state.error = String(error.message || error);
+      renderConsole();
+    }
+  }
   async function run() {
+    if (!state.flow.executionHistoryId) {
+      state.flow.executionHistoryId = crypto.randomUUID();
+      persist();
+    }
     state.running = true; state.error = ""; state.results = null; renderConsole();
     try {
-      const response = await fetch("/api/flows/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ flow: state.flow, sampleLimit: 30 }) });
+      const response = await fetch("/api/flows/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ flow: state.flow, historyId: state.flow.executionHistoryId, sampleLimit: 30 }) });
       const result = await response.json();
       state.results = result;
       if (!result.outputs?.some((item) => item.id === state.activeOutputId)) {
@@ -719,7 +754,10 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
       }
       if (!response.ok && !result.errors?.length) state.error = "Flow execution failed.";
     } catch (error) { state.error = error.message || String(error); }
-    finally { state.running = false; renderConsole(); renderInspector(); }
+    finally {
+      state.running = false; renderConsole(); renderInspector();
+      await loadRunHistory();
+    }
   }
   function renderActions() {
     actions.replaceChildren();
@@ -754,4 +792,5 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
   }
   function render() { renderActions(); renderPalette(); renderInspector(); renderNodes(); renderWires(); renderConsole(); renderScale(); }
   render();
+  if (state.flow.executionHistoryId) void loadRunHistory();
 }
