@@ -391,6 +391,11 @@ function appendDocxNode(children, $, node, images = null) {
     children.push(createDocxParagraph($, node, { heading: HeadingLevel.HEADING_3, after: 160 }, images));
     return;
   }
+  if ((tagName === "p" || tagName === "figure") && $(node).find("img").length) {
+    (node.children || []).forEach((child) => writePdfNode(doc, $, child, images));
+    doc.moveDown(0.2);
+    return;
+  }
   if (tagName === "p" || tagName === "blockquote" || tagName === "figcaption") {
     children.push(createDocxParagraph($, node, {}, images));
     return;
@@ -602,7 +607,7 @@ function writePdfList(doc, $, listNode, level = 0) {
   }
 }
 
-function writePdfNode(doc, $, node) {
+function writePdfNode(doc, $, node, images = null) {
   if (!node) {
     return;
   }
@@ -620,7 +625,7 @@ function writePdfNode(doc, $, node) {
   const tagName = getTagName(node);
   const text = getNodeText($, node);
   if (!text && !["table", "hr", "img", "ul", "ol"].includes(tagName)) {
-    (node.children || []).forEach((child) => writePdfNode(doc, $, child));
+    (node.children || []).forEach((child) => writePdfNode(doc, $, child, images));
     return;
   }
   if (tagName === "h1") {
@@ -658,9 +663,26 @@ function writePdfNode(doc, $, node) {
     return;
   }
   if (tagName === "img") {
-    const alt = String(node.attribs?.alt || "Image").trim();
-    doc.font("Helvetica-Oblique").fontSize(10).fillColor("#4b5563").text(`[${alt}]`);
-    doc.moveDown(0.45);
+    const image = images?.get(node);
+    if (image) {
+      const maxWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+      const maxHeight = doc.page.height - doc.page.margins.top - doc.page.margins.bottom - 12;
+      const scale = Math.min(1, maxWidth / (image.width * 0.75),
+        maxHeight / (image.height * 0.75));
+      const width = image.width * 0.75 * scale;
+      const height = image.height * 0.75 * scale;
+      if (doc.y + height > doc.page.height - doc.page.margins.bottom) doc.addPage();
+      try {
+        doc.image(image.data, doc.page.margins.left, doc.y, { width, height });
+      } catch {
+        throw new AppError("Unable to render embedded document image", 400);
+      }
+      doc.y += height + 12;
+    } else {
+      const alt = String(node.attribs?.alt || "Image").trim();
+      doc.font("Helvetica-Oblique").fontSize(10).fillColor("#4b5563").text(`[${alt}]`);
+      doc.moveDown(0.45);
+    }
     return;
   }
   (node.children || []).forEach((child) => writePdfNode(doc, $, child));
@@ -670,6 +692,7 @@ async function buildPdfBuffer({ title, html }) {
   const $ = cheerio.load(`<main>${html}</main>`);
   const pageSettings = extractDocsPageSettings($);
   const marginPoints = Math.max(24, Math.round((pageSettings.margin.top || 1440) / 20));
+  const images = prepareEmbeddedImages($);
   const doc = new PDFDocument({
     margin: marginPoints,
     size: pageSettings.size.width === 12240 ? "LETTER" : "A4",
@@ -683,7 +706,7 @@ async function buildPdfBuffer({ title, html }) {
     doc.info.Title = title;
     $("main")
       .contents()
-      .each((_, node) => writePdfNode(doc, $, node));
+      .each((_, node) => writePdfNode(doc, $, node, images));
     doc.end();
   });
 }
