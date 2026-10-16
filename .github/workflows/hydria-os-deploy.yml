@@ -30,6 +30,8 @@ jobs:
           docker compose --env-file deploy/.env -f deploy/compose.yaml config --quiet
       - name: Build private production image
         run: docker build --pull -f deploy/Dockerfile -t hydria-os:ci .
+      - name: Check PostgreSQL connector availability in container
+        run: docker run --rm --entrypoint psql hydria-os:ci --version
       - name: Test isolated production image and persisted SQLite restart
         shell: bash
         run: |
