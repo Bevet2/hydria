@@ -1120,7 +1120,15 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
       button("Redo", redo, "hydria-flow-secondary"),
       button("−", () => { state.zoom = Math.max(0.5, state.zoom - 0.1); renderScale(); }, "hydria-flow-secondary"),
       button("+", () => { state.zoom = Math.min(1.5, state.zoom + 0.1); renderScale(); }, "hydria-flow-secondary"),
-      button("Export JSON", () => download("hydria-flow.json", JSON.stringify(state.flow, null, 2), "application/json"), "hydria-flow-secondary")
+      button("Export JSON", () => download("hydria-flow.json", JSON.stringify(state.flow, null, 2), "application/json"), "hydria-flow-secondary"),
+      button("Live dashboard", () => {
+        if (!state.flow.executionHistoryId) {
+          state.error = "Run the workflow once before opening its live dashboard.";
+          renderConsole(); return;
+        }
+        window.open("/flow-dashboard.html?flowKey=" +
+          encodeURIComponent(state.flow.executionHistoryId), "_blank", "noopener");
+      }, "hydria-flow-secondary")
     );
     const importInput = element("input"); importInput.type = "file"; importInput.accept = ".json,application/json"; importInput.hidden = true;
     importInput.addEventListener("change", async () => {
