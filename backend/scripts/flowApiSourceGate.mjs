@@ -68,6 +68,21 @@ try {
     JSON.stringify({payload:{items:{"not":"an array"}}}),{headers:{"content-type":"application/json"}})}),
     e=>e.status===502);
 
+  write([{
+    ...spec, authHeader: "Authorization", authScheme: "bearer",
+    authEnv: "HYDRIA_FLOW_API_REPORTS_KEY"
+  }]);
+  let bearerHeader = "";
+  await readFlowApiSource({sourceId:"sales_api",limit:1,settings,
+    request:async (url, opts) => {
+      bearerHeader = opts.headers.Authorization;
+      return new Response(JSON.stringify({payload:{items:[{city:"Paris"}]}}),
+        {headers:{"content-type":"application/json"}});
+    }
+  });
+  assert.equal(bearerHeader,"Bearer " + authSecret);
+  write([{...spec,authHeader:"Cookie"}]);
+  assert.throws(()=>listFlowApiSources({settings}),e=>e.status===503);
   write([{...spec,url:"http://169.254.169.254/latest/meta-data"}]);
   assert.throws(()=>listFlowApiSources({settings}),e=>e.status===503);
   write([{...spec,url:"https://127.0.0.1/path"}]);
