@@ -108,7 +108,7 @@ const bundleFlow = {
   ],
   links: [{from:"source",to:"a",toPort:0},{from:"source",to:"b",toPort:0}]
 };
-const flowBundle = await exportFile("/api/flows/export-bundle", {flow:bundleFlow}, /application\\/zip/);
+const flowBundle = await exportFile("/api/flows/export-bundle", {flow:bundleFlow}, /application\/zip/);
 const flowArchive = new AdmZip(flowBundle);
 const flowManifest = JSON.parse(flowArchive.readAsText("manifest.json"));
 assert.equal(flowManifest.outputs.length,2);
