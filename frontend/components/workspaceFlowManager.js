@@ -399,7 +399,7 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
     const config = node.config || (node.config = {});
     Object.entries(spec?.defaults || {}).forEach(([key, initial]) => {
       const multiline = key === "data";
-      inspector.appendChild(configurationField(key === "data" ? "Source rows (JSON array)" : key, config[key] ?? initial, (v) => mutate(() => { config[key] = v; }), OPTIONS[key] || null, multiline));
+      inspector.appendChild(configurationField(key === "data" ? "Source rows (JSON array)" : key, config[key] ?? initial, (v) => mutate(() => { config[key] = v; if (key === "data") delete config.postgresSource; }), OPTIONS[key] || null, multiline));
     });
     if (node.type === "input.table") {
       const csv = element("input"); csv.type = "file"; csv.accept = ".csv,.tsv,.txt,text/csv,text/tab-separated-values"; csv.hidden = true;
@@ -409,7 +409,7 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
         try {
           if (file.size > 2_000_000) throw new Error("Delimited text file is larger than 2 MB");
           const rows = parseCSV(await file.text());
-          mutate(() => { config.data = JSON.stringify(rows); node.label = file.name; });
+          mutate(() => { config.data = JSON.stringify(rows); delete config.postgresSource; node.label = file.name; });
         } catch (error) { state.error = error.message || "Table import failed"; renderConsole(); }
         csv.value = "";
       });
@@ -436,6 +436,7 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
         if (!target) throw new Error("Selected source node no longer exists");
         mutate(() => {
           target.config = { ...(target.config || {}), data: JSON.stringify(rows) };
+          delete target.config.postgresSource;
           target.label = workbookFilename + " · " + String(sheet.name || "Sheet");
         });
       };
@@ -561,6 +562,7 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
           if (!target) throw new Error("The source node has been removed");
           mutate(() => {
             target.config = { ...(target.config || {}), data: JSON.stringify(payload.rows || []) };
+            delete target.config.postgresSource;
             target.label = "SQLite · " + table;
           });
           state.error = "";
@@ -634,7 +636,14 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
           const target = nodeById(node.id);
           if (!target) throw new Error("Source node was removed");
           mutate(() => {
-            target.config = { ...(target.config || {}), data: JSON.stringify(result.rows || []) };
+            target.config = {
+              ...(target.config || {}),
+              data: JSON.stringify(result.rows || []),
+              postgresSource: {
+                kind: "postgres", schema: chosen.schema,
+                table: chosen.table, limit
+              }
+            };
             target.label = "PostgreSQL · " + chosen.schema + "." + chosen.table;
           });
         } catch (error) {
@@ -642,6 +651,15 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
           renderConsole();
         }
       }, "hydria-flow-secondary"));
+      if (node.config?.postgresSource?.kind === "postgres") {
+        pgPanel.appendChild(element("p", "flow-muted",
+          "Live refresh enabled: scheduled runs read " +
+          node.config.postgresSource.schema + "." + node.config.postgresSource.table +
+          " again from the server."));
+        pgPanel.appendChild(button("Disable live PostgreSQL refresh", () => {
+          mutate(() => { delete node.config.postgresSource; });
+        }, "hydria-flow-secondary"));
+      }
       inspector.appendChild(pgPanel);
 
       // Explicit public/CORS-accessible REST JSON data import. The browser
@@ -692,6 +710,7 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
           if (!target) throw new Error("The source node has been removed");
           mutate(() => {
             target.config = { ...(target.config || {}), data: JSON.stringify(rows) };
+          delete target.config.postgresSource;
             target.label = "REST · " + address.hostname;
           });
         } catch (error) {
