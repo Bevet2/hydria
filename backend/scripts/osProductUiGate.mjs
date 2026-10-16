@@ -53,6 +53,7 @@ try {
 
   await page.setViewportSize({width:390,height:844});
   await page.locator("#os-mobile-menu").waitFor({state:"visible"});
+  await page.waitForTimeout(260); // Wait for CSS drawer closing transition.
   assert.equal(await page.locator(".sidebar").evaluate(el=>el.getBoundingClientRect().right<=0),true);
   await page.locator("#os-mobile-menu").click();
   assert.equal(await page.locator("body").evaluate(el=>el.classList.contains("os-sidebar-open")),true);
