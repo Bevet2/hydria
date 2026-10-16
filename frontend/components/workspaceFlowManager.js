@@ -1,3 +1,5 @@
+import { flowNodePositionFromClient, flowGraphFit, flowAvoidNodeOverlap } from "./flowCanvasGeometry.js";
+
 // Hydria OS native data-flow workbench. Zero UI dependencies.
 // Graph editing is local; revisions are persisted by the existing work-object editor.
 const DEFINITIONS = [
@@ -238,6 +240,26 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
   wires.setAttribute("preserveAspectRatio", "none");
   graph.append(wires);
   graphWrapper.appendChild(graph);
+  graphWrapper.tabIndex = 0;
+  graphWrapper.setAttribute("aria-label", "Workflow canvas. Drop a node, select it and use arrow keys to move it.");
+  graphWrapper.setAttribute("aria-roledescription", "workflow canvas");
+  graphWrapper.addEventListener("dragover", (event) => {
+    if (!event.dataTransfer?.types.includes("application/x-hydria-flow-node")) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+    graphWrapper.classList.add("is-drop-target");
+  });
+  graphWrapper.addEventListener("dragleave", (event) => {
+    if (!graphWrapper.contains(event.relatedTarget)) graphWrapper.classList.remove("is-drop-target");
+  });
+  graphWrapper.addEventListener("drop", (event) => {
+    graphWrapper.classList.remove("is-drop-target");
+    const type = event.dataTransfer?.getData("application/x-hydria-flow-node");
+    if (!byType.has(type)) return;
+    event.preventDefault();
+    const position = flowNodePositionFromClient(event.clientX, event.clientY, graph.getBoundingClientRect(), state.zoom);
+    addNode(type, flowAvoidNodeOverlap(position,state.flow.stages));
+  });
   const consoleView = element("section", "hydria-flow-console");
   consoleView.id = "hydria-flow-console-" + (++sequence);
   middle.append(graphWrapper, consoleView);
@@ -250,6 +272,23 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
       event.preventDefault(); removeSelected();
     } else if (event.key === "Escape") {
       state.pending = ""; render();
+    } else if (event.target?.classList?.contains("hydria-flow-node") &&
+        ["ArrowLeft","ArrowRight","ArrowUp","ArrowDown"].includes(event.key) && state.selected) {
+      event.preventDefault();
+      const delta = event.shiftKey ? 20 : 10;
+      const step = {
+        ArrowLeft: [-delta,0], ArrowRight: [delta,0],
+        ArrowUp: [0,-delta], ArrowDown: [0,delta]
+      }[event.key];
+      const id = state.selected, node = nodeById(id);
+      if (!node) return;
+      const nextX = Math.max(0,Math.min(1584,Number(node.x || 0)+step[0]));
+      const nextY = Math.max(0,Math.min(1080,Number(node.y || 0)+step[1]));
+      if (nextX !== node.x || nextY !== node.y) {
+        mutate(() => { node.x=nextX; node.y=nextY; });
+        const selectedCard=[...graph.querySelectorAll(".hydria-flow-node")].find(el=>el.dataset.nodeId===id);
+        selectedCard?.focus({preventScroll:true});
+      }
     } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
       event.preventDefault(); event.shiftKey ? redo() : undo();
     }
@@ -282,13 +321,13 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
     state.flow = JSON.parse(state.future.pop()); state.results = null;
     persist(); render();
   }
-  function addNode(type) {
+  function addNode(type, position = null) {
     const spec = byType.get(type);
     if (!spec) return;
     mutate(() => {
       const id = "node-" + (++sequence) + "-" + Date.now();
       const idx = state.flow.stages.length;
-      state.flow.stages.push({ id, type, kind: type, label: spec.label, x: 100 + (idx % 5) * 260, y: 95 + Math.floor(idx / 5) * 210, config: structuredClone(spec.defaults) });
+      state.flow.stages.push({ id, type, kind: type, label: spec.label, x: position?.x ?? 100 + (idx % 5) * 260, y: position?.y ?? 95 + Math.floor(idx / 5) * 210, config: structuredClone(spec.defaults) });
       state.selected = id;
     });
   }
@@ -346,11 +385,20 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
       card.style.top = Number(node.y || 0) + "px";
       card.dataset.nodeId = node.id;
       card.tabIndex = 0;
+      card.setAttribute("role", "group");
+      card.setAttribute("aria-label", (node.label || spec?.label || "Node") + ". Use arrow keys to move, Delete to remove.");
       const heading = element("div", "hydria-flow-node-heading", node.label || spec?.label || "Node");
       const subtitle = element("div", "hydria-flow-node-subtitle", node.type || "unknown");
       const contents = element("div", "hydria-flow-node-meta", spec ? spec.group : "Unknown");
       card.append(heading, subtitle, contents);
       card.addEventListener("click", () => { state.selected = node.id; renderInspector(); renderNodes(); });
+      card.addEventListener("focus", () => {
+        if (state.selected !== node.id) {
+          state.selected = node.id;
+          graph.querySelectorAll(".hydria-flow-node").forEach(el=>el.classList.toggle("is-selected",el.dataset.nodeId===node.id));
+          renderInspector();
+        }
+      });
       if (spec && spec.inputs > 0) for (let i = 0; i < spec.inputs; i++) {
         const input = button("◉", (event) => {
           if (state.pending) connect(state.pending, node.id, i);
@@ -830,6 +878,7 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
   }
   function renderPalette() {
     palette.replaceChildren(element("h3", "", "Node repository"));
+    palette.appendChild(element("p", "hydria-flow-palette-hint", "Drag onto the canvas, or click to add."));
     const search = element("input", "hydria-flow-search");
     search.type = "search"; search.placeholder = "Search nodes…";
     search.value = state.searchQuery;
@@ -844,7 +893,23 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
         const items = DEFINITIONS.filter((d) => d.group === group && (d.label + " " + d.type).toLowerCase().includes(search.value.toLowerCase()));
         if (!items.length) return;
         list.appendChild(element("h4", "", group));
-        items.forEach((spec) => list.appendChild(button("+  " + spec.label, () => addNode(spec.type), "hydria-flow-catalog-item")));
+        items.forEach((spec) => {
+          const item = button("+  " + spec.label, () => addNode(spec.type), "hydria-flow-catalog-item");
+          item.draggable = true;
+          item.dataset.nodeType = spec.type;
+          item.title = "Drag to place " + spec.label + " on the canvas, or click to add";
+          item.addEventListener("dragstart", (event) => {
+            if (!event.dataTransfer) return;
+            event.dataTransfer.setData("application/x-hydria-flow-node", spec.type);
+            event.dataTransfer.effectAllowed = "copy";
+            item.classList.add("is-dragging");
+          });
+          item.addEventListener("dragend", () => {
+            item.classList.remove("is-dragging");
+            graphWrapper.classList.remove("is-drop-target");
+          });
+          list.appendChild(item);
+        });
       });
     };
     search.addEventListener("input", () => { state.searchQuery = search.value; draw(); });
@@ -1243,6 +1308,13 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
       button("▶ Run", () => { void run(); }, "hydria-flow-primary"),
       button("Undo", undo, "hydria-flow-secondary"),
       button("Redo", redo, "hydria-flow-secondary"),
+      button("Fit", () => {
+        const fit=flowGraphFit(state.flow.stages,graphWrapper.clientWidth,graphWrapper.clientHeight);
+        state.zoom=fit.zoom;
+        renderScale();
+        graphWrapper.scrollLeft=fit.scrollLeft;
+        graphWrapper.scrollTop=fit.scrollTop;
+      }, "hydria-flow-secondary"),
       button("−", () => { state.zoom = Math.max(0.5, state.zoom - 0.1); renderScale(); }, "hydria-flow-secondary"),
       button("+", () => { state.zoom = Math.min(1.5, state.zoom + 0.1); renderScale(); }, "hydria-flow-secondary"),
       button("Export JSON", () => download("hydria-flow.json", JSON.stringify(state.flow, null, 2), "application/json"), "hydria-flow-secondary"),

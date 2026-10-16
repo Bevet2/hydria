@@ -278,3 +278,25 @@ body.os-editor-focus #workspace-panel-root[data-has-workspace="true"] .workspace
   .workspace-canvas-icon-button,.workspace-sheet-toolbar-button,
   .workspace-powerpoint-command{transition:none !important;}
 }
+
+/* Flow Manager interaction feedback — native DnD, keyboard and zoom. */
+.hydria-flow-catalog-item[draggable="true"]{cursor:grab;touch-action:manipulation;}
+.hydria-flow-catalog-item.is-dragging{opacity:.45;cursor:grabbing;}
+.hydria-flow-scroll.is-drop-target{
+  outline:2px solid #6366f1;outline-offset:-3px;
+  background-color:#eef2ff !important;
+}
+.hydria-flow-node:focus-visible{
+  outline:3px solid #6366f1 !important;outline-offset:3px;
+  box-shadow:0 0 0 5px rgba(99,102,241,.13);
+}
+.hydria-flow-palette-hint{
+  margin:0 0 10px;color:#64748b;font-size:11px;line-height:1.35;
+}
+.hydria-flow-node-heading{cursor:move;touch-action:none;}
+body[data-os-theme="dark"] .hydria-flow-scroll.is-drop-target{
+  background-color:#272b42 !important;outline-color:#a5b4fc;
+}
+@media(prefers-reduced-motion:reduce){
+  .hydria-flow-node,.hydria-flow-scroll{transition:none !important;}
+}
