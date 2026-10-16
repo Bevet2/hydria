@@ -248,6 +248,18 @@ jobs:
           path: /tmp/hydria-flow-interactions.png
           if-no-files-found: ignore
           retention-days: 7
+      - name: Workspace workflow family routing
+        run: node backend/scripts/osWorkspaceWorkflowRoutingGate.mjs
+      - name: Whiteboard keyboard movement and text editing protection
+        run: node backend/scripts/osCanvasKeyboardGate.mjs
+      - name: Upload whiteboard keyboard screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hydria-whiteboard-keyboard
+          path: /tmp/hydria-canvas-keyboard.png
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Six editor workbenches and functional inspector checks
         run: node backend/scripts/osEditorWorkbenchGate.mjs
       - name: Upload workbench review captures
