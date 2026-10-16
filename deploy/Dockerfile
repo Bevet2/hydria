@@ -16,7 +16,7 @@ WORKDIR /app
 COPY --from=dependencies /build/backend/node_modules ./backend/node_modules
 COPY --chown=node:node backend/ ./backend/
 COPY --chown=node:node frontend/ ./frontend/
-RUN mkdir -p /app/data && chown node:node /app/data
+RUN mkdir -p /app/data /app/backups && chown node:node /app/data /app/backups
 USER node
 EXPOSE 3001
 HEALTHCHECK --interval=30s --timeout=5s --start-period=45s --retries=3 \
