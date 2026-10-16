@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hydria OS · Live Flow Dashboard</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, system-ui, sans-serif; background:#0e1422; color:#e5edf8 }
+    * { box-sizing:border-box } body { margin:0; padding:22px; max-width:1500px; margin-inline:auto }
+    h1 { font-size:1.5rem; margin:0 0 7px } h2 { font-size:1.1rem; }
+    .muted {color:#9aaec9} .panel {background:#172237;border:1px solid #33445e;border-radius:12px;padding:18px;margin-top:16px}
+    .controls {display:flex;flex-wrap:wrap;gap:12px;align-items:end}
+    label {display:flex;flex-direction:column;gap:5px;min-width:170px}
+    input,select,button {font:inherit;background:#111b2e;color:inherit;border:1px solid #4a6280;padding:9px 12px;border-radius:8px}
+    button {cursor:pointer}button:hover {background:#294063}input:focus-visible,select:focus-visible,button:focus-visible {outline:2px solid #71b9fa}
+    .metric {display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-top:18px}
+    .stat {background:#101b2d;padding:13px;border-radius:8px}.stat strong{font-size:1.4rem;display:block}
+    #chart {display:grid;gap:12px;min-height:50px} .bar-row {display:grid;grid-template-columns:minmax(110px,180px) 1fr 90px;gap:12px;align-items:center}
+    .bar-label {overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bar-bg{height:22px;background:#28364f;border-radius:6px;overflow:hidden}
+    .bar-value {height:100%;background:#4d9cdd;border-radius:6px}.bar-number {text-align:right;font-variant-numeric:tabular-nums}
+    .scroll {overflow:auto;max-height:550px} table{border-collapse:collapse;width:100%;font-size:.875rem}
+    th,td {padding:8px 12px;border-bottom:1px solid #30425d;text-align:left;max-width:250px;overflow-wrap:anywhere}
+    th{position:sticky;top:0;background:#24354b}#error{color:#ffb8b8;white-space:pre-wrap}#status{min-height:1em}
+    @media(max-width:650px){body{padding:12px}.bar-row{grid-template-columns:100px 1fr 60px;gap:7px}}
+  </style>
+</head>
+<body>
+  <header><h1>Hydria OS · Live Flow Dashboard</h1>
+    <div class="muted">Visualisation des derniers résultats enregistrés d'un flux · mise à jour toutes les 60 secondes</div></header>
+  <section class="panel controls" aria-label="Connexion aux résultats">
+    <label>Jeton connecteur (non enregistré)
+      <input id="token" type="password" autocomplete="off" placeholder="HYDRIA_FLOW_CONNECTOR_TOKEN"></label>
+    <button id="connect" type="button">Connecter</button>
+    <button id="refresh" type="button">Actualiser</button>
+    <label>Jeu de données
+      <select id="snapshot" aria-label="Jeu de données"><option value="">Dernier résultat</option></select>
+    </label>
+    <span id="status" class="muted" role="status"></span>
+    <div id="error" role="alert"></div>
+  </section>
+  <section class="panel">
+    <h2>Exploration</h2>
+    <div class="controls">
+      <label>Catégorie <select id="group"></select></label>
+      <label>Mesure <select id="measure"></select></label>
+      <label>Agrégation <select id="operation"><option value="sum">Somme</option><option value="avg">Moyenne</option><option value="count">Nombre</option></select></label>
+      <label>Recherche dans les lignes <input id="filter" type="search" placeholder="Filtrer…"></label>
+    </div>
+    <div class="metric">
+      <div class="stat">Lignes affichées<strong id="row-count">0</strong></div>
+      <div class="stat">Groupes<strong id="group-count">0</strong></div>
+      <div class="stat">Date du dernier résultat<strong id="updated">—</strong></div>
+    </div>
+  </section>
+  <section class="panel"><h2>Répartition</h2><div id="chart" aria-label="Graphique à barres"></div></section>
+  <section class="panel"><h2>Données</h2><div id="table" class="scroll"></div></section>
+  <script type="module" src="/components/flowDashboardView.js"></script>
+</body>
+</html>
