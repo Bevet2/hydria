@@ -108,3 +108,11 @@ The opaque UUID is a local lookup key, **not an authentication boundary**.
 Do not expose these endpoints to untrusted users without adding authenticated
 workspace authorization first. This is execution metadata only, not durable
 output datasets, job scheduling or recovery.
+
+
+## Data reshaping and workbook import
+
+The Flow Manager includes deterministic Pivot (sum/average/count/min/max)
+and Unpivot nodes, each respecting the 20,000-row/100-column limits.
+For multi-tab XLSX imports, select the worksheet explicitly before loading
+source rows. Hidden worksheets are excluded when visible ones exist.
