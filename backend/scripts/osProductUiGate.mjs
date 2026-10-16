@@ -56,11 +56,19 @@ try {
   await page.locator("#os-mobile-menu").waitFor({state:"visible"});
   await page.waitForTimeout(260); // Wait for CSS drawer closing transition.
   assert.equal(await page.locator(".sidebar").evaluate(el=>el.getBoundingClientRect().right<=0),true);
+  await page.locator("#os-mobile-files").waitFor({state:"visible"});
+  assert.equal(await page.locator('#workspace-panel-root[data-has-workspace="true"] .workspace-sidebar').isVisible(),false);
+  await page.locator("#os-mobile-files").click();
+  assert.equal(await page.locator('#workspace-panel-root[data-has-workspace="true"] .workspace-sidebar').isVisible(),true);
+  await page.locator("#os-mobile-files").click();
+  assert.equal(await page.locator('#workspace-panel-root[data-has-workspace="true"] .workspace-sidebar').isVisible(),false);
   await page.locator("#os-mobile-menu").click();
   assert.equal(await page.locator("body").evaluate(el=>el.classList.contains("os-sidebar-open")),true);
+  await page.waitForTimeout(260);
   await page.screenshot({path:path.join(output,"05-mobile-drawer.png"),fullPage:false});
   await page.locator("#os-sidebar-scrim").click({position:{x:350,y:400}});
   assert.equal(await page.locator("body").evaluate(el=>el.classList.contains("os-sidebar-open")),false);
+  await page.waitForTimeout(260);
   await page.screenshot({path:path.join(output,"06-mobile-workspace.png"),fullPage:false});
   const mobileOverflow=await page.evaluate(()=>document.documentElement.scrollWidth>window.innerWidth+2);
   assert.equal(mobileOverflow,false,"Mobile app shell must not cause horizontal overflow");
