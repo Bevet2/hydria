@@ -188,11 +188,14 @@ by manual runs. When `publishSnapshot` is enabled, the full selected output
 is saved using the existing bounded snapshot store (2 MB, at most ten per
 flow). A flow must first be run from the UI to establish its UUID key.
 
-Schedules support **only the current synchronous, deterministic data-flow
-nodes**, including embedded `input.table` rows. They **do not automatically
-refresh browser-imported CSV, REST or SQLite source data**; those imports are
-copied into an input node. Scheduled execution of live PostgreSQL/API inputs
-will require explicit server-side connector nodes with secure references.
+Schedules use the existing deterministic transformation nodes. Browser-
+imported CSV, REST and SQLite rows remain static copies; however, a table
+imported from the PostgreSQL connector can now carry an explicit server-side
+`postgresSource` reference. The scheduler refreshes this PostgreSQL table
+on **every scheduled run**, then runs the normal deterministic graph. It does
+not publish stale rows if the database is unavailable. Up to three live
+PostgreSQL sources are supported per scheduled workflow, with no submitted
+SQL or database credentials stored in the scheduled definition.
 Scheduled definitions are capped at 512 KB and 40 nodes, with no arbitrary
 code execution.
 
@@ -247,9 +250,13 @@ shell execution or user-supplied connection settings. Table identifiers are
 checked against the catalog and validated. Limits: 20,000 rows, 100 columns
 and 2 MB of JSON output, with PostgreSQL statement and process timeouts.
 
-**Important:** Importing into a source node makes a static copy of the rows.
-Scheduled flows run this copy; they do not currently reconnect to PostgreSQL
-on each interval. Credentials are never written to workflow files. Do not use
+**Important:** Manual workflow execution uses the imported rows as a
+static preview. A PostgreSQL import also stores a non-secret reference
+(`schema`, `table`, `limit`) in `config.postgresSource`. When the workflow
+is scheduled, the server re-queries that table at each run before executing
+the transformations. Switching the node to a CSV, Excel, SQLite, REST or
+manually edited source clears the live reference; the source inspector can
+also disable it explicitly. Credentials are never written to workflow files. Do not use
 this connector to import highly sensitive information into workflows unless
 the Hydria OS workspace is properly access-controlled and encrypted at rest.
 
@@ -257,3 +264,15 @@ Run `node backend/scripts/flowPostgresSourceGate.mjs` for mock-backed
 identifier validation, query, limit, permission and secret-handling tests.
 Full connectivity should also be tested against a real PostgreSQL database
 in the target environment.
+
+### Scheduled PostgreSQL refresh safety
+
+- Saving a schedule strips the imported PostgreSQL data from the saved
+  definition (replaces it with `[]`), retaining only the approved table
+  reference. The original editable workflow still contains the imported rows.
+- Up to three source nodes per schedule can be dynamically refreshed.
+- An unavailable database or an invalid response marks the run as failed;
+  it does not silently fall back to previous rows.
+- Run-now and the interval worker both use the same async read path.
+- This is **not** available for browser-side REST/CSV/SQLite imports, which
+  are still static. Multi-replica scheduling is not supported yet.
