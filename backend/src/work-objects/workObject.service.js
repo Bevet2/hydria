@@ -2125,7 +2125,8 @@ export class WorkObjectService {
     const segments = entry.split("/");
     if (!entry || entry.length > 240 || entry.startsWith("/") || /^[a-z]:/i.test(entry) ||
       segments.length > 12 || segments.some((item) => !item || item === "." || item === ".." ||
-        item === ".git" || item === ".hydria-history" || item === "node_modules" ||
+        [".git", ".hydria-history", "node_modules"].includes(item.toLowerCase()) ||
+        item.toLowerCase().startsWith(".env") ||
         /[\x00-\x1f<>:"|?*]/.test(item))) {
       throw new AppError("Invalid project file path", 400);
     }
@@ -2212,7 +2213,9 @@ export class WorkObjectService {
         throw new AppError("Invalid workspace file path", 400);
       }
       const pieces = raw.split("/");
-      if (pieces.some((piece) => !piece || piece === "." || piece === ".." || piece === ".hydria-history" || piece.startsWith(".env"))) {
+      if (pieces.some((piece) => !piece || piece === "." || piece === ".." ||
+        [".git", ".hydria-history", "node_modules"].includes(piece.toLowerCase()) ||
+        piece.toLowerCase().startsWith(".env"))) {
         throw new AppError("Reserved or unsafe workspace file path", 400);
       }
       return pieces.join("/");

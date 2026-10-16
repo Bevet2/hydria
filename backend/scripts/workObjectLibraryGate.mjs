@@ -123,6 +123,20 @@ try {
     () => service.createFile({ workObjectId:first.id,entryPath:"../forbidden.md",actorUserId:1 }),
     (error) => error.statusCode === 400
   );
+  for (const blocked of [".env.json","config/.ENV.private.md",".GIT/readme.md","Node_Modules/package.json"]) {
+    assert.throws(
+      () => service.createFile({ workObjectId:first.id,entryPath:blocked,actorUserId:1 }),
+      (error) => error.statusCode === 400,
+      "Reserved create destination must be rejected: " + blocked
+    );
+  }
+  for (const blocked of [".env.json",".GIT/readme.md","NODE_MODULES/package.md"]) {
+    assert.throws(
+      () => service.moveFile({ workObjectId:first.id,from:"reports/summary.md",to:blocked,actorUserId:1 }),
+      (error) => error.statusCode === 400,
+      "Reserved move destination must be rejected: " + blocked
+    );
+  }
   assert.throws(
     () => service.createFile({ workObjectId:first.id,entryPath:"reports/other.md",actorUserId:2 }),
     (error) => error.statusCode === 403
