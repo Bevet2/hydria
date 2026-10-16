@@ -300,3 +300,15 @@ body[data-os-theme="dark"] .hydria-flow-scroll.is-drop-target{
 @media(prefers-reduced-motion:reduce){
   .hydria-flow-node,.hydria-flow-scroll{transition:none !important;}
 }
+
+/* Whiteboard: accessible selection and arrow-key manipulation. */
+.workspace-canvas-item:focus-visible{
+  outline:3px solid #6366f1 !important;
+  outline-offset:3px;
+}
+.workspace-canvas-item.selected{
+  box-shadow:0 0 0 2px rgba(99,102,241,.24);
+}
+body[data-os-theme="dark"] .workspace-canvas-item:focus-visible{
+  outline-color:#c7d2fe !important;
+}
