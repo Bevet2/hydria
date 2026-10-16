@@ -22,6 +22,21 @@ function writeFavorites(key, favorites) {
 function norm(path) {
   return String(path || "").replace(/\\/g, "/").replace(/^\/+/, "");
 }
+export function suggestDuplicateFilePath(source = "", paths = []) {
+  const normalized = norm(source);
+  const slash = normalized.lastIndexOf("/");
+  const prefix = slash >= 0 ? normalized.slice(0, slash + 1) : "";
+  const filename = normalized.slice(slash + 1);
+  const dot = filename.lastIndexOf(".");
+  const name = dot > 0 ? filename.slice(0, dot) : filename;
+  const ext = dot > 0 ? filename.slice(dot) : "";
+  const existing = new Set(paths.map((item) => norm(item).toLowerCase()));
+  for (let number = 1; number <= 999; number++) {
+    const candidate = prefix + name + (number === 1 ? "-copy" : "-copy-" + number) + ext;
+    if (!existing.has(candidate.toLowerCase())) return candidate;
+  }
+  throw new Error("Too many copies of this file");
+}
 export function buildExplorerTree(paths = []) {
   const root = { folders: new Map(), files: [], name: "", path: "" };
   for (const raw of [...new Set(paths.map(norm).filter(Boolean))]) {
@@ -64,6 +79,7 @@ export function renderWorkspaceFileExplorer(container, {
   activePath = "",
   onOpen = () => {},
   onMove = null,
+  onDuplicate = null,
   onCreate = null
 } = {}) {
   if (!container) return;
@@ -223,6 +239,46 @@ export function renderWorkspaceFileExplorer(container, {
             input.select();
           });
           row.append(move);
+        }
+        if (typeof onDuplicate === "function") {
+          const duplicate = el("button", "hydria-files-star hydria-files-duplicate", "⧉");
+          duplicate.type = "button";
+          duplicate.title = "Duplicate " + file.path;
+          duplicate.setAttribute("aria-label", "Duplicate: " + file.path);
+          duplicate.addEventListener("click", () => {
+            const form = el("form", "hydria-files-rename-form");
+            const input = el("input", "hydria-files-rename-input");
+            input.type = "text";
+            input.value = suggestDuplicateFilePath(file.path, files);
+            input.maxLength = 240;
+            input.required = true;
+            input.setAttribute("aria-label", "Destination path for duplicate");
+            const save = el("button", "hydria-files-rename-save", "Duplicate");
+            save.type = "submit";
+            const cancel = el("button", "hydria-files-rename-cancel", "Cancel");
+            cancel.type = "button";
+            const restore = () => { if (form.isConnected) form.replaceWith(row); };
+            cancel.addEventListener("click", restore);
+            input.addEventListener("keydown", (event) => {
+              if (event.key === "Escape") { event.preventDefault(); restore(); }
+            });
+            form.addEventListener("submit", async (event) => {
+              event.preventDefault();
+              const to = input.value.trim();
+              if (!to || to === file.path) { restore(); return; }
+              save.disabled = true; cancel.disabled = true; input.disabled = true;
+              try { await onDuplicate(file.path, to); }
+              finally {
+                save.disabled = false; cancel.disabled = false; input.disabled = false;
+                restore();
+              }
+            });
+            form.append(input, save, cancel);
+            row.replaceWith(form);
+            input.focus();
+            input.select();
+          });
+          row.append(duplicate);
         }
         target.append(row);
       }
