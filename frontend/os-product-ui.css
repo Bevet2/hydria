@@ -410,3 +410,48 @@ html body[data-os-theme="dark"] .os-explore-card .os-home-card-icon{background:#
   .os-quick-grid .os-quick-card{min-height:130px !important;padding:13px !important;}
   .os-explore-grid{grid-template-columns:1fr;}
 }
+
+/* Mobile progressive disclosure: editing canvas is primary, file nav optional. */
+.os-mobile-files {display:none;}
+@media (max-width:960px){
+  .os-mobile-files:not([hidden]){display:inline-flex;}
+  #workspace-panel-root[data-has-workspace="true"] .workspace-sidebar{
+    display:none !important;
+  }
+  body.os-workspace-files-open #workspace-panel-root[data-has-workspace="true"] .workspace-sidebar{
+    display:flex !important;max-height:260px !important;overflow:auto;min-height:0 !important;
+    margin:0 0 13px !important;padding:12px !important;
+  }
+  .os-mobile-files[aria-expanded="true"]{
+    background:#eef2ff;color:#4f46e5;border-color:#c7d2fe;
+  }
+  #workspace-panel-root[data-has-workspace="true"] #workspace-action-guide{
+    display:none !important;
+  }
+  #workspace-panel-root[data-has-workspace="true"] .workspace-shell-header{
+    margin-bottom:12px !important;
+  }
+  #workspace-panel-root[data-has-workspace="true"] .workspace-layout{
+    display:block !important;
+  }
+  #workspace-panel-root[data-has-workspace="true"] .workspace-main {width:100%;}
+  #workspace-panel-root[data-has-workspace="true"] .workspace-preview-pane {min-width:0;}
+  .workspace-mode-nav {max-width:100%;}
+}
+@media (max-width:640px){
+  #workspace-panel-root[data-has-workspace="true"] .workspace-title-group h2 {font-size:19px !important;}
+  #workspace-panel-root[data-has-workspace="true"] .workspace-shell-actions {width:100%;
+    justify-content:flex-start;align-self:stretch;flex-wrap:wrap;}
+  #workspace-panel-root[data-has-workspace="true"] #workspace-project-context-toggle{
+    display:none !important;
+  }
+  #workspace-panel-root[data-has-workspace="true"] .workspace-layout{
+    margin-top:12px;
+  }
+  #workspace-panel-root[data-has-workspace="true"] .workspace-toolbar{
+    overflow-x:auto;scrollbar-width:thin;
+  }
+}
+html body[data-os-theme="dark"] .os-mobile-files[aria-expanded="true"]{
+  background:#34395c;color:#e0e7ff;border-color:#494f77;
+}
