@@ -3,6 +3,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import WorkObjectService from "../src/work-objects/workObject.service.js";
+import { suggestDuplicateFilePath } from "../../frontend/components/workspaceFileExplorer.js";
+
+assert.equal(suggestDuplicateFilePath("reports/summary.md",["reports/summary.md"]),"reports/summary-copy.md");
+assert.equal(suggestDuplicateFilePath("README",["README","README-copy"]),"README-copy-2");
+assert.equal(suggestDuplicateFilePath("Folder/DATA.CSV",["folder/data.csv","folder/data-copy.csv"]),"Folder/DATA-copy-2.CSV");
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "hydria-library-gate-"));
 
@@ -123,6 +128,19 @@ try {
     (error) => error.statusCode === 403
   );
   assert.ok(service.listHistory(first.id).some((item) => item.type === "file_create"));
+  // The UI duplication action uses readContent + the existing authorized,
+  // revision-checked createFile operation, not a raw filesystem copy.
+  const sourceText = service.readContent({workObjectId:first.id,entryPath:"reports/summary.md"}).content;
+  const duplicated = service.createFile({
+    workObjectId:first.id,entryPath:"reports/summary-copy.md",
+    content:sourceText,actorUserId:1,
+    expectedRevision:service.get(first.id).revision
+  });
+  assert.equal(duplicated.file.content,"# New report");
+  assert.equal(fs.readFileSync(path.join(duplicated.workspacePath,"reports","summary-copy.md"),"utf8"),"# New report");
+  assert.throws(() => service.createFile({
+    workObjectId:first.id,entryPath:"reports/summary-copy.md",content:sourceText,actorUserId:1
+  }), error => error.statusCode === 409);
 
   const searchResults = service.searchContent({
     userId: 1,
