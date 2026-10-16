@@ -5,6 +5,10 @@ COPY backend/package.json backend/package-lock.json ./backend/
 RUN npm ci --prefix backend --omit=dev --no-audit --no-fund
 
 FROM node:22-bookworm-slim
+# Optional PostgreSQL Flow Manager connector uses the system psql client.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates postgresql-client \
+ && rm -rf /var/lib/apt/lists/*
 ENV NODE_ENV=production \
     PORT=3001 \
     HYDRIA_OS_DATA_DIR=/app/data
