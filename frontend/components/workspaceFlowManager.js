@@ -123,6 +123,13 @@ export function normalizedJsonApiRows(payload) {
     ]));
   });
 }
+export function selectableExcelSheets(model = {}) {
+  const all = Array.isArray(model?.sheets) ? model.sheets : [];
+  const usable = all.filter((sheet) => Array.isArray(sheet?.columns) && sheet.columns.length > 0 && Array.isArray(sheet.rows));
+  const visible = usable.filter((sheet) => !sheet.hidden);
+  // Hidden worksheets are not offered if at least one visible worksheet exists.
+  return visible.length ? visible : usable;
+}
 export function spreadsheetSheetToFlowRows(sheet = {}) {
   const names = sheet?.columns;
   if (!Array.isArray(names) || names.length === 0 || names.length > 100) {
@@ -412,6 +419,34 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
       excel.type = "file";
       excel.accept = ".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
       excel.hidden = true;
+      let availableSheets = [];
+      let workbookFilename = "";
+      const sheetChooser = element("div", "hydria-flow-excel-sheet-chooser");
+      sheetChooser.hidden = true;
+      const sheetLabel = element("label", "hydria-flow-field");
+      sheetLabel.appendChild(element("span", "", "Choose Excel worksheet"));
+      const worksheetSelect = element("select");
+      sheetLabel.appendChild(worksheetSelect);
+      sheetChooser.appendChild(sheetLabel);
+      const importSheet = (sheet) => {
+        const rows = spreadsheetSheetToFlowRows(sheet);
+        const target = nodeById(node.id);
+        if (!target) throw new Error("Selected source node no longer exists");
+        mutate(() => {
+          target.config = { ...(target.config || {}), data: JSON.stringify(rows) };
+          target.label = workbookFilename + " · " + String(sheet.name || "Sheet");
+        });
+      };
+      sheetChooser.appendChild(button("Load selected worksheet", () => {
+        try {
+          const sheet = availableSheets[Number(worksheetSelect.value)];
+          if (!sheet) throw new Error("Choose a worksheet before importing");
+          importSheet(sheet);
+        } catch (error) {
+          state.error = String(error.message || error);
+          renderConsole();
+        }
+      }, "hydria-flow-secondary"));
       excel.addEventListener("change", async () => {
         const file = excel.files?.[0];
         if (!file) return;
@@ -424,16 +459,24 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
           if (!response.ok || result.success !== true) {
             throw new Error(String(result.message || result.error?.message || result.error || "Excel import failed"));
           }
-          const sheets = Array.isArray(result.model?.sheets) ? result.model.sheets : [];
-          const sheet = sheets.find((item) => !item.hidden && Array.isArray(item.rows)) ||
-            sheets.find((item) => Array.isArray(item.rows));
-          if (!sheet) throw new Error("No usable worksheet in the imported Excel workbook");
-          const rows = spreadsheetSheetToFlowRows(sheet);
-          if (!nodeById(node.id)) throw new Error("Selected source node no longer exists");
-          mutate(() => {
-            config.data = JSON.stringify(rows);
-            node.label = file.name + " · " + String(sheet.name || "Sheet 1");
-          });
+          availableSheets = selectableExcelSheets(result.model);
+          if (!availableSheets.length) throw new Error("No usable worksheet in the imported Excel workbook");
+          workbookFilename = file.name;
+          if (availableSheets.length === 1) {
+            importSheet(availableSheets[0]);
+          } else {
+            worksheetSelect.replaceChildren();
+            availableSheets.forEach((sheet, index) => {
+              const option = element("option", "", String(sheet.name || "Sheet " + (index + 1)) +
+                " · " + sheet.rows.length + " rows");
+              option.value = String(index);
+              worksheetSelect.appendChild(option);
+            });
+            worksheetSelect.value = "0";
+            sheetChooser.hidden = false;
+            state.error = "";
+            renderConsole();
+          }
         } catch (error) {
           state.error = error.message || "Excel import failed";
           renderConsole();
@@ -441,7 +484,7 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
           excel.value = "";
         }
       });
-      inspector.append(excel, button("Import Excel (XLSX)", () => excel.click(), "hydria-flow-secondary"));
+      inspector.append(excel, button("Import Excel (XLSX)", () => excel.click(), "hydria-flow-secondary"), sheetChooser);
 
       // The SQLite connector is opted into by a server administrator.
       // The token stays in this temporary password field and is NEVER saved
