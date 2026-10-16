@@ -1,6 +1,7 @@
 import { Router } from "express";
 import XLSX from "xlsx";
 import AdmZip from "adm-zip";
+import { db } from "../db/sqlite.js";
 import { FLOW_NODE_CATALOG, runFlow, validateFlow } from "../services/flow/flowEngine.js";
 const router = Router();
 
@@ -11,8 +12,49 @@ router.post("/validate", (req, res) => {
   const result = validateFlow(req.body?.flow || {});
   res.json({ success: true, valid: result.valid, errors: result.errors, order: result.order });
 });
+const FLOW_HISTORY_KEY = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const insertFlowRun = db.prepare(`
+  INSERT INTO flow_run_history
+    (flow_key, started_at, status, duration_ms, step_count, output_rows, error_count)
+  VALUES (?, ?, ?, ?, ?, ?, ?)
+`);
+const pruneFlowRuns = db.prepare(`
+  DELETE FROM flow_run_history
+  WHERE flow_key = ? AND id NOT IN (
+    SELECT id FROM flow_run_history WHERE flow_key = ? ORDER BY id DESC LIMIT 50
+  )
+`);
+const recordFlowRun = db.transaction((key, timestamp, result, durationMs) => {
+  insertFlowRun.run(
+    key, timestamp, result.success ? "success" : "failed", durationMs,
+    result.steps.length, result.outputs.reduce((total, item) => total + item.rows, 0),
+    result.errors.length
+  );
+  pruneFlowRuns.run(key, key);
+});
+
+router.get("/history/:flowKey", (req, res) => {
+  const flowKey = String(req.params.flowKey || "");
+  if (!FLOW_HISTORY_KEY.test(flowKey)) {
+    return res.status(400).json({ success: false, error: "Invalid flow history key." });
+  }
+  const runs = db.prepare(`
+    SELECT id, started_at AS startedAt, status, duration_ms AS durationMs,
+           step_count AS stepCount, output_rows AS outputRows, error_count AS errorCount
+    FROM flow_run_history WHERE flow_key = ? ORDER BY id DESC LIMIT 50
+  `).all(flowKey);
+  res.json({ success: true, runs });
+});
+
 router.post("/run", (req, res) => {
+  const flowKey = req.body?.historyId == null ? "" : String(req.body.historyId);
+  if (flowKey && !FLOW_HISTORY_KEY.test(flowKey)) {
+    return res.status(400).json({ success: false, errors: ["Invalid flow history key."] });
+  }
+  const start = Date.now();
+  const startedAt = new Date(start).toISOString();
   const result = runFlow(req.body?.flow || {}, { sampleLimit: req.body?.sampleLimit });
+  if (flowKey) recordFlowRun(flowKey, startedAt, result, Date.now() - start);
   res.status(result.success ? 200 : 422).json(result);
 });
 
