@@ -117,7 +117,7 @@ app.use((error, req, res, next) => {
 app.listen(config.port, () => {
   logger.info(`Hydria listening on http://localhost:${config.port}`);
 });
-if (process.env.HYDRIA_FLOW_SCHEDULER_ENABLED !== "false") {
+if (process.env.HYDRIA_FLOW_CONNECTOR_TOKEN && process.env.HYDRIA_FLOW_SCHEDULER_ENABLED !== "false") {
   // One scheduler per backend process; deployments with multiple workers need
   // an external coordinator before enabling this interval in every instance.
   const scheduler = setInterval(() => {
