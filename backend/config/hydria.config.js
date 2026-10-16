@@ -298,7 +298,9 @@ const config = {
     enableBrowserFetch: parseBoolean(env.ENABLE_BROWSER_FETCH, true)
   },
   tools: {
-    enabled: parseBoolean(env.ENABLE_LOCAL_TOOLS, true),
+    // Remote private deployments default to read-only workspace operations.
+    // Explicitly opt in to local OS tools after reviewing their permissions.
+    enabled: parseBoolean(env.ENABLE_LOCAL_TOOLS, env.NODE_ENV !== "production"),
     workspaceRoot: firstDefined(env.TOOLS_WORKSPACE_ROOT, rootDir),
     timeoutMs: Math.max(3000, parseInteger(env.TOOL_TIMEOUT_MS, 45000)),
     maxOutputChars: Math.max(1000, parseInteger(env.MAX_TOOL_OUTPUT_CHARS, 12000)),
