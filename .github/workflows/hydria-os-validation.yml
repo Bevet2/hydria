@@ -45,6 +45,8 @@ jobs:
         run: node backend/scripts/flowResultSnapshotGate.mjs
       - name: Flow scheduler execution, pause and retention
         run: node backend/scripts/flowSchedulerGate.mjs
+      - name: Live Flow dashboard aggregation and filtering
+        run: node backend/scripts/flowDashboardGate.mjs
       - name: Workspace tool integration
         run: npm run gate:workspace --prefix backend
       - name: Work objects and revision history
@@ -79,6 +81,10 @@ jobs:
           console.log("Hydria Canvas API PDF export verified; bytes:",bytes.length);
           '
 
+      - name: Check live Flow dashboard assets
+        run: |
+          curl --fail --silent --show-error http://127.0.0.1:3001/flow-dashboard.html | grep -q 'Live Flow Dashboard'
+          curl --fail --silent --show-error http://127.0.0.1:3001/components/flowDashboardView.js | grep -q 'aggregateSnapshotRows'
       - name: Export full data-flow results through HTTP
         run: |
           node --input-type=module -e '
