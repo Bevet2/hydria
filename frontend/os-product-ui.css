@@ -455,3 +455,7 @@ html body[data-os-theme="dark"] .os-explore-card .os-home-card-icon{background:#
 html body[data-os-theme="dark"] .os-mobile-files[aria-expanded="true"]{
   background:#34395c;color:#e0e7ff;border-color:#494f77;
 }
+
+/* Avoid duplicating the initial empty-state message between heading and launcher. */
+#workspace-panel-root[data-has-workspace="false"] #work-object-empty,
+#workspace-panel-root:not([data-has-workspace="true"]) #work-object-empty {display:none !important;}
