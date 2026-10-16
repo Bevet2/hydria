@@ -52,6 +52,31 @@ assert.match(docXml.contents, /Export regression test/);
 assert.match(docXml.contents, /Revenue/);
 const docsPdf = await exportFile("/api/docs/export-pdf", { title: "Hydria export test", html: documentHtml }, /application\/pdf/);
 assert.equal(docsPdf.subarray(0, 4).toString("utf8"), "%PDF");
+const samplePng = "iVBORw0KGgoAAAANSUhEUgAAAAgAAAAFCAIAAAD38zoCAAAAFElEQVR4nGOUqzjBgA0wYRWlrgQAqm4BaJxIOe4AAAAASUVORK5CYII=";
+const imageDocument = "<h1>Image export</h1>" +
+  '<p>Before <img src="data:image/png;base64,' + samplePng +
+  '" width="160" alt="Blue rectangle"> After</p>' +
+  '<img src="data:image/png;base64,' + samplePng + '" width="100" alt="Second picture">';
+const imageDocx = await exportFile("/api/docs/export-docx", {
+  title: "Hydria DOCX embedded images", html: imageDocument
+}, /wordprocessingml\.document/);
+const imageZip = new AdmZip(imageDocx);
+const pictureFiles = imageZip.getEntries().filter((entry) =>
+  /^word\/media\/.*\.png$/.test(entry.entryName));
+assert.ok(pictureFiles.length >= 1,"DOCX should contain real PNG media, not only alt text");
+assert.match(imageZip.readAsText("word/document.xml"), /a:blip/);
+const imagePdf = await exportFile("/api/docs/export-pdf", {
+  title: "Hydria PDF embedded images", html: imageDocument
+}, /application\/pdf/);
+assert.equal(imagePdf.subarray(0,4).toString("utf8"),"%PDF");
+assert.match(imagePdf.toString("latin1"), /\/Subtype\s*\/Image/);
+const oversizedImage = await fetch(baseUrl + "/api/docs/export-docx",{
+  method:"POST",headers:{"content-type":"application/json"},
+  body:JSON.stringify({title:"Oversized image",html:
+    '<img src="data:image/png;base64,' + "A".repeat(1400000) + '">'})
+});
+assert.equal(oversizedImage.status,413,"DOCX image size guard should return 413");
+
 const model = {
   kind: "hydria-sheet", activeSheetId: "sheet-1",
   sheets: [{ id: "sheet-1", name: "Sales Report", columns: ["City", "Amount"], rows: [["Paris", 42], ["Lyon", 25]], charts: [] }]
