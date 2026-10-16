@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { FLOW_NODE_CATALOG, runFlow, validateFlow } from "../services/flow/flowEngine.js";
-import { parseCSV, spreadsheetSheetToFlowRows, normalizedJsonApiRows } from "../../frontend/components/workspaceFlowManager.js";
+import { parseCSV, spreadsheetSheetToFlowRows, normalizedJsonApiRows, selectableExcelSheets } from "../../frontend/components/workspaceFlowManager.js";
 function node(id, type, config = {}) { return { id, type, label: id, config }; }
 function link(from, to, toPort = 0) { return { id: from + "-" + to + "-" + toPort, from, to, toPort }; }
 const sample = {
@@ -26,6 +26,61 @@ const derived = runFlow({
 });
 assert.equal(derived.success,true);
 assert.deepEqual(derived.outputs[0].preview.map(r=>r.b),[18,12]);
+const pivotFlow = runFlow({
+  stages:[
+    node("source","input.table",{data:JSON.stringify([
+      {city:"Paris",year:"2025",sales:10},
+      {city:"Paris",year:"2026",sales:12},
+      {city:"Paris",year:"2025",sales:7},
+      {city:"Lyon",year:"2026",sales:5}
+    ])}),
+    node("pivot","transform.pivot",{index:"city",pivotColumn:"year",valueColumn:"sales",operation:"sum"}),
+    node("output","output.table")
+  ],
+  links:[link("source","pivot"),link("pivot","output")]
+});
+assert.equal(pivotFlow.success,true);
+assert.deepEqual(pivotFlow.outputs[0].preview,[
+  {city:"Paris","2025":17,"2026":12},
+  {city:"Lyon","2025":null,"2026":5}
+]);
+const unpivotFlow = runFlow({
+  stages:[
+    node("source","input.table",{data:JSON.stringify(pivotFlow.outputs[0].preview)}),
+    node("unpivot","transform.unpivot",{columns:"2025,2026",nameColumn:"year",valueColumn:"sales"}),
+    node("output","output.table")
+  ],
+  links:[link("source","unpivot"),link("unpivot","output")]
+});
+assert.equal(unpivotFlow.success,true);
+assert.deepEqual(unpivotFlow.outputs[0].preview,[
+  {city:"Paris",year:"2025",sales:17},
+  {city:"Paris",year:"2026",sales:12},
+  {city:"Lyon",year:"2025",sales:null},
+  {city:"Lyon",year:"2026",sales:5}
+]);
+const invalidPivot = runFlow({
+  stages:[node("s","input.table",{data:'[{"city":"Paris","year":"city","sales":7}]'}),
+    node("p","transform.pivot",{index:"city",pivotColumn:"year",valueColumn:"sales",operation:"sum"})],
+  links:[link("s","p")]
+});
+assert.equal(invalidPivot.success,false);
+assert.match(invalidPivot.errors[0],/conflicts with an index/i);
+const invalidUnpivot = runFlow({
+  stages:[node("s","input.table",{data:'[{"city":"Paris","sales":7}]'}),
+    node("p","transform.unpivot",{columns:"sales",nameColumn:"city",valueColumn:"value"})],
+  links:[link("s","p")]
+});
+assert.equal(invalidUnpivot.success,false);
+assert.match(invalidUnpivot.errors[0],/overwrite/i);
+const oversizedUnpivot = runFlow({
+  stages:[node("s","input.table",{data:JSON.stringify(Array.from({length:10001},(_,i)=>({x:i,y:i})))}),
+    node("p","transform.unpivot",{columns:"x,y",nameColumn:"field",valueColumn:"value"})],
+  links:[link("s","p")]
+});
+assert.equal(oversizedUnpivot.success,false);
+assert.match(oversizedUnpivot.errors[0],/20,000 row/i);
+
 const join = runFlow({
   stages:[node("l","input.table",{data:'[{"id":1,"name":"a"},{"id":2,"name":"b"}]'}),node("r","input.table",{data:'[{"id":2,"tier":"premium"}]'}),node("j","transform.join",{leftKey:"id",rightKey:"id",how:"left"}),node("o","output.table")],
   links:[link("l","j",0),link("r","j",1),link("j","o")]
@@ -109,6 +164,15 @@ const delimitedFlow = runFlow({
 });
 assert.equal(delimitedFlow.success,true);
 assert.deepEqual(delimitedFlow.outputs[0].preview,[{city:"Paris",amount:"42"}]);
+assert.deepEqual(selectableExcelSheets({sheets:[
+  {name:"Hidden",hidden:true,columns:["id"],rows:[["secret"]]},
+  {name:"Visible A",hidden:false,columns:["id"],rows:[["a"]]},
+  {name:"Visible B",columns:["id"],rows:[["b"]]}
+]}).map(sheet => sheet.name),["Visible A","Visible B"]);
+assert.deepEqual(selectableExcelSheets({sheets:[
+  {name:"Hidden",hidden:true,columns:["id"],rows:[["private"]]}
+]}).map(sheet => sheet.name),["Hidden"]);
+assert.deepEqual(selectableExcelSheets({sheets:[]}),[]);
 assert.deepEqual(
   spreadsheetSheetToFlowRows({
     columns: ["City", "Amount", "City"],
