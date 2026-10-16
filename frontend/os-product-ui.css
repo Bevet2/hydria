@@ -459,3 +459,14 @@ html body[data-os-theme="dark"] .os-mobile-files[aria-expanded="true"]{
 /* Avoid duplicating the initial empty-state message between heading and launcher. */
 #workspace-panel-root[data-has-workspace="false"] #work-object-empty,
 #workspace-panel-root:not([data-has-workspace="true"]) #work-object-empty {display:none !important;}
+
+/* Keep product identity on a single baseline inside the mobile drawer. */
+@media (max-width:960px){
+  .sidebar .brand-panel .brand-row {
+    display:flex !important;flex-direction:row !important;flex-wrap:nowrap !important;
+    justify-content:flex-start !important;align-items:center !important;gap:10px !important;
+    width:100%;min-width:0;
+  }
+  .sidebar .brand-panel .os-brand-name {display:flex !important;flex:1 1 auto;min-width:0;}
+  .sidebar .brand-panel .os-sidebar-toggle {margin:0 0 0 auto !important;flex-shrink:0;}
+}
