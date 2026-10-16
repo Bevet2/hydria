@@ -122,3 +122,43 @@ A workflow with multiple `Table output` nodes can export every result as one
 multi-sheet XLSX workbook (`POST /api/flows/export-workbook`), using one
 worksheet per output. This complements the ZIP of individual CSVs. Export
 limits: 100 columns/output, 250,000 workbook cells and 25 MB total.
+
+## Saved result datasets (opt-in)
+
+The Flow Manager can now explicitly persist the **selected complete Table
+output** in the Hydria OS server's SQLite database. This is separate from
+the execution metadata history and never happens implicitly on every run.
+
+1. Run a flow and select an output.
+2. Enter `HYDRIA_FLOW_CONNECTOR_TOKEN` in the Saved datasets panel.
+3. Choose **Save selected output to SQLite**, then **Refresh saved datasets**.
+4. Saved datasets can be opened, deleted, or imported as **new Table source
+   nodes** for further ETL work. Importing copies the rows into the workflow;
+   it does not create an automatic live connection to the snapshot.
+
+The server reruns the complete flow before saving, rather than saving only
+the UI sample. Each snapshot is limited to 20,000 rows, at most 100
+columns per row, and 2 MB of serialized JSON. It retains the 10 most recent
+snapshots **per flow key**, pruning older ones. On-disk storage is ordinary
+SQLite, not encrypted at rest.
+
+API endpoints (all require `x-hydria-flow-token`):
+
+- `POST /api/flows/snapshots` with `{ "flow": {...}, "historyId": "<UUID>", "outputId": "<output-node-id>" }`
+- `GET /api/flows/snapshots/:flowKey` (metadata, no row data)
+- `GET /api/flows/snapshots/:flowKey/:snapshotId` (full stored rows)
+- `DELETE /api/flows/snapshots/:flowKey/:snapshotId`
+
+The access token remains in memory in the editor; it is not saved to
+`workflow.json`, browser local storage, or the snapshot database. The
+server must have `HYDRIA_FLOW_CONNECTOR_TOKEN` configured. Flow keys are
+identifiers, **not** authorization. Do not expose the Flow Manager as a
+public multi-user service without adding per-workspace authentication and
+authorization, storage quotas and audit records.
+
+These snapshots are manual, immutable datasets, **not** automated refreshes,
+scheduled flows, streaming outputs or per-tenant data catalogs. Validate with:
+
+```bash
+node backend/scripts/flowResultSnapshotGate.mjs
+```

@@ -3,6 +3,10 @@ import XLSX from "xlsx";
 import AdmZip from "adm-zip";
 import { db } from "../db/sqlite.js";
 import { FLOW_NODE_CATALOG, runFlow, validateFlow } from "../services/flow/flowEngine.js";
+import { FlowSourceError, checkFlowSourceToken } from "../services/flow/flowSqliteSource.js";
+import {
+  FlowResultError, saveFlowResult, listFlowResults, readFlowResult, deleteFlowResult
+} from "../services/flow/flowResults.js";
 const router = Router();
 
 router.get("/catalog", (req, res) => {
@@ -208,5 +212,55 @@ router.post("/export-bundle", (req, res, next) => {
     res.send(bytes);
   } catch (error) { next(error); }
 });
+
+
+// Explicit opt-in snapshots: full output is rerun server-side and stored only
+// when the administrator connector token is supplied. No token or credentials
+// are written to workflow.json, SQLite rows, URLs or execution history.
+function protectedSnapshot(handler) {
+  return (req, res, next) => {
+    try {
+      checkFlowSourceToken(req.get("x-hydria-flow-token"));
+      res.setHeader("Cache-Control", "no-store");
+      handler(req, res);
+    } catch (error) {
+      if (error instanceof FlowSourceError || error instanceof FlowResultError) {
+        res.status(error.status).json({ success: false, error: error.message });
+      } else next(error);
+    }
+  };
+}
+
+router.post("/snapshots", protectedSnapshot((req, res) => {
+  const flowKey = String(req.body?.historyId || "");
+  if (!FLOW_HISTORY_KEY.test(flowKey)) throw new FlowResultError("Invalid flow history key.");
+  const result = runFlow(req.body?.flow || {}, { includeAllOutputs: true });
+  if (!result.success) {
+    return res.status(422).json({ success: false, errors: result.errors });
+  }
+  const outputId = String(req.body?.outputId ?? "");
+  const output = result.outputs.find((item) => item.id === outputId);
+  if (!output) throw new FlowResultError("Choose a valid Table output node.");
+  const stage = (req.body?.flow?.stages || []).find((node) => node.id === outputId);
+  const snapshot = saveFlowResult(db, {
+    flowKey, outputId, label: stage?.label || outputId, rows: output.data || []
+  });
+  res.status(201).json({ success: true, snapshot });
+}));
+
+router.get("/snapshots/:flowKey", protectedSnapshot((req, res) => {
+  const snapshots = listFlowResults(db, req.params.flowKey);
+  res.json({ success: true, snapshots });
+}));
+
+router.get("/snapshots/:flowKey/:snapshotId", protectedSnapshot((req, res) => {
+  const snapshot = readFlowResult(db, req.params.flowKey, req.params.snapshotId);
+  res.json({ success: true, snapshot });
+}));
+
+router.delete("/snapshots/:flowKey/:snapshotId", protectedSnapshot((req, res) => {
+  deleteFlowResult(db, req.params.flowKey, req.params.snapshotId);
+  res.json({ success: true, deleted: true });
+}));
 
 export default router;

@@ -3,6 +3,7 @@ import path from "node:path";
 import Database from "better-sqlite3";
 import config from "../config/hydria.config.js";
 import logger from "../utils/logger.js";
+import { initFlowResultStore } from "../services/flow/flowResults.js";
 
 const databaseDir = path.dirname(config.paths.databaseFile);
 fs.mkdirSync(databaseDir, { recursive: true });
@@ -56,6 +57,7 @@ export function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_flow_run_history_key
       ON flow_run_history(flow_key, id DESC);
   `);
+  initFlowResultStore(db);
   logger.info("SQLite initialized", { file: config.paths.databaseFile });
 }
 

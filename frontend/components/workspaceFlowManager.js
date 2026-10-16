@@ -215,7 +215,7 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
     return;
   }
   host.replaceChildren();
-  const state = { flow: structuredClone(model), selected: model.stages[0]?.id || "", activeOutputId: "", pending: "", zoom: 1, results: null, error: "", running: false, history: [], future: [], runHistory: [] };
+  const state = { flow: structuredClone(model), selected: model.stages[0]?.id || "", activeOutputId: "", pending: "", zoom: 1, results: null, error: "", running: false, history: [], future: [], runHistory: [], snapshotToken: "", snapshots: [], loadedSnapshot: null, snapshotBusy: false };
   const root = element("section", "hydria-flow-manager");
   const toolbar = element("div", "hydria-flow-toolbar");
   const name = element("div", "hydria-flow-title");
@@ -685,6 +685,52 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
       historySection.appendChild(entries);
       consoleView.appendChild(historySection);
     }
+
+    if (state.flow.executionHistoryId) {
+      const saved = element("section", "hydria-flow-run-history");
+      saved.appendChild(element("strong", "", "Saved datasets · opt-in"));
+      saved.appendChild(element("p", "flow-muted",
+        "Snapshots are stored on this server. Enter the administrator's connector token; it is kept only in memory."));
+      const tokenField = element("label", "hydria-flow-field");
+      tokenField.appendChild(element("span", "", "Connector token (not saved)"));
+      const tokenInput = element("input");
+      tokenInput.type = "password"; tokenInput.autocomplete = "off";
+      tokenInput.value = state.snapshotToken;
+      tokenInput.placeholder = "HYDRIA_FLOW_CONNECTOR_TOKEN";
+      tokenInput.addEventListener("input", () => { state.snapshotToken = tokenInput.value; });
+      tokenField.appendChild(tokenInput);
+      saved.appendChild(tokenField);
+      saved.appendChild(button("Refresh saved datasets", () => { void loadSnapshots(); }, "hydria-flow-secondary"));
+      for (const entry of state.snapshots) {
+        const item = element("div", "hydria-flow-run-step");
+        item.appendChild(element("span", "", entry.label + " · " + entry.rowCount +
+          " rows · " + new Date(entry.createdAt).toLocaleString()));
+        item.appendChild(button("Open", () => { void openSnapshot(entry.id); }, "hydria-flow-secondary"));
+        item.appendChild(button("Delete", () => { void removeSnapshot(entry.id); }, "hydria-flow-secondary"));
+        saved.appendChild(item);
+      }
+      if (state.loadedSnapshot) {
+        const snapshot = state.loadedSnapshot;
+        saved.appendChild(element("h4", "", "Saved result: " + snapshot.label));
+        const preview = element("div", "hydria-flow-preview");
+        renderTable(preview, snapshot.rows.slice(0, 100));
+        saved.appendChild(preview);
+        saved.appendChild(button("Use saved rows as new source node", () => {
+          if (state.flow.stages.length >= 100) {
+            state.error = "The flow already has 100 nodes."; renderConsole(); return;
+          }
+          mutate(() => {
+            const id = "node-" + (++sequence) + "-" + Date.now();
+            state.flow.stages.push({
+              id, type: "input.table", kind: "input.table", label: "Saved · " + snapshot.label,
+              x: 120, y: 100, config: { data: JSON.stringify(snapshot.rows) }
+            });
+            state.selected = id;
+          });
+        }, "hydria-flow-secondary"));
+      }
+      consoleView.appendChild(saved);
+    }
     if (state.pending) consoleView.appendChild(element("p", "hydria-flow-banner", "Connecting from " + (nodeById(state.pending)?.label || state.pending) + " · click an input port · Escape cancels"));
     if (state.error) consoleView.appendChild(element("p", "hydria-flow-error", state.error));
     if (!state.results) {
@@ -721,6 +767,9 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
     }
     const output = outputs.find((item) => item.id === state.activeOutputId) || outputs[0];
     if (output) {
+      consoleView.appendChild(button("Save selected output to SQLite", () => {
+        void saveSnapshot(output.id);
+      }, "hydria-flow-secondary"));
       const host = element("div", "hydria-flow-preview");
       renderTable(host, output.preview);
       consoleView.appendChild(host);
@@ -784,6 +833,75 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
         } catch (error) { state.error = error.message || String(error); renderConsole(); }
       }, "hydria-flow-secondary"));
+    }
+  }
+  async function snapshotRequest(url, options = {}) {
+    const token = state.snapshotToken.trim();
+    if (!token) throw new Error("Enter the connector token to access saved results.");
+    const response = await fetch(url, {
+      ...options,
+      headers: {
+        ...(options.body ? { "Content-Type": "application/json" } : {}),
+        "x-hydria-flow-token": token
+      }
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload.success !== true) {
+      throw new Error(String(payload.error || (payload.errors || []).join("; ") || "Snapshot request failed"));
+    }
+    return payload;
+  }
+  async function loadSnapshots() {
+    if (!state.flow.executionHistoryId) return;
+    try {
+      const key = encodeURIComponent(state.flow.executionHistoryId);
+      const result = await snapshotRequest("/api/flows/snapshots/" + key);
+      state.snapshots = Array.isArray(result.snapshots) ? result.snapshots : [];
+      state.error = "";
+    } catch (error) {
+      state.error = "Saved datasets: " + String(error.message || error);
+    }
+    renderConsole();
+  }
+  async function saveSnapshot(outputId) {
+    if (state.snapshotBusy) return;
+    state.snapshotBusy = true;
+    try {
+      await snapshotRequest("/api/flows/snapshots", {
+        method: "POST",
+        body: JSON.stringify({
+          flow: state.flow, historyId: state.flow.executionHistoryId, outputId
+        })
+      });
+      await loadSnapshots();
+    } catch (error) {
+      state.error = "Save dataset: " + String(error.message || error); renderConsole();
+    } finally {
+      state.snapshotBusy = false;
+    }
+  }
+  async function openSnapshot(snapshotId) {
+    try {
+      const key = encodeURIComponent(state.flow.executionHistoryId);
+      const result = await snapshotRequest("/api/flows/snapshots/" +
+        key + "/" + encodeURIComponent(snapshotId));
+      state.loadedSnapshot = result.snapshot;
+      state.error = "";
+    } catch (error) {
+      state.error = "Load dataset: " + String(error.message || error);
+    }
+    renderConsole();
+  }
+  async function removeSnapshot(snapshotId) {
+    if (!window.confirm("Permanently delete this saved dataset?")) return;
+    try {
+      const key = encodeURIComponent(state.flow.executionHistoryId);
+      await snapshotRequest("/api/flows/snapshots/" +
+        key + "/" + encodeURIComponent(snapshotId), { method: "DELETE" });
+      if (state.loadedSnapshot?.id === snapshotId) state.loadedSnapshot = null;
+      await loadSnapshots();
+    } catch (error) {
+      state.error = "Delete dataset: " + String(error.message || error); renderConsole();
     }
   }
   async function loadRunHistory() {
