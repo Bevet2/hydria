@@ -1,6 +1,7 @@
 import path from "node:path";
 import express from "express";
 import cors from "cors";
+import { productionSettings, createProductionAccessGate } from "./middleware/osProductionAccess.js";
 import { proxyCrmApi } from "./middleware/crmApiProxy.js";
 import config from "./config/hydria.config.js";
 import { initDatabase, db } from "./db/sqlite.js";
@@ -24,11 +25,17 @@ import flowsRouter from "./routes/flows.js";
 import flowSourcesRouter from "./routes/flowSources.js";
 import hydriaApiRouter from "./routes/hydriaApi.js";
 
+// Fail closed before touching persistent data if production credentials or HTTPS origin are absent.
+const osProduction = productionSettings();
 initDatabase();
 
 const app = express();
 
-app.use(cors());
+// The liveness endpoint is intentionally nonsensitive; readiness/API and all
+// frontend pages require authentication in production.
+app.use(createProductionAccessGate(osProduction));
+app.get("/livez", (_req, res) => res.status(200).type("text/plain").send("ok"));
+if (!osProduction.production) app.use(cors());
 app.use("/crm-api", proxyCrmApi);
 app.use(express.json({ limit: "10mb" }));
 
