@@ -19,7 +19,7 @@ export function productionSettings(env = process.env) {
     throw new ProductionConfigError("Production requires HYDRIA_OS_ACCESS_USERNAME (3–64 safe characters).");
   }
   if (password.length < 20 || password.length > 512 ||
-      /^((password)|(change.?me)|(hydria123))/i.test(password)) {
+      /^(?:password|change.?me|hydria123|replace|example|sample|test[_-])/i.test(password)) {
     throw new ProductionConfigError("Production requires a strong HYDRIA_OS_ACCESS_PASSWORD (minimum 20 characters).");
   }
   let origin;
