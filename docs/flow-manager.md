@@ -257,3 +257,26 @@ Run `node backend/scripts/flowPostgresSourceGate.mjs` for mock-backed
 identifier validation, query, limit, permission and secret-handling tests.
 Full connectivity should also be tested against a real PostgreSQL database
 in the target environment.
+
+## Live Flow dashboard (initial dynamic viewer)
+
+From the Flow Manager toolbar, click **Live dashboard** after running the
+workflow at least once. This opens `/flow-dashboard.html?flowKey=<UUID>`
+on the same Hydria OS server. Enter `HYDRIA_FLOW_CONNECTOR_TOKEN` to fetch
+the saved results. The token is kept in tab memory, never stored in the URL,
+history, local storage or the workflow file.
+
+The viewer offers latest/historical dataset selection, category grouping,
+sum/average/count measures, row filtering, a preview table and a refresh
+button. While the page is visible it checks for new stored snapshots every
+60 seconds. Cells and labels are rendered with DOM `textContent`, not raw
+HTML. The most recent scheduled result can therefore appear automatically.
+
+This is **a new read-only Flow dataset dashboard**. It is not yet a dynamic
+connector inside the existing Hydria dashboard editing surface, and it
+doesn't stream records directly from an external database. Existing snapshots
+still require connector token authentication. Configure workspace
+authorization before offering access to untrusted users.
+
+Run `node backend/scripts/flowDashboardGate.mjs` to verify filtering,
+aggregation and numeric calculations.
