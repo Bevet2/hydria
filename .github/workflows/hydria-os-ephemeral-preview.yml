@@ -39,17 +39,27 @@ jobs:
           const page = await browser.newPage({viewport:{width:1365,height:850},deviceScaleFactor:1});
           page.on('pageerror',err=>console.log('PAGE_ERROR',String(err).slice(0,400)));
           const screens = [
-            ['accueil','http://127.0.0.1:3001/'],
-            ['documents','http://127.0.0.1:3001/workspace/docs'],
-            ['tableurs','http://127.0.0.1:3001/workspace/sheets'],
-            ['flux','http://127.0.0.1:3001/workspace/flows'],
-            ['canvas','http://127.0.0.1:3001/workspace/canvas']
+            ['accueil','http://127.0.0.1:3001/',null],
+            ['documents','http://127.0.0.1:3001/workspace/docs','Create a document'],
+            ['tableurs','http://127.0.0.1:3001/workspace/sheets','Create a spreadsheet'],
+            ['flux','http://127.0.0.1:3001/workspace/flows','Create a data flow'],
+            ['slides','http://127.0.0.1:3001/workspace/slides','Create a presentation'],
+            ['dashboard','http://127.0.0.1:3001/workspace/dashboard','Create a dashboard'],
+            ['whiteboard','http://127.0.0.1:3001/workspace/whiteboard','Create a whiteboard']
           ];
           await fs.mkdir('/tmp/hydria-preview-screens',{recursive:true});
-          for(const [name,url] of screens){
+          for(const [name,url,createLabel] of screens){
             try{
               await page.goto(url,{waitUntil:'domcontentloaded',timeout:30000});
-              await page.waitForTimeout(2100);
+              await page.waitForTimeout(800);
+              if(createLabel){
+                const target = page.getByText(createLabel,{exact:false}).first();
+                if(await target.count()) {
+                  await target.click({timeout:8000});
+                  await page.waitForTimeout(2100);
+                  console.log('PREVIEW_OPENED:'+name+':'+createLabel);
+                } else console.log('PREVIEW_NO_CREATE:'+name+':'+createLabel);
+              } else await page.waitForTimeout(900);
               const image = await page.screenshot({type:'jpeg',quality:52,fullPage:false});
               await fs.writeFile('/tmp/hydria-preview-screens/'+name+'.jpg', image);
               console.log('REAL_SCREEN_START:'+name);
