@@ -112,13 +112,13 @@ document.addEventListener("keydown",(event)=>{
 const launcher=document.getElementById("workspace-launcher");
 const quickTools=new Set(["docs","sheets","slides","flows"]);
 function enhanceLauncher() {
-  if(!launcher || launcher.classList.contains("hidden") || launcher.dataset.osEnhanced==="1")return;
+  if(!launcher || launcher.classList.contains("hidden") || launcher.querySelector(".os-home-section, .os-create-card"))return;
   const grid=launcher.querySelector(".workspace-launcher-grid");
   const header=launcher.querySelector(".workspace-launcher-header");
   if(!grid||!header)return;
   const cards=[...grid.querySelectorAll(":scope > .workspace-launcher-card")];
   if(!cards.length)return;
-  launcher.dataset.osEnhanced="1";
+
   // A single workspace page must preserve the original create-object click.
   if(grid.classList.contains("workspace-launcher-grid-single")){
     const card=cards[0],kind=card.dataset.workspace||"docs";
