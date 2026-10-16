@@ -214,3 +214,29 @@ if(workspaceRoot){
   new MutationObserver(updateMobileFiles).observe(workspaceRoot,{attributes:true,attributeFilter:["data-has-workspace"]});
   updateMobileFiles();
 }
+
+/* Editor focus mode: reveal more real document/canvas content without rewriting
+   any app editor, moving its nodes, or interfering with existing save commands. */
+const focusToggle=document.getElementById("os-focus-toggle");
+function setFocusMode(enabled){
+  const active=Boolean(enabled && workspaceRoot?.dataset.hasWorkspace==="true");
+  document.body.classList.toggle("os-focus-mode",active);
+  focusToggle?.setAttribute("aria-pressed",String(active));
+  focusToggle?.setAttribute("aria-label",
+    active?"Désactiver le mode concentration":"Activer le mode concentration");
+  if(focusToggle)focusToggle.title=active?"Quitter le mode concentration":"Mode concentration";
+}
+focusToggle?.addEventListener("click",()=>{
+  setFocusMode(!document.body.classList.contains("os-focus-mode"));
+});
+function syncFocusVisibility(){
+  const hasObject=workspaceRoot?.dataset.hasWorkspace==="true";
+  if(focusToggle)focusToggle.hidden=!hasObject;
+  if(!hasObject)setFocusMode(false);
+}
+if(workspaceRoot){
+  new MutationObserver(syncFocusVisibility).observe(workspaceRoot,{
+    attributes:true,attributeFilter:["data-has-workspace"]
+  });
+  syncFocusVisibility();
+}
