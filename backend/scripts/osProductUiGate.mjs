@@ -36,6 +36,7 @@ try {
   await page.locator("#os-collapse-sidebar").click();
   await page.locator("#os-theme-toggle").click();
   assert.equal(await page.locator("body").getAttribute("data-os-theme"),"dark");
+  await page.waitForTimeout(180); // CSS color transitions must be complete in the visual evidence.
   await page.screenshot({path:path.join(output,"02-overview-dark.png"),fullPage:false});
   await page.locator("#os-theme-toggle").click();
   assert.equal(await page.locator("body").getAttribute("data-os-theme"),"light");
