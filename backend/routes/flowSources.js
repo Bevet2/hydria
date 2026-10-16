@@ -4,6 +4,7 @@ import {
   listFlowSqliteTables, readFlowSqliteTable
 } from "../services/flow/flowSqliteSource.js";
 import { listFlowPostgresTables, readFlowPostgresTable } from "../services/flow/flowPostgresSource.js";
+import { listFlowApiSources, readFlowApiSource } from "../services/flow/flowApiSource.js";
 
 const router = Router();
 function protectedSource(handler) {
@@ -33,5 +34,11 @@ router.post("/postgres/read", protectedSource((req) =>
     schema: req.body?.schema ?? "public",
     table: req.body?.table, limit: req.body?.limit ?? 1000
   })
+));
+router.get("/api/sources", protectedSource(() => ({
+  sources: listFlowApiSources()
+})));
+router.post("/api/read", protectedSource((req) =>
+  readFlowApiSource({ sourceId: req.body?.sourceId, limit: req.body?.limit ?? 1000 })
 ));
 export default router;
