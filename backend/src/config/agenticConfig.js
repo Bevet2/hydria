@@ -44,7 +44,7 @@ function resolveGitHubToken(env) {
 }
 
 const env = process.env;
-const dataDir = path.join(baseConfig.paths.rootDir, "data", "agentic");
+const dataDir = path.join(baseConfig.paths.dataDir, "agentic");
 
 fs.mkdirSync(dataDir, { recursive: true });
 
@@ -121,10 +121,9 @@ const agenticConfig = {
       Math.min(3, parseInteger(env.HYDRIA_RUNTIME_MAX_STEP_RETRIES, 1))
     ),
     persistSessions: parseBoolean(env.HYDRIA_RUNTIME_PERSIST_SESSIONS, true),
-    sandboxRoot: path.join(
-      baseConfig.paths.rootDir,
-      firstDefined(env.HYDRIA_RUNTIME_SANDBOX_DIR, "data/agentic/sandbox")
-    ),
+    sandboxRoot: firstDefined(env.HYDRIA_RUNTIME_SANDBOX_DIR)
+      ? path.resolve(baseConfig.paths.rootDir, env.HYDRIA_RUNTIME_SANDBOX_DIR)
+      : path.join(dataDir, "sandbox"),
     allowShell: parseBoolean(env.HYDRIA_RUNTIME_ALLOW_SHELL, false),
     allowNetwork: parseBoolean(env.HYDRIA_RUNTIME_ALLOW_NETWORK, true),
     allowBrowser: parseBoolean(env.HYDRIA_RUNTIME_ALLOW_BROWSER, true),

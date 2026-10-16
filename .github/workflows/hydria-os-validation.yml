@@ -35,6 +35,10 @@ jobs:
           cache-dependency-path: backend/package-lock.json
       - name: Install backend dependencies
         run: npm ci --prefix backend --no-audit --no-fund
+      - name: Production single-user authentication and origin checks
+        run: node backend/scripts/productionAccessGate.mjs
+      - name: Production boot and restart persistence
+        run: node backend/scripts/productionBootGate.mjs
       - name: Core adapter smoke
         run: npm run smoke:hydria-core-adapter --prefix backend
       - name: Data-flow engine operations

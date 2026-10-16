@@ -9,6 +9,8 @@ const targetBasePath = target.pathname.replace(/\/+$/, "");
 export function proxyCrmApi(req, res) {
   const headers = { ...req.headers };
   delete headers.host;
+  // Never forward the gateway\'s HTTP Basic credential to a downstream service.
+  if (/^Basic\s+/i.test(String(headers.authorization || ""))) delete headers.authorization;
   headers["x-forwarded-host"] = req.headers.host || "";
   headers["x-forwarded-proto"] = req.protocol || "http";
 

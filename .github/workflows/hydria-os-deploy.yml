@@ -1,0 +1,82 @@
+name: Hydria OS private deployment smoke
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "deploy/**"
+      - ".dockerignore"
+      - "backend/**"
+      - "frontend/**"
+      - ".github/workflows/hydria-os-deploy.yml"
+  push:
+    branches: [main]
+    paths:
+      - "deploy/**"
+      - ".dockerignore"
+      - "backend/**"
+      - "frontend/**"
+      - ".github/workflows/hydria-os-deploy.yml"
+permissions:
+  contents: read
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Docker Compose configuration
+        run: |
+          cp deploy/example.env deploy/.env
+          docker compose --env-file deploy/.env -f deploy/compose.yaml config --quiet
+      - name: Build private production image
+        run: docker build --pull -f deploy/Dockerfile -t hydria-os:ci .
+      - name: Check PostgreSQL connector availability in container
+        run: docker run --rm --entrypoint psql hydria-os:ci --version
+      - name: Test isolated production image and persisted SQLite restart
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker volume create hydria-os-test-data >/dev/null
+          trap 'docker rm -f hydria-os-smoke >/dev/null 2>&1 || true; docker volume rm hydria-os-test-data >/dev/null 2>&1 || true' EXIT
+          docker run -d --name hydria-os-smoke \
+            -p 127.0.0.1:39991:3001 \
+            -e NODE_ENV=production \
+            -e HYDRIA_OS_PUBLIC_ORIGIN=https://os.example.org \
+            -e HYDRIA_OS_ACCESS_USERNAME=hydria_owner \
+            -e HYDRIA_OS_ACCESS_PASSWORD=ci-owner-password-over-20-characters \
+            -e LOCAL_LLM_ENABLED=false \
+            -e ENABLE_LOCAL_TOOLS=false \
+            -e HYDRIA_FLOW_SCHEDULER_ENABLED=false \
+            -v hydria-os-test-data:/app/data hydria-os:ci >/dev/null
+          alive=false
+          for i in {1..60}; do
+            if curl -fsS http://127.0.0.1:39991/livez >/dev/null; then alive=true; break; fi
+            sleep 1
+          done
+          if [[ "$alive" != true ]]; then docker logs hydria-os-smoke; exit 1; fi
+          [[ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:39991/)" == 401 ]]
+          [[ "$(curl -s -o /dev/null -w '%{http_code}' \
+            -u hydria_owner:ci-owner-password-over-20-characters \
+            http://127.0.0.1:39991/api/health)" == 200 ]]
+          [[ "$(curl -s -o /dev/null -w '%{http_code}' \
+            -X POST -H 'Content-Type: application/json' \
+            -H 'Origin: https://evil.example' \
+            -u hydria_owner:ci-owner-password-over-20-characters \
+            -d '{"username":"should_not_create"}' \
+            http://127.0.0.1:39991/api/users)" == 403 ]]
+          [[ "$(curl -s -o /dev/null -w '%{http_code}' \
+            -X POST -H 'Content-Type: application/json' \
+            -H 'Origin: https://os.example.org' \
+            -u hydria_owner:ci-owner-password-over-20-characters \
+            -d '{"username":"docker_persisted_user"}' \
+            http://127.0.0.1:39991/api/users)" == 201 ]]
+          docker restart hydria-os-smoke >/dev/null
+          alive=false
+          for i in {1..60}; do
+            if curl -fsS http://127.0.0.1:39991/livez >/dev/null; then alive=true; break; fi
+            sleep 1
+          done
+          [[ "$alive" == true ]]
+          curl -fsS -u hydria_owner:ci-owner-password-over-20-characters \
+            http://127.0.0.1:39991/api/users | grep -q '"username":"docker_persisted_user"'
+          echo "Hydria OS Docker production access, origin validation and durable data verified"

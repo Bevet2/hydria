@@ -1,9 +1,10 @@
 import path from "node:path";
 import express from "express";
 import cors from "cors";
+import { productionSettings, createProductionAccessGate } from "./middleware/osProductionAccess.js";
 import { proxyCrmApi } from "./middleware/crmApiProxy.js";
 import config from "./config/hydria.config.js";
-import { initDatabase, db } from "./db/sqlite.js";
+import { initDatabase, db, closeDatabase } from "./db/sqlite.js";
 import { executeDueFlowSchedules } from "./services/flow/flowScheduler.js";
 import { AppError, normalizeError } from "./utils/errors.js";
 import logger from "./utils/logger.js";
@@ -24,11 +25,17 @@ import flowsRouter from "./routes/flows.js";
 import flowSourcesRouter from "./routes/flowSources.js";
 import hydriaApiRouter from "./routes/hydriaApi.js";
 
+// Fail closed before touching persistent data if production credentials or HTTPS origin are absent.
+const osProduction = productionSettings();
 initDatabase();
 
 const app = express();
 
-app.use(cors());
+// The liveness endpoint is intentionally nonsensitive; readiness/API and all
+// frontend pages require authentication in production.
+app.use(createProductionAccessGate(osProduction));
+app.get("/livez", (_req, res) => res.status(200).type("text/plain").send("ok"));
+if (!osProduction.production) app.use(cors());
 app.use("/crm-api", proxyCrmApi);
 app.use(express.json({ limit: "10mb" }));
 
@@ -114,14 +121,15 @@ app.use((error, req, res, next) => {
   });
 });
 
-app.listen(config.port, () => {
+const server = app.listen(config.port, () => {
   logger.info(`Hydria listening on http://localhost:${config.port}`);
 });
+let scheduler;
 if (process.env.HYDRIA_FLOW_CONNECTOR_TOKEN && process.env.HYDRIA_FLOW_SCHEDULER_ENABLED !== "false") {
   // One scheduler per backend process; deployments with multiple workers need
   // an external coordinator before enabling this interval in every instance.
   let scheduleTickRunning = false;
-  const scheduler = setInterval(async () => {
+  scheduler = setInterval(async () => {
     if (scheduleTickRunning) return;
     scheduleTickRunning = true;
     try {
@@ -140,3 +148,22 @@ if (process.env.HYDRIA_FLOW_CONNECTOR_TOKEN && process.env.HYDRIA_FLOW_SCHEDULER
   scheduler.unref();
 }
 
+let shuttingDown = false;
+function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  if (scheduler) clearInterval(scheduler);
+  logger.info("Hydria OS shutdown requested", { signal });
+  const watchdog = setTimeout(() => process.exit(1), 10_000);
+  watchdog.unref();
+  server.close((err) => {
+    try { closeDatabase(); }
+    catch (closeError) {
+      logger.error("SQLite shutdown failed", { error: String(closeError?.message || closeError) });
+    }
+    clearTimeout(watchdog);
+    process.exit(err ? 1 : 0);
+  });
+}
+process.once("SIGTERM", () => shutdown("SIGTERM"));
+process.once("SIGINT", () => shutdown("SIGINT"));

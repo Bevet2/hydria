@@ -6,6 +6,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const backendDir = path.resolve(__dirname, "..");
 const rootDir = path.resolve(backendDir, "..");
+const dataDir = path.resolve(process.env.HYDRIA_OS_DATA_DIR || path.join(rootDir, "data"));
 
 dotenv.config({ path: path.join(backendDir, ".env") });
 
@@ -266,15 +267,16 @@ const config = {
   paths: {
     rootDir,
     backendDir,
+    dataDir,
     frontendDir: path.join(rootDir, "frontend"),
     crmWebDistDir: path.join(rootDir, "crm", "apps", "web", "dist"),
-    databaseFile: path.join(rootDir, "data", "hydria.sqlite"),
-    generatedArtifactsDir: path.join(rootDir, "data", "generated"),
-    generatedArtifactsIndex: path.join(rootDir, "data", "generated", "artifacts.json"),
-    uploadTempDir: path.join(rootDir, "data", "uploads-temp"),
+    databaseFile: path.join(dataDir, "hydria.sqlite"),
+    generatedArtifactsDir: path.join(dataDir, "generated"),
+    generatedArtifactsIndex: path.join(dataDir, "generated", "artifacts.json"),
+    uploadTempDir: path.join(dataDir, "uploads-temp"),
     schemaFile: path.join(backendDir, "db", "schema.sql"),
-    curatedApiCatalog: path.join(rootDir, "data", "api-catalog", "curated-apis.json"),
-    customApiCatalog: path.join(rootDir, "data", "api-catalog", "custom-apis.json")
+    curatedApiCatalog: path.join(dataDir, "api-catalog", "curated-apis.json"),
+    customApiCatalog: path.join(dataDir, "api-catalog", "custom-apis.json")
   },
   attachments: {
     maxFiles: Math.max(1, parseInteger(env.MAX_ATTACHMENTS, 6)),
@@ -298,7 +300,9 @@ const config = {
     enableBrowserFetch: parseBoolean(env.ENABLE_BROWSER_FETCH, true)
   },
   tools: {
-    enabled: parseBoolean(env.ENABLE_LOCAL_TOOLS, true),
+    // Remote private deployments default to read-only workspace operations.
+    // Explicitly opt in to local OS tools after reviewing their permissions.
+    enabled: parseBoolean(env.ENABLE_LOCAL_TOOLS, env.NODE_ENV !== "production"),
     workspaceRoot: firstDefined(env.TOOLS_WORKSPACE_ROOT, rootDir),
     timeoutMs: Math.max(3000, parseInteger(env.TOOL_TIMEOUT_MS, 45000)),
     maxOutputChars: Math.max(1000, parseInteger(env.MAX_TOOL_OUTPUT_CHARS, 12000)),
