@@ -53,9 +53,13 @@ curl -I https://os.example.org
 # Réponse 401 sans identifiant = normal, car l'instance est privée.
 ```
 
-La route `/livez` ne renvoie que `ok`. Elle sert au contrôle de vie
-du conteneur, **pas** à autoriser un utilisateur. La route `/api/health`
-est privée. Les tests GitHub Actions construisent l'image, contrôlent
+La route `/livez` ne renvoie que `ok` : elle sert à confirmer
+que le processus HTTP est vivant, sans divulguer l'état de la base.
+`/api/health` et `/api/health/ready` sont privées et nécessitent
+l'authentification du propriétaire. La seconde interroge réellement
+SQLite, l'accès en lecture/écriture au volume et l'existence de l'interface.
+Si l'un des composants requis échoue, elle renvoie HTTP 503 et le
+conteneur n'est plus déclaré prêt. Les tests GitHub Actions construisent l'image, contrôlent
 l'authentification et les origines, puis redémarrent le conteneur pour
 vérifier la persistance SQLite. Le certificat public doit être validé
 séparément sur le véritable domaine.

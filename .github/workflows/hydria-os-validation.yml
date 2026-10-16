@@ -35,6 +35,8 @@ jobs:
           cache-dependency-path: backend/package-lock.json
       - name: Install backend dependencies
         run: npm ci --prefix backend --no-audit --no-fund
+      - name: Database volume and frontend readiness diagnostics
+        run: node backend/scripts/osReadinessGate.mjs
       - name: Production single-user authentication and origin checks
         run: node backend/scripts/productionAccessGate.mjs
       - name: Online WAL backup integrity and clean restore
