@@ -162,3 +162,47 @@ scheduled flows, streaming outputs or per-tenant data catalogs. Validate with:
 ```bash
 node backend/scripts/flowResultSnapshotGate.mjs
 ```
+
+## Interval-based automated execution
+
+Flow Manager now supports a **server-side scheduled workflow** for each
+workflow history key. The editor offers Create/Update, Pause/Resume, Run Now
+and Remove controls in the Saved datasets panel. Schedules are persisted in
+the backend's SQLite database and survive restarts.
+
+All five schedule API routes require `x-hydria-flow-token` with the configured
+`HYDRIA_FLOW_CONNECTOR_TOKEN`:
+
+- `GET /api/flows/schedules` — metadata for up to 25 configured schedules
+- `GET /api/flows/schedules/:flowKey` — current schedule and last-run status
+- `PUT /api/flows/schedules/:flowKey` — full validated flow definition, selected
+  `outputId`, integer `intervalMinutes` (15–1440), boolean `enabled`,
+  optional boolean `publishSnapshot`
+- `POST /api/flows/schedules/:flowKey/run` — execute immediately
+- `DELETE /api/flows/schedules/:flowKey` — remove the schedule but retain
+  already saved snapshots
+
+The worker checks due times every 60 seconds and executes up to five due
+schedules per tick. Execution metadata is recorded in the same history used
+by manual runs. When `publishSnapshot` is enabled, the full selected output
+is saved using the existing bounded snapshot store (2 MB, at most ten per
+flow). A flow must first be run from the UI to establish its UUID key.
+
+Schedules support **only the current synchronous, deterministic data-flow
+nodes**, including embedded `input.table` rows. They **do not automatically
+refresh browser-imported CSV, REST or SQLite source data**; those imports are
+copied into an input node. Scheduled execution of live PostgreSQL/API inputs
+will require explicit server-side connector nodes with secure references.
+Scheduled definitions are capped at 512 KB and 40 nodes, with no arbitrary
+code execution.
+
+The scheduler starts only when `HYDRIA_FLOW_CONNECTOR_TOKEN` is set. Set
+`HYDRIA_FLOW_SCHEDULER_ENABLED=false` to disable the background tick while
+keeping management endpoints available. Because this is a single-process
+worker, **do not run several backend replicas with it enabled** until a
+distributed lease mechanism is added. It uses at-most-once due-time claims,
+not a guaranteed exactly-once job system. Per-workspace authorization,
+encrypted stored input rows, retries, an audit trail, and distributed
+coordination are still required for production multi-tenant use.
+
+Validate it with `node backend/scripts/flowSchedulerGate.mjs`.
