@@ -14,6 +14,8 @@ const DEFINITIONS = [
   { type: "transform.sort", group: "Transform", label: "Sort", inputs: 1, defaults: { column: "sales", direction: "desc" } },
   { type: "transform.derive", group: "Transform", label: "Derived column", inputs: 1, defaults: { column: "sales", target: "with_tax", operator: "multiply", value: "1.2" } },
   { type: "transform.aggregate", group: "Transform", label: "Group by", inputs: 1, defaults: { groupBy: "city", column: "sales", operation: "sum", target: "total_sales" } },
+  { type: "transform.pivot", group: "Reshape", label: "Pivot table", inputs: 1, defaults: { index: "city", pivotColumn: "year", valueColumn: "sales", operation: "sum" } },
+  { type: "transform.unpivot", group: "Reshape", label: "Unpivot columns", inputs: 1, defaults: { columns: "sales,cost", nameColumn: "field", valueColumn: "amount" } },
   { type: "transform.join", group: "Transform", label: "Join tables", inputs: 2, defaults: { leftKey: "id", rightKey: "id", how: "left" } },
   { type: "output.table", group: "Outputs", label: "Table output", inputs: 1, defaults: {} }
 ];
