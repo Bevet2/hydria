@@ -79,6 +79,16 @@ export async function backupHydriaData(sourceDir, outputDir) {
     try {
       await db.backup(path.join(staging,DATABASE));
     } finally {db.close();}
+    // The live source may use WAL mode. Normalize the *independent backup*
+    // into DELETE journal mode, so a read-only integrity check cannot create
+    // -wal/-shm sidecars that weren't listed in the checksum manifest.
+    const backedUpDb = new Database(path.join(staging,DATABASE));
+    try {
+      backedUpDb.pragma("journal_mode = DELETE");
+      if (backedUpDb.pragma("integrity_check",{simple:true}) !== "ok") {
+        invalid("SQLite snapshot integrity check failed.");
+      }
+    } finally { backedUpDb.close(); }
     await copyDataTree(source,staging);
     const entries=await collectFiles(staging);
     const manifest={format:BACKUP_FORMAT,createdAt:new Date().toISOString(),files:entries};
