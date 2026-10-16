@@ -4,6 +4,7 @@ import Database from "better-sqlite3";
 import config from "../config/hydria.config.js";
 import logger from "../utils/logger.js";
 import { initFlowResultStore } from "../services/flow/flowResults.js";
+import { initFlowSchedules } from "../services/flow/flowScheduler.js";
 
 const databaseDir = path.dirname(config.paths.databaseFile);
 fs.mkdirSync(databaseDir, { recursive: true });
@@ -58,6 +59,7 @@ export function initDatabase() {
       ON flow_run_history(flow_key, id DESC);
   `);
   initFlowResultStore(db);
+  initFlowSchedules(db);
   logger.info("SQLite initialized", { file: config.paths.databaseFile });
 }
 
