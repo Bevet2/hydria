@@ -572,6 +572,78 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
       }, "hydria-flow-secondary"));
       inspector.appendChild(dbPanel);
 
+      // PostgreSQL is accessed only through a server-configured, read-only
+      // connector. Credentials and connection settings never enter flow JSON.
+      const pgPanel = element("div", "hydria-flow-postgres-source");
+      pgPanel.appendChild(element("h4", "", "PostgreSQL source"));
+      const pgTokenLabel = element("label", "hydria-flow-field");
+      pgTokenLabel.appendChild(element("span", "", "Connector token (not saved)"));
+      const pgTokenInput = element("input");
+      pgTokenInput.type = "password"; pgTokenInput.autocomplete = "off";
+      pgTokenInput.placeholder = "HYDRIA_FLOW_CONNECTOR_TOKEN";
+      pgTokenLabel.appendChild(pgTokenInput);
+      pgPanel.appendChild(pgTokenLabel);
+      const pgTableLabel = element("label", "hydria-flow-field");
+      pgTableLabel.appendChild(element("span", "", "PostgreSQL table"));
+      const pgTableSelect = element("select");
+      pgTableSelect.disabled = true;
+      pgTableLabel.appendChild(pgTableSelect);
+      pgPanel.appendChild(pgTableLabel);
+      const pgLimitLabel = element("label", "hydria-flow-field");
+      pgLimitLabel.appendChild(element("span", "", "Maximum rows"));
+      const pgLimitInput = element("input");
+      pgLimitInput.type = "number"; pgLimitInput.min = "1"; pgLimitInput.max = "20000";
+      pgLimitInput.value = "1000";
+      pgLimitLabel.appendChild(pgLimitInput);
+      pgPanel.appendChild(pgLimitLabel);
+      pgPanel.appendChild(button("List PostgreSQL tables", async () => {
+        try {
+          const token = pgTokenInput.value.trim();
+          if (!token) throw new Error("Enter connector token");
+          const result = await parseConnectorResponse(await fetch("/api/flow-sources/postgres/tables", {
+            headers: { "x-hydria-flow-token": token }
+          }));
+          pgTableSelect.replaceChildren();
+          for (const item of result.tables || []) {
+            const option = element("option", "", item.schema + "." + item.name);
+            option.value = JSON.stringify({ schema: item.schema, table: item.name });
+            pgTableSelect.appendChild(option);
+          }
+          pgTableSelect.disabled = !(result.tables || []).length;
+          state.error = pgTableSelect.disabled ? "No accessible PostgreSQL tables" : "";
+          renderConsole();
+        } catch (error) {
+          state.error = "PostgreSQL: " + String(error.message || error);
+          renderConsole();
+        }
+      }, "hydria-flow-secondary"));
+      pgPanel.appendChild(button("Import selected PostgreSQL table", async () => {
+        try {
+          if (pgTableSelect.disabled) throw new Error("List PostgreSQL tables first");
+          const token = pgTokenInput.value.trim();
+          const chosen = JSON.parse(pgTableSelect.value);
+          const limit = Number(pgLimitInput.value);
+          if (!token || !Number.isInteger(limit) || limit < 1 || limit > 20000) {
+            throw new Error("Enter a token and choose 1–20,000 rows");
+          }
+          const result = await parseConnectorResponse(await fetch("/api/flow-sources/postgres/read", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "x-hydria-flow-token": token },
+            body: JSON.stringify({ ...chosen, limit })
+          }));
+          const target = nodeById(node.id);
+          if (!target) throw new Error("Source node was removed");
+          mutate(() => {
+            target.config = { ...(target.config || {}), data: JSON.stringify(result.rows || []) };
+            target.label = "PostgreSQL · " + chosen.schema + "." + chosen.table;
+          });
+        } catch (error) {
+          state.error = "PostgreSQL: " + String(error.message || error);
+          renderConsole();
+        }
+      }, "hydria-flow-secondary"));
+      inspector.appendChild(pgPanel);
+
       // Explicit public/CORS-accessible REST JSON data import. The browser
       // never forwards cookies, secrets or privileged backend credentials.
       const restPanel = element("div", "hydria-flow-rest-source");
