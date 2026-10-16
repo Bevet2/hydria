@@ -1,4 +1,4 @@
-import { flowNodePositionFromClient, flowGraphFit } from "./flowCanvasGeometry.js";
+import { flowNodePositionFromClient, flowGraphFit, flowAvoidNodeOverlap } from "./flowCanvasGeometry.js";
 
 // Hydria OS native data-flow workbench. Zero UI dependencies.
 // Graph editing is local; revisions are persisted by the existing work-object editor.
@@ -258,7 +258,7 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
     if (!byType.has(type)) return;
     event.preventDefault();
     const position = flowNodePositionFromClient(event.clientX, event.clientY, graph.getBoundingClientRect(), state.zoom);
-    addNode(type, position);
+    addNode(type, flowAvoidNodeOverlap(position,state.flow.stages));
   });
   const consoleView = element("section", "hydria-flow-console");
   consoleView.id = "hydria-flow-console-" + (++sequence);
