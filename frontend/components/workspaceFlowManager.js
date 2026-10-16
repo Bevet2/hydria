@@ -399,7 +399,7 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
     const config = node.config || (node.config = {});
     Object.entries(spec?.defaults || {}).forEach(([key, initial]) => {
       const multiline = key === "data";
-      inspector.appendChild(configurationField(key === "data" ? "Source rows (JSON array)" : key, config[key] ?? initial, (v) => mutate(() => { config[key] = v; if (key === "data") delete config.postgresSource; }), OPTIONS[key] || null, multiline));
+      inspector.appendChild(configurationField(key === "data" ? "Source rows (JSON array)" : key, config[key] ?? initial, (v) => mutate(() => { config[key] = v; if (key === "data") { delete config.postgresSource; delete config.apiSource; } }), OPTIONS[key] || null, multiline));
     });
     if (node.type === "input.table") {
       const csv = element("input"); csv.type = "file"; csv.accept = ".csv,.tsv,.txt,text/csv,text/tab-separated-values"; csv.hidden = true;
@@ -409,7 +409,7 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
         try {
           if (file.size > 2_000_000) throw new Error("Delimited text file is larger than 2 MB");
           const rows = parseCSV(await file.text());
-          mutate(() => { config.data = JSON.stringify(rows); delete config.postgresSource; node.label = file.name; });
+          mutate(() => { config.data = JSON.stringify(rows); delete config.postgresSource; delete config.apiSource; node.label = file.name; });
         } catch (error) { state.error = error.message || "Table import failed"; renderConsole(); }
         csv.value = "";
       });
@@ -437,6 +437,7 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
         mutate(() => {
           target.config = { ...(target.config || {}), data: JSON.stringify(rows) };
           delete target.config.postgresSource;
+            delete target.config.apiSource;
           target.label = workbookFilename + " · " + String(sheet.name || "Sheet");
         });
       };
@@ -563,6 +564,7 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
           mutate(() => {
             target.config = { ...(target.config || {}), data: JSON.stringify(payload.rows || []) };
             delete target.config.postgresSource;
+            delete target.config.apiSource;
             target.label = "SQLite · " + table;
           });
           state.error = "";
@@ -644,6 +646,7 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
                 table: chosen.table, limit
               }
             };
+            delete target.config.apiSource;
             target.label = "PostgreSQL · " + chosen.schema + "." + chosen.table;
           });
         } catch (error) {
@@ -661,6 +664,92 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
         }, "hydria-flow-secondary"));
       }
       inspector.appendChild(pgPanel);
+
+      // Server-managed REST catalog. Only public metadata is exposed:
+      // URLs and API credentials remain on the Hydria backend.
+      const managedPanel = element("div", "hydria-flow-api-source");
+      managedPanel.appendChild(element("h4", "", "Managed API source"));
+      const apiTokenLabel = element("label", "hydria-flow-field");
+      apiTokenLabel.appendChild(element("span", "", "Connector token (not saved)"));
+      const apiTokenInput = element("input");
+      apiTokenInput.type = "password"; apiTokenInput.autocomplete = "off";
+      apiTokenInput.placeholder = "HYDRIA_FLOW_CONNECTOR_TOKEN";
+      apiTokenLabel.appendChild(apiTokenInput);
+      managedPanel.appendChild(apiTokenLabel);
+      const apiSourceLabel = element("label", "hydria-flow-field");
+      apiSourceLabel.appendChild(element("span", "", "Configured API"));
+      const apiSourceSelect = element("select");
+      apiSourceSelect.disabled = true;
+      apiSourceLabel.appendChild(apiSourceSelect);
+      managedPanel.appendChild(apiSourceLabel);
+      const apiLimitLabel = element("label", "hydria-flow-field");
+      apiLimitLabel.appendChild(element("span", "", "Maximum rows"));
+      const apiLimitInput = element("input");
+      apiLimitInput.type = "number"; apiLimitInput.min = "1"; apiLimitInput.max = "20000";
+      apiLimitInput.value = "1000";
+      apiLimitLabel.appendChild(apiLimitInput);
+      managedPanel.appendChild(apiLimitLabel);
+      managedPanel.appendChild(button("List managed APIs", async () => {
+        try {
+          const token = apiTokenInput.value.trim();
+          if (!token) throw new Error("Enter the connector token");
+          const payload = await parseConnectorResponse(await fetch("/api/flow-sources/api/sources", {
+            headers: { "x-hydria-flow-token": token }
+          }));
+          apiSourceSelect.replaceChildren();
+          for (const source of payload.sources || []) {
+            const opt = element("option", "", source.label);
+            opt.value = source.id;
+            apiSourceSelect.appendChild(opt);
+          }
+          apiSourceSelect.disabled = !(payload.sources || []).length;
+          state.error = apiSourceSelect.disabled ? "No API sources configured by server administrator" : "";
+          renderConsole();
+        } catch (error) {
+          state.error = "Managed API: " + String(error.message || error);
+          renderConsole();
+        }
+      }, "hydria-flow-secondary"));
+      managedPanel.appendChild(button("Import selected API", async () => {
+        try {
+          const token = apiTokenInput.value.trim();
+          const sourceId = apiSourceSelect.value;
+          const limit = Number(apiLimitInput.value);
+          if (!token || apiSourceSelect.disabled || !sourceId) {
+            throw new Error("Authenticate and select a managed API source first");
+          }
+          if (!Number.isInteger(limit) || limit < 1 || limit > 20000) {
+            throw new Error("Choose a limit between 1 and 20,000 rows");
+          }
+          const result = await parseConnectorResponse(await fetch("/api/flow-sources/api/read", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "x-hydria-flow-token": token },
+            body: JSON.stringify({ sourceId, limit })
+          }));
+          const target = nodeById(node.id);
+          if (!target) throw new Error("Source node no longer exists");
+          mutate(() => {
+            target.config = {
+              ...(target.config || {}),
+              data: JSON.stringify(result.rows || []),
+              apiSource: { kind: "api", sourceId, limit }
+            };
+            delete target.config.postgresSource;
+            target.label = "API · " + result.label;
+          });
+        } catch (error) {
+          state.error = "Managed API: " + String(error.message || error);
+          renderConsole();
+        }
+      }, "hydria-flow-secondary"));
+      if (node.config?.apiSource?.kind === "api") {
+        managedPanel.appendChild(element("p", "flow-muted",
+          "Live refresh enabled for scheduled runs: " + node.config.apiSource.sourceId));
+        managedPanel.appendChild(button("Disable live API refresh", () => {
+          mutate(() => { delete node.config.apiSource; });
+        }, "hydria-flow-secondary"));
+      }
+      inspector.appendChild(managedPanel);
 
       // Explicit public/CORS-accessible REST JSON data import. The browser
       // never forwards cookies, secrets or privileged backend credentials.
@@ -711,6 +800,7 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
           mutate(() => {
             target.config = { ...(target.config || {}), data: JSON.stringify(rows) };
           delete target.config.postgresSource;
+            delete target.config.apiSource;
             target.label = "REST · " + address.hostname;
           });
         } catch (error) {
