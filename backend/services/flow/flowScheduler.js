@@ -2,7 +2,8 @@
 // It deliberately accepts only the existing deterministic flow graph and never
 // persists connection tokens. Configure a dedicated admin token at the API layer.
 import { validateFlow, runFlow } from "./flowEngine.js";
-import { saveFlowResult, FlowResultError, FLOW_KEY_PATTERN } from "./flowResults.js";
+import { saveFlowResult, FLOW_KEY_PATTERN } from "./flowResults.js";
+import { readFlowPostgresTable } from "./flowPostgresSource.js";
 
 const MIN_INTERVAL = 15;
 const MAX_INTERVAL = 1440;
@@ -91,9 +92,34 @@ export function saveFlowSchedule(db, {
   }
   // Only the engine's known deterministic nodes are supported. A scheduled
   // run does not gain access to external URLs, files or connector credentials.
+  // Store live PostgreSQL references, never browser-imported database rows
+  // or credentials. The backend refreshes them at execution time.
+  let liveSources = 0;
+  const storedStages = validation.flow.stages.map((stage) => {
+    const pg = stage.config?.postgresSource;
+    if (pg === undefined) return stage;
+    if ((stage.type || stage.kind) !== "input.table" ||
+        !pg || pg.kind !== "postgres" ||
+        !/^[A-Za-z_][A-Za-z0-9_]{0,62}$/.test(String(pg.schema || "")) ||
+        !/^[A-Za-z_][A-Za-z0-9_]{0,62}$/.test(String(pg.table || "")) ||
+        !Number.isInteger(Number(pg.limit)) || Number(pg.limit) < 1 || Number(pg.limit) > 20000) {
+      throw new FlowScheduleError("Invalid live PostgreSQL source reference.");
+    }
+    if (++liveSources > 3) throw new FlowScheduleError("Maximum three live PostgreSQL sources per scheduled flow.");
+    return {
+      ...stage,
+      config: {
+        ...(stage.config || {}),
+        data: "[]",
+        postgresSource: {
+          kind: "postgres", schema: pg.schema, table: pg.table, limit: Number(pg.limit)
+        }
+      }
+    };
+  });
   const stored = JSON.stringify({
     kind: "hydria-dataflow", version: 1,
-    title: validation.flow.title, stages: validation.flow.stages, links: validation.flow.links
+    title: validation.flow.title, stages: storedStages, links: validation.flow.links
   });
   if (Buffer.byteLength(stored, "utf8") > MAX_DEFINITION_BYTES) {
     throw new FlowScheduleError("Scheduled flow definition exceeds 512 KB.", 413);
@@ -134,7 +160,9 @@ function recordHistory(db, key, startedAt, status, durationMs, steps, outputRows
     (SELECT id FROM flow_run_history WHERE flow_key = ? ORDER BY id DESC LIMIT 50)
   `).run(key, key);
 }
-export function executeScheduledFlow(db, flowKey, now = Date.now()) {
+export async function executeScheduledFlow(db, flowKey, now = Date.now(), {
+  fetchPostgres = readFlowPostgresTable
+} = {}) {
   const key = validKey(flowKey);
   const record = getRecord(db, key);
   if (!record) throw new FlowScheduleError("Schedule not found.", 404);
@@ -149,7 +177,20 @@ export function executeScheduledFlow(db, flowKey, now = Date.now()) {
   const began = Date.now();
   let status = "success", error = "", stepCount = 0, outputRows = 0, snapshotId = null;
   try {
-    const result = runFlow(JSON.parse(record.flow_json), { includeAllOutputs: Boolean(record.publish_snapshot), sampleLimit: 0 });
+    const liveFlow = JSON.parse(record.flow_json);
+    for (const stage of liveFlow.stages) {
+      const source = stage.config?.postgresSource;
+      if (!source) continue;
+      if (source.kind !== "postgres") throw new FlowScheduleError("Unsupported live source.");
+      const refreshed = await fetchPostgres({
+        schema: source.schema, table: source.table, limit: source.limit
+      });
+      if (!Array.isArray(refreshed.rows) || refreshed.rows.length > source.limit) {
+        throw new FlowScheduleError("Invalid refreshed PostgreSQL result.");
+      }
+      stage.config.data = JSON.stringify(refreshed.rows);
+    }
+    const result = runFlow(liveFlow, { includeAllOutputs: Boolean(record.publish_snapshot), sampleLimit: 0 });
     stepCount = result.steps?.length || 0;
     if (!result.success) throw new FlowScheduleError((result.errors || []).join("; ") || "Flow execution failed.", 422);
     const output = result.outputs.find((o) => o.id === record.output_id);
@@ -158,7 +199,7 @@ export function executeScheduledFlow(db, flowKey, now = Date.now()) {
     if (record.publish_snapshot) {
       const metadata = saveFlowResult(db, {
         flowKey: key, outputId: output.id,
-        label: (JSON.parse(record.flow_json).stages.find((s) => s.id === output.id)?.label || output.id),
+        label: (liveFlow.stages.find((s) => s.id === output.id)?.label || output.id),
         rows: output.data || []
       });
       snapshotId = metadata.id;
@@ -176,12 +217,16 @@ export function executeScheduledFlow(db, flowKey, now = Date.now()) {
   })();
   return { flowKey: key, startedAt, status, error: error || null, outputRows, snapshotId, nextRunAt };
 }
-export function executeDueFlowSchedules(db, now = Date.now(), maxPerTick = 5) {
+export async function executeDueFlowSchedules(db, now = Date.now(), maxPerTick = 5, options = {}) {
   const limit = Math.max(1, Math.min(5, Math.trunc(maxPerTick) || 5));
   const due = db.prepare(`
     SELECT flow_key FROM flow_schedules
     WHERE enabled = 1 AND next_run_at <= ?
     ORDER BY next_run_at ASC LIMIT ?
   `).all(new Date(now).toISOString(), limit);
-  return due.map(({ flow_key }) => executeScheduledFlow(db, flow_key, now));
+  const results = [];
+  for (const { flow_key } of due) {
+    results.push(await executeScheduledFlow(db, flow_key, now, options));
+  }
+  return results;
 }

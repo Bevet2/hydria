@@ -36,8 +36,8 @@ try {
   assert.equal(created.enabled, true);
   assert.equal(created.publishSnapshot, true);
   assert.equal(created.nextRunAt, "2026-10-16T10:15:00.000Z");
-  assert.equal(executeDueFlowSchedules(db, start).length, 0);
-  const outcomes = executeDueFlowSchedules(db, start + 15 * 60_000);
+  assert.equal((await executeDueFlowSchedules(db, start)).length, 0);
+  const outcomes = await executeDueFlowSchedules(db, start + 15 * 60_000);
   assert.equal(outcomes.length, 1);
   assert.equal(outcomes[0].status, "success");
   assert.equal(outcomes[0].outputRows, 1);
@@ -46,16 +46,16 @@ try {
   assert.equal(saved.length, 1);
   assert.deepEqual(readFlowResult(db, flowKey, saved[0].id).rows, [{city:"Paris",amount:3}]);
   assert.equal(db.prepare("SELECT COUNT(*) AS count FROM flow_run_history").get().count,1);
-  assert.equal(executeDueFlowSchedules(db, start + 16 * 60_000).length,0);
-  assert.equal(executeScheduledFlow(db, flowKey, start + 18 * 60_000).status,"success");
+  assert.equal((await executeDueFlowSchedules(db, start + 16 * 60_000)).length,0);
+  assert.equal((await executeScheduledFlow(db, flowKey, start + 18 * 60_000)).status,"success");
   assert.equal(getFlowSchedule(db, flowKey).runCount, 2);
 
   const disabled = saveFlowSchedule(db, { flowKey, flow, outputId: "out",
     intervalMinutes: 30, enabled: false, publishSnapshot: false }, start);
   assert.equal(disabled.nextRunAt, null);
   assert.equal(disabled.enabled, false);
-  assert.deepEqual(executeDueFlowSchedules(db, start + 2 * 86400000), []);
-  assert.throws(() => executeScheduledFlow(db, flowKey), (e) => e.status === 409);
+  assert.deepEqual(await executeDueFlowSchedules(db, start + 2 * 86400000), []);
+  await assert.rejects(() => executeScheduledFlow(db, flowKey), (e) => e.status === 409);
 
   const invalidData = {
     ...flow,
@@ -63,11 +63,48 @@ try {
   };
   saveFlowSchedule(db, {flowKey, flow: invalidData, outputId:"out",
     intervalMinutes:15, publishSnapshot:false},start);
-  const failure = executeScheduledFlow(db, flowKey, start);
+  const failure = await executeScheduledFlow(db, flowKey, start);
   assert.equal(failure.status,"failed");
   assert.match(failure.error,/JSON/i);
   assert.equal(getFlowSchedule(db, flowKey).lastStatus,"failed");
   assert.equal(db.prepare("SELECT status FROM flow_run_history ORDER BY id DESC LIMIT 1").get().status,"failed");
+  const live = {
+    ...flow, stages:[
+      {id:"src",type:"input.table",config:{
+        data: JSON.stringify([{city:"STALE",amount:-1}]),
+        postgresSource: {kind:"postgres",schema:"public",table:"sales",limit:100}
+      }},
+      flow.stages[1]
+    ]
+  };
+  const configured = saveFlowSchedule(db,{flowKey,flow:live,outputId:"out",
+    intervalMinutes:15,enabled:true},start);
+  assert.equal(configured.enabled,true);
+  const stored = db.prepare("SELECT flow_json FROM flow_schedules WHERE flow_key=?").get(flowKey);
+  assert.deepEqual(JSON.parse(stored.flow_json).stages[0].config.data,"[]",
+    "Scheduled definitions should not retain copied PostgreSQL result rows");
+  let counter = 3, sources = 0;
+  const fetchPostgres = async ({schema,table,limit}) => {
+    assert.deepEqual({schema,table,limit},{schema:"public",table:"sales",limit:100});
+    sources++;
+    return {rows:[{city:"Paris",amount:counter++}]};
+  };
+  assert.equal((await executeScheduledFlow(db,flowKey,start,{fetchPostgres})).status,"success");
+  assert.equal((await executeScheduledFlow(db,flowKey,start+60_000,{fetchPostgres})).status,"success");
+  assert.equal(sources,2);
+  const snapshots = listFlowResults(db,flowKey);
+  assert.equal(readFlowResult(db,flowKey,snapshots[0].id).rows[0].amount,4);
+  assert.equal(readFlowResult(db,flowKey,snapshots[1].id).rows[0].amount,3);
+  assert.throws(() => saveFlowSchedule(db,{
+    flowKey,flow:{...flow,stages:[{...flow.stages[0],config:{
+      data:"[]",postgresSource:{kind:"postgres",schema:"public",table:"sales;DROP",limit:100}
+    }},flow.stages[1]]},outputId:"out",intervalMinutes:15
+  }),/Invalid live PostgreSQL/);
+  const sourceFailure = await executeScheduledFlow(db,flowKey,start+120_000,{
+    fetchPostgres:async()=>{throw Error("Postgres connection failed");}
+  });
+  assert.equal(sourceFailure.status,"failed");
+  assert.match(sourceFailure.error,/Postgres connection failed/);
   assert.deepEqual(deleteFlowSchedule(db, flowKey),{deleted:true});
   assert.equal(getFlowSchedule(db, flowKey),null);
   assert.throws(() => deleteFlowSchedule(db, flowKey),(e)=>e.status===404);

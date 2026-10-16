@@ -219,11 +219,11 @@ router.post("/export-bundle", (req, res, next) => {
 // when the administrator connector token is supplied. No token or credentials
 // are written to workflow.json, SQLite rows, URLs or execution history.
 function protectedSnapshot(handler) {
-  return (req, res, next) => {
+  return async (req, res, next) => {
     try {
       checkFlowSourceToken(req.get("x-hydria-flow-token"));
       res.setHeader("Cache-Control", "no-store");
-      handler(req, res);
+      await handler(req, res);
     } catch (error) {
       if (error instanceof FlowSourceError || error instanceof FlowResultError || error instanceof FlowScheduleError) {
         res.status(error.status).json({ success: false, error: error.message });
@@ -286,8 +286,8 @@ router.delete("/schedules/:flowKey", protectedSnapshot((req, res) => {
   deleteFlowSchedule(db, req.params.flowKey);
   res.json({ success: true, deleted: true });
 }));
-router.post("/schedules/:flowKey/run", protectedSnapshot((req, res) => {
-  const result = executeScheduledFlow(db, req.params.flowKey);
+router.post("/schedules/:flowKey/run", protectedSnapshot(async (req, res) => {
+  const result = await executeScheduledFlow(db, req.params.flowKey);
   res.status(result.status === "success" ? 200 : 422).json({
     success: result.status === "success", result, ...(result.error ? { error: result.error } : {})
   });
