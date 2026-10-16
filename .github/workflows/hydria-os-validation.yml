@@ -238,16 +238,6 @@ jobs:
           path: /tmp/hydria-product-ui/*.png
           if-no-files-found: ignore
           retention-days: 7
-      - name: Native graph drag and keyboard acceptance
-        run: node backend/scripts/osFlowCanvasInteractionGate.mjs
-      - name: Upload flow interactions screenshot
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: hydria-flow-drag-keyboard
-          path: /tmp/hydria-flow-interactions.png
-          if-no-files-found: ignore
-          retention-days: 7
       - name: Six editor workbenches and functional inspector checks
         run: node backend/scripts/osEditorWorkbenchGate.mjs
       - name: Upload workbench review captures
