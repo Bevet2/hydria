@@ -35,3 +35,36 @@ export function flowGraphFit(stages,viewportWidth,viewportHeight) {
     scrollTop:Math.max(0,Math.round(top*scale-padding))
   };
 }
+
+// Place a new block as near as possible to the user's drop point without
+// covering existing blocks. Default collision margin keeps port hit targets usable.
+export function flowAvoidNodeOverlap(position,stages=[],gap=18) {
+  const occupied=Array.isArray(stages)?stages:[];
+  const collides=(test)=>occupied.some(item=>{
+    const x=Number(item.x)||0,y=Number(item.y)||0;
+    return test.x < x+NODE_WIDTH+gap && test.x+NODE_WIDTH+gap > x &&
+      test.y < y+NODE_HEIGHT+gap && test.y+NODE_HEIGHT+gap > y;
+  });
+  const inside=(test)=>test.x>=0&&test.y>=0&&
+    test.x<=GRAPH_WIDTH-NODE_WIDTH&&test.y<=GRAPH_HEIGHT-NODE_HEIGHT;
+  if(inside(position)&&!collides(position))return position;
+  const dx=NODE_WIDTH+gap,dy=NODE_HEIGHT+gap;
+  const candidates=[];
+  // Progressive rings prioritize the shortest *pixel* distance to the drop.
+  for(let ring=1;ring<=10;ring++){
+    for(let x=-ring;x<=ring;x++){
+      for(let y=-ring;y<=ring;y++){
+        if(Math.max(Math.abs(x),Math.abs(y))!==ring)continue;
+        const candidate={x:position.x+x*dx,y:position.y+y*dy};
+        if(!inside(candidate))continue;
+        candidates.push({candidate,distance:Math.hypot(x*dx,y*dy)});
+      }
+    }
+    candidates.sort((a,b)=>a.distance-b.distance||
+      a.candidate.y-b.candidate.y||a.candidate.x-b.candidate.x);
+    const free=candidates.find(item=>!collides(item.candidate));
+    if(free)return free.candidate;
+    candidates.length=0;
+  }
+  return position; // A saturated graph remains editable; never block adding.
+}
