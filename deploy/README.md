@@ -82,17 +82,21 @@ sauvegarde vérifiée des données, puis relancer une image/tag du logiciel
 compatible avec cette sauvegarde. Les migrations SQLite existantes sont
 largement additives, mais il n'y a pas encore de migration inverse générale.
 
-Un outil automatique de sauvegarde **cohérente avec SQLite WAL** et de
-restauration vérifiée est prévu comme chantier distinct. Tant qu'il n'est
-pas livré et testé, ne stockez pas de données irremplaçables sur cette
-installation. Évitez de sauvegarder la base active par simple `cp` lorsque
-l'application fonctionne : une sauvegarde SQLite doit gérer le journal WAL.
+Hydria OS fournit désormais un utilitaire de **sauvegarde cohérente
+avec SQLite WAL**, vérification de manifeste SHA-256 et restauration vers un
+**répertoire neuf uniquement**. Consultez
+[le guide de sauvegarde et restauration](../docs/hydria-os-backup-restore.md)
+et planifiez de vraies sauvegardes externalisées (qui restent une responsabilité
+d'exploitation). Les autres fichiers sont copiés séquentiellement : ils ne
+bénéficient pas d'une transaction commune avec SQLite.
+Évitez de sauvegarder la base active par simple `cp` lorsque
+l'application fonctionne.
 
 ## Ce qui n'est pas encore certifié production
 
 - Authentification multi-utilisateur, séparation des tenants et permissions.
 - Déploiement répliqué / ordonnanceur distribué.
-- Restauration automatisée validée, rotation des secrets et audit centralisé.
+- Restauration automatique en place, sauvegardes périodiques externalisées, rotation des secrets et audit centralisé. La restauration sûre vers un nouveau dossier est testée.
 - Fonctionnement réel des connexions externes (modèles, CRM, services
   OAuth) avec tous les fournisseurs possibles.
 - Browser automation/Playwright : Chromium n'est pas inclus dans cette

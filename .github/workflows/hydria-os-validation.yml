@@ -37,6 +37,8 @@ jobs:
         run: npm ci --prefix backend --no-audit --no-fund
       - name: Production single-user authentication and origin checks
         run: node backend/scripts/productionAccessGate.mjs
+      - name: Online WAL backup integrity and clean restore
+        run: node backend/scripts/osBackupGate.mjs
       - name: Production boot and restart persistence
         run: node backend/scripts/productionBootGate.mjs
       - name: Core adapter smoke
