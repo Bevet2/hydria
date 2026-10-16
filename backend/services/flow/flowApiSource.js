@@ -42,7 +42,10 @@ function catalogFromConfig(settings = process.env) {
       invalid("API sources require a configured HTTPS hostname without embedded credentials.", 503);
     }
     const path = String(item.itemsPath || "");
-    if (path && !PATH.test(path)) invalid("Invalid API itemsPath.", 503);
+    if (path && (!PATH.test(path) || path.split(".").some((part) =>
+        ["__proto__", "constructor", "prototype"].includes(part)))) {
+      invalid("Invalid API itemsPath.", 503);
+    }
     const authHeader = String(item.authHeader || "");
     const authEnv = String(item.authEnv || "");
     const authScheme = String(item.authScheme || "raw").toLowerCase();
