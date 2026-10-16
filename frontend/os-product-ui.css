@@ -337,3 +337,76 @@ body[data-os-theme="dark"] .workspace-mode-button.active{background:#374252 !imp
 @media (prefers-reduced-motion:reduce) {
   *,*::before,*::after{transition-duration:.01ms !important;animation-duration:.01ms !important;}
 }
+
+/* Home is a task launcher, not a gallery of marketing cards. */
+#workspace-panel-root:not([data-has-workspace="true"]) .workspace-shell-header {
+  margin-bottom:20px !important;
+}
+#workspace-panel-root:not([data-has-workspace="true"]) .workspace-title-group h2{
+  font-size:25px !important;
+}
+.workspace-launcher-header {margin:0 0 24px !important;}
+.os-home-section {margin:0 0 28px;}
+.os-home-section h4 {margin:0 0 12px;font-size:12px;font-weight:760;letter-spacing:-.01em;color:#39465b;}
+.os-quick-grid {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;}
+.os-quick-grid .os-quick-card {
+  min-height:118px !important;display:flex;justify-content:flex-start;align-items:flex-start;
+  gap:9px;padding:16px !important;
+  background:#fff !important;border:1px solid #dfe6f0 !important;border-radius:9px !important;
+}
+.os-home-card-icon {width:35px;height:35px;flex-shrink:0;display:grid;place-items:center;
+  border-radius:9px;background:#eef2ff;color:#4f46e5;}
+.os-home-card-icon svg{width:18px;height:18px;}
+.os-quick-card strong{font-size:13px !important;font-weight:720 !important;line-height:1.3;}
+.os-quick-card span:not(.os-home-card-icon){font-size:11px !important;line-height:1.4;}
+.os-explore-grid {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;}
+.os-explore-grid .os-explore-card{
+  display:grid !important;grid-template-columns:28px minmax(0,1fr) 18px;
+  grid-template-rows:auto auto;align-items:center;justify-content:initial;
+  min-height:66px !important;padding:11px 14px !important;gap:2px 10px;
+  background:#fff !important;border:1px solid #e1e7f0 !important;border-radius:8px !important;
+}
+.os-explore-card .os-home-card-icon{width:27px;height:27px;grid-column:1;grid-row:1/3;
+  background:#f1f5f9;color:#64748b;border-radius:7px;}
+.os-explore-card .os-home-card-icon svg{width:16px;height:16px;}
+.os-explore-card strong{grid-row:1;grid-column:2;font-size:12px !important;}
+.os-explore-card span:not(.os-home-card-icon):not(.os-explore-arrow){
+  grid-row:2;grid-column:2;max-width:100%;text-overflow:ellipsis;overflow:hidden;white-space:nowrap;
+  font-size:10.5px !important;
+}
+.os-explore-card .os-explore-arrow{grid-row:1/3;grid-column:3;color:#94a3b8;font-size:18px;}
+.os-explore-card:hover .os-explore-arrow{color:#4f46e5;}
+.os-create-card {max-width:100%;min-height:110px !important;}
+/* Remove duplicate, descriptive marketing content inside open object's left rail. */
+#workspace-panel-root[data-has-workspace="true"] .workspace-sidebar
+ :is(.workspace-nav-card-description,.workspace-nav-summary){font-size:11px;line-height:1.38;}
+/* The app's old dashboard tools are intentionally unchanged, but controls
+   should have predictable keyboard focus and useful minimum target sizes. */
+.workspace-switcher-chip, .os-command-bar button, .os-create-card {touch-action:manipulation;}
+/* Dark theme contrast—avoid temporary white navigation controls on dark surfaces. */
+html body[data-os-theme="dark"] .sidebar .workspace-switcher-chip.active {
+  background:#353a61 !important;color:#eef2ff !important;border-color:transparent !important;
+}
+html body[data-os-theme="dark"] .sidebar .workspace-search-chip,
+html body[data-os-theme="dark"] .os-command-search {
+  background:#222c38 !important;color:#d5ddeb !important;border-color:#3c485b !important;
+}
+html body[data-os-theme="dark"] .sidebar .workspace-switcher-chip.active small,
+html body[data-os-theme="dark"] .sidebar .workspace-switcher-chip.active svg {color:#d7ddff !important;}
+html body[data-os-theme="dark"] .os-quick-grid .os-quick-card,
+html body[data-os-theme="dark"] .os-explore-grid .os-explore-card {
+  background:#1d2530 !important;border-color:#344052 !important;color:#e7eef9 !important;
+}
+html body[data-os-theme="dark"] .os-home-section h4,
+html body[data-os-theme="dark"] .os-quick-card strong,
+html body[data-os-theme="dark"] .os-explore-card strong{color:#e7eef9 !important;}
+html body[data-os-theme="dark"] .os-home-card-icon{background:#333b64;color:#c7d2fe;}
+html body[data-os-theme="dark"] .os-explore-card .os-home-card-icon{background:#303947;color:#c5d3e3;}
+@media(max-width:1180px) {
+  .os-quick-grid{grid-template-columns:repeat(2,minmax(0,1fr));}
+}
+@media(max-width:640px) {
+  .os-quick-grid{grid-template-columns:repeat(2,minmax(0,1fr));}
+  .os-quick-grid .os-quick-card{min-height:130px !important;padding:13px !important;}
+  .os-explore-grid{grid-template-columns:1fr;}
+}
