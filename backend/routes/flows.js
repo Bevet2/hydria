@@ -3,6 +3,7 @@ import XLSX from "xlsx";
 import AdmZip from "adm-zip";
 import { db } from "../db/sqlite.js";
 import { FLOW_NODE_CATALOG, runFlow, validateFlow } from "../services/flow/flowEngine.js";
+import { FlowScheduleError, saveFlowSchedule, getFlowSchedule, listFlowSchedules, deleteFlowSchedule, executeScheduledFlow } from "../services/flow/flowScheduler.js";
 import { FlowSourceError, checkFlowSourceToken } from "../services/flow/flowSqliteSource.js";
 import {
   FlowResultError, saveFlowResult, listFlowResults, readFlowResult, deleteFlowResult
@@ -224,7 +225,7 @@ function protectedSnapshot(handler) {
       res.setHeader("Cache-Control", "no-store");
       handler(req, res);
     } catch (error) {
-      if (error instanceof FlowSourceError || error instanceof FlowResultError) {
+      if (error instanceof FlowSourceError || error instanceof FlowResultError || error instanceof FlowScheduleError) {
         res.status(error.status).json({ success: false, error: error.message });
       } else next(error);
     }
@@ -261,6 +262,35 @@ router.get("/snapshots/:flowKey/:snapshotId", protectedSnapshot((req, res) => {
 router.delete("/snapshots/:flowKey/:snapshotId", protectedSnapshot((req, res) => {
   deleteFlowResult(db, req.params.flowKey, req.params.snapshotId);
   res.json({ success: true, deleted: true });
+}));
+
+
+router.get("/schedules", protectedSnapshot((req, res) => {
+  res.json({ success: true, schedules: listFlowSchedules(db) });
+}));
+router.get("/schedules/:flowKey", protectedSnapshot((req, res) => {
+  const schedule = getFlowSchedule(db, req.params.flowKey);
+  if (!schedule) throw new FlowScheduleError("Schedule not found.", 404);
+  res.json({ success: true, schedule });
+}));
+router.put("/schedules/:flowKey", protectedSnapshot((req, res) => {
+  const schedule = saveFlowSchedule(db, {
+    flowKey: req.params.flowKey, flow: req.body?.flow,
+    outputId: req.body?.outputId, intervalMinutes: req.body?.intervalMinutes,
+    publishSnapshot: req.body?.publishSnapshot ?? true,
+    enabled: req.body?.enabled ?? true
+  });
+  res.json({ success: true, schedule });
+}));
+router.delete("/schedules/:flowKey", protectedSnapshot((req, res) => {
+  deleteFlowSchedule(db, req.params.flowKey);
+  res.json({ success: true, deleted: true });
+}));
+router.post("/schedules/:flowKey/run", protectedSnapshot((req, res) => {
+  const result = executeScheduledFlow(db, req.params.flowKey);
+  res.status(result.status === "success" ? 200 : 422).json({
+    success: result.status === "success", result, ...(result.error ? { error: result.error } : {})
+  });
 }));
 
 export default router;
