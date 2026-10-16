@@ -248,6 +248,8 @@ jobs:
           path: /tmp/hydria-flow-interactions.png
           if-no-files-found: ignore
           retention-days: 7
+      - name: Workspace workflow family routing
+        run: node backend/scripts/osWorkspaceWorkflowRoutingGate.mjs
       - name: Whiteboard keyboard movement and text editing protection
         run: node backend/scripts/osCanvasKeyboardGate.mjs
       - name: Upload whiteboard keyboard screenshot
