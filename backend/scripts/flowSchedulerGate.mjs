@@ -105,6 +105,46 @@ try {
   });
   assert.equal(sourceFailure.status,"failed");
   assert.match(sourceFailure.error,/Postgres connection failed/);
+  const liveApi = {
+    ...flow, stages: [
+      { id: "src", type: "input.table", config: {
+        data: '[{"city":"STALE","amount":0}]',
+        apiSource: { kind: "api", sourceId: "sales_reports", limit: 50 }
+      }},
+      flow.stages[1]
+    ]
+  };
+  saveFlowSchedule(db,{flowKey,flow:liveApi,outputId:"out",intervalMinutes:15},start);
+  const apiDefinition = JSON.parse(db.prepare(
+    "SELECT flow_json FROM flow_schedules WHERE flow_key=?"
+  ).get(flowKey).flow_json);
+  assert.deepEqual(apiDefinition.stages[0].config.data,"[]");
+  assert.deepEqual(apiDefinition.stages[0].config.apiSource,{
+    kind:"api",sourceId:"sales_reports",limit:50
+  });
+  assert.equal(JSON.stringify(apiDefinition).includes("STALE"),false);
+  let apiValue = 17, calls = 0;
+  const fetchApi = async ({sourceId,limit}) => {
+    assert.deepEqual({sourceId,limit},{sourceId:"sales_reports",limit:50});
+    calls++; return {rows:[{city:"Paris",amount:apiValue++}]};
+  };
+  assert.equal((await executeScheduledFlow(db,flowKey,start,{fetchApi})).status,"success");
+  assert.equal((await executeScheduledFlow(db,flowKey,start+1000,{fetchApi})).status,"success");
+  assert.equal(calls,2);
+  const apiSnapshots = listFlowResults(db,flowKey);
+  assert.deepEqual(readFlowResult(db,flowKey,apiSnapshots[0].id).rows,[{city:"Paris",amount:18}]);
+  assert.deepEqual(readFlowResult(db,flowKey,apiSnapshots[1].id).rows,[{city:"Paris",amount:17}]);
+  assert.throws(() => saveFlowSchedule(db, {
+    flowKey,flow:{...flow,stages:[
+      {...flow.stages[0],config:{data:"[]",apiSource:{kind:"api",sourceId:"https://evil.local",limit:10}}},
+      flow.stages[1]
+    ]},outputId:"out",intervalMinutes:15
+  }),/Invalid managed API/);
+  const apiFailure = await executeScheduledFlow(db,flowKey,start+2000,{
+    fetchApi:async()=>{throw new Error("API temporary error");}
+  });
+  assert.equal(apiFailure.status,"failed");
+  assert.match(apiFailure.error,/temporary error/);
   assert.deepEqual(deleteFlowSchedule(db, flowKey),{deleted:true});
   assert.equal(getFlowSchedule(db, flowKey),null);
   assert.throws(() => deleteFlowSchedule(db, flowKey),(e)=>e.status===404);

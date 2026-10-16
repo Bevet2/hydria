@@ -39,6 +39,8 @@ jobs:
         run: npm run smoke:hydria-core-adapter --prefix backend
       - name: Data-flow engine operations
         run: node backend/scripts/dataFlowGate.mjs
+      - name: Managed API HTTPS source validation
+        run: node backend/scripts/flowApiSourceGate.mjs
       - name: PostgreSQL safe read connector validation
         run: node backend/scripts/flowPostgresSourceGate.mjs
       - name: Flow SQLite source and permission limits
@@ -172,6 +174,19 @@ jobs:
           assert.equal(removed.status,200);
           assert.equal((await fetch(base+"/"+key,{headers})).status,404);
           console.log("Flow schedules API CRUD and run-now verified");
+          '
+      - name: Verify authenticated API source listing
+        run: |
+          node --input-type=module -e '
+          import assert from "node:assert/strict";
+          const base = "http://127.0.0.1:3001/api/flow-sources/api/sources";
+          assert.equal((await fetch(base)).status,403);
+          const result = await fetch(base,{
+            headers:{"x-hydria-flow-token":"ci-flow-results-token"}
+          });
+          assert.equal(result.status,200);
+          assert.deepEqual((await result.json()).sources,[]);
+          console.log("Managed API source catalog requires server token.");
           '
       - name: Validate DOCX PDF XLSX and PPTX roundtrip exports
         run: node backend/scripts/osExportSmoke.mjs

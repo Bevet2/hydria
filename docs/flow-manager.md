@@ -298,3 +298,83 @@ aggregation and numeric calculations.
 - Run-now and the interval worker both use the same asynchronous refresh.
 - Browser-imported REST, CSV and SQLite remain static. Distributed scheduling,
   query parameters and a credential vault remain future work.
+
+## Managed HTTPS API sources (server-side)
+
+Flow Manager can now list and import **administrator-approved JSON APIs**
+without putting their URLs or credentials into workflow files. Supported
+authentication: an arbitrary custom header such as `x-api-key`, or an
+`Authorization: Bearer <token>` header sourced from a server environment
+variable. No free-form URL or HTTP method is accepted at the backend API.
+
+Place the source catalog in an **absolute server-only JSON file**, outside
+the public frontend, workspaces and Git repository. Example
+`/etc/hydria/flow-apis.json`:
+
+```json
+[
+  {
+    "id": "sales_api",
+    "label": "Sales REST API",
+    "url": "https://api.example.org/v1/orders",
+    "itemsPath": "data.items",
+    "authHeader": "Authorization",
+    "authScheme": "bearer",
+    "authEnv": "HYDRIA_FLOW_API_SALES_TOKEN",
+    "pageParam": "page",
+    "firstPage": 1,
+    "pageSizeParam": "per_page",
+    "pageSize": 100,
+    "maxPages": 3
+  }
+]
+```
+
+Configure `backend/.env` with:
+
+```env
+HYDRIA_FLOW_CONNECTOR_TOKEN=<private-admin-connector-token>
+HYDRIA_FLOW_API_SOURCES_FILE=/etc/hydria/flow-apis.json
+HYDRIA_FLOW_API_SALES_TOKEN=<private-remote-api-token>
+```
+
+The catalog may contain at most 25 unique source IDs. `itemsPath` points
+to a JSON array of objects (omit it when the root is already an array).
+Authentication fields are optional for public JSON endpoints. Use
+`authHeader: "x-api-key"`, `authEnv: "HYDRIA_FLOW_API_..."` with the
+default `authScheme: "raw"` for API-key authentication. Only names of
+environment variables are stored in the server-only catalog, not their
+secret values.
+
+Protected API endpoints:
+
+- `GET /api/flow-sources/api/sources` — shows IDs and labels only
+- `POST /api/flow-sources/api/read` with
+  `{"sourceId":"sales_api","limit":1000}` — returns normalized rows
+
+Both require `x-hydria-flow-token` with the configured connector token.
+All requests to remote sources are HTTPS GET only, with redirects rejected,
+fixed timeout (6 seconds per page), and max 2 MB response size. Pagination
+is configured by the administrator, at most five pages; total output is
+limited to 20,000 rows / 100 columns / 2 MB. The backend never returns
+remote access tokens, endpoints or request headers in API listings.
+
+For scheduled execution, importing a managed API source records only
+`apiSource: {kind:"api",sourceId,limit}` alongside the manual-preview rows.
+Saving a schedule strips those preview rows from its persisted definition.
+Every scheduled run looks up the current server-side source configuration,
+fetches fresh results and executes the ETL graph. If fetching fails, the job
+is marked failed instead of republishing stale results. The existing
+three-live-sources-per-flow limit covers PostgreSQL and managed API
+references combined. Manual flow execution still uses the imported preview.
+
+**Production boundaries:** Admin-configured HTTPS endpoints are trusted
+outbound destinations. Restrict who can edit the source catalog and protect
+its file permissions. Use an outbound firewall / egress allowlist if
+external endpoints must be limited to an approved network range. Built-in
+connector-token access is not equivalent to per-user workspace ACLs.
+The current system does not offer OAuth authorization-code refresh,
+webhooks, cursor pagination, retries with backoff or distributed scheduling.
+
+Validate with `node backend/scripts/flowApiSourceGate.mjs` and
+`node backend/scripts/flowSchedulerGate.mjs`.
