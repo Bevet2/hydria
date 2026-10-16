@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { flowGraphFit, flowNodePositionFromClient } from "../../frontend/components/flowCanvasGeometry.js";
+import { flowGraphFit, flowNodePositionFromClient, flowAvoidNodeOverlap } from "../../frontend/components/flowCanvasGeometry.js";
 
 const rect={left:180,top:130};
 assert.deepEqual(flowNodePositionFromClient(480,270,rect,1),{x:192,y:104});
@@ -13,4 +13,11 @@ assert.ok(fit.zoom>=0.5&&fit.zoom<=1.5);
 assert.ok(fit.scrollLeft>0&&fit.scrollTop>0);
 const tight=flowGraphFit([{x:0,y:0},{x:1400,y:1000}],320,220);
 assert.equal(tight.zoom,0.5);
-console.log("Flow node drop geometry and viewport fitting passed.");
+const existing=[{x:100,y:100},{x:400,y:100}];
+const drop={x:240,y:115};
+const resolved=flowAvoidNodeOverlap(drop,existing);
+assert.ok(resolved.x!==drop.x||resolved.y!==drop.y,"overlapping drop must be relocated");
+assert.ok(resolved.x>=0&&resolved.y>=0&&resolved.x<=1584&&resolved.y<=1080);
+assert.deepEqual(flowAvoidNodeOverlap({x:300,y:600},existing),{x:300,y:600},
+  "free placement must preserve user's chosen point");
+console.log("Flow node drop geometry, collision avoidance and viewport fitting passed.");
