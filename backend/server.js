@@ -120,9 +120,12 @@ app.listen(config.port, () => {
 if (process.env.HYDRIA_FLOW_CONNECTOR_TOKEN && process.env.HYDRIA_FLOW_SCHEDULER_ENABLED !== "false") {
   // One scheduler per backend process; deployments with multiple workers need
   // an external coordinator before enabling this interval in every instance.
-  const scheduler = setInterval(() => {
+  let scheduleTickRunning = false;
+  const scheduler = setInterval(async () => {
+    if (scheduleTickRunning) return;
+    scheduleTickRunning = true;
     try {
-      for (const run of executeDueFlowSchedules(db)) {
+      for (const run of await executeDueFlowSchedules(db)) {
         logger.info("Scheduled Hydria flow", {
           flowKey: run.flowKey, status: run.status, outputRows: run.outputRows,
           ...(run.error ? { error: run.error } : {})
@@ -130,6 +133,8 @@ if (process.env.HYDRIA_FLOW_CONNECTOR_TOKEN && process.env.HYDRIA_FLOW_SCHEDULER
       }
     } catch (error) {
       logger.error("Scheduled flow tick failed", { error: String(error?.message || error) });
+    } finally {
+      scheduleTickRunning = false;
     }
   }, 60_000);
   scheduler.unref();
