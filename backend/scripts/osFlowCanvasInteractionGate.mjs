@@ -50,6 +50,14 @@ try {
   const last=manager.locator(".hydria-flow-node").last();
   const pos=await last.evaluate(el=>({x:parseInt(el.style.left),y:parseInt(el.style.top)}));
   assert.ok(pos.x>=0&&pos.y>=0,"drop maps to graph coordinates");
+  const overlaps=await page.evaluate(()=>{
+    const stages=JSON.parse(window.__hydriaFlowSerialized).stages;
+    const added=stages.at(-1);
+    return stages.slice(0,-1).some(item=>
+      added.x<item.x+216&&added.x+216>item.x&&
+      added.y<item.y+120&&added.y+120>item.y);
+  });
+  assert.equal(overlaps,false,"dropped node should not obscure existing graph nodes");
   assert.equal(await search.inputValue(),"filter","palette filter stays after drop");
   await last.focus();
   await page.keyboard.press("ArrowRight");
