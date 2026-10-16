@@ -18,7 +18,23 @@ try {
     assert.equal(created,true);
   }
   const manager=page.locator(".hydria-flow-manager");
-  await manager.waitFor({state:"visible",timeout:20000});
+  await manager.waitFor({state:"attached",timeout:20000});
+  const focus=page.locator("#os-editor-focus");
+  await focus.waitFor({state:"visible",timeout:10000});
+  await focus.click();
+  const shown=await manager.isVisible();
+  if(!shown) {
+    console.log("FLOW_UI_DIAGNOSTICS",JSON.stringify(await page.evaluate(()=>{
+      const root=document.querySelector(".hydria-flow-manager");
+      const parent=root?.parentElement;
+      const names=[...document.querySelectorAll("button")].filter(x=>/flow|editor|visual|data|graph/i.test(x.textContent||"")).slice(0,30).map(x=>x.textContent?.trim());
+      return {flowDisplay:root&&getComputedStyle(root).display,parentClass:parent?.className,
+        parentDisplay:parent&&getComputedStyle(parent).display,
+        selectedPage:document.body.dataset.workspacePage,rootKind:document.querySelector("#workspace-panel-root")?.dataset,
+        buttons:names};
+    })));
+  }
+  await manager.waitFor({state:"visible",timeout:10000});
   const palette=manager.locator(".hydria-flow-palette");
   const search=palette.locator(".hydria-flow-search");
   const graph=manager.locator(".hydria-flow-scroll");
