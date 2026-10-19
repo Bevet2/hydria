@@ -348,9 +348,16 @@ router.post("/:workObjectId/history/:historyId/restore", async (req, res, next) 
 
 router.post("/new", (req, res, next) => {
   try {
+    const title = req.body?.title;
+    if (title != null && typeof title !== "string") {
+      throw new AppError("title must be a string", 400);
+    }
+    if (typeof title === "string" && title.trim().length > 200) {
+      throw new AppError("title must not exceed 200 characters", 400);
+    }
     const workObject = workObjectService.createBlankWorkObject({
       kind: req.body?.kind || "document",
-      title: req.body?.title || "",
+      title: typeof title === "string" ? title.trim() : "",
       userId: req.body?.userId ?? null,
       conversationId: req.body?.conversationId ?? null,
       projectId: req.body?.projectId || "",
