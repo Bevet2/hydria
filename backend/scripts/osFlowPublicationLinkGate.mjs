@@ -16,6 +16,10 @@ const make=async(kind,title,workspaceFamilyId)=>{
 };
 const sheet=await make("dataset","Hydria deep link Sheet","data_spreadsheet");
 const dashboard=await make("dashboard","Hydria deep link Dashboard","analytics_dashboard");
+// A newer object of each kind must NOT override the requested old object.
+await new Promise(resolve=>setTimeout(resolve,30));
+await make("dataset","Distracting second Sheet","data_spreadsheet");
+await make("dashboard","Distracting second Dashboard","analytics_dashboard");
 const browser=await chromium.launch({headless:true});
 try{
   const page=await browser.newPage({viewport:{width:1365,height:850}});
@@ -35,14 +39,6 @@ try{
       title=>document.querySelector("#workspace-title")?.textContent?.includes(title),
       expected,{timeout:15000}
     );
-    const diagnostic=await page.evaluate(id=>({
-      target:id,query:location.search,boot:document.documentElement.dataset.hydriaBoot,
-      entries:[...document.querySelectorAll("#workspace-object-list [data-object-id]")].map(x=>x.dataset.objectId),
-      actions:document.querySelectorAll("#workspace-object-list .workspace-nav-item").length,
-      targetElement:!![...document.querySelectorAll("#workspace-object-list .hydria-explorer-entry")].find(x=>x.dataset.objectId===id),
-      currentTitle:document.querySelector("#workspace-title")?.textContent
-    }),target);
-    console.log("PUBLISHED_DEEPLINK_DIAGNOSTIC",JSON.stringify(diagnostic));
     await page.waitForFunction(()=>!new URL(window.location.href).searchParams.has("openObject"),null,{timeout:3000});
     assert.ok(!new URL(page.url()).searchParams.has("openObject"),"Consumed deep link should clear query");
     console.log("Native deep link opened",slug,target);
