@@ -272,6 +272,8 @@ jobs:
           path: /tmp/hydria-canvas-keyboard.png
           if-no-files-found: ignore
           retention-days: 7
+      - name: Linked published Sheets and Dashboard open from deep links
+        run: node backend/scripts/osFlowPublicationLinkGate.mjs
       - name: Six editor workbenches and functional inspector checks
         run: node backend/scripts/osEditorWorkbenchGate.mjs
       - name: Upload workbench review captures
