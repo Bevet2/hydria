@@ -330,7 +330,7 @@ function compute(type, inputTables, config) {
   flowError("Unsupported node: " + type);
 }
 export function normalizeFlow(flow = {}) {
-  const source = flow && typeof flow === "object" ? flow : {};
+  const source = flow && typeof flow === "object" && !Array.isArray(flow) ? flow : {};
   return {
     title: safeString(source.title || "Data workflow"),
     version: 1,
@@ -341,8 +341,20 @@ export function normalizeFlow(flow = {}) {
   };
 }
 export function validateFlow(source) {
-  const flow = normalizeFlow(source);
+  // Reject malformed schema before normalizing for execution. Previously,
+  // "stages": "broken" was silently converted to [], and a run returned
+  // success:true despite having executed no steps.
   const errors = [];
+  const isObject = source !== null && typeof source === "object" && !Array.isArray(source);
+  if (!isObject) errors.push("Workflow must be an object.");
+  if (!Array.isArray(isObject ? source.stages : undefined)) {
+    errors.push("Workflow stages must be an array.");
+  }
+  if (isObject && source.links !== undefined && !Array.isArray(source.links)) {
+    errors.push("Workflow links must be an array.");
+  }
+  const flow = normalizeFlow(source);
+  if (flow.stages.length === 0) errors.push("Workflow must contain at least one node.");
   if (flow.stages.length > MAX_NODES) errors.push("Too many nodes (max 100).");
   if (flow.links.length > MAX_LINKS) errors.push("Too many links (max 250).");
   const nodes = new Map(), inCounts = new Map(), adjacency = new Map(), indegrees = new Map();
