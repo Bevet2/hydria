@@ -122,7 +122,7 @@ await probe("api-17","files","P1",async()=>{
 });
 await probe("api-18","files","P1",async()=>{
   assert.ok(projectId);
-  const r=await request("/api/work-objects/"+workObjectId+"/files/new","POST",{
+  const r=await request("/api/work-objects/"+projectId+"/files/new","POST",{
     entryPath:".env.production",content:"secret",userId
   });checkStatus(r,400,"sensitive dot-env filename must be refused");
 });
