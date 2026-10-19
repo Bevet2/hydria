@@ -39,7 +39,7 @@ jobs:
             sleep 1
           done
           curl -fsS http://127.0.0.1:3001/livez
-      - name: Run 36 adversarial HTTP probes
+      - name: Run 51 adversarial HTTP probes
         run: node backend/scripts/osBugHuntApi.mjs
       - name: Upload API results and server logs
         if: always()
