@@ -29,7 +29,7 @@ try {
   assert.deepEqual(listFlowSchedules(db), []);
   assert.throws(() => saveFlowSchedule(db, { flowKey, flow, outputId: "out", intervalMinutes: 1 }, start), /15 and 1440/);
   assert.throws(() => saveFlowSchedule(db, { flowKey, flow, outputId: "missing", intervalMinutes: 15 }, start), /output node/);
-  assert.throws(() => saveFlowSchedule(db, { flowKey, flow: { stages: [], links: [] }, outputId: "out", intervalMinutes: 15 }, start), /output node/);
+  assert.throws(() => saveFlowSchedule(db, { flowKey, flow: { stages: [], links: [] }, outputId: "out", intervalMinutes: 15 }, start), /at least one node/, "Empty workflows must not be scheduled as successful runs");
   const created = saveFlowSchedule(db, {
     flowKey, flow, outputId: "out", intervalMinutes: 15
   }, start);
