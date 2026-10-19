@@ -1,0 +1,93 @@
+name: Hydria OS exploratory bug hunt
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "backend/scripts/osBugHuntApi.mjs"
+      - "backend/scripts/osBugHuntBrowser.mjs"
+      - ".github/workflows/hydria-os-bug-hunt.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  api:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci --prefix backend --no-audit --no-fund
+      - name: Check exploratory script syntax
+        run: |
+          node --check backend/scripts/osBugHuntApi.mjs
+          node --check backend/scripts/osBugHuntBrowser.mjs
+      - name: Start disposable Hydria OS database and HTTP server
+        run: |
+          mkdir -p /tmp/hydria-bughunt
+          export HYDRIA_OS_DATA_DIR="$(mktemp -d)"
+          echo "HYDRIA_OS_DATA_DIR=$HYDRIA_OS_DATA_DIR" >> "$GITHUB_ENV"
+          NODE_ENV=test HYDRIA_FLOW_CONNECTOR_TOKEN=bughunt-flow-connector-token \
+            LOCAL_LLM_ENABLED=false ENABLE_LOCAL_TOOLS=false \
+            HYDRIA_OS_DATA_DIR="$HYDRIA_OS_DATA_DIR" \
+            npm run start --prefix backend > /tmp/hydria-bughunt/server-api.log 2>&1 &
+          for i in {1..35}; do
+            if curl -fsS http://127.0.0.1:3001/livez >/dev/null; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:3001/livez
+      - name: Run 51 adversarial HTTP probes
+        run: node backend/scripts/osBugHuntApi.mjs
+      - name: Upload API results and server logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hydria-bughunt-api
+          path: |
+            /tmp/hydria-bughunt/api.json
+            /tmp/hydria-bughunt/server-api.log
+          retention-days: 14
+          if-no-files-found: ignore
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci --prefix backend --no-audit --no-fund
+      - run: npx --prefix backend playwright install --with-deps chromium
+      - name: Start disposable GUI and workspace database
+        run: |
+          mkdir -p /tmp/hydria-bughunt
+          export HYDRIA_OS_DATA_DIR="$(mktemp -d)"
+          echo "HYDRIA_OS_DATA_DIR=$HYDRIA_OS_DATA_DIR" >> "$GITHUB_ENV"
+          NODE_ENV=test LOCAL_LLM_ENABLED=false ENABLE_LOCAL_TOOLS=false \
+            HYDRIA_OS_DATA_DIR="$HYDRIA_OS_DATA_DIR" \
+            npm run start --prefix backend > /tmp/hydria-bughunt/server-browser.log 2>&1 &
+          for i in {1..35}; do
+            if curl -fsS http://127.0.0.1:3001/api/health/ready >/dev/null; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:3001/api/health/ready
+          curl -fsS -X POST http://127.0.0.1:3001/api/users \
+            -H 'Content-Type: application/json' -d '{"username":"Hydria bug-hunt demo user"}'
+      - name: Run 13 Chromium journey and stress probes
+        run: node backend/scripts/osBugHuntBrowser.mjs
+      - name: Upload browser report and failure captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hydria-bughunt-browser
+          path: |
+            /tmp/hydria-bughunt/*.json
+            /tmp/hydria-bughunt/*.png
+            /tmp/hydria-bughunt/server-browser.log
+          retention-days: 14
+          if-no-files-found: ignore
