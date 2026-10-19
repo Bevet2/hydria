@@ -55,6 +55,8 @@ jobs:
         run: node backend/scripts/flowPostgresSourceGate.mjs
       - name: Flow SQLite source and permission limits
         run: node backend/scripts/flowSqliteSourceGate.mjs
+      - name: Flow to native Sheets and Dashboard integration
+        run: node backend/scripts/osFlowPublicationGate.mjs
       - name: Flow persisted snapshots and retention
         run: node backend/scripts/flowResultSnapshotGate.mjs
       - name: Flow scheduler execution, pause and retention
@@ -270,6 +272,8 @@ jobs:
           path: /tmp/hydria-canvas-keyboard.png
           if-no-files-found: ignore
           retention-days: 7
+      - name: Linked published Sheets and Dashboard open from deep links
+        run: node backend/scripts/osFlowPublicationLinkGate.mjs
       - name: Six editor workbenches and functional inspector checks
         run: node backend/scripts/osEditorWorkbenchGate.mjs
       - name: Upload workbench review captures

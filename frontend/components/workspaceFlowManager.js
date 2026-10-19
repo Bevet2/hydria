@@ -217,7 +217,7 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
     return;
   }
   host.replaceChildren();
-  const state = { flow: structuredClone(model), selected: model.stages[0]?.id || "", activeOutputId: "", pending: "", zoom: 1, results: null, error: "", running: false, history: [], future: [], runHistory: [], snapshotToken: "", snapshots: [], loadedSnapshot: null, snapshotBusy: false, schedule: null, scheduleMinutes: 60,
+  const state = { flow: structuredClone(model), selected: model.stages[0]?.id || "", activeOutputId: "", pending: "", zoom: 1, results: null, error: "", running: false, history: [], future: [], runHistory: [], snapshotToken: "", snapshots: [], loadedSnapshot: null, snapshotBusy: false, publication: null, schedule: null, scheduleMinutes: 60,
     paletteOpen: window.innerWidth >= 720, inspectorOpen: window.innerWidth >= 1180, consoleOpen: true, searchQuery: "" };
   const root = element("section", "hydria-flow-manager");
   const toolbar = element("div", "hydria-flow-toolbar");
@@ -997,8 +997,22 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
         item.appendChild(element("span", "", entry.label + " · " + entry.rowCount +
           " rows · " + new Date(entry.createdAt).toLocaleString()));
         item.appendChild(button("Open", () => { void openSnapshot(entry.id); }, "hydria-flow-secondary"));
+        item.appendChild(button("Publier Sheets + Dashboard", () => { void publishSnapshot(entry); }, "hydria-flow-secondary"));
         item.appendChild(button("Delete", () => { void removeSnapshot(entry.id); }, "hydria-flow-secondary"));
         saved.appendChild(item);
+      }
+      if (state.publication) {
+        const publication=state.publication;
+        const notice=element("div", "hydria-flow-publication");
+        notice.appendChild(element("strong", "", "Publié dans la bibliothèque Hydria · " + publication.rowCount + " lignes"));
+        notice.appendChild(element("p", "flow-muted", "Un nouveau résultat du même flux réactualise les mêmes objets ; les éventuelles modifications de ces objets seront remplacées."));
+        notice.appendChild(button("Ouvrir Sheets · " + publication.sheet.title, () => {
+          window.location.assign("/workspace/sheets?openObject=" + encodeURIComponent(publication.sheet.id));
+        }, "hydria-flow-secondary"));
+        notice.appendChild(button("Ouvrir Dashboard · " + publication.dashboard.title, () => {
+          window.location.assign("/workspace/dashboard?openObject=" + encodeURIComponent(publication.dashboard.id));
+        }, "hydria-flow-secondary"));
+        saved.appendChild(notice);
       }
       if (state.loadedSnapshot) {
         const snapshot = state.loadedSnapshot;
@@ -1169,6 +1183,33 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
       state.error = "Save dataset: " + String(error.message || error); renderConsole();
     } finally {
       state.snapshotBusy = false;
+    }
+  }
+  async function publishSnapshot(snapshot) {
+    if (state.snapshotBusy) return;
+    const selectedUser = Number(document.getElementById("user-select")?.value);
+    if (!Number.isSafeInteger(selectedUser) || selectedUser <= 0) {
+      state.error = "Choose your Hydria user in Settings before publishing to Sheets.";
+      renderConsole(); return;
+    }
+    state.snapshotBusy = true;
+    try {
+      const result = await snapshotRequest("/api/flow-publications", {
+        method: "POST",
+        body: JSON.stringify({
+          flowKey: state.flow.executionHistoryId,
+          outputId: snapshot.outputId,
+          snapshotId: snapshot.id,
+          userId: selectedUser
+        })
+      });
+      state.publication = result.publication;
+      state.error = "";
+    } catch (error) {
+      state.error = "Sheets / Dashboard: " + String(error.message || error);
+    } finally {
+      state.snapshotBusy = false;
+      renderConsole();
     }
   }
   async function openSnapshot(snapshotId) {
