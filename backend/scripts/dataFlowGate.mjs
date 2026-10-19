@@ -257,3 +257,21 @@ assert.throws(()=>normalizedJsonApiRows({error:"no rows"}),/REST JSON source/);
 assert.throws(()=>normalizedJsonApiRows([null]),/object row/);
 assert.throws(()=>normalizedJsonApiRows([{a:1,b:2}].map(()=>Object.fromEntries(Array.from({length:101},(_,i)=>["c"+i,i])))),/object row/);
 console.log("Hydria dataflow integration gate passed (ETL transforms, CSV/TSV/XLSX inputs, joins, cleanup, type conversion, column profiling, limits and errors).");
+
+// Regression #63: malformed flows must never be silently treated as empty
+// successful executions. A genuinely empty draft is not a completed run.
+for (const invalid of [
+  { stages: "broken", links: [] },
+  { stages: [], links: {} },
+  { stages: [], links: [] },
+  { stages: [{id:"source",type:"input.table",config:{data:"[]"}}], links: "oops" },
+  null,
+  []
+]) {
+  const validation = validateFlow(invalid);
+  assert.equal(validation.valid, false, "Malformed or empty flow must be invalid: " + JSON.stringify(invalid));
+  const execution = runFlow(invalid);
+  assert.equal(execution.success, false, "Malformed flow cannot report success: " + JSON.stringify(invalid));
+  assert.ok(execution.errors.length > 0, "Invalid workflow must expose actionable validation errors");
+  assert.deepEqual(execution.steps, [], "No steps can be reported completed for an invalid schema");
+}
