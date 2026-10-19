@@ -19134,6 +19134,21 @@ async function init() {
   await activateWorkspacePage(initialWorkspacePage, {
     historyMode: "replace"
   });
+  // One-shot deep link to an existing native work object after user and
+  // library hydration. Reuses normal selection/permissions, not DOM clicks.
+  const openId = new URLSearchParams(window.location.search).get("openObject");
+  if (openId && /^[a-zA-Z0-9-]{8,80}$/.test(openId)) {
+    const target = state.workObjects.find(item => String(item.id) === openId);
+    if (target && workspacePageForWorkObject(target)?.slug === initialWorkspacePage?.slug) {
+      await selectWorkObject(target.id, preferredOpenPath(target), {
+        syncRoute: false,
+        syncProject: true
+      });
+    }
+    const updatedUrl = new URL(window.location.href);
+    updatedUrl.searchParams.delete("openObject");
+    window.history.replaceState(window.history.state, "", updatedUrl);
+  }
 }
 
 window.addEventListener("offline", () => {
