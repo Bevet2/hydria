@@ -13,9 +13,15 @@ if(/^[a-zA-Z0-9-]{8,80}$/.test(target)){
     complete=true;
     observer.disconnect();
     action.click();
-    const next=new URL(window.location.href);
-    next.searchParams.delete("openObject");
-    window.history.replaceState(window.history.state,"",next);
+    // selectWorkObject updates the route asynchronously; clear the one-shot
+    // link after the application finishes its own history change.
+    window.setTimeout(()=>{
+      const next=new URL(window.location.href);
+      if(next.searchParams.has("openObject")){
+        next.searchParams.delete("openObject");
+        window.history.replaceState(window.history.state,"",next);
+      }
+    },180);
   };
   const observer=new MutationObserver(attempt);
   observer.observe(document.documentElement,{
