@@ -27,6 +27,12 @@ export function normalizeError(error) {
     return error;
   }
 
-  return new AppError(error.message || "Unexpected error", 500);
+  // body-parser annotates invalid JSON with status=400 and
+  // type=entity.parse.failed. Do not leak parser internals as HTTP 500.
+  if (error?.type === "entity.parse.failed" || (error?.status === 400 && error?.body !== undefined)) {
+    return new AppError("Malformed JSON request body", 400);
+  }
+
+  return new AppError(error?.message || "Unexpected error", 500);
 }
 

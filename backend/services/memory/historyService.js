@@ -75,9 +75,15 @@ export function getUserDataRole(userId) {
 }
 
 export function createUser(username) {
-  const cleanUsername = (username || "").trim();
+  if (typeof username !== "string") {
+    throw new AppError("username must be a string", 400);
+  }
+  const cleanUsername = username.trim();
   if (!cleanUsername) {
     throw new AppError("username is required", 400);
+  }
+  if (cleanUsername.length > 100) {
+    throw new AppError("username must not exceed 100 characters", 400);
   }
 
   const existing = db

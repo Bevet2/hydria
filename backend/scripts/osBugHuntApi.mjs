@@ -280,3 +280,7 @@ await fs.mkdir("/tmp/hydria-bughunt",{recursive:true});
 await fs.writeFile("/tmp/hydria-bughunt/api.json",JSON.stringify(report,null,2)+"\n");
 for(const item of cases)console.log((item.status==="pass"?"PASS":"FIND")+" "+item.id+" "+(item.message||""));
 console.log("BUG_HUNT_SUMMARY "+JSON.stringify({total:report.total,passed:report.passed,findings:report.findings}));
+if (process.env.HYDRIA_BUGHUNT_STRICT === "1" && report.findings > 0) {
+  console.error("Hydria API regression gate: " + report.findings + " failed checks. See api.json.");
+  process.exitCode = 1;
+}
