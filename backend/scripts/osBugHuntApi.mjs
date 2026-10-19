@@ -101,9 +101,20 @@ await probe("api-16","files","P1",async()=>{
   checkStatus(r,200);
   assert.ok(Array.isArray(r.json?.history) && r.json.history.length>0,"revision history must exist");
 });
+let projectId=null,projectFilePath=null;
+await probe("api-16b","files","P1",async()=>{
+  const r=await request("/api/work-objects/new","POST",{kind:"project",title:"Bug hunt project",userId});
+  checkStatus(r,200);
+  projectId=r.json?.workObject?.id;
+  assert.ok(projectId,"project work object needed to test editable file operations");
+  const d=await request("/api/work-objects/"+projectId+"?content=1");
+  checkStatus(d,200);
+  projectFilePath=d.json?.workObject?.file?.path;
+  assert.ok(projectFilePath);
+});
 await probe("api-17","files","P1",async()=>{
-  assert.ok(workObjectId);
-  const r=await request("/api/work-objects/"+workObjectId+"/files/new","POST",{
+  assert.ok(projectId);
+  const r=await request("/api/work-objects/"+projectId+"/files/new","POST",{
     entryPath:"../../../../unsafe-bughunt.txt",content:"no",userId
   });checkStatus(r,400,"path traversal must be refused");
 });
@@ -114,9 +125,9 @@ await probe("api-18","files","P1",async()=>{
   });checkStatus(r,400,"sensitive dot-env filename must be refused");
 });
 await probe("api-19","files","P1",async()=>{
-  assert.ok(workObjectId);
-  const r=await request("/api/work-objects/"+workObjectId+"/files/move","POST",{
-    from:filePath,to:"../../outside.md",userId
+  assert.ok(projectId);
+  const r=await request("/api/work-objects/"+projectId+"/files/move","POST",{
+    from:projectFilePath,to:"../../outside.md",userId
   });checkStatus(r,400,"unsafe file move must be refused");
 });
 await probe("api-20","files","P1",async()=>{
@@ -194,6 +205,70 @@ await probe("api-35","docs","P1",async()=>{
 });
 await probe("api-36","misc","P2",async()=>{
   const r=await request("/api/definitely-not-real");checkStatus(r,404);
+});
+await probe("api-37","files","P1",async()=>{
+  assert.ok(projectId);const r=await request("/api/work-objects/"+projectId+"/files/new","POST",{
+    entryPath:"safe-folder/one.txt",content:"created safely",userId
+  });checkStatus(r,201);
+  assert.equal(r.json?.workObject?.file?.content,"created safely");
+});
+await probe("api-38","files","P1",async()=>{
+  assert.ok(projectId);const r=await request("/api/work-objects/"+projectId+"/files/new","POST",{
+    entryPath:"safe-folder/one.txt",content:"duplicate",userId
+  });checkStatus(r,409,"duplicate path must fail");
+});
+await probe("api-39","files","P1",async()=>{
+  assert.ok(projectId);const r=await request("/api/work-objects/"+projectId+"/files/new","POST",{
+    entryPath:"node_modules/secrets.md",content:"no",userId
+  });checkStatus(r,400,"reserved directory must fail");
+});
+await probe("api-40","files","P1",async()=>{
+  assert.ok(projectId);const r=await request("/api/work-objects/"+projectId+"/files/new","POST",{
+    entryPath:"safe-folder/too-large.md",content:"x".repeat(1_000_100),userId
+  });checkStatus(r,413,"file size limit must fail");
+});
+await probe("api-41","files","P1",async()=>{
+  assert.ok(projectId);const r=await request("/api/work-objects/"+projectId+"/files/new","POST",{
+    entryPath:"safe-folder/missing-extension",content:"no",userId
+  });checkStatus(r,400,"unsupported file extension should fail");
+});
+await probe("api-42","files","P2",async()=>{
+  const r=await request("/api/work-objects/new","POST",{kind:"document",title:{hello:"world"},userId});
+  checkStatus(r,400,"non-string title must return validation error");
+});
+await probe("api-43","files","P2",async()=>{
+  const r=await request("/api/work-objects/new","POST",{kind:"document",title:["array"],userId});
+  checkStatus(r,400,"array title must return validation error");
+});
+await probe("api-44","flow","P2",async()=>{
+  const r=await request("/api/flows/validate","POST",{flow:[]});
+  assert.ok([200,400,422].includes(r.status),"malformed workflow should never be 5xx");
+});
+await probe("api-45","flow","P2",async()=>{
+  const r=await request("/api/flows/validate","POST",{flow:{stages:"not-an-array",links:{}}});
+  assert.ok([200,400,422].includes(r.status),"wrong graph shape should be 4xx or invalid result");
+  assert.notEqual(r.json?.valid,true,"bad schema must not be marked valid");
+});
+await probe("api-46","flow","P1",async()=>{
+  const r=await request("/api/flows/run","POST",{flow:{stages:"broken",links:[]}});
+  assert.ok([400,422].includes(r.status),"bad workflow shape should not crash (got "+r.status+")");
+});
+await probe("api-47","security","P1",async()=>{
+  const r=await request("/api/flows/schedules/"+encodeURIComponent("not-a-uuid"),"PUT",{
+    flow:{stages:[],links:[]},intervalMinutes:15
+  });checkStatus(r,403,"missing private token must be checked even for malformed schedule ID");
+});
+await probe("api-48","files","P2",async()=>{
+  const r=await request("/api/work-objects/search?limit=abc&q=test");
+  assert.ok([200,400].includes(r.status),"bad numeric search limit should not 5xx");
+});
+await probe("api-49","http","P2",async()=>{
+  const r=await fetch(base+"/api/users",{method:"POST",headers:{"content-type":"application/json"},body:'{\"username\":'});
+  assert.ok(r.status===400,"broken JSON must be 400; got "+r.status);
+});
+await probe("api-50","users","P2",async()=>{
+  const r=await request("/api/users","POST",{username:"x".repeat(4096)});
+  assert.ok([400,413,422].includes(r.status),"unbounded 4096 char username should be rejected; got "+r.status);
 });
 const report={suite:"Hydria OS exploratory API",commit:process.env.GITHUB_SHA||"unknown",
   runDate:new Date().toISOString(),durationMs:Date.now()-started,
