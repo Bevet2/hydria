@@ -1007,10 +1007,10 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
         notice.appendChild(element("strong", "", "Publié dans la bibliothèque Hydria · " + publication.rowCount + " lignes"));
         notice.appendChild(element("p", "flow-muted", "Un nouveau résultat du même flux réactualise les mêmes objets ; les éventuelles modifications de ces objets seront remplacées."));
         notice.appendChild(button("Ouvrir Sheets · " + publication.sheet.title, () => {
-          window.location.assign("/workspace/sheets");
+          window.location.assign("/workspace/sheets?openObject=" + encodeURIComponent(publication.sheet.id));
         }, "hydria-flow-secondary"));
         notice.appendChild(button("Ouvrir Dashboard · " + publication.dashboard.title, () => {
-          window.location.assign("/workspace/dashboard");
+          window.location.assign("/workspace/dashboard?openObject=" + encodeURIComponent(publication.dashboard.id));
         }, "hydria-flow-secondary"));
         saved.appendChild(notice);
       }
