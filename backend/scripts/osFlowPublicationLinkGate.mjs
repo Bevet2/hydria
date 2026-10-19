@@ -10,8 +10,8 @@ const make=async(kind,title,workspaceFamilyId)=>{
   const reply=await fetch(base+"/api/work-objects/new",{method:"POST",
     headers:{"Content-Type":"application/json"},
     body:JSON.stringify({kind,title,workspaceFamilyId,userId:id})});
-  assert.equal(reply.status,200,await reply.text());
   const body=await reply.json();
+  assert.equal(reply.status,200,JSON.stringify(body));
   return body.workObject.id;
 };
 const sheet=await make("dataset","Hydria deep link Sheet","data_spreadsheet");
