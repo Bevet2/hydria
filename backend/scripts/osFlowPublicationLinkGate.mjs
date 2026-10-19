@@ -35,6 +35,7 @@ try{
       title=>document.querySelector("#workspace-title")?.textContent?.includes(title),
       expected,{timeout:15000}
     );
+    await page.waitForFunction(()=>!new URL(window.location.href).searchParams.has("openObject"),null,{timeout:3000});
     assert.ok(!new URL(page.url()).searchParams.has("openObject"),"Consumed deep link should clear query");
     console.log("Native deep link opened",slug,target);
   }
