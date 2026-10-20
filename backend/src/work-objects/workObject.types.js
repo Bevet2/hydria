@@ -3,6 +3,7 @@ import path from "node:path";
 export const WORK_OBJECT_KINDS = [
   "project",
   "document",
+  "pdf",
   "presentation",
   "dataset",
   "code",
