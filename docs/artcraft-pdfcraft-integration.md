@@ -32,6 +32,15 @@ Le script :
 
 Cette distribution binaire est volontairement ignorée par Git. L'intégration doit être réinstallée sur le VPS/artefact Docker de déploiement lors des nouveaux builds (ou empaquetée dans une étape CI dédiée après revue).
 
+Pour un déploiement Docker Compose, activez explicitement le téléchargement vérifié au build :
+
+```bash
+echo 'HYDRIA_INSTALL_PDFCRAFT=true' >> deploy/.env
+docker compose --env-file deploy/.env -f deploy/compose.yaml up -d --build
+```
+
+Si la release ne peut pas être téléchargée ou si le SHA diffère, le build échoue : la fonctionnalité n'est jamais activée avec une archive non vérifiée.
+
 Lancez Hydria OS, choisissez **PDF Studio**, puis utilisez l'interface PdfCraft embarquée. L'installation ne doit pas être exécutée en tâche de fond par une requête HTTP ni être accessible aux utilisateurs non administrateurs.
 
 ## Sécurité, distribution et licences
