@@ -239,6 +239,9 @@ export function resolveWorkspacePageForWorkObject(
     .join(" ")
     .toLowerCase();
 
+  if (kind === "pdf" || family === "pdf_editor") {
+    return workspacePageFromSlug("pdf");
+  }
   if (kind === "dataset" || /\.(csv|tsv|xlsx|xlsm|xls)\b/i.test(fileText)) {
     return workspacePageFromSlug("sheets");
   }
