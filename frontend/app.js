@@ -1,5 +1,6 @@
 import { renderChatMessage } from "./components/chatMessage.js";
 import { renderHydriaLibraryExplorer } from "./components/workspaceLibraryExplorer.js";
+import { renderHydriaDriveWorkspace } from "./components/hydriaDriveWorkspace.js";
 import { renderPdfCraftWorkbench } from "./components/pdfCraftWorkbench.js";
 import { renderRunDetails } from "./components/detailsPanel.js";
 import {
@@ -495,7 +496,7 @@ async function activateWorkspacePage(page = null, { historyMode = "push" } = {})
       return;
     }
 
-    if (page.slug === "chat" || page.slug === "pdf") {
+    if (page.slug === "chat" || page.slug === "drive" || page.slug === "pdf") {
       await flushPendingWorkObjectChanges();
       clearCurrentWorkObjectState();
       renderWorkspace();
@@ -6810,13 +6811,16 @@ function renderWorkspaceSwitcher(hasVisibleWorkspace = false) {
   container.appendChild(overview);
 
   items.forEach((item) => {
-    const count = projectObjects.filter(
-      (workObject) => workspacePageForWorkObject(workObject)?.slug === item.slug
-    ).length;
+    const count = item.slug === "drive"
+      ? state.workObjects.length
+      : projectObjects.filter(
+          (workObject) => workspacePageForWorkObject(workObject)?.slug === item.slug
+        ).length;
     const chip = document.createElement("button");
     chip.type = "button";
     chip.className = `workspace-switcher-chip${activePage?.slug === item.slug ? " active" : ""}`;
     chip.setAttribute("aria-current", activePage?.slug === item.slug ? "page" : "false");
+    chip.dataset.workspacePage = item.slug;
     const label = document.createElement("span");
     label.textContent = item.label;
     const badge = document.createElement("small");
@@ -17071,6 +17075,18 @@ function renderWorkspaceLauncher(hasVisibleWorkspace = false) {
     renderCrmWorkspaceEmbed(container, { userId: state.currentUserId });
     return;
   }
+  if (activePage?.slug === "drive") {
+    renderHydriaDriveWorkspace(container, {
+      workObjects: state.workObjects,
+      onOpen: (workObject) =>
+        selectWorkObject(workObject.id, preferredOpenPath(workObject)).catch(handleError),
+      onCreate: (kind, family) =>
+        createBlankWorkspace(kind, family, ({
+          document: "Docs", dataset: "Sheets", presentation: "Slides"
+        })[kind] || kind).catch(handleError)
+    });
+    return;
+  }
   if (activePage?.slug === "pdf") {
     renderPdfCraftWorkbench(container, {
       documents: state.workObjects.filter(isDocumentWorkObject),
@@ -17150,7 +17166,7 @@ function renderWorkspace() {
       : state.currentWorkObject;
   const project = state.currentWorkspace?.project || null;
   const hasVisibleWorkspace = Boolean(workObject);
-  const hasEmbeddedPage = ["crm", "chat", "pdf"].includes(activePage?.slug);
+  const hasEmbeddedPage = ["crm", "chat", "drive", "pdf"].includes(activePage?.slug);
   const workspaceLens = currentWorkspaceLens();
   const workspaceFamilyId = currentWorkspaceFamilyId();
   const isDocumentCloneWorkspace = workspaceFamilyId === "document_knowledge";

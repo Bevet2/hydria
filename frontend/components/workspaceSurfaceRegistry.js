@@ -11,6 +11,15 @@ export const WORKSPACE_PAGES = Object.freeze([
     hint: "Open chat"
   },
   {
+    slug: "drive",
+    kind: "virtual",
+    family: "file_storage",
+    label: "Drive",
+    title: "Hydria Drive",
+    description: "Retrouvez et ouvrez les documents et projets de vos workspaces.",
+    hint: "Ouvrir votre bibliothèque"
+  },
+  {
     slug: "docs",
     kind: "document",
     family: "document_knowledge",
@@ -168,7 +177,12 @@ export function parseWorkspacePagePath(pathname = globalThis.window?.location?.p
   if (normalizedPath === "/" || !normalizedPath.startsWith(WORKSPACE_ROUTE_PREFIX)) {
     return null;
   }
-  return workspacePageFromSlug(decodeURIComponent(normalizedPath.slice(WORKSPACE_ROUTE_PREFIX.length)));
+  try {
+    return workspacePageFromSlug(decodeURIComponent(normalizedPath.slice(WORKSPACE_ROUTE_PREFIX.length)));
+  } catch {
+    // Malformed percent-encoded URLs should not crash the entire workspace shell.
+    return null;
+  }
 }
 
 export function workspacePagePath(page = null) {
