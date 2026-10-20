@@ -19,6 +19,8 @@ jobs:
           node-version: 22
       - name: Bundle frontend and validate module exports
         run: npx --yes esbuild@0.25.10 frontend/app.js --bundle --format=esm --platform=browser --outfile=/tmp/hydria-integration.js
+      - name: Hydria Drive library model and safe routing
+        run: node backend/scripts/osDriveWorkspaceGate.mjs
       - name: Check JavaScript syntax for integrated files
         run: |
           for file in frontend/app.js frontend/components/workspaceCanvasPanel.js frontend/components/workspacePanel.js frontend/components/workspaceMenuUi.js backend/server.js backend/routes/canvas.js; do
@@ -35,6 +37,28 @@ jobs:
           cache-dependency-path: backend/package-lock.json
       - name: Install backend dependencies
         run: npm ci --prefix backend --no-audit --no-fund
+      - name: Audit security and data integrity regressions
+        run: node backend/scripts/auditSecurityGate.mjs
+      - name: Workspace action approval HTTP regression
+        run: node backend/scripts/osActionConsentGate.mjs
+      - name: Dependency security
+        run: npm audit --prefix backend --audit-level=high
+      - name: Validate PdfCraft integration contract and pinned installer
+        run: node backend/scripts/osPdfCraftGate.mjs
+      - name: Validate PhotoCraft/FigCraft releases and raster types
+        run: node backend/scripts/osArtCraftGate.mjs
+      - name: Legacy PhotoCraft Drive image migration and idempotency
+        run: node backend/scripts/osDriveImageMigrationGate.mjs
+      - name: Verify authentic PhotoCraft and FigCraft WASM installations
+        run: |
+          node backend/scripts/installArtCraftWeb.mjs photo
+          node backend/scripts/installArtCraftWeb.mjs fig
+          test -s frontend/vendor/photocraft/index.html
+          test -s frontend/vendor/figcraft/index.html
+      - name: Production frontend bundle preserves official ArtCraft runtimes
+        run: |
+          node backend/scripts/buildFrontend.mjs
+          diff --recursive frontend/vendor frontend-dist/vendor
       - name: Database volume and frontend readiness diagnostics
         run: node backend/scripts/osReadinessGate.mjs
       - name: Production single-user authentication and origin checks
@@ -97,6 +121,10 @@ jobs:
           console.log("Hydria Canvas API PDF export verified; bytes:",bytes.length);
           '
 
+      - name: Persist, retrieve and validate PDF assets in Drive
+        run: node backend/scripts/osDrivePdfAssetsGate.mjs
+      - name: Persist, preview and validate images in Drive
+        run: node backend/scripts/osDriveImageAssetsGate.mjs
       - name: Verify live Flow dashboard assets
         run: |
           curl --fail --silent --show-error http://127.0.0.1:3001/flow-dashboard.html | grep -q 'Live Flow Dashboard'
@@ -242,6 +270,8 @@ jobs:
         run: node --check frontend/components/osProductChrome.js
       - name: Product UI desktop and mobile acceptance
         run: node backend/scripts/osProductUiGate.mjs
+      - name: Mobile editing and action confirmation
+        run: node backend/scripts/osAuditUxGate.mjs
       - name: Upload product UI screenshots
         if: always()
         uses: actions/upload-artifact@v4
@@ -286,3 +316,9 @@ jobs:
           if-no-files-found: ignore
       - name: Test Docs Sheets and Slides after harmonisation
         run: npm run test:visual-workspace --prefix backend -- --scenario "shared-command-adapters,docs-shared-menu-definitions,docs-context-menu-helper,sheets-toolbar-context-menu-fullscreen,slides-presentation-smoke,canvas-whiteboard-smoke,dashboard-editor-smoke,dataflow-workbench-smoke,os-global-command-palette,os-project-explorer,os-per-file-tree-smoke,shared-icons,shared-context-menu-helper,docs-word-review-layout,docs-context-format-page-break"
+      - name: Hydria Drive browser navigation and creation
+        run: node backend/scripts/osDriveBrowserGate.mjs
+      - name: PDF Studio missing-runtime fallback and PDF Blob handoff
+        run: node backend/scripts/osPdfCraftBrowserGate.mjs
+      - name: PhotoCraft and FigCraft browser and image Drive acceptance
+        run: node backend/scripts/osArtCraftBrowserGate.mjs

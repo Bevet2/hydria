@@ -1206,6 +1206,9 @@ router.get("/:workObjectId/runtime", (req, res, next) => {
 
 async function handleUpdateContent(req, res, next) {
   try {
+    if (!Number.isSafeInteger(Number(req.body?.userId)) || Number(req.body?.userId) < 1) {
+      throw new AppError("Select a valid workspace profile before saving", 400);
+    }
     const entryPath = req.body?.entryPath || req.body?.path || "";
     const updated = await workObjectService.updateContent({
       workObjectId: req.params.workObjectId,

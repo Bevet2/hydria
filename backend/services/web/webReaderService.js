@@ -2,6 +2,7 @@ import { requestText } from "../apis/genericApiClient.js";
 import { getApisByCapability } from "../registry/apiRegistry.js";
 import { fetchPage } from "./browserService.js";
 import { extractWebPageContent } from "./webPageExtractor.js";
+import { resolvePublicUrl } from "./publicHttp.js";
 
 function cleanText(value = "") {
   return String(value || "")
@@ -66,6 +67,8 @@ export async function readWebUrl(url) {
   }
 
   const attempts = [];
+  // Validate before forwarding a URL to external reader services as well.
+  await resolvePublicUrl(normalizedUrl);
   const readerProviders = getApisByCapability("read_url");
 
   for (const provider of readerProviders) {

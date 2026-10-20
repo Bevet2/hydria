@@ -1,11 +1,12 @@
 import crypto from "node:crypto";
+import fs from "node:fs";
 import { Router, type Request } from "express";
 import bcrypt from "bcryptjs";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { env } from "../config/env.js";
 import { prisma } from "../lib/prisma.js";
-import { signAccessToken } from "../lib/auth.js";
+import { createUserSession } from "../services/sessions.js";
 import { asyncRoute, HttpError, parseBody } from "../lib/http.js";
 import { recordActivity } from "../services/activity.js";
 import { routeTicketOwner, ticketDeadlines } from "../services/supportSla.js";
@@ -21,38 +22,20 @@ const actionRequestSchema = identitySchema.extend({
   workspaceToolCalls: z.array(z.record(z.string(), z.unknown())).min(1).max(20)
 });
 
-const supportedOperations = new Set([
-  "crm.create_contact",
-  "crm.update_contact",
-  "crm.create_company",
-  "crm.create_lead",
-  "crm.create_task",
-  "crm.create_ticket",
-  "crm.create_deal",
-  "crm.update_deal_stage",
-  "crm.update_company",
-  "crm.update_lead",
-  "crm.update_task",
-  "crm.update_ticket",
-  "crm.convert_lead",
-  "crm.add_product_to_deal",
-  "crm.create_quote",
-  "crm.update_record",
-  "crm.summarize_customer",
-  "crm.get_account_health",
-  "crm.list_at_risk_accounts",
-  "crm.delete_record",
-  "crm.add_activity",
-  "crm.log_call",
-  "crm.merge_records",
-  "crm.update_custom_field",
-  "crm.assign_owner"
-]);
+// In source this file lives one directory closer to the API package than in dist.
+const definitionUrl = [new URL("../../crm-workspace-tools.json", import.meta.url),
+  new URL("../../../crm-workspace-tools.json", import.meta.url)].find(url => fs.existsSync(url));
+if (!definitionUrl) throw new Error("CRM workspace tool catalog is missing");
+const supportedOperations = new Set<string>(JSON.parse(fs.readFileSync(definitionUrl, "utf8")));
+
 
 const customEntityTypes = ["CONTACT", "COMPANY", "DEAL", "LEAD"] as const;
 const customFieldTypes = ["TEXT", "NUMBER", "DATE", "BOOLEAN", "SELECT", "MULTI_SELECT"] as const;
 
 function assertSignedRequest(req: Request) {
+  if (!env.HYDRIA_INTEGRATION_SECRET) {
+    throw new HttpError("Hydria integration is not configured", 503);
+  }
   const timestamp = String(req.headers["x-hydria-timestamp"] || "");
   const supplied = String(req.headers["x-hydria-signature"] || "");
   const timestampMs = Number(timestamp);
@@ -106,7 +89,9 @@ function publicUser(user: {
 }
 
 async function ensureHydriaIdentity(input: z.infer<typeof identitySchema>) {
-  const organization = await prisma.organization.upsert({
+  const organization = env.HYDRIA_INTEGRATION_ORGANIZATION_ID
+    ? await prisma.organization.findUnique({ where: { id: env.HYDRIA_INTEGRATION_ORGANIZATION_ID } })
+    : env.NODE_ENV === "production" ? null : await prisma.organization.upsert({
     where: { slug: "northstar-demo" },
     update: { name: "Hydria CRM" },
     create: {
@@ -123,6 +108,7 @@ async function ensureHydriaIdentity(input: z.infer<typeof identitySchema>) {
       }
     }
   });
+  if (!organization) throw new HttpError("The bridge organization must be provisioned by an administrator", 503);
   await prisma.supportQueue.upsert({
     where: { organizationId_name: { organizationId: organization.id, name: "Support" } },
     update: { active: true },
@@ -137,7 +123,11 @@ async function ensureHydriaIdentity(input: z.infer<typeof identitySchema>) {
       active: true
     }
   });
-  const email = `hydria-${input.hydriaUserId.replace(/[^a-z0-9_-]/gi, "-")}@hydria.local`.toLowerCase();
+  // Namespace local IDs by instance AND tenant; local user 1 is not global user 1.
+  const identity = crypto.createHash("sha256")
+    .update(JSON.stringify([env.HYDRIA_INTEGRATION_INSTANCE_ID, organization.id, input.hydriaUserId]))
+    .digest("hex");
+  const email = `hydria-${identity}@hydria.local`;
   const name = splitName(input.username);
   const existing = await prisma.user.findUnique({ where: { email } });
   const user = existing
@@ -158,7 +148,7 @@ async function ensureHydriaIdentity(input: z.infer<typeof identitySchema>) {
           emailVerifiedAt: new Date(),
           firstName: name.firstName,
           lastName: name.lastName,
-          role: "ADMIN"
+          role: "MEMBER"
         },
         include: { organization: true }
       });
@@ -1353,18 +1343,15 @@ router.use((req, _res, next) => {
   }
 });
 
+router.get("/capabilities", (_req, res) => res.json({ tools: [...supportedOperations] }));
+
 router.post(
   "/session",
   asyncRoute(async (req, res) => {
     const input = parseBody(identitySchema, req.body);
     const user = await ensureHydriaIdentity(input);
-    const token = signAccessToken({
-      sub: user.id,
-      organizationId: user.organizationId,
-      role: user.role,
-      email: user.email
-    });
-    res.json({ token, user: publicUser(user) });
+    const session = await createUserSession(user, req, 5 * 60_000);
+    res.json({ token: session.token, user: publicUser(user), expiresAt: session.session.expiresAt });
   })
 );
 

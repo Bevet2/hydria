@@ -68,6 +68,7 @@ async function applyPermissionPolicy(req: Request) {
       team: { select: { permissionPolicy: true } }
     }
   });
+  if (!account) throw new HttpError("Account not found", 401);
   const policy = mergePolicies(account?.team?.permissionPolicy, account?.permissionPolicy);
   req.user.teamId = account?.teamId || null;
   req.user.permissionPolicy = policy;
@@ -140,9 +141,9 @@ export async function requireAuth(req: Request, _res: Response, next: NextFuncti
           revokedAt: null,
           expiresAt: { gt: new Date() }
         },
-        include: { user: { select: { role: true, email: true } } }
+        include: { user: { select: { role: true, email: true, organizationId: true } } }
       });
-      if (!session) throw new Error("Session expired or revoked");
+      if (!session || session.user.organizationId !== payload.organizationId) throw new Error("Session expired or revoked");
       if (Date.now() - session.lastUsedAt.getTime() > 60_000) {
         void prisma.authSession.update({
           where: { id: session.id },
@@ -177,7 +178,7 @@ export function requireRole(...roles: UserRole[]) {
 }
 
 export function assertCanWrite(req: Request) {
-  if (!req.user || req.user.role === "VIEWER") {
+  if (!req.user || !req.user.organizationId || !["ADMIN", "MANAGER", "MEMBER"].includes(req.user.role)) {
     throw new HttpError("This role is read-only", 403);
   }
 }

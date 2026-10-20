@@ -16,6 +16,8 @@ import preferencesRouter from "./routes/preferences.js";
 import memoryRouter from "./routes/memory.js";
 import chatRouter from "./routes/chat.js";
 import artifactsRouter from "./routes/artifacts.js";
+import drivePdfAssetsRouter from "./routes/drivePdfAssets.js";
+import driveImageAssetsRouter from "./routes/driveImageAssets.js";
 import workObjectsRouter from "./routes/workObjects.js";
 import projectsRouter from "./routes/projects.js";
 import sheetsRouter from "./routes/sheets.js";
@@ -49,6 +51,8 @@ app.use("/api/memory", memoryRouter);
 app.use("/api/chat", chatRouter);
 app.use("/api/hydria", hydriaApiRouter);
 app.use("/api/artifacts", artifactsRouter);
+app.use("/api/drive/pdf-assets", drivePdfAssetsRouter);
+app.use("/api/drive/image-assets", driveImageAssetsRouter);
 app.use("/api/work-objects", workObjectsRouter);
 app.use("/api/projects", projectsRouter);
 app.use("/api/sheets", sheetsRouter);
@@ -69,6 +73,7 @@ app.get("/.well-known/appspecific/com.chrome.devtools.json", (req, res) => {
 app.use(
   express.static(config.paths.frontendDir, {
     setHeaders: (res, filePath) => {
+      if (/\.wasm$/i.test(filePath)) res.setHeader("Content-Type", "application/wasm");
       if (/\.(?:html|js|css|json|svg)$/i.test(filePath)) {
         res.setHeader("Cache-Control", "no-store");
       }

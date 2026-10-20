@@ -1,14 +1,13 @@
 import { expect, test } from "@playwright/test";
+import { signIn } from "./helpers";
 
 test.beforeEach(async ({ page }) => {
-  await page.goto("/login");
-  await page.locator("form").getByRole("button", { name: "Sign in", exact: true }).click();
-  await expect(page).toHaveURL(/\/$/);
+  await signIn(page);
 });
 
 test("primary CRM pages expose usable names and document structure", async ({ page }) => {
   for (const route of ["/", "/leads", "/pipeline", "/products", "/tickets", "/reports", "/communications", "/sales-ops", "/platform"]) {
-    await page.goto(route);
+    await page.goto("/crm" + route);
     await expect(page.locator("h1")).toHaveCount(1);
     const problems = await page.evaluate(() => {
       const issues: string[] = [];

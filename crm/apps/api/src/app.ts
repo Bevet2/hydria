@@ -8,6 +8,7 @@ import { HttpError } from "./lib/http.js";
 import { prisma } from "./lib/prisma.js";
 import { rateLimit } from "./middleware/rateLimit.js";
 import { requestContext } from "./middleware/requestContext.js";
+import { protectJsonResponses } from "./middleware/publicJson.js";
 import { auditMutations } from "./services/audit.js";
 import { sendOperationalAlert } from "./services/alerts.js";
 import attachmentsRouter from "./routes/attachments.js";
@@ -48,6 +49,7 @@ export const app = express();
 
 app.use(helmet());
 app.use(requestContext);
+app.use(protectJsonResponses);
 const webOrigins = new Set(env.WEB_ORIGIN.split(",").map((origin) => origin.trim()).filter(Boolean));
 if (env.NODE_ENV !== "production") {
   for (const origin of [...webOrigins]) {

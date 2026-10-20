@@ -14,7 +14,7 @@ test("Hydria CRM workspace exposes the real interactive application", async ({ p
     await page.locator(".workspace-crm-live-frame").scrollIntoViewIfNeeded();
     await crm.getByRole("button", { name: "Open menu" }).click();
   }
-  await crm.getByRole("link", { name: "Contacts" }).click();
+  await crm.getByRole("link", { name: "Contacts", exact: true }).click();
   await expect(crm.getByRole("heading", { name: "Contacts" })).toBeVisible();
   expect(errors).toEqual([]);
 });

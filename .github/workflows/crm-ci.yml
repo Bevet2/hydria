@@ -35,13 +35,15 @@ jobs:
       DATABASE_URL: postgresql://northstar:northstar_ci@127.0.0.1:5432/northstar_crm?schema=public
       JWT_SECRET: crm-ci-jwt-secret-at-least-sixteen-characters
       SECRET_ENCRYPTION_KEY: crm-ci-encryption-key-at-least-sixteen
-      WEB_ORIGIN: http://127.0.0.1:5174
+      WEB_ORIGIN: http://127.0.0.1:5174,http://localhost:3001
       PUBLIC_WEB_URL: http://127.0.0.1:5174
       OAUTH_REDIRECT_URL: http://127.0.0.1:5174/oauth/callback
       API_PORT: 4010
       VITE_API_URL: http://127.0.0.1:4010/api
       PLAYWRIGHT_BASE_URL: http://127.0.0.1:5174
       CRM_API_URL: http://127.0.0.1:4010/api
+      HYDRIA_INTEGRATION_SECRET: hydria-crm-ci-bridge-secret-over-thirty-two-characters
+      CRM_INTEGRATION_SECRET: hydria-crm-ci-bridge-secret-over-thirty-two-characters
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -55,6 +57,10 @@ jobs:
       - run: npm run db:seed
       - run: npm run typecheck
       - run: npm run build
+      - name: Token separation and public response redaction
+        run: node --import tsx apps/api/scripts/auditSecurityGate.ts
+      - name: Dependency security
+        run: npm audit --audit-level=high
       - run: npx playwright install --with-deps chromium
       - name: Start CRM
         run: |
@@ -76,6 +82,8 @@ jobs:
       - run: npm run gate:operations
       - run: npm run gate:productivity
       - run: npm run gate:platform
+      - name: Two-tenant isolation and MFA regression over HTTP
+        run: node --import tsx apps/api/scripts/auditIsolationGate.ts
       - run: npm run gate:resilience
       - run: npm run gate:oauth
       - run: npm run gate:communications
@@ -88,6 +96,18 @@ jobs:
           CRM_LOAD_REQUESTS: 150
           CRM_LOAD_CONCURRENCY: 30
         run: npm run gate:load
+      - name: Start Hydria OS for embedded CRM browser tests
+        run: |
+          npm ci --prefix ../backend --no-audit --no-fund
+          node ../backend/server.js > hydria-os.log 2>&1 &
+          ready=false
+          for i in {1..30}; do
+            if curl --fail --silent http://localhost:3001/api/health >/dev/null; then ready=true; break; fi
+            sleep 1
+          done
+          if [ "$ready" != "true" ]; then cat hydria-os.log; exit 1; fi
+          curl --fail --silent --show-error -X POST http://localhost:3001/api/users \
+            -H "Content-Type: application/json" -d '{"username":"crm-browser-ci"}'
       - run: npm run test:e2e -w @northstar/web
       - name: Upload diagnostics
         if: failure()

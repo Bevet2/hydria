@@ -3,6 +3,9 @@ import path from "node:path";
 import config from "../../config/hydria.config.js";
 import { nowIso } from "../../utils/time.js";
 import { slugifyFilename } from "./generators/shared.js";
+import { atomicWriteFile } from "../../utils/durableFiles.js";
+import { withKeyedLock } from "../../utils/keyedLock.js";
+import { AppError } from "../../utils/errors.js";
 
 async function ensureArtifactStorage() {
   await fs.mkdir(config.paths.generatedArtifactsDir, { recursive: true });
@@ -13,19 +16,27 @@ async function loadIndex() {
 
   try {
     const raw = await fs.readFile(config.paths.generatedArtifactsIndex, "utf8");
-    return JSON.parse(raw);
-  } catch {
-    return [];
+    const records = JSON.parse(raw);
+    if (!Array.isArray(records)) throw Error("Invalid artifact index");
+    return records;
+  } catch (error) {
+    if (error.code === "ENOENT") return [];
+    throw new AppError("Artifact index is unreadable; restore a verified backup", 503);
   }
 }
 
 async function saveIndex(records) {
   await ensureArtifactStorage();
-  await fs.writeFile(
-    config.paths.generatedArtifactsIndex,
-    JSON.stringify(records, null, 2),
-    "utf8"
-  );
+  atomicWriteFile(config.paths.generatedArtifactsIndex, JSON.stringify(records, null, 2));
+}
+
+async function upsertRecord(record) {
+  return withKeyedLock(config.paths.generatedArtifactsIndex, async () => {
+    const records = await loadIndex();
+    const next = records.filter(entry => entry.id !== record.id);
+    next.push(record);
+    await saveIndex(next);
+  });
 }
 
 export async function persistGeneratedArtifact({
@@ -63,10 +74,7 @@ export async function persistGeneratedArtifact({
     createdAt: nowIso()
   };
 
-  const records = await loadIndex();
-  const nextRecords = records.filter((entry) => entry.id !== artifactId);
-  nextRecords.push(record);
-  await saveIndex(nextRecords);
+  await upsertRecord(record);
 
   return {
     type: "generated_file",
@@ -115,10 +123,7 @@ export async function persistExternalGeneratedArtifact({
     absolutePath
   };
 
-  const records = await loadIndex();
-  const nextRecords = records.filter((entry) => entry.id !== artifactId);
-  nextRecords.push(record);
-  await saveIndex(nextRecords);
+  await upsertRecord(record);
 
   return {
     type: "generated_file",

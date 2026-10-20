@@ -1,3 +1,4 @@
+import { readJsonFile, writeJsonFile } from "../../utils/durableFiles.js";
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -42,20 +43,20 @@ export class JsonKnowledgeStore extends KnowledgeStore {
     this.filePath = filePath;
     ensureDirectory(this.filePath);
     if (!fs.existsSync(this.filePath)) {
-      fs.writeFileSync(this.filePath, JSON.stringify(defaultState(), null, 2));
+      writeJsonFile(this.filePath, defaultState());
     }
   }
 
   readState() {
     try {
-      return JSON.parse(fs.readFileSync(this.filePath, "utf8"));
-    } catch {
-      return defaultState();
+      return readJsonFile(this.filePath);
+    } catch (error) {
+      throw error;
     }
   }
 
   writeState(state) {
-    fs.writeFileSync(this.filePath, JSON.stringify(state, null, 2));
+    writeJsonFile(this.filePath, state);
   }
 
   async ingestRecords(records = []) {

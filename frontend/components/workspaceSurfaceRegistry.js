@@ -7,8 +7,17 @@ export const WORKSPACE_PAGES = Object.freeze([
     family: "ai_agent",
     label: "Chat",
     title: "Chat",
-    description: "Talk directly with Hydria Core.",
+    description: "Échangez avec Hydria Core.",
     hint: "Open chat"
+  },
+  {
+    slug: "drive",
+    kind: "virtual",
+    family: "file_storage",
+    label: "Drive",
+    title: "Hydria Drive",
+    description: "Retrouvez et ouvrez les documents et projets de vos workspaces.",
+    hint: "Ouvrir votre bibliothèque"
   },
   {
     slug: "docs",
@@ -16,35 +25,35 @@ export const WORKSPACE_PAGES = Object.freeze([
     family: "document_knowledge",
     label: "Docs",
     title: "Documents",
-    description: "Write, structure and refine documents in a focused page.",
-    hint: "Create a document"
+    description: "Rédigez et mettez en forme vos documents.",
+    hint: "Créer un document"
   },
   {
     slug: "sheets",
     kind: "dataset",
     family: "data_spreadsheet",
     label: "Sheets",
-    title: "Spreadsheets",
-    description: "Work with tables, formulas and structured data in a dedicated page.",
-    hint: "Create a spreadsheet"
+    title: "Tableurs",
+    description: "Analysez vos données, formules et tableaux.",
+    hint: "Créer un tableur"
   },
   {
     slug: "slides",
     kind: "presentation",
     family: "presentation",
     label: "Slides",
-    title: "Presentations",
-    description: "Build and edit presentations without mixing them with other workspaces.",
-    hint: "Create a presentation"
+    title: "Présentations",
+    description: "Composez et présentez vos diapositives.",
+    hint: "Créer une présentation"
   },
   {
     slug: "dashboard",
     kind: "dashboard",
     family: "analytics_dashboard",
     label: "Dashboard",
-    title: "Dashboards",
-    description: "Review metrics, charts and operational signals on their own page.",
-    hint: "Create a dashboard"
+    title: "Tableaux de bord",
+    description: "Suivez vos indicateurs et graphiques.",
+    hint: "Créer un tableau de bord"
   },
   {
     slug: "crm",
@@ -52,7 +61,7 @@ export const WORKSPACE_PAGES = Object.freeze([
     family: "crm_sales",
     label: "Hydria CRM",
     title: "Hydria CRM",
-    description: "Manage contacts, companies, deals and sales follow-up directly in Hydria CRM.",
+    description: "Gérez vos contacts, entreprises et opportunités.",
     hint: "Open Hydria CRM"
   },
   {
@@ -61,7 +70,7 @@ export const WORKSPACE_PAGES = Object.freeze([
     family: "workflow_automation",
     label: "Automation",
     title: "Automations",
-    description: "Design workflows, stages and triggers in a dedicated environment.",
+    description: "Configurez vos étapes et déclencheurs.",
     hint: "Create an automation"
   },
   {
@@ -69,9 +78,9 @@ export const WORKSPACE_PAGES = Object.freeze([
     kind: "workflow",
     family: "data_flow",
     label: "Flow Manager",
-    title: "Data Flow Manager",
-    description: "Create, connect and execute visual ETL pipelines with data previews.",
-    hint: "Create a data flow"
+    title: "Flux de données",
+    description: "Préparez et transformez vos données avec des flux visuels.",
+    hint: "Créer un flux de données"
   },
   {
     slug: "app-builder",
@@ -90,6 +99,33 @@ export const WORKSPACE_PAGES = Object.freeze([
     title: "Whiteboards",
     description: "Explore layouts, frames and visual ideas on a dedicated canvas.",
     hint: "Create a whiteboard"
+  },
+  {
+    slug: "photo",
+    kind: "virtual",
+    family: "artcraft_photo",
+    label: "Photo Studio",
+    title: "Hydria Photo",
+    description: "Retouchez des images dans PhotoCraft et conservez vos exports dans Drive.",
+    hint: "Ouvrir PhotoCraft"
+  },
+  {
+    slug: "fig",
+    kind: "virtual",
+    family: "artcraft_fig",
+    label: "Design Studio",
+    title: "Hydria Design",
+    description: "Prototypage d'interfaces avec le moteur libre FigCraft Web.",
+    hint: "Ouvrir FigCraft"
+  },
+  {
+    slug: "pdf",
+    kind: "virtual",
+    family: "document_knowledge",
+    label: "PDF Studio",
+    title: "PDF Studio",
+    description: "Ouvrez et éditez des PDF avec le moteur libre ArtCraft PdfCraft.",
+    hint: "Ouvrir l'éditeur PDF"
   },
   {
     slug: "code",
@@ -121,6 +157,8 @@ export const WORKSPACE_FAMILY_LABELS = Object.freeze({
   finance: "Finance",
   hr: "HR",
   file_storage: "Files & Storage",
+  artcraft_photo: "Photo & Image Editing",
+  artcraft_fig: "Interface Design",
   testing_qa: "Testing & QA",
   web_cms: "Web & CMS",
   media: "Media",
@@ -159,7 +197,12 @@ export function parseWorkspacePagePath(pathname = globalThis.window?.location?.p
   if (normalizedPath === "/" || !normalizedPath.startsWith(WORKSPACE_ROUTE_PREFIX)) {
     return null;
   }
-  return workspacePageFromSlug(decodeURIComponent(normalizedPath.slice(WORKSPACE_ROUTE_PREFIX.length)));
+  try {
+    return workspacePageFromSlug(decodeURIComponent(normalizedPath.slice(WORKSPACE_ROUTE_PREFIX.length)));
+  } catch {
+    // Malformed percent-encoded URLs should not crash the entire workspace shell.
+    return null;
+  }
 }
 
 export function workspacePagePath(page = null) {

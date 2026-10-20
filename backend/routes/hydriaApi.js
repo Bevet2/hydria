@@ -51,6 +51,7 @@ import {
   listHydriaWorkspaceTools,
   normalizeWorkspaceToolCallsFromCore
 } from "../services/hydria/workspaceToolDispatcher.js";
+import { workspaceActionConsent } from "../services/hydria/workspaceActionConsent.js";
 
 const router = Router();
 const activeChatGenerations = new Map();
@@ -756,6 +757,18 @@ router.post("/control", async (req, res, next) => {
   } catch (error) {
     next(error);
   }
+});
+
+router.post("/confirm-workspace-action", async (req, res, next) => {
+  try {
+    const user = requireHydriaUser(req.body?.userId);
+    const consent = workspaceActionConsent.consume(req.body?.confirmationToken, user.id);
+    const execution = await executeWorkspaceToolCalls({
+      calls: [consent.call], userId: user.id, confirmed: true,
+      expectedRevision: consent.revision, workObjectService
+    });
+    res.json({ success: true, execution, workspaceToolResults: execution.results });
+  } catch (error) { next(error); }
 });
 
 router.post("/actions", async (req, res, next) => {

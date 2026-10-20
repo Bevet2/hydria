@@ -24,10 +24,16 @@
     "gate:custom-objects": "dotenv -e .env -- npm run gate:custom-objects -w @northstar/api",
     "db:generate": "npm run db:generate -w @northstar/api",
     "db:migrate": "dotenv -e .env -- npm run db:migrate -w @northstar/api",
-    "db:seed": "dotenv -e .env -- npm run db:seed -w @northstar/api"
+    "db:seed": "dotenv -e .env -- npm run db:seed -w @northstar/api",
+    "gate:audit": "node --import tsx apps/api/scripts/auditSecurityGate.ts",
+    "gate:audit-isolation": "dotenv -e .env -- node --import tsx apps/api/scripts/auditIsolationGate.ts"
   },
   "devDependencies": {
-    "concurrently": "9.2.1",
-    "dotenv-cli": "8.0.0"
+    "concurrently": "^9.2.5",
+    "dotenv-cli": "8.0.0",
+    "prisma": "6.19.3"
+  },
+  "overrides": {
+    "deepmerge-ts": "8.0.0"
   }
 }
