@@ -58,8 +58,27 @@ try {
   await panel.getByLabel("Document Hydria à exporter en PDF").selectOption("local");
   await panel.getByRole("button", { name: "Ouvrir en PDF" }).click();
   await panel.frameLocator(".hydria-pdf-frame").getByText("PDF payload received").waitFor({ timeout: 15_000 });
+  // Upload the PDF exported/downloaded from PdfCraft through the explicit
+  // user action, then reopen the server-persisted bytes in the WASM frame.
+  const editedPdf = Buffer.from("%PDF-1.4\\n1 0 obj\\n<< /Type /Catalog >>\\nendobj\\n%%EOF\\n", "ascii");
+  await panel.getByLabel("Importer un PDF dans Hydria Drive").setInputFiles({
+    name: "edition-pdfcraft.pdf", mimeType: "application/pdf", buffer: editedPdf
+  });
+  const savedRow = panel.locator(".hydria-pdf-saved-item").filter({ hasText: "edition-pdfcraft.pdf" });
+  await savedRow.waitFor({ timeout: 15000 });
+  await savedRow.getByRole("button", { name: "Ouvrir" }).click();
+  await panel.frameLocator(".hydria-pdf-frame").getByText("PDF payload received").waitFor({ timeout: 15000 });
+
+  // The same PDF must be discoverable from the shared Hydria Drive view and
+  // the deep link must reopen the saved asset, not the original Docs source.
+  await page.goto("http://127.0.0.1:3001/workspace/drive", { waitUntil: "domcontentloaded" });
+  const driveRow = page.locator(".hydria-drive-pdf-row").filter({ hasText: "edition-pdfcraft.pdf" });
+  await driveRow.waitFor({ timeout: 15000 });
+  await driveRow.getByRole("link", { name: "Ouvrir dans PDF Studio" }).click();
+  await page.waitForURL(url => url.pathname === "/workspace/pdf" && url.searchParams.has("assetId"), { timeout: 15000 });
+  await page.frameLocator(".hydria-pdf-frame").getByText("PDF payload received").waitFor({ timeout: 15000 });
   assert.deepEqual(errors, []);
-  console.log("PDF Studio browser acceptance: missing runtime fallback, embedded frame, PDF Blob handoff.");
+  console.log("PDF Studio browser acceptance: fallback, WASM handoff, Drive upload/list and stored-PDF reopen.");
 } finally {
   await browser.close();
   await rm(dist, { recursive: true, force: true });

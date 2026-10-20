@@ -1,7 +1,10 @@
-// Hydria PDF Studio — real, optional self-hosted ArtCraft PdfCraft WASM.
-// Native PdfCraft handles file selection, PDF editing, and browser downloads.
-// The Hydria document shortcut exports a PDF via the existing backend and hands
-// it to PdfCraft as a same-origin blob URL. There is NO write-back yet.
+// Hydria PDF Studio — real optional PdfCraft WASM runtime.
+// PdfCraft exports edited PDFs via browser download; upload is an explicit user
+// action. No unverified postMessage protocol or implicit iframe write-back.
+import {
+  listDrivePdfs, savePdfToDrive, readDrivePdf, storedPdfUrl
+} from "../services/drivePdfClient.js";
+
 const PDFCRAFT_PATH = "/vendor/pdfcraft/index.html";
 let openedPdfUrl = null;
 
@@ -11,10 +14,13 @@ function element(tag, className = "", text = "") {
   if (text) result.textContent = text;
   return result;
 }
+function filenameFromTitle(title) {
+  const normalized = String(title || "Document").replace(/[\\/\x00-\x1f\x7f]/g, "_").trim();
+  return (normalized || "Document").slice(0, 120).replace(/\.pdf$/i, "") + ".pdf";
+}
 
 export function pdfCraftFrameUrl(fileUrl = "") {
   if (!fileUrl) return PDFCRAFT_PATH;
-  // The caller exclusively supplies locally created PDF blob URLs.
   if (!/^blob:https?:\/\//.test(fileUrl)) throw Error("PDF handoff requires a local Blob URL");
   return PDFCRAFT_PATH + "?file=" + encodeURIComponent(fileUrl);
 }
@@ -36,7 +42,7 @@ export function renderPdfCraftWorkbench(container, {
   copy.append(element("p", "hydria-pdf-eyebrow", "ARTCRAFT / PDF"));
   copy.append(element("h2", "", "PDF Studio"));
   copy.append(element("p", "hydria-pdf-desc",
-    "Éditez des PDF avec le moteur open source PdfCraft, directement dans votre espace Hydria."));
+    "Modifiez vos PDF avec PdfCraft et conservez des versions PDF dans Hydria Drive."));
   const status = element("span", "hydria-pdf-status", "Chargement…");
   status.setAttribute("role", "status");
   heading.append(copy, status);
@@ -56,16 +62,37 @@ export function renderPdfCraftWorkbench(container, {
   const openDocument = element("button", "hydria-pdf-button hydria-pdf-primary", "Ouvrir en PDF");
   openDocument.type = "button";
   openDocument.disabled = true;
+  const saveDocument = element("button", "hydria-pdf-button", "Exporter dans Drive");
+  saveDocument.type = "button";
+  saveDocument.disabled = true;
   const reset = element("button", "hydria-pdf-button", "Nouveau / Ouvrir un fichier local");
   reset.type = "button";
   reset.disabled = true;
-  toolbar.append(documentSelect, openDocument, reset);
+  toolbar.append(documentSelect, openDocument, saveDocument, reset);
+
+  const fileInput = element("input", "hydria-pdf-upload");
+  fileInput.type = "file";
+  fileInput.accept = ".pdf,application/pdf";
+  fileInput.setAttribute("aria-label", "Importer un PDF dans Hydria Drive");
+  const importWrap = element("div", "hydria-pdf-import");
+  importWrap.append(element("strong", "", "Importer un PDF terminé ou téléchargé depuis PdfCraft"), fileInput);
 
   const hint = element("p", "hydria-pdf-hint",
-    "Les modifications effectuées dans PdfCraft sont téléchargées depuis l'éditeur. " +
-    "La sauvegarde directe vers Hydria Drive n'est pas encore disponible.");
+    "Après modification dans PdfCraft, utilisez son menu de téléchargement, puis " +
+    "« Importer un PDF » ci-dessus. Hydria ne lit pas automatiquement le document " +
+    "modifié dans l’éditeur intégré. Chaque import crée une copie PDF conservée dans Drive.");
+  const saved = element("section", "hydria-pdf-saved");
+  saved.setAttribute("aria-label", "PDF conservés dans Hydria Drive");
+  const savedHeading = element("div", "hydria-pdf-saved-heading");
+  const savedTitle = element("h3", "", "PDF conservés dans Drive");
+  const refresh = element("button", "hydria-pdf-button", "Actualiser");
+  refresh.type = "button";
+  savedHeading.append(savedTitle, refresh);
+  const savedList = element("div", "hydria-pdf-saved-list");
+  saved.append(savedHeading, savedList);
+
   const viewport = element("div", "hydria-pdf-viewport");
-  const loading = element("p", "hydria-pdf-loading", "Vérification de l'installation locale de PdfCraft…");
+  const loading = element("p", "hydria-pdf-loading", "Vérification de l'installation de PdfCraft…");
   viewport.append(loading);
   const error = element("p", "hydria-pdf-error");
   error.hidden = true;
@@ -76,9 +103,19 @@ export function renderPdfCraftWorkbench(container, {
     error.hidden = false;
   }
   function clearError() { error.textContent = ""; error.hidden = true; }
-  let frame = null;
   let ready = false;
   let busy = false;
+  let latestSaved = [];
+  const autoAssetId = new URLSearchParams(window.location.search).get("assetId");
+  function setBusy(value) {
+    busy = Boolean(value);
+    documentSelect.disabled = busy;
+    openDocument.disabled = !ready || busy || !documentSelect.value;
+    saveDocument.disabled = busy || !documentSelect.value;
+    reset.disabled = !ready || busy;
+    fileInput.disabled = busy;
+  }
+
   function openPdfFrame(url = "") {
     if (!ready) return;
     if (openedPdfUrl) {
@@ -87,72 +124,153 @@ export function renderPdfCraftWorkbench(container, {
     }
     const next = url ? pdfCraftFrameUrl(url) : PDFCRAFT_PATH;
     if (url) openedPdfUrl = url;
-    const nextFrame = element("iframe", "hydria-pdf-frame");
-    nextFrame.title = "PdfCraft — éditeur PDF";
-    nextFrame.src = next;
-    nextFrame.loading = "eager";
-    nextFrame.setAttribute("allow", "fullscreen; clipboard-read; clipboard-write");
-    nextFrame.setAttribute("sandbox", "allow-scripts allow-same-origin allow-downloads allow-popups");
-    nextFrame.allowFullscreen = true;
-    viewport.replaceChildren(nextFrame);
-    frame = nextFrame;
+    const frame = element("iframe", "hydria-pdf-frame");
+    frame.title = "PdfCraft — éditeur PDF";
+    frame.src = next;
+    frame.loading = "eager";
+    frame.setAttribute("allow", "fullscreen; clipboard-read; clipboard-write");
+    frame.setAttribute("sandbox", "allow-scripts allow-same-origin allow-downloads allow-popups");
+    frame.allowFullscreen = true;
+    viewport.replaceChildren(frame);
   }
 
-  documentSelect.addEventListener("change", () => {
-    openDocument.disabled = !ready || busy || !documentSelect.value;
-  });
+  async function openStoredPdf(id) {
+    if (!ready) {
+      showError("PdfCraft doit être installé pour ouvrir ce PDF. Vous pouvez encore le télécharger.");
+      return;
+    }
+    if (busy) return;
+    setBusy(true);
+    clearError();
+    status.textContent = "Ouverture du PDF…";
+    try {
+      const pdf = await readDrivePdf(id);
+      openPdfFrame(URL.createObjectURL(pdf));
+      status.textContent = "PDF Drive ouvert";
+    } catch (err) {
+      showError(String(err?.message || "Impossible d'ouvrir ce PDF."));
+      status.textContent = "Erreur d'ouverture";
+    } finally { setBusy(false); }
+  }
+  function drawSaved() {
+    savedList.replaceChildren();
+    if (!latestSaved.length) {
+      savedList.append(element("p", "hydria-pdf-saved-empty", "Aucun PDF sauvegardé dans Drive."));
+      return;
+    }
+    for (const pdf of latestSaved) {
+      const item = element("div", "hydria-pdf-saved-item");
+      const label = element("span", "hydria-pdf-saved-copy");
+      label.append(element("strong", "", pdf.filename || "Document.pdf"));
+      label.append(element("small", "", Math.max(1, Math.round(Number(pdf.size || 0) / 1024)) + " Ko"));
+      const open = element("button", "hydria-pdf-button", "Ouvrir");
+      open.type = "button";
+      open.disabled = !ready;
+      open.addEventListener("click", () => openStoredPdf(pdf.id));
+      const download = element("a", "hydria-pdf-button", "Télécharger");
+      download.href = storedPdfUrl(pdf.id);
+      download.setAttribute("download", pdf.filename || "document.pdf");
+      item.append(label, open, download);
+      savedList.append(item);
+    }
+  }
+  async function loadSaved() {
+    savedList.replaceChildren(element("p", "hydria-pdf-saved-empty", "Chargement des PDF…"));
+    try {
+      const items = await listDrivePdfs();
+      if (!root.isConnected) return;
+      latestSaved = items;
+      drawSaved();
+    } catch (err) {
+      if (!root.isConnected) return;
+      savedList.replaceChildren(element("p", "hydria-pdf-saved-empty",
+        "Impossible de charger Drive : " + String(err?.message || err)));
+    }
+  }
+  async function exportDocumentToBlob(id) {
+    if (!entries.some((item) => String(item.id) === id)) throw Error("Document introuvable.");
+    const pdf = await onExportDocument(id);
+    if (!(pdf instanceof Blob) || pdf.type !== "application/pdf" || !pdf.size) {
+      throw Error("Le générateur n'a pas renvoyé de PDF valide.");
+    }
+    return pdf;
+  }
+  async function documentAction(save = false) {
+    const id = documentSelect.value;
+    if (!id || busy || (save === false && !ready)) return;
+    setBusy(true);
+    clearError();
+    status.textContent = save ? "Enregistrement dans Drive…" : "Export du document…";
+    try {
+      const pdf = await exportDocumentToBlob(id);
+      if (save) {
+        const item = entries.find((entry) => String(entry.id) === id);
+        await savePdfToDrive(pdf, filenameFromTitle(item?.title));
+        await loadSaved();
+        status.textContent = "PDF enregistré dans Drive";
+      } else {
+        openPdfFrame(URL.createObjectURL(pdf));
+        status.textContent = "Document ouvert";
+      }
+    } catch (err) {
+      showError(String(err?.message || "Impossible de traiter ce document PDF."));
+      status.textContent = "Échec de l'opération";
+    } finally { setBusy(false); }
+  }
+
+  documentSelect.addEventListener("change", () => setBusy(false));
+  openDocument.addEventListener("click", () => documentAction(false));
+  saveDocument.addEventListener("click", () => documentAction(true));
   reset.addEventListener("click", () => {
     clearError();
     documentSelect.value = "";
-    openDocument.disabled = true;
+    setBusy(false);
     openPdfFrame();
   });
-  openDocument.addEventListener("click", async () => {
-    const id = documentSelect.value;
-    if (!ready || busy || !id || !entries.some((item) => String(item.id) === id)) return;
-    busy = true;
-    openDocument.disabled = true;
-    reset.disabled = true;
+  refresh.addEventListener("click", () => loadSaved());
+  fileInput.addEventListener("change", async () => {
+    const file = fileInput.files?.[0];
+    if (!file || busy) return;
+    setBusy(true);
     clearError();
-    status.textContent = "Export du document…";
+    status.textContent = "Import du PDF dans Drive…";
     try {
-      const pdf = await onExportDocument(id);
-      if (!(pdf instanceof Blob) || pdf.type !== "application/pdf" || !pdf.size) {
-        throw Error("Le générateur n'a pas renvoyé de PDF valide.");
-      }
-      const url = URL.createObjectURL(pdf);
-      openPdfFrame(url);
-      status.textContent = "Document ouvert";
+      await savePdfToDrive(file, file.name);
+      await loadSaved();
+      status.textContent = "PDF importé dans Drive";
     } catch (err) {
-      showError(String(err?.message || "Impossible d'ouvrir ce document PDF."));
-      status.textContent = "Échec de l'ouverture";
+      showError(String(err?.message || "Impossible d'importer ce fichier PDF."));
+      status.textContent = "Échec de l'import";
     } finally {
-      busy = false;
-      reset.disabled = !ready;
-      openDocument.disabled = !ready || !documentSelect.value;
+      fileInput.value = "";
+      setBusy(false);
     }
   });
 
-  root.append(heading, toolbar, hint, viewport, error);
+  root.append(heading, toolbar, importWrap, hint, saved, viewport, error);
   container.append(root);
+  setBusy(false);
+  loadSaved();
 
-  // A missing optional runtime never silently launches an external website.
   fetch(PDFCRAFT_PATH, { method: "HEAD", cache: "no-store", credentials: "same-origin" })
-    .then((response) => {
+    .then(async (response) => {
       if (!root.isConnected) return;
       if (!response.ok) throw Error("PDFCRAFT_NOT_INSTALLED");
       ready = true;
       status.textContent = "PdfCraft disponible";
-      reset.disabled = false;
-      openDocument.disabled = !documentSelect.value;
+      setBusy(false);
+      drawSaved();
       openPdfFrame();
+      if (autoAssetId) await openStoredPdf(autoAssetId);
     })
-    .catch((err) => {
+    .catch(() => {
       if (!root.isConnected) return;
       ready = false;
       status.textContent = "Installation nécessaire";
       loading.textContent = "Le moteur PdfCraft n'est pas installé sur cette instance.";
-      showError("Un administrateur doit installer la version vérifiée de PdfCraft avec : " +
-        "node backend/scripts/installPdfCraft.mjs puis redémarrer / recharger Hydria OS.");
+      showError("Installer PdfCraft : node backend/scripts/installPdfCraft.mjs. " +
+        "Les fichiers PDF restent accessibles en téléchargement dans Drive.");
+      setBusy(false);
+      drawSaved();
     });
 }

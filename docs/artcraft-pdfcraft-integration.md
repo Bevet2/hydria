@@ -9,11 +9,12 @@
 - Un workspace natif Hydria `/workspace/pdf` dans la navigation de l'OS.
 - Affichage embarqué de **la véritable application PdfCraft WebAssembly**, une fois ses fichiers installés localement.
 - Depuis la liste des documents Hydria, export PDF via le **générateur existant du backend** et ouverture dans PdfCraft grâce au paramètre `?file=<URL>` reconnu par l'upstream.
+- **Exporter dans Drive** pour conserver un PDF produit depuis Docs ; import explicite d'un PDF local ou téléchargé depuis PdfCraft, avec liste, téléchargement et réouverture des PDF stockés.
 - Ouverture de PDF locaux, édition, téléchargement : fonctionnalités natives de PdfCraft, selon la maturité de sa version alpha.
 - État explicite **« installation nécessaire »** si le moteur n'est pas déployé ; aucun renvoi silencieux vers un site tiers.
 - Aucun CDN ni service IA externe obligatoire.
 
-**Limites :** les modifications faites dans PdfCraft se sauvegardent via son téléchargement navigateur ; il n'y a PAS ENCORE de sauvegarde directement dans le document Hydria d'origine, ni de synchronisation avec Drive. Le PDF créé depuis Docs est une **copie exportée** de l'état persisté et non une édition directe de sa source DOCX/Markdown.
+**Limites :** PdfCraft enregistre ses modifications via un **téléchargement navigateur** ; l’utilisateur doit ensuite utiliser **Importer un PDF dans Hydria Drive** pour conserver ce résultat. Il n’y a **pas de write-back automatique de l’iframe** ni de synchronisation vers la source Docs. Chaque import est une nouvelle copie PDF immutable, pas une révision du fichier DOCX/Markdown.
 
 ## Installation (instance privée)
 
@@ -64,6 +65,21 @@ La validation CI contrôle la route, le format du transfert `blob:`, le SHA fig�
 ## Prochain incrément
 
 1. Isoler PdfCraft sur une **origine séparée** avec un protocole sûr et un endpoint de fichiers temporaire authentifié.
-2. Recevoir la sauvegarde dans **Hydria Drive** comme nouvel objet PDF, en gardant l'historique et les validations serveur.
+2. Ajouter un protocole de sauvegarde automatique de PdfCraft vers **Hydria Drive** avec des ACL serveur et des révisions ; aujourd’hui seule une importation manuelle sûre est disponible.
 3. Gérer explicitement les changements non enregistrés, conflits de version et reprise après crash.
 4. Brancher les commandes autorisées à Hydria Core, idéalement via un service contrôlé plutôt qu'un port MCP accessible depuis le navigateur.
+
+## Import et persistance Drive (PR #76)
+
+- **API privée :** `POST /api/drive/pdf-assets` (formulaire `multipart/form-data`, champ `file`, jusqu'à **20 Mio**), `GET /api/drive/pdf-assets` (liste bornée à 500), `GET /api/drive/pdf-assets/:id/download` (téléchargement avec contrôle SHA-256).
+- Stockage des octets dans `HYDRIA_OS_DATA_DIR/drive-pdf-assets/` et des métadonnées dans la base SQLite principale. Les sauvegardes du répertoire de données doivent inclure **à la fois la base et ces fichiers** ; restauration de la seule SQLite insuffisante.
+- PDF Studio propose **Exporter dans Drive** pour un document Docs, **Importer un PDF dans Hydria Drive** pour un PDF local/téléchargé, puis **Ouvrir** et **Télécharger** pour les PDF conservés. Drive affiche également les PDF enregistrés et ouvre PDF Studio par lien dédié.
+- Le backend vérifie la signature et le marqueur de fin PDF, sans prétendre valider toute la structure ou purifier le contenu PDF. **Ne pas considérer un PDF importé comme fiable.**
+- **Périmètre privé uniquement :** l'authentification Basic partagée de l'OS protège le déploiement privé, mais il n'y a **ni propriétaire de fichier, ni ACL multi-tenant, ni suppression/versioning**. Ne pas rendre cette API publique avant une couche d'identité/autorisation serveur et un quota global.
+
+### Tests
+
+```bash
+node backend/scripts/osDrivePdfAssetsGate.mjs  # serveur local en marche
+node backend/scripts/osPdfCraftBrowserGate.mjs # serveur + Chromium, fixture PdfCraft
+```
