@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
 import zlib from "node:zlib";
 import mammoth from "mammoth";
-import pdfParse from "pdf-parse";
+import { parsePdfBytes as pdfParse } from "../../../utils/pdfReader.js";
 import Tesseract from "tesseract.js";
 import XLSX from "xlsx";
 import config from "../../../config/hydria.config.js";

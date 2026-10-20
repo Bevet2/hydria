@@ -43,6 +43,8 @@ jobs:
         run: node backend/scripts/osActionConsentGate.mjs
       - name: Dependency security
         run: npm audit --prefix backend --audit-level=high
+      - name: PDF reader offset and attachment regression
+        run: node backend/scripts/osPdfReaderGate.mjs
       - name: Validate PdfCraft integration contract and pinned installer
         run: node backend/scripts/osPdfCraftGate.mjs
       - name: Legacy PDF revision migration
@@ -324,6 +326,7 @@ jobs:
         run: node backend/scripts/osDriveBrowserGate.mjs
       - name: Real PdfCraft WASM edit, save and reopen
         run: |
+          sudo apt-get install -y qpdf poppler-utils
           node backend/scripts/installPdfCraft.mjs
           node backend/scripts/osPdfCraftRealBrowserGate.mjs
           rm -r frontend/vendor/pdfcraft
@@ -332,10 +335,36 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: hydria-pdf-save-real-wasm
-          path: /tmp/hydria-pdf-save/*.png
+          path: /tmp/hydria-pdf-save/
           retention-days: 7
           if-no-files-found: ignore
       - name: PDF Studio missing-runtime fallback and PDF Blob handoff
         run: node backend/scripts/osPdfCraftBrowserGate.mjs
       - name: PhotoCraft and FigCraft browser and image Drive acceptance
         run: node backend/scripts/osArtCraftBrowserGate.mjs
+
+  pdf-readback:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci --prefix backend --no-audit --no-fund
+      - run: npx --prefix backend playwright install --with-deps chromium
+      - run: sudo apt-get install -y qpdf poppler-utils
+      - run: node backend/scripts/installPdfCraft.mjs
+      - name: PDF reader offset and attachment regression
+        run: node backend/scripts/osPdfReaderGate.mjs
+      - name: Three authentic WASM saves and independent PDF readers
+        run: node backend/scripts/runLocalValidation.mjs osPdfCraftRealBrowserGate osPdfCraftRealBrowserGate osPdfCraftRealBrowserGate
+      - name: Retain synthetic PDF readback evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hydria-pdf-readback-evidence
+          path: /tmp/hydria-pdf-save/
+          retention-days: 7
+          if-no-files-found: ignore
