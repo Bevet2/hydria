@@ -30,14 +30,35 @@ try {
   const link=thumbnailRow.getByRole("link",{name:"Télécharger"});
   assert.match(await link.getAttribute("href"),/\/api\/drive\/image-assets\/.*\/download/);
 
+  // Upload an edited image as revision 2 without destroying revision 1.
+  const revisedPng = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkKD/DwMDAxMDAwMDAAAAOggFH5ocWlQAAAABJRU5ErkJggg==",
+    "base64"
+  );
+  await thumbnailRow.locator(".hydria-artcraft-version-input").setInputFiles({
+    name:"artcraft-ci-photo.png", mimeType:"image/png", buffer:revisedPng
+  });
+  const updatedRow = page.locator(".hydria-artcraft-image-item").filter({hasText:"artcraft-ci-photo.png"});
+  await updatedRow.getByText("Version 2").waitFor({timeout:16000});
+  await updatedRow.getByRole("button",{name:"Historique"}).click();
+  const versionRows = updatedRow.locator(".hydria-artcraft-history-row");
+  await versionRows.first().waitFor({timeout:16000});
+  assert.equal(await versionRows.count(),2);
+  const oldLink = versionRows.filter({hasText:"Version 1"}).getByRole("link",{name:"Télécharger cette version"});
+  assert.ok((await oldLink.getAttribute("href")).endsWith("/versions/1/download"));
+
+
   await page.goto(base+"/workspace/drive",{waitUntil:"domcontentloaded"});
-  await page.locator(".hydria-drive-image-row").filter({hasText:"artcraft-ci-photo.png"}).waitFor({timeout:16000});
+  const driveRow = page.locator(".hydria-drive-image-row").filter({hasText:"artcraft-ci-photo.png"});
+  await driveRow.waitFor({timeout:16000});
   await page.getByRole("combobox",{name:"Filtrer les types"}).selectOption("image");
-  const imageRows=page.locator(".hydria-drive-image-row");
-  assert.ok(await imageRows.count()>0);
-  await page.locator(".hydria-drive-image-row").filter({hasText:"artcraft-ci-photo.png"})
-    .getByRole("link",{name:"Photo Studio"}).click();
-  await page.waitForURL(/workspace\/photo/);
+  assert.ok(await page.locator(".hydria-drive-image-row").count()>0);
+  await driveRow.getByText("Version 2").waitFor({timeout:16000});
+  await driveRow.getByRole("link",{name:"Photo Studio"}).click();
+  await page.waitForURL(url => url.pathname === "/workspace/photo" && url.searchParams.has("imageId"));
+  const focused = page.locator(".hydria-artcraft-target-image").filter({hasText:"artcraft-ci-photo.png"});
+  await focused.waitFor({timeout:16000});
+  await focused.locator(".hydria-artcraft-history-row").first().waitFor({timeout:16000});
 
   // Standalone fixtures verify Hydria mounting without substituting a mock for
   // the real production WASM app. Real binaries are installed separately.
@@ -60,7 +81,7 @@ try {
   assert.equal(await page.getByLabel("Importer une image PhotoCraft dans Drive").count(),0);
   await page.getByText("ne raccorde pas encore les dialogues").waitFor();
   assert.deepEqual(errors,[]);
-  console.log("Photo/Design browser gate: routes, missing runtimes, image Drive roundtrip, self-hosted iframe mounts.");
+  console.log("Photo/Design browser gate: routes, versioned image upload and history, deep links, missing runtimes, iframe mounts.");
 } finally {
   await browser.close();
   if (created) for (const dir of paths) await rm(dir,{recursive:true,force:true});
