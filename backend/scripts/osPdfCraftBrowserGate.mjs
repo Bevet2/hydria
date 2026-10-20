@@ -75,7 +75,7 @@ try {
   const driveRow = page.locator(".hydria-drive-pdf-row").filter({ hasText: "edition-pdfcraft.pdf" });
   await driveRow.waitFor({ timeout: 15000 });
   await driveRow.getByRole("link", { name: "Ouvrir dans PDF Studio" }).click();
-  await page.waitForURL(/\\/workspace\\/pdf\\?assetId=/, { timeout: 15000 });
+  await page.waitForURL(url => url.pathname === "/workspace/pdf" && url.searchParams.has("assetId"), { timeout: 15000 });
   await page.frameLocator(".hydria-pdf-frame").getByText("PDF payload received").waitFor({ timeout: 15000 });
   assert.deepEqual(errors, []);
   console.log("PDF Studio browser acceptance: fallback, WASM handoff, Drive upload/list and stored-PDF reopen.");
