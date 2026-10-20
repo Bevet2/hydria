@@ -52,6 +52,55 @@ const PRESENTATION_SLIDE_META_PATTERN = /^<!--\s*hydria-slide:\s*(\{[\s\S]*\})\s
 const PRESENTATION_SLIDE_WIDTH = 13.333;
 const PRESENTATION_SLIDE_HEIGHT = 7.5;
 
+// Private-owner PDF storage. Never trust the file name for a filesystem path.
+// The acting user ID follows the existing OS API contract; a verified session
+// must replace it before this endpoint is exposed in multi-user deployments.
+router.post("/pdf-binaries", (req, res, next) => {
+  documentImportUpload.single("file")(req, res, (uploadError) => {
+    try {
+      if (uploadError) {
+        if (uploadError instanceof multer.MulterError) {
+          throw new AppError(uploadError.message, uploadError.code === "LIMIT_FILE_SIZE" ? 413 : 400);
+        }
+        throw uploadError;
+      }
+      if (!req.file?.buffer) throw new AppError("PDF file is required", 400);
+      if (typeof req.body?.userId !== "string" || !/^[1-9][0-9]{0,12}$/.test(req.body.userId)) {
+        throw new AppError("Valid user ID is required", 403);
+      }
+      const updating = Boolean(req.body?.workObjectId);
+      if (updating && !/^[0-9a-f-]{36}$/i.test(req.body.workObjectId)) {
+        throw new AppError("Invalid PDF object ID", 400);
+      }
+      if (updating && !/^[1-9][0-9]{0,9}$/.test(String(req.body.expectedRevision || ""))) {
+        throw new AppError("Expected revision required", 400);
+      }
+      const workObject = workObjectService.savePdfBinary({
+        buffer: req.file.buffer,
+        actorUserId: Number(req.body.userId),
+        title: req.body.title || req.file.originalname.replace(/\.pdf$/i, ""),
+        workObjectId: req.body.workObjectId || "",
+        expectedRevision: updating ? Number(req.body.expectedRevision) : null,
+        conversationId: req.body.conversationId || null
+      });
+      res.status(updating ? 200 : 201).json({ success: true, workObject });
+    } catch (error) { next(error); }
+  });
+});
+
+router.get("/:workObjectId/pdf-content", (req, res, next) => {
+  try {
+    const { filePath } = workObjectService.readPdfBinary({
+      workObjectId: req.params.workObjectId, actorUserId: req.query.userId
+    });
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", "inline; filename=\"document.pdf\"");
+    res.setHeader("Cache-Control", "private, no-store");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.sendFile(filePath);
+  } catch (error) { next(error); }
+});
+
 router.get("/", (req, res) => {
   const userId = req.query.userId ? Number(req.query.userId) : null;
   const conversationId = req.query.conversationId ? Number(req.query.conversationId) : null;
