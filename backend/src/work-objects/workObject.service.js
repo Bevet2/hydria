@@ -2193,8 +2193,18 @@ export class WorkObjectService {
           previousRevision: Number(record.revision || 1),
           pdfSnapshotPath: ".hydria-pdf-versions/" + snapshotName,
           sizeBytes: buffer.length
-        }].slice(-25)
+        }].slice(-10)
       }));
+      // Prune obsolete binary snapshots after the metadata commit.
+      // Failed cleanup must not rollback an already committed revision.
+      try {
+        const keep = new Set((updated.history || []).map((item) => item.pdfSnapshotPath).filter(Boolean));
+        for (const name of fs.readdirSync(historyDir)) {
+          if (!/^v[0-9]+-[0-9a-f-]{36}\\.pdf$/i.test(name)) continue;
+          const relative = ".hydria-pdf-versions/" + name;
+          if (!keep.has(relative)) fs.unlinkSync(safeResolveWithin(historyDir, name));
+        }
+      } catch { /* disk cleanup retried on the next successful save */ }
       return compactWorkObject(updated);
     } catch (error) {
       try { fs.copyFileSync(snapshot, original); } catch { /* keep recovery snapshot */ }
