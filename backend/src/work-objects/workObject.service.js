@@ -2101,6 +2101,124 @@ export class WorkObjectService {
     };
   }
 
+  /**
+   * Persist a real PDF binary as a first-class Hydria work object.
+   * The PDF is never converted to UTF-8 or silently overwritten.
+   * This remains within the private-owner authentication model: user IDs are
+   * not a substitute for verified identity or cross-tenant authorization.
+   */
+  savePdfBinary({
+    buffer, actorUserId, title = "", workObjectId = "",
+    conversationId = null, expectedRevision = null
+  } = {}) {
+    const owner = Number(actorUserId);
+    if (!Number.isSafeInteger(owner) || owner <= 0) {
+      throw new AppError("A valid user is required", 403);
+    }
+    if (!Buffer.isBuffer(buffer) || buffer.length < 12 || buffer.length > 25 * 1024 * 1024 ||
+        buffer.subarray(0, 5).toString("ascii") !== "%PDF-" ||
+        buffer.lastIndexOf(Buffer.from("%%EOF")) < Math.max(0, buffer.length - 4096)) {
+      throw new AppError("Invalid PDF file or maximum 25 MB exceeded", 400);
+    }
+    const now = new Date().toISOString();
+    if (!workObjectId) {
+      const safeTitle = String(title || "Document PDF").trim().slice(0, 160) || "Document PDF";
+      const id = this.store.createId();
+      const workspacePath = path.join(this.rootDir, `${safeWorkObjectSlug(safeTitle)}-${id.slice(0, 8)}`);
+      const dest = safeResolveWithin(workspacePath, "document.pdf");
+      fs.mkdirSync(workspacePath, { recursive: false });
+      try {
+        fs.writeFileSync(dest, buffer, { flag: "wx" });
+        const entry = normalizeWorkObjectEntry({
+          id: "document.pdf", path: "document.pdf", label: safeTitle + ".pdf",
+          kind: "pdf", editable: false, primary: true,
+          contentType: "application/pdf", sizeBytes: buffer.length,
+          lastModifiedAt: now
+        });
+        const record = this.store.save({
+          id, userId: owner, conversationId: Number(conversationId || 0),
+          title: safeTitle, kind: "pdf", status: "ready",
+          workspacePath, sourcePath: dest, sourceFormat: "pdf",
+          entries: [entry], activeEntryPath: "document.pdf", revision: 1,
+          metadata: {
+            workspaceFamilyId: "pdf_editor",
+            sharing: { ownerUserId: owner, visibility: "private",
+              defaultRole: "viewer", shareToken: "", shares: [] }
+          },
+          history: [{ id: randomUUID(), type: "pdf_create", at: now,
+            actor: `user:${owner}`, sizeBytes: buffer.length }],
+          summary: "PDF conservé dans Hydria Drive"
+        });
+        return compactWorkObject(record);
+      } catch (error) {
+        fs.rmSync(workspacePath, { recursive: true, force: true });
+        throw error;
+      }
+    }
+
+    const existing = this.store.get(String(workObjectId));
+    if (!existing) throw new AppError("PDF not found", 404);
+    this.assertAccess(existing, { actorUserId: owner }, "editor");
+    if (existing.kind !== "pdf") throw new AppError("The target is not a PDF", 409);
+    if (existing.status === "trashed") throw new AppError("Restore the PDF before saving", 409);
+    if (!Number.isSafeInteger(Number(expectedRevision)) ||
+        Number(expectedRevision) !== Number(existing.revision || 1)) {
+      throw new AppError("PDF was changed: reload before saving", 409);
+    }
+    const root = path.resolve(existing.workspacePath);
+    const original = safeResolveWithin(root, "document.pdf");
+    const current = fs.lstatSync(original);
+    if (!current.isFile() || current.isSymbolicLink()) {
+      throw new AppError("Unsafe PDF source", 400);
+    }
+    const historyDir = safeResolveWithin(root, ".hydria-pdf-versions");
+    if (fs.existsSync(historyDir) && (fs.lstatSync(historyDir).isSymbolicLink() ||
+      !fs.lstatSync(historyDir).isDirectory())) throw new AppError("Unsafe PDF history", 400);
+    fs.mkdirSync(historyDir, { recursive: true });
+    const snapshotName = `v${existing.revision}-${randomUUID()}.pdf`;
+    const snapshot = safeResolveWithin(historyDir, snapshotName);
+    const staged = safeResolveWithin(root, `.pdf-save-${randomUUID()}.tmp`);
+    const historyId = randomUUID();
+    fs.copyFileSync(original, snapshot, fs.constants.COPYFILE_EXCL);
+    try {
+      fs.writeFileSync(staged, buffer, { flag: "wx" });
+      fs.renameSync(staged, original);
+      const updated = this.store.update(existing.id, (record) => ({
+        ...record, status: "updated", revision: Number(record.revision || 1) + 1,
+        entries: record.entries.map((entry) => entry.path === "document.pdf"
+          ? normalizeWorkObjectEntry({ ...entry, sizeBytes: buffer.length, lastModifiedAt: now })
+          : entry),
+        history: [...(record.history || []), {
+          id: historyId, type: "pdf_update", at: now, actor: `user:${owner}`,
+          previousRevision: Number(record.revision || 1),
+          pdfSnapshotPath: ".hydria-pdf-versions/" + snapshotName,
+          sizeBytes: buffer.length
+        }].slice(-25)
+      }));
+      return compactWorkObject(updated);
+    } catch (error) {
+      try { fs.copyFileSync(snapshot, original); } catch { /* keep recovery snapshot */ }
+      throw error;
+    } finally {
+      if (fs.existsSync(staged)) fs.unlinkSync(staged);
+    }
+  }
+
+  readPdfBinary({ workObjectId = "", actorUserId = null } = {}) {
+    const owner = Number(actorUserId);
+    if (!Number.isSafeInteger(owner) || owner <= 0) {
+      throw new AppError("A valid user is required", 403);
+    }
+    const record = this.store.get(String(workObjectId));
+    if (!record || record.kind !== "pdf") throw new AppError("PDF not found", 404);
+    this.assertAccess(record, { actorUserId: owner }, "viewer");
+    if (record.status === "trashed") throw new AppError("PDF is in the trash", 404);
+    const filePath = safeResolveWithin(path.resolve(record.workspacePath), "document.pdf");
+    const stat = fs.lstatSync(filePath);
+    if (!stat.isFile() || stat.isSymbolicLink()) throw new AppError("Unsafe PDF", 400);
+    return { record: compactWorkObject(record), filePath };
+  }
+
   createFile({
     workObjectId = "",
     entryPath = "",
