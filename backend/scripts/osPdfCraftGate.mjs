@@ -9,10 +9,10 @@ import { parseWorkspacePagePath, workspacePageFromSlug } from "../../frontend/co
 
 assert.equal(PDFCRAFT_VERSION, "0.9.0");
 assert.match(PDFCRAFT_SHA256, /^[a-f0-9]{64}$/);
-assert.equal(pdfCraftFrameUrl(), "/vendor/pdfcraft/index.html");
+assert.equal(pdfCraftFrameUrl(), "/vendor/pdfcraft/index.html?host=parent");
 assert.equal(
   pdfCraftFrameUrl("blob:https://hydria.example/abc-123"),
-  "/vendor/pdfcraft/index.html?file=blob%3Ahttps%3A%2F%2Fhydria.example%2Fabc-123"
+  "/vendor/pdfcraft/index.html?host=parent&file=blob%3Ahttps%3A%2F%2Fhydria.example%2Fabc-123"
 );
 assert.throws(() => pdfCraftFrameUrl("https://evil.example/document.pdf"));
 assert.equal(workspacePageFromSlug("pdf")?.kind, "virtual");

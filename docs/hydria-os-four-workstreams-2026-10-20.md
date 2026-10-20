@@ -1,7 +1,7 @@
 # Hydria OS — programme produit en quatre chantiers
 
 **Date :** 20 octobre 2026  
-**Statut :** feuille de route actualisée après la fusion de #68 ; livraisons partielles distinguées des objectifs. Ce document ne déclare aucune parité avec les suites payantes.  
+**Statut :** feuille de route actualisée après les fusions #68, #82 et #83 ; livraisons partielles distinguées des objectifs. Ce document ne déclare aucune parité avec les suites payantes.  
 **Périmètre :** `Bevet2/hydria` / Hydria OS. Hydria Core fournit le raisonnement et les actions contrôlées ; le CRM reste un service séparé.
 
 ## Objectif
@@ -21,12 +21,14 @@ Les quatre chantiers partagent les mêmes fondations et un seul backlog de capac
 
 ## État vérifié au 20/10/2026
 
-Référence de départ : `main` à `3ff76d55a4693f372685471abeccd90d7e499d47`. Les évolutions suivantes sont déjà fusionnées :
+Référence de départ : `main` à `6f969cc3b15e267eb075f903817a527e429ca4fd`. Les évolutions suivantes sont déjà fusionnées :
 
 - **Audit / fiabilité (#68).** Correctifs de sessions et MFA CRM, stockage atomique et récupération, conflits de révision, consentements d'actions et filtrage des secrets. Les cinq contrôles CI étaient verts avant fusion. Les sessions CRM ne constituent pas des comptes et ACL multi-utilisateurs pour tout l'OS.
-- **Drive (#73, #76, #80).** Navigation des objets, assets PDF et images persistants ; historique et protection contre les conflits pour les images. Cela ne clôt pas les objectifs OneDrive/SharePoint : partage, ACL serveur, espaces d'équipe, quotas et restauration restent à valider ou à réaliser.
+- **Drive (#73, #76, #80, #82).** Navigation des objets, assets PDF et images persistants ; historique immuable et protection contre les conflits pour les images et les PDF. Cela ne clôt pas les objectifs OneDrive/SharePoint : partage, ACL serveur, espaces d'équipe, quotas et restauration restent à valider ou à réaliser.
 - **ArtCraft (#74, #77, #79).** Wrappers PDF Studio, Photo Studio et Design Studio, installateurs optionnels à versions et empreintes épinglées, vérification des bundles officiels PhotoCraft/FigCraft en CI. Les exécutables WASM ne sont pas embarqués dans Git.
-- **Limites ArtCraft.** PDF/Photo : export depuis l'éditeur puis réimport dans Drive ; pas de sauvegarde directe complète. FigCraft : pas encore de persistance native des designs dans Drive. Un démarrage réussi ou un test avec fixture ne prouve pas un cycle complet d'édition de documents réels.
+- **PDF Studio (#82).** Le pont officiel PdfCraft permet maintenant de préparer un export édité puis de l'enregistrer dans Drive comme copie ou révision explicite. Le vrai WASM est testé : ouverture, rotation de page, Ctrl+S, sauvegarde au clavier, vérification du texte et de la rotation, conservation de l'original, rechargement/réouverture. L'installateur acceptait auparavant une limite trop petite pour le binaire officiel ; ce blocage est corrigé. Les quatre contrôles frontend/backend/browser/Docker étaient verts avant fusion.
+- **CRM (#83).** La première connexion simultanée utilise une création/mise à jour atomique de l'identité. La CI vérifie huit sessions concurrentes sur un seul compte MEMBER, ainsi que les parcours CRM desktop/mobile. Les cinq contrôles du dernier commit étaient verts avant fusion.
+- **Limites ArtCraft.** PDF : validation explicite dans Hydria après Ctrl+S, exports en attente conservés uniquement en mémoire du navigateur, aucun retour automatique vers le DOCX/Markdown source et corpus de fidélité encore limité. Photo : export puis réimport manuel ; le pont direct reste à réaliser. FigCraft : pas encore de persistance native des designs dans Drive. Ces résultats ne déclarent aucune parité avec les suites payantes.
 - **Distribution.** L'OS reste une instance privée mono-propriétaire. Le déploiement VPS, les sauvegardes/restaurations et les parcours réels doivent être vérifiés avant une annonce de disponibilité publique.
 
 Voir aussi `docs/audit-remediation-2026-10-20.md`, `docs/artcraft-pdfcraft-integration.md` et `docs/artcraft-photo-fig-integration.md`. Ces états sont un instantané, à mettre à jour avec les preuves de chaque livraison.
@@ -45,7 +47,7 @@ Voir aussi `docs/audit-remediation-2026-10-20.md`, `docs/artcraft-pdfcraft-integ
 |---|---|---|
 | **Shell / projets / fichiers** | Explorer de fichiers cohérent, dossiers déplacés/renommés, recherche globale, fenêtres/onglets, raccourcis, thèmes, permissions | E2E navigation, renommage, déplacement, recherches et reprise après reload |
 | **Drive** | Révisions cohérentes des objets et binaires, corbeille, partage, permissions serveur, quotas et restauration | Import → édition → sauvegarde → réouverture ; conflits et restauration testés par format |
-| **PDF Studio** | Finaliser le pont PdfCraft/Drive, préserver les originaux, enregistrer et rouvrir une révision éditée | PDF réel modifié puis relu ; contenu et nombre de pages vérifiés |
+| **PDF Studio** | Pont Drive et révisions livrés (#82) ; élargir le corpus PDF, l'ergonomie métier et la récupération après crash | Texte, rotation et original vérifiés ; compléter formulaires/annotations/OCR et reprise après interruption |
 | **Photo Studio** | Finaliser import et sauvegarde directe PhotoCraft/Drive, historique, erreurs et reprise | Image réelle éditée puis rouverte, dimensions et révisions vérifiées |
 | **Design Studio** | Persistance native FigCraft/Drive, reprise des designs et export | Design réel sauvegardé, fermeture puis réouverture sans perte |
 | **Docs** | Édition WYSIWYG, mise en page/pagination, styles, tableaux complexes, images, commentaires, historique et exports fiables | Corpus DOCX/PDF ; round-trip sans pertes silencieuses, clavier et collaboration |
@@ -77,7 +79,7 @@ Voir aussi `docs/audit-remediation-2026-10-20.md`, `docs/artcraft-pdfcraft-integ
 | `storytold/vectorcraft` | Hydria Vector | Nouvel éditeur vectoriel |
 | `storytold/filmcraft` | Hydria Video | Nouvel éditeur vidéo ; mesurer RAM, codecs, export |
 | `storytold/lightcraft` | Hydria Photo Library | RAW, catalogage et retouche non destructive |
-| `storytold/pdfcraft` | Hydria PDF | Intégration partielle existante ; finaliser la sauvegarde puis évaluer les outils PDF |
+| `storytold/pdfcraft` | Hydria PDF | Pont officiel Drive et révisions livrés ; étendre le corpus et la récupération |
 | `storytold/effectcraft` | Hydria Motion | Compositing/effets ; intégration aux médias |
 | `storytold/designcraft` | Hydria Publishing | Mise en page éditoriale |
 | `storytold/figcraft` | Hydria Design | Intégration partielle existante ; persistance native avant extension UI/UX |
@@ -97,7 +99,7 @@ Voir aussi `docs/audit-remediation-2026-10-20.md`, `docs/artcraft-pdfcraft-integ
 6. Déployer derrière un feature flag ; vérifier fermeture/reprise, stockage, export, cohérence du thème et erreurs.
 7. Garder notices et attribution requises ; utiliser une identité **Hydria**, sans reprendre les marques/logos tiers dans un fork.
 
-**Prochaine étape des intégrations partielles existantes** : finaliser les parcours réels ouvrir → éditer → sauvegarder → fermer → rouvrir pour PdfCraft, PhotoCraft et FigCraft, en commençant par la persistance et les conflits. Ne pas recréer leurs wrappers déjà fusionnés. Ensuite seulement, étendre par vagues aux autres moteurs, dont FilmCraft après audit mémoire/codec. Les trois équivalents Word/Excel/PowerPoint sont **des études de remplacement ou de partage de moteurs**, pas des nouveaux onglets par défaut.
+**Prochaine étape des intégrations partielles existantes** : étendre la validation de PdfCraft après le parcours réel livré dans #82 ; réaliser les ponts d'ouverture/sauvegarde PhotoCraft et FigCraft puis vérifier leurs parcours complets. Les sources des versions épinglées déclarent les téléchargements navigateur pour PhotoCraft et l'absence de dialogues de fichiers natifs pour FigCraft : la persistance demande un adaptateur vérifié, pas une simple option d'iframe. Ne pas recréer les wrappers déjà fusionnés. Ensuite, étendre par vagues aux autres moteurs, dont FilmCraft après audit mémoire/codec. Les trois équivalents Word/Excel/PowerPoint sont **des études de remplacement ou de partage de moteurs**, pas des nouveaux onglets par défaut.
 
 ## Chantier 3 — compléter Microsoft 365 sans doublons
 
@@ -127,8 +129,8 @@ Ce chantier produit d'abord une sélection justifiée. Une alternative à une ma
 |---|---|---|---|
 | Cartographie / SIG | Candidat à un workspace distinct si un usage est confirmé ; aucun parcours SIG identifié dans le frontend et les docs inspectés | Importer un jeu géographique, gérer des couches, filtrer, analyser une zone, sauvegarder et exporter | Une simple carte de Dashboard ne justifie pas un moteur SIG complet |
 | Notebooks / calcul reproductible | Amélioration de Code Studio à étudier en premier | Ouvrir un .ipynb, exécuter des cellules dans un environnement isolé, conserver les résultats, réexécuter depuis Drive | Réutiliser Sheets, Flow Manager et Dashboard pour les données et les graphiques |
-| Support client / service desk | Amélioration du CRM à étudier | Demande → ticket → affectation → résolution → article Knowledge | Réutiliser contacts CRM, tâches Projects et recherche Knowledge |
-| Gestion d'entreprise : achats, stocks, facturation, production | Renforcement des familles Operations / Finance déjà déclarées | Commande → stock → facture → paiement, avec traces et permissions | Ne pas recréer CRM, Data Apps ou un second moteur d'automatisation |
+| Support client / service desk | Déjà implémenté dans le CRM (tickets, files et SLA) ; amélioration à traiter dans le chantier 1 | Vérifier demande → affectation → résolution et les liens Knowledge ; relever les écarts réels | Aucun nouveau workspace justifié par les fonctions déjà présentes |
+| Gestion d'entreprise : achats, stocks, production | Renforcement des familles Operations / Finance ; devis, factures, paiements et avoirs déjà présents dans le CRM | Identifier les manques achats/stocks puis les relier aux fonctions commerciales existantes | Ne pas recréer la facturation CRM, Data Apps ou un second moteur d'automatisation |
 
 Références fonctionnelles consultées le 20/10/2026 : [SIG / QGIS](https://docs.qgis.org/3.44/en/docs/about/features.html), [notebooks / JupyterLab](https://jupyterlab.readthedocs.io/en/stable/user/notebook.html), [opérations et comptabilité / ERPNext](https://docs.frappe.io/erpnext/accounting-introduction). Elles servent à préciser les fonctions à comparer. **Aucun de ces logiciels n'est sélectionné pour intégration** ; faisabilité, versions, licences et coût d'exploitation restent à vérifier.
 
@@ -153,7 +155,7 @@ Vidéo, audio et CAD restent dans le chantier 2. Notes, tâches, formulaires, ca
 
 ### P1 — première intégration créative + Microsoft utile
 
-- Compléter les intégrations PdfCraft, PhotoCraft et FigCraft déjà fusionnées : sauvegarde réelle dans Drive, réouverture et gestion des conflits.
+- Étendre le corpus et la récupération PdfCraft après #82 ; réaliser les ponts Drive PhotoCraft/FigCraft et leurs tests réels de sauvegarde/réouverture.
 - Hydria Knowledge, Hydria Projects et Data Apps branchés sur Drive et les permissions.
 - Docs/Sheets/Slides : benchmark comparatif WordCraft/GridCraft/DeckCraft sans migration aveugle.
 - Chantier 4 : publier les décisions améliorer / créer / différer ; n'engager que les MVP sélectionnés et compatibles avec le socle.

@@ -45,4 +45,27 @@ for (const field of ["passwordHash", "mfaSecret", "mfaRecoveryCodes"]) assert.ok
 assert.equal(task.task.assignedTo.id, a.user.id);
 await request("/auth/logout", b.token, "POST");
 assert.equal((await raw("/contacts", b.token)).status, 401);
-console.log("CRM real HTTP gate passed: two-tenant isolation, MFA challenge rejection, response redaction and session revocation.");
+
+// Real first-use race: all requests share an identity that does not yet exist.
+const bridgeSecret = process.env.HYDRIA_INTEGRATION_SECRET;
+assert.ok(bridgeSecret, "Configure the disposable CRM bridge secret for this gate");
+const bridgeBody = JSON.stringify({ hydriaUserId: "concurrent-" + suffix, username: "Concurrent Identity" });
+const timestamp = String(Date.now());
+const signature = createHmac("sha256", bridgeSecret).update(`${timestamp}.${bridgeBody}`).digest("hex");
+const bridgeSessions = await Promise.all(Array.from({ length: 8 }, async () => {
+  const response = await fetch(base + "/integrations/hydria/session", { method: "POST", headers: {
+    "content-type": "application/json", "x-hydria-timestamp": timestamp, "x-hydria-signature": signature
+  }, body: bridgeBody });
+  assert.equal(response.status, 200, await response.clone().text());
+  return response.json();
+}));
+assert.equal(new Set(bridgeSessions.map(session => session.user.id)).size, 1);
+assert.equal(new Set(bridgeSessions.map(session => session.user.organizationId)).size, 1);
+assert.equal(new Set(bridgeSessions.map(session => session.token)).size, 8);
+for (const session of bridgeSessions) {
+  assert.equal(session.user.role, "MEMBER");
+  assert.equal(JSON.stringify(session).includes("passwordHash"), false);
+  const me = await request("/auth/me", session.token);
+  assert.equal(me.user.id, session.user.id);
+}
+console.log("CRM real HTTP gate passed: tenant isolation, MFA separation, redaction, revocation and eight concurrent bridge sessions sharing one MEMBER identity.");

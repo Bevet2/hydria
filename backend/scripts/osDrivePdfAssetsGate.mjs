@@ -51,3 +51,39 @@ const tooBig = await fetch(api, { method: "POST", body: oversized });
 assert.equal(tooBig.status, 413);
 assert.equal((await fetch(api).then(r => r.json())).items.length, originalItems.length + 1);
 console.log("Hydria PDF persistence API passed: save, list, download, hash, bad inputs and upload size limit.");
+
+// Two editors of revision 1 must never both overwrite the same PDF.
+async function revise(bytes, expectedRevision) {
+  const form = new FormData();
+  form.append("file", new Blob([bytes], { type: "application/pdf" }), "edition-test.pdf");
+  form.append("expectedRevision", String(expectedRevision));
+  return fetch(api + "/" + item.id + "/versions", { method: "POST", body: form });
+}
+const edits = [Buffer.from(pdf.toString().replace("/Catalog", "/Catalog /Marker (A)")),
+  Buffer.from(pdf.toString().replace("/Catalog", "/Catalog /Marker (B)"))];
+const concurrent = await Promise.all(edits.map(bytes => revise(bytes, 1)));
+assert.deepEqual(concurrent.map(r => r.status).sort(), [201, 409]);
+const winner = concurrent.findIndex(r => r.status === 201);
+const committed = await concurrent[winner].json();
+assert.equal(committed.revision, 2);
+assert.equal(committed.id, item.id);
+assert.equal(committed.sha256, createHash("sha256").update(edits[winner]).digest("hex"));
+const metadata = await fetch(api + "/" + item.id).then(r => r.json());
+assert.equal(metadata.revision, 2);
+assert.equal(metadata.sha256, committed.sha256);
+const history = await fetch(api + "/" + item.id + "/versions").then(r => r.json());
+assert.deepEqual(history.items.map(v => v.revision), [2, 1]);
+assert.equal(history.items[1].sha256, item.sha256);
+for (const [revision, expectedBytes] of [[1, pdf], [2, edits[winner]]]) {
+  const response = await fetch(api + "/" + item.id + "/versions/" + revision + "/download");
+  assert.equal(response.status, 200);
+  assert.deepEqual(Buffer.from(await response.arrayBuffer()), expectedBytes);
+}
+assert.deepEqual(Buffer.from(await fetch(api + "/" + item.id + "/download").then(r => r.arrayBuffer())), edits[winner]);
+assert.equal((await revise(pdf, 1)).status, 409);
+for (const revision of [0, -1, "2garbage", 51]) assert.equal((await revise(pdf, revision)).status, 400);
+assert.equal((await revise(Buffer.from("invalid"), 2)).status, 400);
+assert.equal((await fetch(api + "/" + item.id + "/versions/3/download")).status, 404);
+assert.equal((await fetch(api + "/" + item.id + "/versions/0/download")).status, 400);
+assert.equal((await fetch(api + "/" + item.id + "/versions").then(r => r.json())).items.length, 2);
+console.log("PDF immutable revisions passed: concurrent edits, 409 conflicts, metadata, old bytes and invalid revisions.");
