@@ -20,6 +20,10 @@ COPY --chown=node:node frontend/ ./frontend/
 # Opt-in until isolation and multi-user permissions are hardened.
 ARG INSTALL_PDFCRAFT=false
 RUN if [ "$INSTALL_PDFCRAFT" = "true" ]; then node backend/scripts/installPdfCraft.mjs; fi
+ARG INSTALL_PHOTOCRAFT=false
+ARG INSTALL_FIGCRAFT=false
+RUN if [ "$INSTALL_PHOTOCRAFT" = "true" ]; then node backend/scripts/installArtCraftWeb.mjs photo; fi
+RUN if [ "$INSTALL_FIGCRAFT" = "true" ]; then node backend/scripts/installArtCraftWeb.mjs fig; fi
 RUN mkdir -p /app/data /app/backups && chown node:node /app/data /app/backups
 USER node
 EXPOSE 3001
