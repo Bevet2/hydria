@@ -1,7 +1,8 @@
 // Hydria Drive — unified library of existing Hydria work objects.
+import { listDrivePdfs, storedPdfUrl } from "../services/drivePdfClient.js";
 // This is deliberately not a separate file store or a cloud-sync service.
 const SORTS = new Set(["recent", "name", "kind"]);
-const KINDS = new Set(["all", "document", "dataset", "presentation", "dashboard", "workflow", "design", "project", "code", "other"]);
+const KINDS = new Set(["all", "document", "dataset", "presentation", "dashboard", "workflow", "design", "project", "code", "pdf", "other"]);
 let view = { query: "", kind: "all", sort: "recent" };
 
 function kindOf(item) {
@@ -20,7 +21,7 @@ function typeLabel(kind) {
     document: "Document", dataset: "Tableur", presentation: "Présentation",
     dashboard: "Dashboard", workflow: "Flux", design: "Design",
     project: "Projet", code: "Code", image: "Image", audio: "Audio",
-    video: "Vidéo"
+    video: "Vidéo", pdf: "PDF"
   })[kind] || "Autre";
 }
 function node(tag, className = "", label = "") {
@@ -104,7 +105,7 @@ export function renderHydriaDriveWorkspace(container, {
   filter.setAttribute("aria-label", "Filtrer les types");
   for (const [value, label] of [
     ["all", "Tous les types"], ["document", "Documents"], ["dataset", "Tableurs"],
-    ["presentation", "Présentations"], ["dashboard", "Dashboards"],
+    ["presentation", "Présentations"], ["dashboard", "Dashboards"], ["pdf", "PDF enregistrés"],
     ["workflow", "Flux et automatisations"], ["design", "Designs"],
     ["project", "Projets"], ["code", "Code"], ["other", "Autres"]
   ]) {
@@ -127,12 +128,58 @@ export function renderHydriaDriveWorkspace(container, {
   controls.append(search, filter, sort);
 
   const summary = node("p", "hydria-drive-results");
+  let savedPdfs = [];
+  const pdfGroup = node("section", "hydria-drive-pdf-group");
+  pdfGroup.setAttribute("aria-label", "PDF enregistrés dans Hydria Drive");
+  const pdfHeading = node("h3", "", "PDF enregistrés");
+  const pdfList = node("div", "hydria-drive-pdf-list");
+  pdfGroup.append(pdfHeading, pdfList);
+  function paintSavedPdfs() {
+    pdfGroup.hidden = view.kind !== "all" && view.kind !== "pdf";
+    pdfList.replaceChildren();
+    if (pdfGroup.hidden) return 0;
+    const q = String(view.query).toLocaleLowerCase().trim();
+    const filtered = savedPdfs.filter(item => String(item.filename || "").toLocaleLowerCase().includes(q));
+    filtered.sort((a,b) => view.sort === "name"
+      ? String(a.filename).localeCompare(String(b.filename), "fr")
+      : String(b.created_at).localeCompare(String(a.created_at)));
+    if (!filtered.length) {
+      pdfList.append(node("p", "hydria-pdf-saved-empty", "Aucun PDF ne correspond à cette recherche."));
+      return 0;
+    }
+    for (const item of filtered) {
+      const row = node("div", "hydria-drive-pdf-row");
+      const name = node("strong", "", String(item.filename || "document.pdf"));
+      const open = node("a", "hydria-pdf-button", "Ouvrir dans PDF Studio");
+      open.href = "/workspace/pdf?assetId=" + encodeURIComponent(item.id);
+      const download = node("a", "hydria-pdf-button", "Télécharger");
+      download.href = storedPdfUrl(item.id);
+      download.setAttribute("download", String(item.filename || "document.pdf"));
+      row.append(name, open, download);
+      pdfList.append(row);
+    }
+    return filtered.length;
+  }
+  async function loadSavedPdfs() {
+    try {
+      savedPdfs = await listDrivePdfs();
+      if (!root.isConnected) return;
+      paintResults();
+      total.textContent = String(workObjects.length + savedPdfs.length) + " éléments";
+    } catch (error) {
+      if (!root.isConnected) return;
+      pdfList.replaceChildren(node("p", "hydria-pdf-saved-empty",
+        "Impossible de charger les PDF Drive : " + String(error?.message || error)));
+    }
+  }
   const list = node("div", "hydria-drive-list");
   list.setAttribute("role", "list");
 
   function paintResults() {
     const filtered = filterDriveObjects(workObjects, view);
-    summary.textContent = filtered.length + " résultat" + (filtered.length === 1 ? "" : "s");
+    const pdfCount = paintSavedPdfs();
+    const count = filtered.length + pdfCount;
+    summary.textContent = count + " résultat" + (count === 1 ? "" : "s");
     list.replaceChildren();
     if (!filtered.length) {
       list.append(node("p", "hydria-drive-empty",
@@ -171,7 +218,8 @@ export function renderHydriaDriveWorkspace(container, {
   search.addEventListener("input", () => { view.query = search.value; paintResults(); });
   filter.addEventListener("change", () => { view.kind = filter.value; paintResults(); });
   sort.addEventListener("change", () => { view.sort = sort.value; paintResults(); });
-  root.append(heading, quick, controls, summary, list);
+  root.append(heading, quick, controls, summary, list, pdfGroup);
   container.append(root);
   paintResults();
+  loadSavedPdfs();
 }
