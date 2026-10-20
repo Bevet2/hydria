@@ -101,6 +101,15 @@ export const WORKSPACE_PAGES = Object.freeze([
     hint: "Create a whiteboard"
   },
   {
+    slug: "pdf",
+    kind: "virtual",
+    family: "document_knowledge",
+    label: "PDF Studio",
+    title: "PDF Studio",
+    description: "Ouvrez et éditez des PDF avec le moteur libre ArtCraft PdfCraft.",
+    hint: "Ouvrir l'éditeur PDF"
+  },
+  {
     slug: "code",
     kind: "code",
     family: "development",

@@ -38,3 +38,8 @@ ollama/
 __pycache__/
 *.pyc
 crm/storage/
+
+# Installed third-party ArtCraft binary assets (downloaded and checksum-verified locally)
+frontend/vendor/pdfcraft/
+frontend/vendor/.pdfcraft-stage-*/
+frontend/vendor/pdfcraft.old/

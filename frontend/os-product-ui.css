@@ -546,3 +546,32 @@ html body[data-os-theme="dark"] .hydria-drive-item-copy small{color:#aab7cc;}
 html body[data-os-theme="dark"] .hydria-drive-item-symbol{background:#323957;color:#c7d2fe;}
 @media(max-width:780px){.hydria-drive-heading{flex-wrap:wrap}.hydria-drive-controls{grid-template-columns:1fr 1fr}.hydria-drive-search{grid-column:1/-1}.hydria-drive-item-arrow{display:none}}
 @media(max-width:430px){.hydria-drive-controls{grid-template-columns:1fr}.hydria-drive-search{grid-column:auto}.hydria-drive-item{padding:11px}.hydria-drive-total{font-size:11px}}
+
+/* PdfCraft WASM lives inside the native Hydria OS shell. */
+.hydria-pdf-workbench{display:flex;flex-direction:column;gap:16px;width:100%;min-width:0;min-height:700px;}
+.hydria-pdf-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;}
+.hydria-pdf-heading h2{margin:4px 0 6px;font-size:clamp(23px,2.7vw,32px);letter-spacing:-.035em;}
+.hydria-pdf-eyebrow{margin:0;letter-spacing:.12em;font-size:11px;font-weight:700;color:#64748b;}
+.hydria-pdf-desc{margin:0;color:#64748b;font-size:13px;line-height:1.5;}
+.hydria-pdf-status{flex:none;font-size:12px;padding:7px 11px;border:1px solid #dce3ec;border-radius:999px;color:#475569;}
+.hydria-pdf-toolbar{display:flex;flex-wrap:wrap;gap:10px;}
+.hydria-pdf-document-select{flex:1 1 240px;max-width:430px;min-height:42px;background:white;border:1px solid #cbd5e1;color:#0f172a;border-radius:10px;padding:8px 10px;font:inherit;font-size:13px;}
+.hydria-pdf-button{background:white;color:#0f172a;border:1px solid #cbd5e1;border-radius:10px;font:inherit;font-size:13px;font-weight:600;padding:10px 14px;cursor:pointer;}
+.hydria-pdf-primary{background:#312e81;border-color:#312e81;color:white;}
+.hydria-pdf-button:not(:disabled):hover{filter:brightness(.92);}
+.hydria-pdf-button:disabled{opacity:.55;cursor:not-allowed;}
+.hydria-pdf-workbench :is(button,select):focus-visible{outline:2px solid #4f46e5;outline-offset:2px;}
+.hydria-pdf-hint{margin:0;font-size:12px;color:#64748b;line-height:1.6;}
+.hydria-pdf-viewport{flex:1;min-height:700px;border:1px solid #d5deeb;border-radius:14px;overflow:hidden;background:#f8fafc;}
+.hydria-pdf-frame{border:0;width:100%;height:min(75vh,1050px);min-height:690px;display:block;background:white;}
+.hydria-pdf-loading{display:grid;place-content:center;min-height:450px;text-align:center;color:#64748b;padding:24px;}
+.hydria-pdf-error{font-size:12px;padding:12px 14px;background:#fff4ed;color:#9a3412;border:1px solid #fdba74;border-radius:10px;line-height:1.7;}
+.hydria-pdf-error[hidden]{display:none;}
+html body[data-os-theme="dark"] .hydria-pdf-desc,
+html body[data-os-theme="dark"] .hydria-pdf-eyebrow,
+html body[data-os-theme="dark"] .hydria-pdf-hint{color:#aab7cc;}
+html body[data-os-theme="dark"] .hydria-pdf-status,
+html body[data-os-theme="dark"] .hydria-pdf-document-select,
+html body[data-os-theme="dark"] .hydria-pdf-button:not(.hydria-pdf-primary){color:#e2e8f0;background:#252a40;border-color:#434b67;}
+html body[data-os-theme="dark"] .hydria-pdf-viewport{background:#171c30;border-color:#434b67;}
+@media(max-width:700px){.hydria-pdf-heading{align-items:flex-start;flex-direction:column}.hydria-pdf-viewport{min-height:570px}.hydria-pdf-frame{min-height:560px;height:72vh}}

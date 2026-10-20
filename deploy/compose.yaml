@@ -4,6 +4,8 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile
+      args:
+        INSTALL_PDFCRAFT: ${HYDRIA_INSTALL_PDFCRAFT:-false}
     restart: unless-stopped
     init: true
     env_file:

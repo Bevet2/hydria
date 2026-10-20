@@ -16,6 +16,10 @@ WORKDIR /app
 COPY --from=dependencies /build/backend/node_modules ./backend/node_modules
 COPY --chown=node:node backend/ ./backend/
 COPY --chown=node:node frontend/ ./frontend/
+# Optional, integrity-verified ArtCraft PdfCraft v0.9.0 WebAssembly.
+# Opt-in until isolation and multi-user permissions are hardened.
+ARG INSTALL_PDFCRAFT=false
+RUN if [ "$INSTALL_PDFCRAFT" = "true" ]; then node backend/scripts/installPdfCraft.mjs; fi
 RUN mkdir -p /app/data /app/backups && chown node:node /app/data /app/backups
 USER node
 EXPOSE 3001
