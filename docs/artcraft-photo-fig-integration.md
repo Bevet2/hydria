@@ -54,6 +54,28 @@ La version Web officielle de PhotoCraft utilise un petit module WASM de démarra
 
 Le contrôle de signature ne garantit pas qu'une image soit entièrement bien formée ou dépourvue de contenu malveillant ; les fichiers importés restent non fiables.
 
+## Historique des images (nouvelle version)
+
+Dans **Hydria Photo**, chaque image de Drive possède maintenant un numéro de version. Pour modifier sans écraser :
+1. Télécharger l'image depuis Drive et la retoucher dans PhotoCraft.
+2. Exporter le résultat depuis PhotoCraft (téléchargement du navigateur).
+3. Cliquer sur **Nouvelle version** de l'image correspondante dans Hydria Photo, puis sélectionner l'export.
+4. Cliquer sur **Historique** pour voir et télécharger la version actuelle ou les précédentes.
+
+**Hydria Drive** affiche la version courante et propose un lien direct vers l'image et son historique dans Hydria Photo. Un import effectué avec un numéro de version devenu obsolète est rejeté avec **HTTP 409**, ce qui empêche l'écrasement silencieux d'une édition concurrente. Jusqu'à **50 versions par image** peuvent être conservées dans ce pilote.
+
+Nouvelles routes :
+- `POST /api/drive/image-assets/:id/versions` : champ binaire `file` et champ `expectedRevision` (optimistic concurrency), réponse avec la version créée.
+- `GET /api/drive/image-assets/:id/versions` : liste des révisions et empreintes SHA-256.
+- `GET /api/drive/image-assets/:id/versions/:revision/download` : téléchargement d'une ancienne version.
+- Les routes `/preview` et `/download` existantes servent **la version courante**.
+
+Les images existantes sont migrées au premier accès : elles deviennent **version 1** sans déplacer leur binaire ; la migration peut être relancée sans créer de doublons. Les versions ultérieures sont de nouveaux fichiers immuables. En cas de perte du répertoire `drive-images`, l'historique SQLite seul **ne permet pas** de restaurer les octets ; sauvegarder ensemble les deux.
+
+**Limites :** pas de récupération automatique des pixels/du PSD depuis l'iframe PhotoCraft, pas de lecture des brouillons de FigCraft et pas de droits par utilisateur. La validation des signatures PNG/JPEG/WebP n'est ni un antivirus ni un décodeur d'image sécurisé. Ce fonctionnement n'est destiné qu'au pilote privé mono-propriétaire.
+
+Tests supplémentaires : `node backend/scripts/osDriveImageMigrationGate.mjs` pour la migration, et extension de `osDriveImageAssetsGate.mjs` et `osArtCraftBrowserGate.mjs` pour les révisions, les conflits et la navigation Drive → Photo Studio.
+
 ## Sécurité et limites bloquantes
 
 - **Pilote privé mono-propriétaire seulement.** Les API Drive sont protégées par le *production access gate* partagé de l'OS, **pas** par des ACL par utilisateur/tenant. Ne pas exposer l'instance à des utilisateurs distincts ; avant commercialisation il faudra identité, autorisation serveur, quota total et contrôle d'antivirus/transcodage.
