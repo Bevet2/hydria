@@ -38,7 +38,7 @@ export function filterDriveObjects(items = [], { query = "", kind = "all", sort 
     .filter((item) => item && typeof item === "object" && item.id)
     .filter((item) => {
       const itemKind = kindOf(item);
-      if (group !== "all" && (group === "other" ? KINDS.has(itemKind) : itemKind !== group)) {
+      if (group !== "all" && (group === "other" ? itemKind !== "other" && KINDS.has(itemKind) : itemKind !== group)) {
         return false;
       }
       if (!wanted) return true;
@@ -146,7 +146,8 @@ export function renderHydriaDriveWorkspace(container, {
       const kind = kindOf(item);
       const button = node("button", "hydria-drive-item");
       button.type = "button";
-      button.setAttribute("role", "listitem");
+      const row = node("div", "hydria-drive-list-row");
+      row.setAttribute("role", "listitem");
       button.title = "Ouvrir " + titleOf(item);
       const symbol = node("span", "hydria-drive-item-symbol", ({
         document: "▤", dataset: "▦", presentation: "▣", dashboard: "◫",
@@ -162,7 +163,8 @@ export function renderHydriaDriveWorkspace(container, {
       arrow.setAttribute("aria-hidden", "true");
       button.append(symbol, copy, arrow);
       button.addEventListener("click", () => onOpen(item));
-      fragment.append(button);
+      row.append(button);
+      fragment.append(row);
     }
     list.append(fragment);
   }
