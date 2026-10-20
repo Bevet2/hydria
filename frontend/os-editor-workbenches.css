@@ -312,3 +312,72 @@ body[data-os-theme="dark"] .hydria-flow-scroll.is-drop-target{
 body[data-os-theme="dark"] .workspace-canvas-item:focus-visible{
   outline-color:#c7d2fe !important;
 }
+
+/* One document heading and one save status. Native toolbars own the editor. */
+#workspace-preview .workspace-sheet-topbar-button,
+#workspace-preview .workspace-dashboard-expand-button,
+#workspace-preview .workspace-application-expand-button,
+#workspace-preview .workspace-docs-fullscreen-button {display:inline-flex !important;align-items:center;justify-content:center;}
+#workspace-panel-root[data-native-editor="true"][data-has-workspace="true"] .workspace-title-group .eyebrow,
+#workspace-panel-root[data-native-editor="true"][data-has-workspace="true"] #workspace-operating-strip,
+#workspace-panel-root[data-native-editor="true"][data-has-workspace="true"] #workspace-subtitle,
+#workspace-panel-root[data-native-editor="true"][data-has-workspace="true"] .workspace-preview-header,
+#workspace-panel-root[data-native-editor="true"] .workspace-code-toolbar-meta > strong,
+#workspace-panel-root[data-native-editor="true"] .workspace-sheet-title-group > strong {
+  display:none !important;
+}
+#workspace-panel-root[data-native-editor="true"][data-has-workspace="true"] .workspace-shell-header {
+  min-height:42px;margin-bottom:6px !important;gap:8px;align-items:center;
+}
+#workspace-panel-root[data-native-editor="true"] .workspace-title-group {min-width:0;}
+#workspace-panel-root[data-native-editor="true"] .workspace-title-group h2 {
+  margin:0 !important;font-size:18px !important;line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+#workspace-panel-root[data-native-editor="true"] .workspace-preview-pane,
+#workspace-panel-root[data-native-editor="true"] .workspace-preview {
+  padding:0 !important;border:0 !important;border-radius:0 !important;box-shadow:none !important;background:transparent;
+}
+#workspace-panel-root[data-native-editor="true"] .workspace-toolbar {margin-bottom:6px;padding:0;}
+#workspace-panel-root[data-native-editor="true"] .workspace-document-preview-shell,
+#workspace-panel-root[data-native-editor="true"] .workspace-sheet-app {
+  border-radius:6px !important;
+}
+.workspace-document-preview-toolbar {min-height:36px;padding:4px 10px !important;gap:8px;}
+.workspace-sheet-topbar {min-height:36px;padding:4px 10px;}
+.workspace-sheet-toolbar {overflow-x:auto;flex-wrap:nowrap;max-width:100%;}
+.workspace-docs-menubar,.workspace-sheet-menubar {overflow-x:auto;flex-wrap:nowrap;}
+.workspace-docs-menubar > *, .workspace-sheet-menubar > * {flex-shrink:0;}
+.workspace-docs-ribbon-group-label {color:#526176;}
+.workspace-sheet-toolbar-group-label {color:#526176;}
+body[data-os-theme="dark"] .workspace-docs-ribbon-group-label,
+body[data-os-theme="dark"] .workspace-sheet-toolbar-group-label {color:#cbd5e1;}
+
+@media(max-width:600px) {
+  #workspace-panel-root[data-native-editor="true"][data-has-workspace="true"] {padding:8px !important;}
+  #workspace-panel-root[data-native-editor="true"] .workspace-shell-header {flex-wrap:nowrap;min-height:36px;}
+  #workspace-panel-root[data-native-editor="true"] .workspace-shell-actions {gap:4px;flex-wrap:nowrap;}
+  #workspace-panel-root[data-native-editor="true"] #workspace-mode-nav {display:none;}
+  #workspace-panel-root[data-native-editor="true"] #workspace-project-context-toggle {display:none;}
+  #workspace-panel-root[data-native-editor="true"] #workspace-save-button {min-width:84px;padding:6px !important;}
+  #workspace-panel-root[data-native-editor="true"] .workspace-title-group h2 {font-size:16px !important;max-width:48vw;}
+  #workspace-panel-root[data-native-editor="true"] #workspace-surface-nav {display:flex;flex-wrap:nowrap;overflow-x:auto;}
+  #workspace-panel-root[data-native-editor="true"] #workspace-surface-nav > * {flex-shrink:0;}
+  .workspace-document-preview-toolbar {display:flex !important;flex-wrap:nowrap;min-height:34px;overflow-x:auto;}
+  .workspace-document-preview-toolbar .workspace-code-toolbar-meta {display:none;}
+  .workspace-document-preview-toolbar .workspace-code-tabs {flex-wrap:nowrap;gap:4px;}
+  .workspace-document-preview-toolbar .workspace-code-tabs > * {flex-shrink:0;}
+  .workspace-docs-menubar {display:flex !important;min-height:34px;}
+  .workspace-docs-ribbon {overflow-x:auto;max-height:74px;}
+  .workspace-docs-ribbon-group {flex-shrink:0;}
+  .workspace-document-page-stage {padding:8px !important;border-radius:0 !important;}
+  .workspace-document-page-stage-body {padding:0 !important;min-width:0 !important;}
+  .workspace-document-page-shell {margin:0 !important;min-width:0 !important;width:100% !important;}
+  .workspace-document-page {width:100% !important;min-width:0 !important;max-width:100% !important;padding:20px !important;box-sizing:border-box;}
+  .workspace-document-page-canvas {min-width:0 !important;width:100% !important;transform:none !important;}
+  .workspace-document-page-sheet {width:100% !important;min-width:0 !important;max-width:100% !important;padding:20px !important;box-sizing:border-box;}
+  .workspace-docs-ruler,.workspace-docs-vertical-ruler {display:none !important;}
+  #workspace-panel-root[data-native-editor="true"] .workspace-title-group {flex:1 1 0;}
+  #workspace-panel-root[data-native-editor="true"] .workspace-shell-actions {flex:0 0 auto;}
+  .workspace-document-ruler,.workspace-document-page-ruler {display:none !important;}
+  .workspace-document-page p,.workspace-document-page h1,.workspace-document-page h2 {overflow-wrap:anywhere;}
+}

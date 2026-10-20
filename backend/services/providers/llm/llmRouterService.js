@@ -1,6 +1,6 @@
 import config from "../../../config/hydria.config.js";
 import logger from "../../../utils/logger.js";
-import { getPrimaryModelTarget, getProviderModelChain } from "../../registry/modelRegistry.js";
+import { getPrimaryModelTarget, getProviderModelChain, isProviderAllowed } from "../../registry/modelRegistry.js";
 import { callHydriaCoreModel } from "../hydriaCore/hydriaCoreService.js";
 import { callLocalModel } from "../local/localLlmService.js";
 import {
@@ -86,7 +86,7 @@ async function callModel(kind, messages, options = {}) {
     };
   }
 
-  const targetChain = normalizeTargetChain(kind, options);
+  const targetChain = normalizeTargetChain(kind, options).filter(target => isProviderAllowed(target.provider));
   const attempts = [];
 
   for (const target of targetChain) {

@@ -13,14 +13,20 @@ try {
   assert.equal(await page.locator('.workspace-switcher-chip[data-workspace-page="drive"]').count(), 1);
 
   // Wait for Hydria startup: the initial library can still be hydrating here.
+  await page.waitForFunction(() => document.documentElement.dataset.hydriaBoot === "ready");
   await page.locator(".hydria-drive-quick").waitFor();
-  await page.getByRole("button", { name: "Nouveau document" }).click();
+  const [creation] = await Promise.all([
+    page.waitForResponse(response => response.url().endsWith("/api/work-objects/new") && response.request().method() === "POST"),
+    page.getByRole("button", { name: "Nouveau document", exact: true }).click()
+  ]);
+  const created = (await creation.json()).workObject;
+  assert.ok(created?.id && created.title, "Drive must create a real document");
   await page.waitForURL(/\/workspace\/docs(?:$|\?)/, { timeout: 25_000 });
   await page.goto("http://127.0.0.1:3001/workspace/drive", { waitUntil: "domcontentloaded" });
   await page.locator(".hydria-drive-item").first().waitFor({ timeout: 25_000 });
   assert.match(await page.locator(".hydria-drive-results").innerText(), /[1-9]\d* résultat/);
 
-  await page.getByRole("searchbox", { name: "Rechercher dans Hydria Drive" }).fill("New Docs");
+  await page.getByRole("searchbox", { name: "Rechercher dans Hydria Drive" }).fill(created.title);
   assert.ok(await page.locator(".hydria-drive-item").count() >= 1);
   await page.getByRole("combobox", { name: "Filtrer les types" }).selectOption("dataset");
   assert.equal(await page.locator(".hydria-drive-item").count(), 0);

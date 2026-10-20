@@ -22,10 +22,12 @@
     "gate:collaboration-formulas": "node scripts/collaborationFormulaGate.mjs",
     "gate:crm-core": "node scripts/crmCoreIntegrationGate.mjs",
     "gate:hydria-interactions": "node scripts/hydriaInteractionsClientGate.mjs",
-    "smoke:hydria-core-adapter": "node scripts/hydriaCoreAdapterSmoke.mjs"
+    "smoke:hydria-core-adapter": "node scripts/hydriaCoreAdapterSmoke.mjs",
+    "build:frontend": "node scripts/buildFrontend.mjs",
+    "gate:audit": "node scripts/auditSecurityGate.mjs && node scripts/osActionConsentGate.mjs"
   },
   "dependencies": {
-    "adm-zip": "^0.5.16",
+    "adm-zip": "^0.6.1",
     "better-sqlite3": "^11.7.0",
     "cheerio": "^1.1.2",
     "cors": "^2.8.5",
@@ -33,14 +35,22 @@
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "hyperformula": "^3.3.0",
-    "mammoth": "^1.8.1",
-    "multer": "^2.0.2",
+    "ipaddr.js": "^2.5.0",
+    "mammoth": "^1.13.0",
+    "multer": "^2.4.0",
     "pdf-parse": "^1.1.1",
     "pdfkit": "^0.17.2",
     "playwright": "^1.52.0",
     "pptxgenjs": "^4.0.1",
     "tesseract.js": "^6.0.1",
     "word-extractor": "^1.0.4",
-    "xlsx": "^0.18.5"
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  },
+  "overrides": {
+    "image-size": "2.0.4",
+    "argparse": "2.0.1"
   }
 }

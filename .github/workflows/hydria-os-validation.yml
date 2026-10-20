@@ -37,6 +37,12 @@ jobs:
           cache-dependency-path: backend/package-lock.json
       - name: Install backend dependencies
         run: npm ci --prefix backend --no-audit --no-fund
+      - name: Audit security and data integrity regressions
+        run: node backend/scripts/auditSecurityGate.mjs
+      - name: Workspace action approval HTTP regression
+        run: node backend/scripts/osActionConsentGate.mjs
+      - name: Dependency security
+        run: npm audit --prefix backend --audit-level=high
       - name: Validate PdfCraft integration contract and pinned installer
         run: node backend/scripts/osPdfCraftGate.mjs
       - name: Validate PhotoCraft/FigCraft releases and raster types
@@ -49,6 +55,10 @@ jobs:
           node backend/scripts/installArtCraftWeb.mjs fig
           test -s frontend/vendor/photocraft/index.html
           test -s frontend/vendor/figcraft/index.html
+      - name: Production frontend bundle preserves official ArtCraft runtimes
+        run: |
+          node backend/scripts/buildFrontend.mjs
+          diff --recursive frontend/vendor frontend-dist/vendor
       - name: Database volume and frontend readiness diagnostics
         run: node backend/scripts/osReadinessGate.mjs
       - name: Production single-user authentication and origin checks
@@ -260,6 +270,8 @@ jobs:
         run: node --check frontend/components/osProductChrome.js
       - name: Product UI desktop and mobile acceptance
         run: node backend/scripts/osProductUiGate.mjs
+      - name: Mobile editing and action confirmation
+        run: node backend/scripts/osAuditUxGate.mjs
       - name: Upload product UI screenshots
         if: always()
         uses: actions/upload-artifact@v4

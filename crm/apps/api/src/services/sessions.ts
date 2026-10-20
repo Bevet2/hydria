@@ -11,9 +11,9 @@ type SessionUser = {
   email: string;
 };
 
-export async function createUserSession(user: SessionUser, req?: Request) {
+export async function createUserSession(user: SessionUser, req?: Request, ttlMs?: number) {
   const refreshToken = randomToken(48);
-  const expiresAt = new Date(Date.now() + env.SESSION_EXPIRES_DAYS * 86_400_000);
+  const expiresAt = new Date(Date.now() + (ttlMs ?? env.SESSION_EXPIRES_DAYS * 86_400_000));
   const session = await prisma.authSession.create({
     data: {
       organizationId: user.organizationId,

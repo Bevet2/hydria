@@ -6,9 +6,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const backendDir = path.resolve(__dirname, "..");
 const rootDir = path.resolve(backendDir, "..");
-const dataDir = path.resolve(process.env.HYDRIA_OS_DATA_DIR || path.join(rootDir, "data"));
-
 dotenv.config({ path: path.join(backendDir, ".env") });
+const dataDir = path.resolve(process.env.HYDRIA_OS_DATA_DIR || path.join(rootDir, "data"));
 
 function parseBoolean(value, fallback = false) {
   if (typeof value === "boolean") {
@@ -237,7 +236,7 @@ const config = {
     webUrl: firstDefined(env.CRM_WEB_URL, "/crm/"),
     integrationSecret: firstDefined(
       env.CRM_INTEGRATION_SECRET,
-      "hydria-crm-local-integration-secret-change-me"
+      ""
     ),
     timeoutMs: Math.max(3000, parseInteger(env.CRM_API_TIMEOUT_MS, 15000))
   },
@@ -318,10 +317,7 @@ const config = {
   }
 };
 
-// OpenRouter is only active when no local or core backend is available.
-if (config.localLlm.enabled || config.hydriaCore.enabled) {
-  config.openrouter.enabled = false;
-}
+// Availability is independent of routing preference. The registry decides order.
 config.llm.enabled = config.hydriaCore.enabled || config.localLlm.enabled || config.openrouter.enabled;
 
 export default config;

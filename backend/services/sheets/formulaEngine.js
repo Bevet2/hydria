@@ -63,7 +63,7 @@ function buildEngine(sheets = [], requestedId = "") {
     sheets.map((sheet, index) => [names[index], sheet.matrix])
   );
   const instance = HyperFormula.buildFromSheets(sheetData, {
-    licenseKey: "gpl-v3",
+    licenseKey: process.env.HYPERFORMULA_LICENSE_KEY || "gpl-v3",
     leapYear1900: true,
     smartRounding: true,
     useArrayArithmetic: true,
@@ -232,6 +232,6 @@ export function formulaEngineCapabilities() {
     circularReferenceDetection: true,
     dependencyGraph: true,
     supportedFunctionCount: HyperFormula.getRegisteredFunctionNames("enGB").length,
-    license: "GPL-3.0-only"
+    license: process.env.HYPERFORMULA_LICENSE_KEY ? "commercial" : "GPL-3.0-only"
   };
 }

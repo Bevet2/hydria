@@ -5,6 +5,15 @@ const keys = {
 };
 
 export const sessionStore = {
+  getWorkspaceObject(userId, slug) {
+    try { return window.localStorage.getItem(`hydria:workspace:${userId}:${slug}`); }
+    catch { return null; }
+  },
+  setWorkspaceObject(userId, slug, objectId) {
+    if (!userId || !slug || !objectId) return;
+    try { window.localStorage.setItem(`hydria:workspace:${userId}:${slug}`, String(objectId)); }
+    catch { /* Selection still works when browser storage is unavailable. */ }
+  },
   getUserId() {
     return window.localStorage.getItem(keys.userId);
   },

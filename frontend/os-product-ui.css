@@ -513,6 +513,11 @@ html body[data-os-theme="dark"] .os-focus-toggle[aria-pressed="true"]{
   }
   body.os-focus-mode .os-mobile-files {display:none !important;}
 }
+.workspace-action-consent {width:min(520px,calc(100vw - 32px));padding:24px;border:1px solid var(--line);border-radius:10px;background:var(--bg-panel);color:var(--text);}
+.workspace-action-consent::backdrop {background:rgba(15,23,42,.45);}
+.workspace-action-consent h2 {font-size:19px;margin:0 0 12px;}
+.workspace-action-consent li {overflow-wrap:anywhere;margin-block:8px;}
+.workspace-action-consent-buttons {display:flex;justify-content:flex-end;gap:8px;margin-top:20px;}
 
 
 /* Hydria Drive — first unified native work-object library.

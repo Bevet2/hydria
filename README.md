@@ -252,6 +252,9 @@ through `GET /api/integrations/readiness`.
 
 ## Validation
 
+See [audit remediation and migration](docs/audit-remediation-2026-10-20.md)
+for the security changes, acceptance gates and remaining deployment boundaries.
+
 ### Hydria OS and Core
 
 ```powershell
@@ -337,6 +340,9 @@ See [production and recovery](crm/docs/production.md).
 - Test database and attachment restoration regularly.
 
 ## License
+
+The root license decision and third-party distribution requirements are
+documented in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 The CRM subproject is distributed under the license in
 [crm/LICENSE](crm/LICENSE). Check repository ownership requirements before

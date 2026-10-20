@@ -1,3 +1,4 @@
+import { readJsonFile, writeJsonFile } from "../../utils/durableFiles.js";
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -149,24 +150,24 @@ export class LearningStore {
     this.minConfidence = minConfidence;
     ensureDirectory(this.filePath);
     if (!fs.existsSync(this.filePath)) {
-      fs.writeFileSync(this.filePath, JSON.stringify(createDefaultState(), null, 2));
+      writeJsonFile(this.filePath, createDefaultState());
     }
   }
 
   readState() {
     try {
-      const parsed = JSON.parse(fs.readFileSync(this.filePath, "utf8"));
+      const parsed = readJsonFile(this.filePath);
       return {
         version: parsed.version || 1,
         items: Array.isArray(parsed.items) ? parsed.items.map((item) => normalizeLearningItem(item)) : []
       };
-    } catch {
-      return createDefaultState();
+    } catch (error) {
+      throw error;
     }
   }
 
   writeState(state) {
-    fs.writeFileSync(this.filePath, JSON.stringify(state, null, 2));
+    writeJsonFile(this.filePath, state);
   }
 
   async addLearningItem(item = {}) {

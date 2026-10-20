@@ -1,3 +1,4 @@
+import { readJsonFile, writeJsonFile } from "../../utils/durableFiles.js";
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -72,13 +73,13 @@ export class JsonMemoryStore extends MemoryStore {
     this.consolidateEveryTurns = consolidateEveryTurns;
     ensureDirectory(this.filePath);
     if (!fs.existsSync(this.filePath)) {
-      fs.writeFileSync(this.filePath, JSON.stringify(createDefaultState(), null, 2));
+      writeJsonFile(this.filePath, createDefaultState());
     }
   }
 
   readState() {
     try {
-      const parsed = JSON.parse(fs.readFileSync(this.filePath, "utf8"));
+      const parsed = readJsonFile(this.filePath);
       return {
         version: parsed.version || 3,
         shortTerm: parsed.shortTerm || {},
@@ -92,13 +93,13 @@ export class JsonMemoryStore extends MemoryStore {
         taskOutcomes: parsed.taskOutcomes || {},
         errorMemories: parsed.errorMemories || {}
       };
-    } catch {
-      return createDefaultState();
+    } catch (error) {
+      throw error;
     }
   }
 
   writeState(nextState) {
-    fs.writeFileSync(this.filePath, JSON.stringify(nextState, null, 2));
+    writeJsonFile(this.filePath, nextState);
   }
 
   async recallContext({ userId, conversationId, prompt, limit = 4 }) {

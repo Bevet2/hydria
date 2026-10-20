@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { signIn } from "./helpers";
 
 test("admin can run the core CRM workflow", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop", "The full mutation workflow runs once.");
@@ -12,7 +13,7 @@ test("admin can run the core CRM workflow", async ({ page }, testInfo) => {
   let token = "";
 
   async function api(path: string, method = "GET", body?: unknown) {
-    const response = await page.request.fetch(`http://localhost:4010/api${path}`, {
+    const response = await page.request.fetch(`${process.env.CRM_API_URL || "http://127.0.0.1:4010/api"}${path}`, {
       method,
       headers: {
         authorization: `Bearer ${token}`,
@@ -25,13 +26,11 @@ test("admin can run the core CRM workflow", async ({ page }, testInfo) => {
   }
 
   try {
-    await page.goto("/login");
-    await page.locator("form").getByRole("button", { name: "Sign in", exact: true }).click();
-    await expect(page).toHaveURL(/\/$/);
+    await signIn(page);
     token = await page.evaluate(() => localStorage.getItem("northstar_crm_token") || "");
     expect(token).toBeTruthy();
 
-    await page.goto("/companies");
+    await page.goto("/crm/companies");
     await page.getByRole("button", { name: "Company", exact: true }).click();
     const companyDialog = page.getByRole("dialog", { name: "New company" });
     await companyDialog.getByLabel("Company name").fill(companyName);
@@ -41,7 +40,7 @@ test("admin can run the core CRM workflow", async ({ page }, testInfo) => {
     await expect(page.getByRole("heading", { name: companyName })).toBeVisible();
     created.companyId = (await api(`/companies?limit=100&search=${encodeURIComponent(companyName)}`)).companies[0].id;
 
-    await page.goto("/contacts");
+    await page.goto("/crm/contacts");
     await page.getByRole("button", { name: "Contact", exact: true }).click();
     const contactDialog = page.getByRole("dialog", { name: "New contact" });
     await contactDialog.getByLabel("First name").fill("E2E");
@@ -60,7 +59,8 @@ test("admin can run the core CRM workflow", async ({ page }, testInfo) => {
     await editDialog.getByRole("button", { name: "Save changes" }).click();
     await expect(page.getByText("Revenue Tester", { exact: true }).first()).toBeVisible();
 
-    await page.getByRole("button", { name: "Task", exact: true }).click();
+    await page.locator(".record-section").filter({ has: page.getByRole("heading", { name: "Tasks", exact: true }) })
+      .getByRole("button", { name: "Task", exact: true }).click();
     const taskDialog = page.getByRole("dialog", { name: "New task" });
     await taskDialog.getByLabel("Title").fill(taskName);
     await taskDialog.getByLabel("Priority").selectOption("HIGH");
@@ -70,14 +70,14 @@ test("admin can run the core CRM workflow", async ({ page }, testInfo) => {
       (task: { title: string }) => task.title === taskName
     ).id;
 
-    await page.goto("/tasks");
+    await page.goto("/crm/tasks");
     await page.getByRole("button", { name: `Edit ${taskName}` }).click();
     const editTaskDialog = page.getByRole("dialog", { name: "Edit task" });
     await editTaskDialog.getByLabel("Title").fill(`${taskName} updated`);
     await editTaskDialog.getByRole("button", { name: "Save changes" }).click();
     await expect(page.getByRole("heading", { name: `${taskName} updated` })).toBeVisible();
 
-    await page.goto("/pipeline");
+    await page.goto("/crm/pipeline");
     await page.getByRole("button", { name: "Deal", exact: true }).click();
     const dealDialog = page.getByRole("dialog", { name: "New deal" });
     await dealDialog.getByLabel("Deal name").fill(dealName);

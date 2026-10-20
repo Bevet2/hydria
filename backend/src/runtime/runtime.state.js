@@ -1,3 +1,4 @@
+import { readJsonFile, writeJsonFile } from "../../utils/durableFiles.js";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -24,18 +25,18 @@ export class RuntimeStateStore {
 
   readState() {
     try {
-      const parsed = JSON.parse(fs.readFileSync(this.filePath, "utf8"));
+      const parsed = readJsonFile(this.filePath);
       return {
         version: parsed.version || 1,
         sessions: parsed.sessions || {}
       };
-    } catch {
-      return createDefaultState();
+    } catch (error) {
+      throw error;
     }
   }
 
   writeState(nextState) {
-    fs.writeFileSync(this.filePath, JSON.stringify(nextState, null, 2));
+    writeJsonFile(this.filePath, nextState);
   }
 
   createSession(session) {
