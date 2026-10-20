@@ -1,7 +1,7 @@
 // Hydria Drive — unified library of existing Hydria work objects.
 // This is deliberately not a separate file store or a cloud-sync service.
 const SORTS = new Set(["recent", "name", "kind"]);
-const KINDS = new Set(["all", "document", "dataset", "presentation", "dashboard", "workflow", "design", "project", "code", "other"]);
+const KINDS = new Set(["all", "document", "pdf", "dataset", "presentation", "dashboard", "workflow", "design", "project", "code", "other"]);
 let view = { query: "", kind: "all", sort: "recent" };
 
 function kindOf(item) {
@@ -17,7 +17,7 @@ function titleOf(item) {
 }
 function typeLabel(kind) {
   return ({
-    document: "Document", dataset: "Tableur", presentation: "Présentation",
+    document: "Document", pdf: "PDF", dataset: "Tableur", presentation: "Présentation",
     dashboard: "Dashboard", workflow: "Flux", design: "Design",
     project: "Projet", code: "Code", image: "Image", audio: "Audio",
     video: "Vidéo"
@@ -103,7 +103,7 @@ export function renderHydriaDriveWorkspace(container, {
   const filter = node("select", "hydria-drive-filter");
   filter.setAttribute("aria-label", "Filtrer les types");
   for (const [value, label] of [
-    ["all", "Tous les types"], ["document", "Documents"], ["dataset", "Tableurs"],
+    ["all", "Tous les types"], ["document", "Documents"], ["pdf", "PDF"], ["dataset", "Tableurs"],
     ["presentation", "Présentations"], ["dashboard", "Dashboards"],
     ["workflow", "Flux et automatisations"], ["design", "Designs"],
     ["project", "Projets"], ["code", "Code"], ["other", "Autres"]
@@ -150,7 +150,7 @@ export function renderHydriaDriveWorkspace(container, {
       row.setAttribute("role", "listitem");
       button.title = "Ouvrir " + titleOf(item);
       const symbol = node("span", "hydria-drive-item-symbol", ({
-        document: "▤", dataset: "▦", presentation: "▣", dashboard: "◫",
+        document: "▤", pdf: "▣", dataset: "▦", presentation: "▣", dashboard: "◫",
         workflow: "◇", design: "◈", project: "▥", code: "⌘"
       })[kind] || "▢");
       symbol.setAttribute("aria-hidden", "true");
