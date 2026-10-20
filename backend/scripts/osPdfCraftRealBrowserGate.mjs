@@ -5,7 +5,7 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import PDFDocument from "pdfkit";
-import parsePdf from "pdf-parse/lib/pdf-parse.js";
+import { parsePdfBytes as parsePdf } from "../utils/pdfReader.js";
 import { chromium } from "playwright";
 
 const base = process.env.HYDRIA_TEST_ORIGIN || "http://127.0.0.1:3001";
@@ -118,8 +118,11 @@ try {
   assert.match(tools.pdfinfo.stdout, /Pages:\s+1\b/);
   assert.match(tools.pdfinfo.stdout, /Page rot:\s+90\b/);
   assert.match(tools.pdftotext.stdout, /real PDF save verification/);
-  // Keep the previous Buffer-reader requirement until the cause is diagnosed.
-  assert.equal(readers.buffer.ok, true, "PDF.js Buffer read failed: " + readers.buffer.error);
+  // Both public input types use the production reader adapter.
+  assert.equal(readers.buffer.ok, true, "Normalized Buffer read failed: " + readers.buffer.error);
+  assert.equal(readers.uint8.ok, true, "Normalized Uint8Array read failed: " + readers.uint8.error);
+  assert.equal(readers.buffer.unchanged, true);
+  assert.equal(readers.uint8.unchanged, true);
   const contents = readers.buffer, rotations = readers.buffer.rotations;
   assert.equal(contents.numpages, 1);
   assert.match(contents.text, /real PDF save verification/);

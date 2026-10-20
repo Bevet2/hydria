@@ -43,6 +43,8 @@ jobs:
         run: node backend/scripts/osActionConsentGate.mjs
       - name: Dependency security
         run: npm audit --prefix backend --audit-level=high
+      - name: PDF reader offset and attachment regression
+        run: node backend/scripts/osPdfReaderGate.mjs
       - name: Validate PdfCraft integration contract and pinned installer
         run: node backend/scripts/osPdfCraftGate.mjs
       - name: Legacy PDF revision migration
@@ -354,6 +356,8 @@ jobs:
       - run: npx --prefix backend playwright install --with-deps chromium
       - run: sudo apt-get install -y qpdf poppler-utils
       - run: node backend/scripts/installPdfCraft.mjs
+      - name: PDF reader offset and attachment regression
+        run: node backend/scripts/osPdfReaderGate.mjs
       - name: Three authentic WASM saves and independent PDF readers
         run: node backend/scripts/runLocalValidation.mjs osPdfCraftRealBrowserGate osPdfCraftRealBrowserGate osPdfCraftRealBrowserGate
       - name: Retain synthetic PDF readback evidence
