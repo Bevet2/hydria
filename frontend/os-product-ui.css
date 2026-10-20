@@ -667,3 +667,7 @@ html body[data-os-theme="dark"] .hydria-drive-image-row{background:#222940;borde
 .hydria-artcraft-image-item.hydria-artcraft-target-image{outline:2px solid var(--os-focus,#6366f1);outline-offset:2px}
 html body[data-os-theme="dark"] .hydria-artcraft-version-history{
   color:#e2e8f0;background:#252a40;border-color:#434b67}
+
+.hydria-drive-image-revision{white-space:nowrap;font-size:11px;font-weight:700;color:var(--muted,#64748b);
+  background:var(--os-subtle,#f8fafc);border:1px solid var(--os-border,#e2e8f0);border-radius:20px;padding:5px 9px}
+html body[data-os-theme="dark"] .hydria-drive-image-revision{background:#252a40;color:#aab7cc;border-color:#434b67}
