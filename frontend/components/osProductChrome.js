@@ -1,6 +1,7 @@
 // Hydria OS product shell enhancements.
 // Progressive enhancement only: preserve the existing workspace module actions.
 const icons = {
+  drive:'<rect x="3" y="6" width="18" height="14" rx="2"/><path d="M3 9h18M8 3h8l2 3"/>',
   home:'<path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/><path d="M9 21v-7h6v7"/>',
   chat:'<path d="M20 11.5a7.5 7.5 0 0 1-7.5 7.5H5l1.7-3.4A7.5 7.5 0 1 1 20 11.5z"/><path d="M8 11h8M8 14h5"/>',
   docs:'<path d="M7 3h7l5 5v13H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M14 3v6h5M9 13h7M9 17h7"/>',
@@ -15,7 +16,7 @@ const icons = {
   code:'<path d="m8 7-5 5 5 5M16 7l5 5-5 5M14 4l-4 16"/>',
   search:'<circle cx="11" cy="11" r="7"/><path d="m16 16 4 4"/>'
 };
-const pages=['home','chat','docs','sheets','slides','dashboard','crm','automation','flows','builder','whiteboard','code'];
+const pages=['home','chat','drive','docs','sheets','slides','dashboard','crm','automation','flows','builder','whiteboard','code'];
 const nav=document.getElementById("workspace-switcher");
 const workspaceLabel=document.getElementById("os-active-workspace");
 const mobileMenu=document.getElementById("os-mobile-menu");
@@ -32,7 +33,7 @@ function refreshNavigation(){
   if(!nav)return;
   const chips=[...nav.querySelectorAll(".workspace-switcher-chip")];
   chips.forEach((chip,index)=>{
-    const key=chip.classList.contains("workspace-search-chip")?"search":pages[index]||"builder";
+    const key=chip.classList.contains("workspace-search-chip")?"search":chip.dataset.workspacePage||pages[index]||"builder";
     // A data attribute provides future per-module styling without coupling to app.js.
     chip.dataset.osIcon=key;
     if(!chip.querySelector(".os-nav-icon")){
