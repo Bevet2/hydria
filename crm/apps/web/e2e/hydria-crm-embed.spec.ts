@@ -8,6 +8,7 @@ test("Hydria CRM workspace exposes the real interactive application", async ({ p
   page.on("pageerror", (error) => errors.push(error.message));
 
   await page.goto("http://localhost:3001/workspace/crm");
+  await page.waitForFunction(() => document.documentElement.dataset.hydriaBoot === "ready");
   const crm = page.frameLocator(".workspace-crm-live-frame");
   await expect(crm.getByRole("heading", { name: "Dashboard" })).toBeVisible();
   if ((page.viewportSize()?.width || 0) <= 760) {
