@@ -11,6 +11,15 @@ export const WORKSPACE_PAGES = Object.freeze([
     hint: "Open chat"
   },
   {
+    slug: "drive",
+    kind: "virtual",
+    family: "file_storage",
+    label: "Drive",
+    title: "Hydria Drive",
+    description: "Retrouvez et ouvrez les documents et projets de vos workspaces.",
+    hint: "Ouvrir votre bibliothèque"
+  },
+  {
     slug: "docs",
     kind: "document",
     family: "document_knowledge",
@@ -92,6 +101,33 @@ export const WORKSPACE_PAGES = Object.freeze([
     hint: "Create a whiteboard"
   },
   {
+    slug: "photo",
+    kind: "virtual",
+    family: "artcraft_photo",
+    label: "Photo Studio",
+    title: "Hydria Photo",
+    description: "Retouchez des images dans PhotoCraft et conservez vos exports dans Drive.",
+    hint: "Ouvrir PhotoCraft"
+  },
+  {
+    slug: "fig",
+    kind: "virtual",
+    family: "artcraft_fig",
+    label: "Design Studio",
+    title: "Hydria Design",
+    description: "Prototypage d'interfaces avec le moteur libre FigCraft Web.",
+    hint: "Ouvrir FigCraft"
+  },
+  {
+    slug: "pdf",
+    kind: "virtual",
+    family: "document_knowledge",
+    label: "PDF Studio",
+    title: "PDF Studio",
+    description: "Ouvrez et éditez des PDF avec le moteur libre ArtCraft PdfCraft.",
+    hint: "Ouvrir l'éditeur PDF"
+  },
+  {
     slug: "code",
     kind: "code",
     family: "development",
@@ -121,6 +157,8 @@ export const WORKSPACE_FAMILY_LABELS = Object.freeze({
   finance: "Finance",
   hr: "HR",
   file_storage: "Files & Storage",
+  artcraft_photo: "Photo & Image Editing",
+  artcraft_fig: "Interface Design",
   testing_qa: "Testing & QA",
   web_cms: "Web & CMS",
   media: "Media",
@@ -159,7 +197,12 @@ export function parseWorkspacePagePath(pathname = globalThis.window?.location?.p
   if (normalizedPath === "/" || !normalizedPath.startsWith(WORKSPACE_ROUTE_PREFIX)) {
     return null;
   }
-  return workspacePageFromSlug(decodeURIComponent(normalizedPath.slice(WORKSPACE_ROUTE_PREFIX.length)));
+  try {
+    return workspacePageFromSlug(decodeURIComponent(normalizedPath.slice(WORKSPACE_ROUTE_PREFIX.length)));
+  } catch {
+    // Malformed percent-encoded URLs should not crash the entire workspace shell.
+    return null;
+  }
 }
 
 export function workspacePagePath(page = null) {

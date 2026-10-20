@@ -11,7 +11,9 @@ async function visit(dir) {
     const absolute = path.join(dir, item.name);
     if (item.isDirectory()) { await visit(absolute); continue; }
     const relative = path.relative(source, absolute);
-    if (item.name.endsWith(".js")) entries.push(absolute);
+    // Integrity-verified third-party runtimes have their own loader, chunks and
+    // WASM paths. Preserve those files byte for byte instead of rebundling them.
+    if (item.name.endsWith(".js") && relative.split(path.sep)[0] !== "vendor") entries.push(absolute);
     else { await fs.mkdir(path.dirname(path.join(out, relative)), { recursive: true }); await fs.copyFile(absolute, path.join(out, relative)); }
   }
 }

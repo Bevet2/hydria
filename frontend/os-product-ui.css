@@ -518,3 +518,161 @@ html body[data-os-theme="dark"] .os-focus-toggle[aria-pressed="true"]{
 .workspace-action-consent h2 {font-size:19px;margin:0 0 12px;}
 .workspace-action-consent li {overflow-wrap:anywhere;margin-block:8px;}
 .workspace-action-consent-buttons {display:flex;justify-content:flex-end;gap:8px;margin-top:20px;}
+
+
+/* Hydria Drive — first unified native work-object library.
+   Uses existing Hydria permissions and persistence; no separate file copies. */
+.hydria-drive{display:flex;flex-direction:column;gap:20px;padding:4px 2px 32px;max-width:1100px;margin:0 auto;}
+.hydria-drive-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;padding:12px 0 8px;}
+.hydria-drive-heading h2{font-size:clamp(22px,2.6vw,32px);font-weight:700;line-height:1.15;letter-spacing:-.035em;margin:8px 0 10px;}
+.hydria-drive-eyebrow{margin:0;font:600 11px/1.4 "IBM Plex Mono",monospace;letter-spacing:.12em;opacity:.68;}
+.hydria-drive-subtitle{max-width:620px;margin:0;color:#64748b;font-size:13px;line-height:1.65;}
+.hydria-drive-total{flex:none;border:1px solid #dce3ec;border-radius:999px;padding:7px 12px;font-size:12px;font-weight:650;color:#475569;background:#fff;white-space:nowrap;}
+.hydria-drive-quick{display:flex;gap:10px;flex-wrap:wrap;}
+.hydria-drive-new{font:inherit;font-size:13px;font-weight:650;border-radius:12px;border:1px solid #cbd5e1;background:#fff;color:#1e293b;padding:11px 15px;cursor:pointer;transition:background .15s,border-color .15s;}
+.hydria-drive-new:hover{background:#eff6ff;border-color:#a5b4fc;}
+.hydria-drive-controls{display:grid;grid-template-columns:minmax(220px,1fr) 190px 155px;gap:10px;}
+.hydria-drive-controls input,.hydria-drive-controls select{font:inherit;width:100%;min-width:0;min-height:42px;background:#fff;border:1px solid #d6deea;border-radius:11px;color:#334155;padding:10px 12px;}
+.hydria-drive-controls :is(input,select):focus-visible,.hydria-drive :is(button):focus-visible{outline:2px solid #4f46e5;outline-offset:2px;}
+.hydria-drive-results{margin:0;color:#64748b;font-size:12px;font-weight:600;}
+.hydria-drive-list{display:grid;gap:8px;min-width:0;}
+.hydria-drive-item{display:flex;align-items:center;gap:15px;width:100%;text-align:left;border:1px solid #e2e8f0;background:#fff;color:#0f172a;border-radius:14px;padding:13px 16px;cursor:pointer;transition:background .15s,border-color .15s,transform .15s;}
+.hydria-drive-item:hover{background:#f8faff;border-color:#aebee1;transform:translateY(-1px);}
+.hydria-drive-item-symbol{display:grid;place-items:center;flex:none;width:42px;height:42px;border-radius:11px;background:#eef2ff;color:#4338ca;font-size:23px;}
+.hydria-drive-item-copy{display:flex;flex:1;min-width:0;flex-direction:column;gap:4px;}
+.hydria-drive-item-copy strong{font-size:14px;white-space:nowrap;text-overflow:ellipsis;overflow:hidden;}
+.hydria-drive-item-copy small{color:#64748b;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.hydria-drive-item-arrow{flex:none;color:#64748b;font-size:12px;font-weight:650;}
+.hydria-drive-empty{padding:40px 18px;text-align:center;background:#fff;border:1px dashed #cbd5e1;border-radius:14px;color:#64748b;line-height:1.7;}
+html body[data-os-theme="dark"] .hydria-drive-subtitle,html body[data-os-theme="dark"] .hydria-drive-results{color:#aab7cc;}
+html body[data-os-theme="dark"] .hydria-drive-total,html body[data-os-theme="dark"] .hydria-drive-new,html body[data-os-theme="dark"] .hydria-drive-controls :is(input,select),html body[data-os-theme="dark"] .hydria-drive-item,html body[data-os-theme="dark"] .hydria-drive-empty{background:#252a40;border-color:#434b67;color:#e2e8f0;}
+html body[data-os-theme="dark"] .hydria-drive-new:hover,html body[data-os-theme="dark"] .hydria-drive-item:hover{background:#303852;border-color:#707aa6;}
+html body[data-os-theme="dark"] .hydria-drive-item-copy small{color:#aab7cc;}
+html body[data-os-theme="dark"] .hydria-drive-item-symbol{background:#323957;color:#c7d2fe;}
+@media(max-width:780px){.hydria-drive-heading{flex-wrap:wrap}.hydria-drive-controls{grid-template-columns:1fr 1fr}.hydria-drive-search{grid-column:1/-1}.hydria-drive-item-arrow{display:none}}
+@media(max-width:430px){.hydria-drive-controls{grid-template-columns:1fr}.hydria-drive-search{grid-column:auto}.hydria-drive-item{padding:11px}.hydria-drive-total{font-size:11px}}
+
+/* PdfCraft WASM lives inside the native Hydria OS shell. */
+.hydria-pdf-workbench{display:flex;flex-direction:column;gap:16px;width:100%;min-width:0;min-height:700px;}
+.hydria-pdf-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;}
+.hydria-pdf-heading h2{margin:4px 0 6px;font-size:clamp(23px,2.7vw,32px);letter-spacing:-.035em;}
+.hydria-pdf-eyebrow{margin:0;letter-spacing:.12em;font-size:11px;font-weight:700;color:#64748b;}
+.hydria-pdf-desc{margin:0;color:#64748b;font-size:13px;line-height:1.5;}
+.hydria-pdf-status{flex:none;font-size:12px;padding:7px 11px;border:1px solid #dce3ec;border-radius:999px;color:#475569;}
+.hydria-pdf-toolbar{display:flex;flex-wrap:wrap;gap:10px;}
+.hydria-pdf-document-select{flex:1 1 240px;max-width:430px;min-height:42px;background:white;border:1px solid #cbd5e1;color:#0f172a;border-radius:10px;padding:8px 10px;font:inherit;font-size:13px;}
+.hydria-pdf-button{background:white;color:#0f172a;border:1px solid #cbd5e1;border-radius:10px;font:inherit;font-size:13px;font-weight:600;padding:10px 14px;cursor:pointer;}
+.hydria-pdf-primary{background:#312e81;border-color:#312e81;color:white;}
+.hydria-pdf-button:not(:disabled):hover{filter:brightness(.92);}
+.hydria-pdf-button:disabled{opacity:.55;cursor:not-allowed;}
+.hydria-pdf-workbench :is(button,select):focus-visible{outline:2px solid #4f46e5;outline-offset:2px;}
+.hydria-pdf-hint{margin:0;font-size:12px;color:#64748b;line-height:1.6;}
+.hydria-pdf-viewport{flex:1;min-height:700px;border:1px solid #d5deeb;border-radius:14px;overflow:hidden;background:#f8fafc;}
+.hydria-pdf-frame{border:0;width:100%;height:min(75vh,1050px);min-height:690px;display:block;background:white;}
+.hydria-pdf-loading{display:grid;place-content:center;min-height:450px;text-align:center;color:#64748b;padding:24px;}
+.hydria-pdf-error{font-size:12px;padding:12px 14px;background:#fff4ed;color:#9a3412;border:1px solid #fdba74;border-radius:10px;line-height:1.7;}
+.hydria-pdf-error[hidden]{display:none;}
+html body[data-os-theme="dark"] .hydria-pdf-desc,
+html body[data-os-theme="dark"] .hydria-pdf-eyebrow,
+html body[data-os-theme="dark"] .hydria-pdf-hint{color:#aab7cc;}
+html body[data-os-theme="dark"] .hydria-pdf-status,
+html body[data-os-theme="dark"] .hydria-pdf-document-select,
+html body[data-os-theme="dark"] .hydria-pdf-button:not(.hydria-pdf-primary){color:#e2e8f0;background:#252a40;border-color:#434b67;}
+html body[data-os-theme="dark"] .hydria-pdf-viewport{background:#171c30;border-color:#434b67;}
+@media(max-width:700px){.hydria-pdf-heading{align-items:flex-start;flex-direction:column}.hydria-pdf-viewport{min-height:570px}.hydria-pdf-frame{min-height:560px;height:72vh}}
+
+
+/* Drive PDF library and explicit PDF import/export controls. */
+.hydria-pdf-import{display:flex;align-items:center;flex-wrap:wrap;gap:12px;padding:14px 16px;border:1px dashed #b4c2d9;border-radius:12px;background:#f8fafc;}
+.hydria-pdf-import strong{flex:1 1 260px;font-size:12px;line-height:1.4;color:#334155;}
+.hydria-pdf-upload{flex:1 1 210px;max-width:480px;font-size:12px;color:#475569;}
+.hydria-pdf-upload::file-selector-button{border:1px solid #cbd5e1;background:#fff;border-radius:8px;color:#1e293b;cursor:pointer;padding:9px 12px;font:inherit;margin-right:12px;}
+.hydria-pdf-saved{border:1px solid #e2e8f0;background:#fff;border-radius:14px;padding:14px;display:grid;gap:12px;min-width:0;}
+.hydria-pdf-saved-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;}
+.hydria-pdf-saved-heading h3,.hydria-drive-pdf-group h3{margin:0;font-size:15px;letter-spacing:-.02em;}
+.hydria-pdf-saved-list,.hydria-drive-pdf-list{display:grid;gap:8px;}
+.hydria-pdf-saved-item,.hydria-drive-pdf-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:10px 12px;}
+.hydria-pdf-saved-copy{display:flex;flex:1 1 200px;flex-direction:column;gap:3px;min-width:0;}
+.hydria-pdf-saved-copy strong,.hydria-drive-pdf-row strong{font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.hydria-pdf-saved-copy small{font-size:11px;color:#64748b;}
+.hydria-pdf-saved-item .hydria-pdf-button,.hydria-drive-pdf-row .hydria-pdf-button{white-space:nowrap;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;padding:8px 12px;}
+.hydria-pdf-saved-empty{margin:0;padding:12px;font-size:12px;line-height:1.6;color:#64748b;}
+.hydria-drive-pdf-group{display:grid;gap:12px;margin-top:10px;padding:18px;background:#fff;border:1px solid #e2e8f0;border-radius:14px;}
+.hydria-drive-pdf-group[hidden]{display:none!important;}
+.hydria-drive-pdf-row strong{flex:1 1 220px;min-width:0;}
+html body[data-os-theme="dark"] .hydria-pdf-import,html body[data-os-theme="dark"] .hydria-pdf-saved-item,html body[data-os-theme="dark"] .hydria-drive-pdf-row{background:#222940;border-color:#414b69;color:#e2e8f0;}
+html body[data-os-theme="dark"] .hydria-pdf-saved,html body[data-os-theme="dark"] .hydria-drive-pdf-group{background:#1e253a;border-color:#414b69;}
+html body[data-os-theme="dark"] .hydria-pdf-import strong{color:#e2e8f0;}
+html body[data-os-theme="dark"] .hydria-pdf-upload,html body[data-os-theme="dark"] .hydria-pdf-saved-empty{color:#aab7cc;}
+@media(max-width:650px){.hydria-pdf-import{align-items:stretch}.hydria-pdf-saved-item .hydria-pdf-button,.hydria-drive-pdf-row .hydria-pdf-button{font-size:12px}.hydria-drive-pdf-group{padding:12px}}
+
+
+/* Native Hydria creative workspaces — upstream ArtCraft WASM, private pilot. */
+.hydria-artcraft{--ac-border:#dce2ee;--ac-surface:#fff;--ac-muted:#64748b;--ac-tint:#f8fafc;max-width:1600px;margin:0 auto;display:flex;flex-direction:column;gap:15px;width:100%;min-width:0;padding:8px 2px 24px;color:#0f172a;}
+.hydria-artcraft-header{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;}
+.hydria-artcraft-heading{min-width:0;flex:1;}
+.hydria-artcraft-eyebrow{margin:0;color:#64748b;font:700 11px/1.6 "IBM Plex Mono",monospace;letter-spacing:.12em;}
+.hydria-artcraft-heading h2{margin:5px 0 5px;font-size:clamp(23px,2.6vw,32px);font-weight:700;letter-spacing:-.035em;line-height:1.1;}
+.hydria-artcraft-description{font-size:13px;color:var(--ac-muted);margin:0;line-height:1.55;}
+.hydria-artcraft-status{font-size:12px;font-weight:600;background:var(--ac-surface);border:1px solid var(--ac-border);color:#475569;padding:7px 12px;border-radius:999px;white-space:nowrap;}
+.hydria-artcraft-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:9px;}
+.hydria-artcraft-button{display:inline-flex;align-items:center;justify-content:center;gap:5px;padding:9px 12px;background:var(--ac-surface);border:1px solid #cbd5e1;border-radius:10px;color:#334155;font:600 12px/1.35 inherit;text-decoration:none;cursor:pointer;white-space:nowrap;}
+.hydria-artcraft-button:hover:not(:disabled){background:#eff3ff;border-color:#a9b7d9;}
+.hydria-artcraft-button:disabled{opacity:.52;cursor:not-allowed;}
+.hydria-artcraft :is(a,button,input):focus-visible{outline:2px solid #4f46e5;outline-offset:2px;}
+.hydria-artcraft-instructions{display:flex;flex-direction:column;gap:6px;padding:12px 15px;background:var(--ac-tint);border:1px solid var(--ac-border);border-radius:12px;}
+.hydria-artcraft-instructions strong{font-size:12px;}
+.hydria-artcraft-instructions p,.hydria-artcraft-caution{margin:0;color:var(--ac-muted);font-size:12px;line-height:1.6;}
+.hydria-artcraft-viewport{width:100%;min-width:0;min-height:680px;overflow:hidden;background:#eef2f7;border:1px solid var(--ac-border);border-radius:14px;}
+.hydria-artcraft-placeholder{display:grid;place-content:center;text-align:center;padding:20px;min-height:430px;max-width:640px;margin:0 auto;color:var(--ac-muted);font-size:14px;line-height:1.7;}
+.hydria-artcraft-frame{display:block;border:0;width:100%;min-height:680px;height:min(78vh,1080px);background:#1c2130;}
+.hydria-artcraft-library{display:flex;flex-direction:column;gap:12px;background:var(--ac-surface);border:1px solid var(--ac-border);border-radius:14px;padding:15px;}
+.hydria-artcraft-library-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;}
+.hydria-artcraft-library-head h3{font-size:15px;letter-spacing:-.02em;margin:0;}
+.hydria-artcraft-upload-box{display:flex;align-items:center;gap:14px;flex-wrap:wrap;background:var(--ac-tint);border:1px dashed #aebbd2;border-radius:11px;padding:10px 14px;}
+.hydria-artcraft-upload-box input{flex:1 1 240px;min-width:0;font-size:12px;color:#475569;}
+.hydria-artcraft-upload-box small{font-size:11px;line-height:1.55;color:var(--ac-muted);}
+.hydria-artcraft-image-feedback{margin:0;font-size:12px;min-height:16px;color:#475569;}
+.hydria-artcraft-images{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:10px;}
+.hydria-artcraft-image-item{display:flex;align-items:center;gap:11px;padding:10px;background:var(--ac-tint);border:1px solid var(--ac-border);border-radius:12px;min-width:0;}
+.hydria-artcraft-thumbnail{flex:none;width:64px;height:55px;object-fit:contain;background:#e2e8f0;border-radius:6px;}
+.hydria-artcraft-image-copy{display:flex;flex-direction:column;min-width:0;flex:1;gap:4px;}
+.hydria-artcraft-image-copy strong{font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.hydria-artcraft-image-copy small{color:var(--ac-muted);font-size:11px;}
+.hydria-artcraft-image-item .hydria-artcraft-button{padding:7px 9px;}
+.hydria-artcraft-empty{font-size:12px;margin:0;color:var(--ac-muted);padding:14px;}
+html body[data-os-theme="dark"] .hydria-artcraft{--ac-border:#454e68;--ac-surface:#262c42;--ac-muted:#aebbd0;--ac-tint:#22283b;color:#e5eaf6;}
+html body[data-os-theme="dark"] .hydria-artcraft-status,html body[data-os-theme="dark"] .hydria-artcraft-button{background:#2c334c;color:#dce5f6;border-color:#515c78;}
+html body[data-os-theme="dark"] .hydria-artcraft-viewport{background:#151b2c;}
+html body[data-os-theme="dark"] .hydria-artcraft-image-feedback,html body[data-os-theme="dark"] .hydria-artcraft-upload-box input{color:#bfc9dd;}
+@media(max-width:720px){.hydria-artcraft-viewport{min-height:540px}.hydria-artcraft-frame{min-height:540px;height:71vh}.hydria-artcraft-library{padding:11px}.hydria-artcraft-image-item{flex-wrap:wrap}}
+
+
+/* Raster images now appear in Drive next to saved PDF assets. */
+.hydria-drive-image-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:10px;}
+.hydria-drive-image-row{display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:10px;border-radius:11px;background:#f8fafc;border:1px solid #e2e8f0;}
+.hydria-drive-image-row strong{flex:1 1 120px;min-width:0;white-space:nowrap;text-overflow:ellipsis;overflow:hidden;font-size:12px;}
+.hydria-drive-image-thumb{flex:none;width:62px;height:58px;object-fit:contain;background:#e2e8f0;border-radius:7px;}
+.hydria-drive-image-row .hydria-artcraft-button{padding:7px 9px;}
+html body[data-os-theme="dark"] .hydria-drive-image-row{background:#222940;border-color:#414b69;color:#e2e8f0;}
+
+
+/* PhotoCraft -> Drive: non-destructive image version controls */
+.hydria-artcraft-image-item .hydria-artcraft-version-button,
+.hydria-artcraft-image-item .hydria-artcraft-history-button{white-space:nowrap}
+.hydria-artcraft-image-item .hydria-artcraft-version-input[hidden],
+.hydria-artcraft-version-history[hidden]{display:none!important}
+.hydria-artcraft-version-history{display:grid;gap:6px;flex:1 0 100%;padding:10px 12px;
+  background:var(--os-subtle,#f8fafc);border:1px solid var(--os-border,#e2e8f0);border-radius:9px}
+.hydria-artcraft-history-row{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;
+  border-bottom:1px solid var(--os-border,#e2e8f0);padding:8px 0}
+.hydria-artcraft-history-row:last-child{border-bottom:0}
+.hydria-artcraft-history-row>span{flex:1 1 200px;overflow-wrap:anywhere;font-size:12px}
+.hydria-artcraft-history-row>a{white-space:nowrap;text-decoration:none}
+.hydria-artcraft-image-item.hydria-artcraft-target-image{outline:2px solid var(--os-focus,#6366f1);outline-offset:2px}
+html body[data-os-theme="dark"] .hydria-artcraft-version-history{
+  color:#e2e8f0;background:#252a40;border-color:#434b67}
+
+.hydria-drive-image-revision{white-space:nowrap;font-size:11px;font-weight:700;color:var(--muted,#64748b);
+  background:var(--os-subtle,#f8fafc);border:1px solid var(--os-border,#e2e8f0);border-radius:20px;padding:5px 9px}
+html body[data-os-theme="dark"] .hydria-drive-image-revision{background:#252a40;color:#aab7cc;border-color:#434b67}

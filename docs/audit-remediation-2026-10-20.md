@@ -26,6 +26,17 @@ Office rendering fidelity on a large real-world corpus. Visual simplification
 and passing browser scenarios are concrete improvements, not a usability
 certification or a claim that every native editor label has been localized.
 
+## Integration with Drive and ArtCraft
+
+The security branch is reconciled with main `4470987`, retaining Drive,
+PDF Studio, PhotoCraft, FigCraft and the image revision history. Production
+bundling leaves installed `frontend/vendor` runtimes byte-for-byte unchanged;
+CI compares the official installed distributions with the bundled output.
+The Docker image retains the optional verified ArtCraft installation steps.
+Drive acceptance waits for profile hydration and searches the created title,
+so localization and previously created documents do not invalidate the test.
+These changes do not add direct editor write-back or multi-user authorization.
+
 ## Deployment migration
 
 1. Stop writes and take a verified backup before updating. Existing data

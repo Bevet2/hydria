@@ -8,6 +8,7 @@ const scripts = process.argv.slice(2);
 if (!scripts.length) throw Error("Provide one or more backend script names");
 if (scripts.some(name => !/^[a-zA-Z0-9-]+$/.test(name))) throw Error("Invalid script name");
 const cwd = path.resolve(import.meta.dirname, "..");
+const root = path.resolve(cwd, "..");
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), "hydria-local-validation-"));
 const port = process.env.HYDRIA_VALIDATION_PORT || "3381";
 const base = `http://127.0.0.1:${port}`;
@@ -28,8 +29,10 @@ try {
   await fetch(base + "/api/users", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ username: "validation-owner" }) });
   for (const script of scripts) {
     console.log("RUN", script);
-    const run = spawn(process.execPath, [`scripts/${script}.mjs`], { cwd, stdio: "inherit", env: {
+    // Match CI's repository-root working directory, including browser fixtures.
+    const run = spawn(process.execPath, [path.join(cwd, `scripts/${script}.mjs`)], { cwd: root, stdio: "inherit", env: {
       ...process.env, HYDRIA_VISUAL_BASE_URL: base, HYDRIA_BUGHUNT_BASE_URL: base, HYDRIA_GATE_BASE_URL: base,
+      HYDRIA_TEST_ORIGIN: base,
       HYDRIA_BUGHUNT_STRICT: "1"
     } });
     const watchdog = setTimeout(() => run.kill("SIGTERM"), 600_000);

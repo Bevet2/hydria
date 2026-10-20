@@ -39,3 +39,16 @@ __pycache__/
 *.pyc
 crm/storage/
 frontend-dist/
+
+# Installed third-party ArtCraft binary assets (downloaded and checksum-verified locally)
+frontend/vendor/pdfcraft/
+frontend/vendor/.pdfcraft-stage-*/
+frontend/vendor/pdfcraft.old/
+
+# PhotoCraft and FigCraft are self-hosted on opt-in; don't commit upstream binaries.
+frontend/vendor/photocraft/
+frontend/vendor/figcraft/
+frontend/vendor/.photocraft-stage-*/
+frontend/vendor/.figcraft-stage-*/
+frontend/vendor/photocraft.old/
+frontend/vendor/figcraft.old/
