@@ -49,13 +49,13 @@ try {
     "<!doctype html><html><body><strong>FigCraft WASM fixture</strong></body></html>");
 
   await page.reload({waitUntil:"domcontentloaded"});
-  await page.locator(".hydria-artcraft-status").getByText("PhotoCraft disponible").waitFor({timeout:16000});
+  await page.locator(".hydria-artcraft-status").filter({hasText:"PhotoCraft disponible"}).waitFor({timeout:16000});
   await page.frameLocator(".hydria-artcraft-frame").getByText("PhotoCraft WASM fixture").waitFor({timeout:16000});
   await page.getByRole("button",{name:"Redémarrer l'éditeur"}).click();
   await page.frameLocator(".hydria-artcraft-frame").getByText("PhotoCraft WASM fixture").waitFor({timeout:16000});
 
   await page.goto(base+"/workspace/fig",{waitUntil:"domcontentloaded"});
-  await page.locator(".hydria-artcraft-status").getByText("FigCraft disponible").waitFor({timeout:16000});
+  await page.locator(".hydria-artcraft-status").filter({hasText:"FigCraft disponible"}).waitFor({timeout:16000});
   await page.frameLocator(".hydria-artcraft-frame").getByText("FigCraft WASM fixture").waitFor({timeout:16000});
   assert.equal(await page.getByLabel("Importer une image PhotoCraft dans Drive").count(),0);
   await page.getByText("ne raccorde pas encore les dialogues").waitFor();
