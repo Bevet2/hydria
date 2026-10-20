@@ -9,7 +9,7 @@ for(const dest of paths) {
   catch (error) { if(error.code !== "ENOENT") throw error; }
 }
 const png = Buffer.from(
-  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP+ZPqL0wAAAABJRU5ErkJggg==",
+  "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR4nGN0rT7xn4GBgYGJAQoAJiUCi6vmjGkAAAAASUVORK5CYII=",
   "base64"
 );
 const browser = await chromium.launch({ headless:true, args:["--no-sandbox"] });
