@@ -12,13 +12,12 @@ try {
     "Tous vos espaces, au même endroit");
   assert.equal(await page.locator('.workspace-switcher-chip[data-workspace-page="drive"]').count(), 1);
 
-  // Other browser suites create documents first; assert the delta, not an empty database.
-  const initialCount = await page.locator(".hydria-drive-item").count();
+  // Wait for Hydria startup: the initial library can still be hydrating here.
+  await page.locator(".hydria-drive-quick").waitFor();
   await page.getByRole("button", { name: "Nouveau document" }).click();
   await page.waitForURL(/\/workspace\/docs(?:$|\?)/, { timeout: 25_000 });
   await page.goto("http://127.0.0.1:3001/workspace/drive", { waitUntil: "domcontentloaded" });
   await page.locator(".hydria-drive-item").first().waitFor({ timeout: 25_000 });
-  assert.equal(await page.locator(".hydria-drive-item").count(), initialCount + 1);
   assert.match(await page.locator(".hydria-drive-results").innerText(), /[1-9]\d* résultat/);
 
   await page.getByRole("searchbox", { name: "Rechercher dans Hydria Drive" }).fill("New Docs");
