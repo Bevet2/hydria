@@ -18,7 +18,8 @@ assert.deepEqual(filterDriveObjects(items).map(x => x.id), ["sheet-1", "pdf-1", 
 // Explicit expected recent order with name tie-break, not relying on input order.
 assert.deepEqual(filterDriveObjects(items, {sort:"name"}).map(x=>x.id), ["pdf-1","code-1","sheet-1","doc-1","photo-1"]);
 assert.deepEqual(filterDriveObjects(items, {kind:"document"}).map(x=>x.id), ["doc-1"]);
-assert.deepEqual(filterDriveObjects(items, {kind:"other"}).map(x=>x.id), ["pdf-1","photo-1"]);
+assert.deepEqual(filterDriveObjects(items, {kind:"other"}).map(x=>x.id), ["pdf-1"]);
+assert.deepEqual(filterDriveObjects(items, {kind:"image"}).map(x=>x.id), ["photo-1"]);
 assert.deepEqual(filterDriveObjects(items, {query:"2026.xlsx"}).map(x=>x.id), ["sheet-1"]);
 assert.deepEqual(filterDriveObjects(items, {query:"frontend/main.ts"}).map(x=>x.id), ["code-1"]);
 assert.deepEqual(filterDriveObjects(items, {query:"PROJET"}).map(x=>x.id), ["doc-1"]);
