@@ -20,7 +20,9 @@ export function pdfCraftFrameUrl(fileUrl = "") {
 }
 
 export function renderPdfCraftWorkbench(container, {
-  documents = [],
+  documents = [], pdfFiles = [], initialPdfId = "",
+  onReadSavedPdf = async () => { throw Error("Lecture indisponible"); },
+  onStorePdf = async () => { throw Error("Enregistrement indisponible"); },
   onExportDocument = async () => { throw Error("Export indisponible"); }
 } = {}) {
   if (!container) return;
@@ -61,9 +63,37 @@ export function renderPdfCraftWorkbench(container, {
   reset.disabled = true;
   toolbar.append(documentSelect, openDocument, reset);
 
+
+  const savedToolbar = element("div", "hydria-pdf-toolbar hydria-pdf-drive-toolbar");
+  const savedSelect = element("select", "hydria-pdf-document-select hydria-pdf-saved-select");
+  savedSelect.setAttribute("aria-label", "PDF Hydria Drive");
+  const savedItems = pdfFiles.filter((pdf) => pdf && pdf.id &&
+    String(pdf.kind || pdf.objectKind).toLowerCase() === "pdf");
+  const newItem = element("option", "", "Nouveau fichier PDF dans Drive");
+  newItem.value = "";
+  savedSelect.append(newItem);
+  for (const item of savedItems) {
+    const option = element("option", "", String(item.title || "PDF sans titre"));
+    option.value = String(item.id);
+    savedSelect.append(option);
+  }
+  savedSelect.value = savedItems.some((item) => String(item.id) === String(initialPdfId))
+    ? String(initialPdfId) : "";
+  const openSaved = element("button", "hydria-pdf-button", "Ouvrir PDF Drive");
+  openSaved.type = "button";
+  openSaved.disabled = true;
+  const upload = element("button", "hydria-pdf-button hydria-pdf-primary", "Importer / Enregistrer dans Drive");
+  upload.type = "button";
+  const fileInput = element("input", "hydria-pdf-upload-file");
+  fileInput.type = "file";
+  fileInput.accept = ".pdf,application/pdf";
+  fileInput.setAttribute("aria-label", "Importer un fichier PDF dans Hydria Drive");
+  fileInput.hidden = true;
+  savedToolbar.append(savedSelect, openSaved, upload, fileInput);
+
   const hint = element("p", "hydria-pdf-hint",
-    "Les modifications effectuées dans PdfCraft sont téléchargées depuis l'éditeur. " +
-    "La sauvegarde directe vers Hydria Drive n'est pas encore disponible.");
+    "Après modification, téléchargez votre PDF depuis PdfCraft, puis réimportez-le dans " +
+    "Hydria Drive pour enregistrer une nouvelle révision. Le retour automatique n'est pas disponible.");
   const viewport = element("div", "hydria-pdf-viewport");
   const loading = element("p", "hydria-pdf-loading", "Vérification de l'installation locale de PdfCraft…");
   viewport.append(loading);
@@ -97,6 +127,73 @@ export function renderPdfCraftWorkbench(container, {
     viewport.replaceChildren(nextFrame);
     frame = nextFrame;
   }
+
+
+  savedSelect.addEventListener("change", () => {
+    openSaved.disabled = !savedSelect.value || busy || !ready;
+  });
+  upload.addEventListener("click", () => { if (!busy) fileInput.click(); });
+  fileInput.addEventListener("change", async () => {
+    const file = fileInput.files?.[0];
+    if (!file) return;
+    fileInput.value = "";
+    if (busy) return;
+    if (file.size > 25 * 1024 * 1024) {
+      showError("Un PDF ne peut pas dépasser 25 Mo.");
+      return;
+    }
+    const selected = savedItems.find((item) => String(item.id) === savedSelect.value) || null;
+    busy = true;
+    upload.disabled = true;
+    openSaved.disabled = true;
+    clearError();
+    status.textContent = "Enregistrement dans Hydria Drive…";
+    try {
+      const saved = await onStorePdf(file, selected);
+      if (!saved?.id) throw Error("Aucun PDF sauvegardé");
+      const index = savedItems.findIndex((item) => String(item.id) === String(saved.id));
+      if (index === -1) {
+        savedItems.push(saved);
+        const option = element("option", "", String(saved.title || file.name));
+        option.value = String(saved.id);
+        savedSelect.append(option);
+      } else {
+        savedItems[index] = saved;
+      }
+      savedSelect.value = String(saved.id);
+      status.textContent = "PDF enregistré · révision " + String(saved.revision || 1);
+      if (ready) openPdfFrame(URL.createObjectURL(file));
+    } catch (error) {
+      showError(String(error?.message || "Enregistrement impossible"));
+      status.textContent = "Enregistrement refusé";
+    } finally {
+      busy = false;
+      upload.disabled = false;
+      openSaved.disabled = !ready || !savedSelect.value;
+    }
+  });
+  openSaved.addEventListener("click", async () => {
+    const id = savedSelect.value;
+    if (!id || !ready || busy) return;
+    busy = true;
+    openSaved.disabled = true;
+    clearError();
+    status.textContent = "Chargement du PDF Hydria…";
+    try {
+      const pdf = await onReadSavedPdf(id);
+      if (!(pdf instanceof Blob) || !pdf.size || pdf.type !== "application/pdf") {
+        throw Error("Document enregistré invalide");
+      }
+      openPdfFrame(URL.createObjectURL(pdf));
+      status.textContent = "PDF Drive ouvert";
+    } catch (error) {
+      showError(String(error?.message || "Lecture impossible"));
+      status.textContent = "Ouverture refusée";
+    } finally {
+      busy = false;
+      openSaved.disabled = !ready || !savedSelect.value;
+    }
+  });
 
   documentSelect.addEventListener("change", () => {
     openDocument.disabled = !ready || busy || !documentSelect.value;
@@ -133,7 +230,7 @@ export function renderPdfCraftWorkbench(container, {
     }
   });
 
-  root.append(heading, toolbar, hint, viewport, error);
+  root.append(heading, toolbar, savedToolbar, hint, viewport, error);
   container.append(root);
 
   // A missing optional runtime never silently launches an external website.
@@ -145,6 +242,7 @@ export function renderPdfCraftWorkbench(container, {
       status.textContent = "PdfCraft disponible";
       reset.disabled = false;
       openDocument.disabled = !documentSelect.value;
+      openSaved.disabled = !savedSelect.value;
       openPdfFrame();
     })
     .catch((err) => {
