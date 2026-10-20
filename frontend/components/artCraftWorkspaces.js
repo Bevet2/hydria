@@ -1,4 +1,7 @@
-import { imageAssetUrl, listDriveImages, saveImageToDrive } from "../services/driveImageClient.js";
+import {
+  imageAssetUrl, imageRevisionDownloadUrl, listDriveImages,
+  listImageVersions, saveImageToDrive, saveImageVersion
+} from "../services/driveImageClient.js";
 
 // Upstream distributions are pinned and installed separately. In the browser
 // their native renderers operate in an iframe; no fictitious postMessage API.
@@ -51,7 +54,7 @@ export function renderArtCraftWorkspace(container, { editor = "photo" } = {}) {
   instructions.append(
     node("strong", "", editor === "photo" ? "Comment travailler avec Drive ?" : "Éditeur web en accès anticipé"),
     node("p", "", editor === "photo"
-      ? "Pour retoucher une image de Drive, téléchargez-la ci-dessous puis ouvrez-la avec le menu Fichier de PhotoCraft. Après export dans PhotoCraft, importez le fichier résultant dans Drive avec le sélecteur ci-dessous. Il n'y a pas de synchronisation automatique."
+      ? "Pour retoucher une image de Drive, téléchargez-la puis ouvrez-la avec le menu Fichier de PhotoCraft. Après export, choisissez « Nouvelle version » sur l’image originale pour conserver son historique, ou importez une nouvelle image. Il n’y a pas de sauvegarde automatique."
       : "FigCraft Web démarre sur un document vierge. La version actuelle ne raccorde pas encore les dialogues natifs de fichiers : ni import d'un document Hydria ni sauvegarde vers Drive. Exportez ou conservez vos travaux localement seulement si votre version de FigCraft le permet.")
   );
 
@@ -128,12 +131,77 @@ export function renderArtCraftWorkspace(container, { editor = "photo" } = {}) {
           thumb.loading = "lazy";
           const details = node("div", "hydria-artcraft-image-copy");
           details.append(node("strong", "", String(image.filename || "Image")));
-          details.append(node("small", "", Math.round(Number(image.size || 0) / 1024) + " Ko"));
+          details.append(node("small", "",
+            Math.round(Number(image.size || 0) / 1024) + " Ko · Version " +
+            Number(image.revision || 1)));
           const link = node("a", "hydria-artcraft-button", "Télécharger");
           link.href = imageAssetUrl(image.id);
           link.setAttribute("download", image.filename || "image.png");
           link.title = "Télécharger l'image, puis l'ouvrir dans PhotoCraft avec Fichier > Ouvrir";
-          item.append(thumb, details, link);
+          const nextVersion = node("button", "hydria-artcraft-button hydria-artcraft-version-button", "Nouvelle version");
+          nextVersion.type = "button";
+          nextVersion.title = "Importer le rendu téléchargé depuis PhotoCraft en gardant l’historique";
+          const versionInput = node("input", "hydria-artcraft-version-input");
+          versionInput.type = "file";
+          versionInput.accept = ".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp";
+          versionInput.hidden = true;
+          versionInput.setAttribute("aria-label", "Importer une nouvelle version de " + image.filename);
+          nextVersion.addEventListener("click", () => {
+            if (!busy) versionInput.click();
+          });
+          versionInput.addEventListener("change", async () => {
+            const file = versionInput.files?.[0];
+            if (!file || busy) return;
+            busy = true;
+            nextVersion.disabled = true;
+            fileInput.disabled = true;
+            notice.textContent = "Enregistrement de la nouvelle version…";
+            try {
+              const updated = await saveImageVersion(file, image.id, Number(image.revision || 1));
+              notice.textContent = "Version " + updated.revision + " enregistrée dans Drive.";
+              await loadImages();
+            } catch (error) {
+              notice.textContent = String(error?.message || error) +
+                " Si une autre version a été enregistrée, actualisez la bibliothèque.";
+            } finally {
+              versionInput.value = "";
+              fileInput.disabled = false;
+              nextVersion.disabled = false;
+              busy = false;
+            }
+          });
+          const historyButton = node("button", "hydria-artcraft-button hydria-artcraft-history-button", "Historique");
+          historyButton.type = "button";
+          historyButton.setAttribute("aria-expanded", "false");
+          const history = node("div", "hydria-artcraft-version-history");
+          history.hidden = true;
+          historyButton.addEventListener("click", async () => {
+            const nowOpen = history.hidden;
+            history.hidden = !nowOpen;
+            historyButton.setAttribute("aria-expanded", String(nowOpen));
+            if (!nowOpen) return;
+            history.replaceChildren(node("p", "hydria-artcraft-empty", "Chargement de l’historique…"));
+            try {
+              const payload = await listImageVersions(image.id);
+              if (!item.isConnected) return;
+              history.replaceChildren();
+              for (const version of payload.items) {
+                const line = node("div", "hydria-artcraft-history-row");
+                line.append(node("span", "", "Version " + version.revision +
+                  " · " + (version.filename || "image") +
+                  " · " + Math.round(Number(version.size || 0) / 1024) + " Ko"));
+                const downloadVersion = node("a", "hydria-artcraft-button", "Télécharger cette version");
+                downloadVersion.href = imageRevisionDownloadUrl(image.id, version.revision);
+                downloadVersion.setAttribute("download", version.filename || "image.png");
+                line.append(downloadVersion);
+                history.append(line);
+              }
+            } catch (error) {
+              history.replaceChildren(node("p", "hydria-artcraft-empty",
+                "Historique indisponible : " + String(error?.message || error)));
+            }
+          });
+          item.append(thumb, details, link, nextVersion, historyButton, versionInput, history);
           result.append(item);
         }
       } catch (error) {
