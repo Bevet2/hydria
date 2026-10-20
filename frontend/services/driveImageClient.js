@@ -30,3 +30,41 @@ export async function saveImageToDrive(file) {
   }));
   return response.json();
 }
+
+
+// Immutable history and optimistic revision updates.
+export function imageRevisionDownloadUrl(id, revision) {
+  if (!ID.test(String(id || ""))) throw Error("Invalid image asset id");
+  if (!Number.isSafeInteger(Number(revision)) || Number(revision) < 1 || Number(revision) > 50) {
+    throw Error("Invalid image revision");
+  }
+  return IMAGE_API + "/" + encodeURIComponent(id) + "/versions/" + encodeURIComponent(revision) + "/download";
+}
+export async function listImageVersions(id) {
+  if (!ID.test(String(id || ""))) throw Error("Invalid image asset id");
+  const response = await responseOrThrow(await fetch(
+    IMAGE_API + "/" + encodeURIComponent(id) + "/versions",
+    { credentials: "same-origin", cache: "no-store" }
+  ));
+  const value = await response.json();
+  if (!Array.isArray(value.items)) throw Error("Invalid image version response");
+  return value;
+}
+export async function saveImageVersion(file, id, expectedRevision) {
+  if (!ID.test(String(id || ""))) throw Error("Invalid image asset id");
+  if (!Number.isSafeInteger(Number(expectedRevision)) ||
+      Number(expectedRevision) < 1 || Number(expectedRevision) >= 50) {
+    throw Error("Invalid image revision");
+  }
+  if (!(file instanceof Blob) || !file.size || file.size > IMAGE_LIMIT_BYTES) {
+    throw Error("L'image doit être inférieure à 15 Mio.");
+  }
+  const form = new FormData();
+  form.append("file", file, file.name || "image.png");
+  form.append("expectedRevision", String(expectedRevision));
+  const response = await responseOrThrow(await fetch(
+    IMAGE_API + "/" + encodeURIComponent(id) + "/versions",
+    { method: "POST", body: form, credentials: "same-origin" }
+  ));
+  return response.json();
+}
