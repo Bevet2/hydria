@@ -10,6 +10,8 @@ try {
   await page.goto(base + "/workspace/pdf", { waitUntil: "domcontentloaded" });
   await page.locator(".hydria-pdf-workbench").waitFor({ timeout: 30_000 });
   await page.getByText("Installation nécessaire").waitFor({ timeout: 15_000 });
+  // The optional runtime 404 may resolve before user/session hydration finishes.
+  await page.waitForFunction(() => Number(localStorage.getItem("hydria:userId")) > 0, null, { timeout: 25_000 });
 
   await page.locator(".hydria-pdf-upload-file").setInputFiles({
     name: "hydria-acceptance.pdf", mimeType: "application/pdf", buffer: bytes1
