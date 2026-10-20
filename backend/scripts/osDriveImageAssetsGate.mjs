@@ -5,7 +5,7 @@ const origin = process.env.HYDRIA_TEST_ORIGIN || "http://127.0.0.1:3001";
 const url = origin + "/api/drive/image-assets";
 // Self-contained 1x1 PNG fixture (never an SVG/HTML payload).
 const png = Buffer.from(
-  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP+ZPqL0wAAAABJRU5ErkJggg==",
+  "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR4nGN0rT7xn4GBgYGJAQoAJiUCi6vmjGkAAAAASUVORK5CYII=",
   "base64"
 );
 const baseline = await fetch(url);
