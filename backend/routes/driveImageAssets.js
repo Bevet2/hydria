@@ -20,9 +20,8 @@ const upload = multer({
 });
 let schemaReady = false;
 
-function schema() {
-  if (schemaReady) return;
-  db.exec(`CREATE TABLE IF NOT EXISTS drive_image_assets (
+export function migrateDriveImageSchema(database) {
+  database.exec(`CREATE TABLE IF NOT EXISTS drive_image_assets (
     id TEXT PRIMARY KEY,
     filename TEXT NOT NULL,
     mime TEXT NOT NULL CHECK (mime IN ('image/png','image/jpeg','image/webp')),
@@ -33,10 +32,10 @@ function schema() {
     updated_at TEXT
   )`);
   // Migrate existing PhotoCraft images without copying binary payloads.
-  const existing = new Set(db.prepare("PRAGMA table_info(drive_image_assets)").all().map(x => x.name));
-  if (!existing.has("revision")) db.exec("ALTER TABLE drive_image_assets ADD COLUMN revision INTEGER NOT NULL DEFAULT 1");
-  if (!existing.has("updated_at")) db.exec("ALTER TABLE drive_image_assets ADD COLUMN updated_at TEXT");
-  db.exec(`CREATE TABLE IF NOT EXISTS drive_image_versions (
+  const existing = new Set(database.prepare("PRAGMA table_info(drive_image_assets)").all().map(x => x.name));
+  if (!existing.has("revision")) database.exec("ALTER TABLE drive_image_assets ADD COLUMN revision INTEGER NOT NULL DEFAULT 1");
+  if (!existing.has("updated_at")) database.exec("ALTER TABLE drive_image_assets ADD COLUMN updated_at TEXT");
+  database.exec(`CREATE TABLE IF NOT EXISTS drive_image_versions (
     asset_id TEXT NOT NULL,
     revision INTEGER NOT NULL CHECK(revision > 0),
     filename TEXT NOT NULL,
@@ -50,13 +49,19 @@ function schema() {
   )`);
   // Original binaries were written as <id>.<extension>. Retain this path for
   // revision 1. New versions use unguessable storage keys under the same root.
-  db.exec(`INSERT OR IGNORE INTO drive_image_versions
+  database.exec(`INSERT OR IGNORE INTO drive_image_versions
     (asset_id, revision, filename, mime, size, sha256, storage_key, created_at)
     SELECT id, 1, filename, mime, size, sha256, id ||
       CASE mime WHEN 'image/png' THEN '.png'
                 WHEN 'image/jpeg' THEN '.jpg'
                 ELSE '.webp' END, created_at
     FROM drive_image_assets`);
+}
+
+
+function schema() {
+  if (schemaReady) return;
+  migrateDriveImageSchema(db);
   schemaReady = true;
 }
 
