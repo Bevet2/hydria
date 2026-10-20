@@ -1,9 +1,16 @@
 import assert from "node:assert/strict";
-import { mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdir, writeFile, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { chromium } from "playwright";
 
 const dist = path.resolve("frontend/vendor/pdfcraft");
+// Never overwrite or remove a real PdfCraft installation on a developer machine.
+try {
+  await stat(dist);
+  throw Error("Refusing to replace an installed PdfCraft runtime in browser tests");
+} catch (error) {
+  if (error.code !== "ENOENT") throw error;
+}
 const browser = await chromium.launch({ headless: true, args: ["--no-sandbox"] });
 const page = await browser.newPage({ viewport: { width: 1360, height: 960 } });
 const errors = [];
