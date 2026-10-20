@@ -19,6 +19,8 @@ jobs:
           node-version: 22
       - name: Bundle frontend and validate module exports
         run: npx --yes esbuild@0.25.10 frontend/app.js --bundle --format=esm --platform=browser --outfile=/tmp/hydria-integration.js
+      - name: Hydria Drive library model and safe routing
+        run: node backend/scripts/osDriveWorkspaceGate.mjs
       - name: Check JavaScript syntax for integrated files
         run: |
           for file in frontend/app.js frontend/components/workspaceCanvasPanel.js frontend/components/workspacePanel.js frontend/components/workspaceMenuUi.js backend/server.js backend/routes/canvas.js; do
@@ -240,6 +242,8 @@ jobs:
         run: node backend/scripts/productionBrowserGate.mjs
       - name: Check product chrome JavaScript syntax
         run: node --check frontend/components/osProductChrome.js
+      - name: Hydria Drive browser navigation and creation
+        run: node backend/scripts/osDriveBrowserGate.mjs
       - name: Product UI desktop and mobile acceptance
         run: node backend/scripts/osProductUiGate.mjs
       - name: Upload product UI screenshots
