@@ -54,7 +54,7 @@ function decodeBasicHeader(value = "") {
 // same-origin Hydria workspace pages. An allowlist here must remain exact;
 // arbitrary HTML uploads, CRM, Docs and other routes stay unframeable.
 export function isArtCraftFrameEntrypoint(pathname = "") {
-  return /^\\/vendor\\/(?:pdfcraft|photocraft|figcraft)\\/index\\.html$/.test(String(pathname));
+  return new Set(["/vendor/pdfcraft/index.html", "/vendor/photocraft/index.html", "/vendor/figcraft/index.html"]).has(String(pathname));
 }
 
 export function createProductionAccessGate(settings) {
