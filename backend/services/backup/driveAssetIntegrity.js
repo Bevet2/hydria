@@ -73,6 +73,9 @@ export async function inspectDriveSnapshot(databaseFile, dataDir) {
         byId.delete(asset.id);
         // Pre-revision deployments lack the versions table. Their original
         // binaries are immutable <asset-id>.<extension> and become revision 1.
+        if (versionsExist && versions.length === 0) {
+          fail("missing " + format + " version metadata for " + asset.id);
+        }
         const rows = versions.length ? versions : [{
           asset_id: asset.id, revision: 1, filename: asset.filename,
           mime: asset.mime, size: asset.size, sha256: asset.sha256,
