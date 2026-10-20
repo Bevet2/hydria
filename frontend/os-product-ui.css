@@ -600,3 +600,44 @@ html body[data-os-theme="dark"] .hydria-pdf-saved,html body[data-os-theme="dark"
 html body[data-os-theme="dark"] .hydria-pdf-import strong{color:#e2e8f0;}
 html body[data-os-theme="dark"] .hydria-pdf-upload,html body[data-os-theme="dark"] .hydria-pdf-saved-empty{color:#aab7cc;}
 @media(max-width:650px){.hydria-pdf-import{align-items:stretch}.hydria-pdf-saved-item .hydria-pdf-button,.hydria-drive-pdf-row .hydria-pdf-button{font-size:12px}.hydria-drive-pdf-group{padding:12px}}
+
+
+/* Native Hydria creative workspaces — upstream ArtCraft WASM, private pilot. */
+.hydria-artcraft{--ac-border:#dce2ee;--ac-surface:#fff;--ac-muted:#64748b;--ac-tint:#f8fafc;max-width:1600px;margin:0 auto;display:flex;flex-direction:column;gap:15px;width:100%;min-width:0;padding:8px 2px 24px;color:#0f172a;}
+.hydria-artcraft-header{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;}
+.hydria-artcraft-heading{min-width:0;flex:1;}
+.hydria-artcraft-eyebrow{margin:0;color:#64748b;font:700 11px/1.6 "IBM Plex Mono",monospace;letter-spacing:.12em;}
+.hydria-artcraft-heading h2{margin:5px 0 5px;font-size:clamp(23px,2.6vw,32px);font-weight:700;letter-spacing:-.035em;line-height:1.1;}
+.hydria-artcraft-description{font-size:13px;color:var(--ac-muted);margin:0;line-height:1.55;}
+.hydria-artcraft-status{font-size:12px;font-weight:600;background:var(--ac-surface);border:1px solid var(--ac-border);color:#475569;padding:7px 12px;border-radius:999px;white-space:nowrap;}
+.hydria-artcraft-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:9px;}
+.hydria-artcraft-button{display:inline-flex;align-items:center;justify-content:center;gap:5px;padding:9px 12px;background:var(--ac-surface);border:1px solid #cbd5e1;border-radius:10px;color:#334155;font:600 12px/1.35 inherit;text-decoration:none;cursor:pointer;white-space:nowrap;}
+.hydria-artcraft-button:hover:not(:disabled){background:#eff3ff;border-color:#a9b7d9;}
+.hydria-artcraft-button:disabled{opacity:.52;cursor:not-allowed;}
+.hydria-artcraft :is(a,button,input):focus-visible{outline:2px solid #4f46e5;outline-offset:2px;}
+.hydria-artcraft-instructions{display:flex;flex-direction:column;gap:6px;padding:12px 15px;background:var(--ac-tint);border:1px solid var(--ac-border);border-radius:12px;}
+.hydria-artcraft-instructions strong{font-size:12px;}
+.hydria-artcraft-instructions p,.hydria-artcraft-caution{margin:0;color:var(--ac-muted);font-size:12px;line-height:1.6;}
+.hydria-artcraft-viewport{width:100%;min-width:0;min-height:680px;overflow:hidden;background:#eef2f7;border:1px solid var(--ac-border);border-radius:14px;}
+.hydria-artcraft-placeholder{display:grid;place-content:center;text-align:center;padding:20px;min-height:430px;max-width:640px;margin:0 auto;color:var(--ac-muted);font-size:14px;line-height:1.7;}
+.hydria-artcraft-frame{display:block;border:0;width:100%;min-height:680px;height:min(78vh,1080px);background:#1c2130;}
+.hydria-artcraft-library{display:flex;flex-direction:column;gap:12px;background:var(--ac-surface);border:1px solid var(--ac-border);border-radius:14px;padding:15px;}
+.hydria-artcraft-library-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;}
+.hydria-artcraft-library-head h3{font-size:15px;letter-spacing:-.02em;margin:0;}
+.hydria-artcraft-upload-box{display:flex;align-items:center;gap:14px;flex-wrap:wrap;background:var(--ac-tint);border:1px dashed #aebbd2;border-radius:11px;padding:10px 14px;}
+.hydria-artcraft-upload-box input{flex:1 1 240px;min-width:0;font-size:12px;color:#475569;}
+.hydria-artcraft-upload-box small{font-size:11px;line-height:1.55;color:var(--ac-muted);}
+.hydria-artcraft-image-feedback{margin:0;font-size:12px;min-height:16px;color:#475569;}
+.hydria-artcraft-images{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:10px;}
+.hydria-artcraft-image-item{display:flex;align-items:center;gap:11px;padding:10px;background:var(--ac-tint);border:1px solid var(--ac-border);border-radius:12px;min-width:0;}
+.hydria-artcraft-thumbnail{flex:none;width:64px;height:55px;object-fit:contain;background:#e2e8f0;border-radius:6px;}
+.hydria-artcraft-image-copy{display:flex;flex-direction:column;min-width:0;flex:1;gap:4px;}
+.hydria-artcraft-image-copy strong{font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.hydria-artcraft-image-copy small{color:var(--ac-muted);font-size:11px;}
+.hydria-artcraft-image-item .hydria-artcraft-button{padding:7px 9px;}
+.hydria-artcraft-empty{font-size:12px;margin:0;color:var(--ac-muted);padding:14px;}
+html body[data-os-theme="dark"] .hydria-artcraft{--ac-border:#454e68;--ac-surface:#262c42;--ac-muted:#aebbd0;--ac-tint:#22283b;color:#e5eaf6;}
+html body[data-os-theme="dark"] .hydria-artcraft-status,html body[data-os-theme="dark"] .hydria-artcraft-button{background:#2c334c;color:#dce5f6;border-color:#515c78;}
+html body[data-os-theme="dark"] .hydria-artcraft-viewport{background:#151b2c;}
+html body[data-os-theme="dark"] .hydria-artcraft-image-feedback,html body[data-os-theme="dark"] .hydria-artcraft-upload-box input{color:#bfc9dd;}
+@media(max-width:720px){.hydria-artcraft-viewport{min-height:540px}.hydria-artcraft-frame{min-height:540px;height:71vh}.hydria-artcraft-library{padding:11px}.hydria-artcraft-image-item{flex-wrap:wrap}}
