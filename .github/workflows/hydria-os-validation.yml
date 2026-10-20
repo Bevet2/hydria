@@ -101,6 +101,8 @@ jobs:
           console.log("Hydria Canvas API PDF export verified; bytes:",bytes.length);
           '
 
+      - name: Persist, retrieve and validate PDF assets in Drive
+        run: node backend/scripts/osDrivePdfAssetsGate.mjs
       - name: Verify live Flow dashboard assets
         run: |
           curl --fail --silent --show-error http://127.0.0.1:3001/flow-dashboard.html | grep -q 'Live Flow Dashboard'
