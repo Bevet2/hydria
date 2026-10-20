@@ -130,29 +130,38 @@ async function ensureHydriaIdentity(input: z.infer<typeof identitySchema>) {
   const email = `hydria-${identity}@hydria.local`;
   const name = splitName(input.username);
   const existing = await prisma.user.findUnique({ where: { email } });
-  const user = existing
-    ? await prisma.user.update({
-        where: { id: existing.id },
-        data: {
-          organizationId: organization.id,
-          firstName: name.firstName,
-          lastName: name.lastName
-        },
-        include: { organization: true }
-      })
-    : await prisma.user.create({
-        data: {
-          organizationId: organization.id,
-          email,
-          passwordHash: await bcrypt.hash(crypto.randomUUID(), 12),
-          emailVerifiedAt: new Date(),
-          firstName: name.firstName,
-          lastName: name.lastName,
-          role: "MEMBER"
-        },
-        include: { organization: true }
-      });
-  return user;
+  if (existing) {
+    return prisma.user.update({
+      where: { id: existing.id },
+      data: {
+        organizationId: organization.id,
+        firstName: name.firstName,
+        lastName: name.lastName
+      },
+      include: { organization: true }
+    });
+  }
+  // Multiple frames/requests can reach first-use provisioning together. Use a
+  // database-native upsert on the unique email instead of find-then-create.
+  // Keep relation reads separate: nested include disables Prisma's SQL upsert.
+  const user = await prisma.user.upsert({
+    where: { email },
+    update: {
+      organizationId: organization.id,
+      firstName: name.firstName,
+      lastName: name.lastName
+    },
+    create: {
+      organizationId: organization.id,
+      email,
+      passwordHash: await bcrypt.hash(crypto.randomUUID(), 12),
+      emailVerifiedAt: new Date(),
+      firstName: name.firstName,
+      lastName: name.lastName,
+      role: "MEMBER"
+    }
+  });
+  return prisma.user.findUniqueOrThrow({ where: { id: user.id }, include: { organization: true } });
 }
 
 function sourceForOperation(operation: Record<string, unknown>): Record<string, unknown> {
