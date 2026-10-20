@@ -94,7 +94,8 @@ try {
   db.exec("DROP TABLE drive_image_versions; DROP TABLE drive_pdf_versions;");
   db.prepare("UPDATE drive_image_assets SET revision=1,sha256=?,size=? WHERE id=?")
     .run(sha(png1), png1.length, imageId);
-  await assert.rejects(inspectDriveSnapshot(databaseFile, data), /invalid image binary|missing image historical revisions|invalid .*revision index/);
+  // The revised bytes are now unreferenced, but a revision-1-only legacy
+  // catalog must still be restorable from its original on-disk file.
   await rm(path.join(data, "drive-images", imageKey2));
   checked = await inspectDriveSnapshot(databaseFile, data);
   assert.equal(checked.checkedAssets, 2);
