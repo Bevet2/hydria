@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import express from "express";
-import { productionSettings, ProductionConfigError, createProductionAccessGate } from "../middleware/osProductionAccess.js";
+import { productionSettings, ProductionConfigError, createProductionAccessGate, isArtCraftFrameEntrypoint } from "../middleware/osProductionAccess.js";
 
 const username = "single_owner";
 const password = "production-test-password-that-is-long";
@@ -19,10 +19,22 @@ for (const config of [
   {...env,HYDRIA_OS_PUBLIC_ORIGIN:"https://localhost:3001"},
   {...env,HYDRIA_OS_PUBLIC_ORIGIN:"https://os.example.org/path"}
 ]) assert.throws(()=>productionSettings(config),ProductionConfigError);
+for (const file of ["pdfcraft","photocraft","figcraft"]) {
+  assert.equal(isArtCraftFrameEntrypoint("/vendor/" + file + "/index.html"), true);
+}
+for (const bad of ["/workspace/pdf","/crm","/vendor/other/index.html",
+  "/vendor/pdfcraft/index.html/other","/vendor/pdfcraft/evil.html",
+  "/vendor/pdfcraft/index.html.evil","/vendor/photoCraft/index.html"]) {
+  assert.equal(isArtCraftFrameEntrypoint(bad), false);
+}
 const app=express();
 app.use(createProductionAccessGate(productionSettings(env)));
 app.get("/livez",(_req,res)=>res.send("ok"));
 app.get("/api/private",(_req,res)=>res.json({message:"private"}));
+for (const editor of ["pdfcraft", "photocraft", "figcraft"]) {
+  app.get("/vendor/" + editor + "/index.html", (_req,res) => res.type("html").send("editor"));
+}
+app.get("/vendor/not-an-editor/index.html", (_req,res) => res.type("html").send("fake"));
 app.post("/api/write",(req,res)=>res.json({written:true}));
 const server=app.listen(0,"127.0.0.1");
 await new Promise(resolve=>server.once("listening",resolve));
@@ -47,6 +59,18 @@ try {
   assert.equal(success.status,200);
   assert.equal(success.headers.get("x-content-type-options"),"nosniff");
   assert.equal(success.headers.get("x-frame-options"),"DENY");
+  assert.equal(success.headers.get("content-security-policy"), "frame-ancestors 'none'");
+  for (const editor of ["pdfcraft","photocraft","figcraft"]) {
+    const url = base + "/vendor/" + editor + "/index.html?host=parent";
+    const response = await fetch(url,{headers:auth});
+    assert.equal(response.status,200);
+    assert.equal(response.headers.get("x-frame-options"),"SAMEORIGIN");
+    assert.equal(response.headers.get("content-security-policy"),"frame-ancestors 'self'");
+    assert.equal((await fetch(url)).status,401,"ArtCraft HTML must remain authenticated");
+  }
+  const untrustedFrame = await fetch(base + "/vendor/not-an-editor/index.html",{headers:auth});
+  assert.equal(untrustedFrame.headers.get("x-frame-options"),"DENY");
+  assert.equal(untrustedFrame.headers.get("content-security-policy"),"frame-ancestors 'none'");
   assert.equal((await success.json()).message,"private");
   assert.equal((await fetch(base+"/api/write",{method:"POST",
     headers:{...auth,origin:"https://attacker.example"}

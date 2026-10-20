@@ -50,12 +50,24 @@ function decodeBasicHeader(value = "") {
     return { username: decoded.slice(0, index), password: decoded.slice(index + 1) };
   } catch { return null; }
 }
+// Only these immutable editor entrypoints are intended to be embedded in
+// same-origin Hydria workspace pages. An allowlist here must remain exact;
+// arbitrary HTML uploads, CRM, Docs and other routes stay unframeable.
+export function isArtCraftFrameEntrypoint(pathname = "") {
+  return new Set(["/vendor/pdfcraft/index.html", "/vendor/photocraft/index.html", "/vendor/figcraft/index.html"]).has(String(pathname));
+}
+
 export function createProductionAccessGate(settings) {
   if (!settings.production) return (_req, _res, next) => next();
   const { username, password, origin } = settings;
   return (req, res, next) => {
     res.setHeader("X-Content-Type-Options", "nosniff");
-    res.setHeader("X-Frame-Options", "DENY");
+    // Default deny framing; trusted self-hosted ArtCraft entrypoints must be
+    // embeddable by the Hydria shell, but never by third-party origins.
+    const internalEditorFrame = isArtCraftFrameEntrypoint(req.path);
+    res.setHeader("X-Frame-Options", internalEditorFrame ? "SAMEORIGIN" : "DENY");
+    res.setHeader("Content-Security-Policy",
+      internalEditorFrame ? "frame-ancestors 'self'" : "frame-ancestors 'none'");
     res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
     res.setHeader("Cache-Control", "no-store");
     res.setHeader("Vary", "Authorization");

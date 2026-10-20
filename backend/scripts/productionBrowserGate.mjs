@@ -13,6 +13,7 @@ const tmp=fs.mkdtempSync(path.join(os.tmpdir(),"hydria-prod-browser-"));
 const port=39318,base=`http://127.0.0.1:${port}`;
 const user="visual_owner",password="ci-owner-password-long-and-random";
 let child, browser;
+const createdArtCraftFixtures=[];
 const sleep=(n)=>new Promise(resolve=>setTimeout(resolve,n));
 const env={
   ...process.env,NODE_ENV:"production",PORT:String(port),
@@ -22,6 +23,17 @@ const env={
   HYDRIA_FLOW_SCHEDULER_ENABLED:"false"
 };
 try {
+  // Only create miniature HTML assets when an upstream distribution is absent.
+  // Never overwrite genuine WASM releases on a developer's machine.
+  for (const editor of ["pdfcraft", "photocraft", "figcraft"]) {
+    const directory=path.resolve(root,"../frontend/vendor",editor);
+    if (fs.existsSync(directory)) continue;
+    fs.mkdirSync(directory,{recursive:true});
+    fs.writeFileSync(path.join(directory,"index.html"),
+      "<!doctype html><html><body><main id='frame-proof'>" +
+      editor + "-same-origin-frame-ready</main></body></html>");
+    createdArtCraftFixtures.push({editor,directory});
+  }
   child=spawn(process.execPath,["server.js"],{cwd:root,env,stdio:"ignore"});
   let started=false;
   for(let i=0;i<100;i++){
@@ -51,6 +63,32 @@ try {
     {waitUntil:"domcontentloaded",timeout:25000});
   assert.equal(dashboard.status(),200);
   assert.ok((await page.title()).includes("Hydria"));
+  // Confirm the real production Node server sends the intended headers, and
+  // that Chromium actually renders each authenticated editor inside Hydria.
+  const frameHost=await page.goto(base+"/workspace/docs",{waitUntil:"domcontentloaded"});
+  assert.equal(frameHost.headers()["x-frame-options"],"DENY");
+  for(const editor of ["pdfcraft","photocraft","figcraft"]) {
+    const response=await context.request.get(base+"/vendor/"+editor+"/index.html");
+    if (response.status() !== 200) {
+      assert.equal(response.status(),404,"Unexpected ArtCraft entrypoint response");
+      continue;
+    }
+    assert.equal(response.headers()["x-frame-options"],"SAMEORIGIN");
+    assert.equal(response.headers()["content-security-policy"],"frame-ancestors 'self'");
+  }
+  for(const {editor} of createdArtCraftFixtures) {
+    await page.evaluate((slug)=>{
+      const iframe=document.createElement("iframe");
+      iframe.dataset.artcraftProbe=slug;
+      iframe.title=slug+" embedded production test";
+      iframe.src="/vendor/"+slug+"/index.html";
+      iframe.style.width="480px";
+      iframe.style.height="160px";
+      document.body.append(iframe);
+    },editor);
+    await page.frameLocator("iframe[data-artcraft-probe='"+editor+"']")
+      .getByText(editor+"-same-origin-frame-ready").waitFor({timeout:15000});
+  }
   await context.close();
   console.log("Hydria OS production browser authentication, UI and API smoke passed.");
 } finally {
@@ -61,6 +99,9 @@ try {
       new Promise(resolve=>child.once("exit",resolve)),
       sleep(5000).then(()=>{if(child.exitCode===null)child.kill("SIGKILL");})
     ]);
+  }
+  for(const fixture of createdArtCraftFixtures) {
+    fs.rmSync(fixture.directory,{recursive:true,force:true});
   }
   fs.rmSync(tmp,{recursive:true,force:true});
 }
