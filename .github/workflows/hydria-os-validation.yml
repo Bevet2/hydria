@@ -41,6 +41,12 @@ jobs:
         run: node backend/scripts/osPdfCraftGate.mjs
       - name: Validate PhotoCraft/FigCraft releases and raster types
         run: node backend/scripts/osArtCraftGate.mjs
+      - name: Verify authentic PhotoCraft and FigCraft WASM installations
+        run: |
+          node backend/scripts/installArtCraftWeb.mjs photo
+          node backend/scripts/installArtCraftWeb.mjs fig
+          test -s frontend/vendor/photocraft/index.html
+          test -s frontend/vendor/figcraft/index.html
       - name: Database volume and frontend readiness diagnostics
         run: node backend/scripts/osReadinessGate.mjs
       - name: Production single-user authentication and origin checks
