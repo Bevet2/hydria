@@ -641,3 +641,12 @@ html body[data-os-theme="dark"] .hydria-artcraft-status,html body[data-os-theme=
 html body[data-os-theme="dark"] .hydria-artcraft-viewport{background:#151b2c;}
 html body[data-os-theme="dark"] .hydria-artcraft-image-feedback,html body[data-os-theme="dark"] .hydria-artcraft-upload-box input{color:#bfc9dd;}
 @media(max-width:720px){.hydria-artcraft-viewport{min-height:540px}.hydria-artcraft-frame{min-height:540px;height:71vh}.hydria-artcraft-library{padding:11px}.hydria-artcraft-image-item{flex-wrap:wrap}}
+
+
+/* Raster images now appear in Drive next to saved PDF assets. */
+.hydria-drive-image-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:10px;}
+.hydria-drive-image-row{display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:10px;border-radius:11px;background:#f8fafc;border:1px solid #e2e8f0;}
+.hydria-drive-image-row strong{flex:1 1 120px;min-width:0;white-space:nowrap;text-overflow:ellipsis;overflow:hidden;font-size:12px;}
+.hydria-drive-image-thumb{flex:none;width:62px;height:58px;object-fit:contain;background:#e2e8f0;border-radius:7px;}
+.hydria-drive-image-row .hydria-artcraft-button{padding:7px 9px;}
+html body[data-os-theme="dark"] .hydria-drive-image-row{background:#222940;border-color:#414b69;color:#e2e8f0;}
