@@ -23,8 +23,14 @@ try {
   const statusText = await page.locator(".hydria-pdf-status").innerText();
   const errorText = await page.locator(".hydria-pdf-error").innerText();
   assert.match(statusText, /PDF enregistré · révision 1/, "PDF upload failure: " + errorText);
+  await page.waitForFunction(() =>
+    /^[0-9a-f-]{36}$/i.test(document.querySelector(".hydria-pdf-saved-select")?.value || ""),
+    null, { timeout: 12_000 }
+  ).catch(() => {});
   const id = await page.getByRole("combobox", { name: "PDF Hydria Drive" }).inputValue();
-  assert.match(id, /^[0-9a-f-]{36}$/i);
+  const diagnostic = await page.locator(".hydria-pdf-saved-select")
+    .evaluate((input) => ({ value: input.value, options: [...input.options].map(x => x.value) }));
+  assert.match(id, /^[0-9a-f-]{36}$/i, JSON.stringify(diagnostic));
   const userId = await page.evaluate(() => {
     const options = Array.from(document.querySelectorAll("#user-select option"));
     const selected = document.querySelector("#user-select")?.value;
