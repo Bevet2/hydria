@@ -113,6 +113,7 @@ export function renderArtCraftWorkspace(container, { editor = "photo" } = {}) {
     const notice = node("p", "hydria-artcraft-image-feedback");
     notice.setAttribute("role", "status");
     let busy = false;
+    const targetImageId = new URLSearchParams(window.location.search).get("imageId");
     async function loadImages() {
       result.replaceChildren(node("p", "hydria-artcraft-empty", "Chargement des images…"));
       try {
@@ -203,6 +204,15 @@ export function renderArtCraftWorkspace(container, { editor = "photo" } = {}) {
           });
           item.append(thumb, details, link, nextVersion, historyButton, versionInput, history);
           result.append(item);
+          if (targetImageId && String(image.id) === targetImageId) {
+            item.classList.add("hydria-artcraft-target-image");
+            requestAnimationFrame(() => {
+              if (item.isConnected) {
+                item.scrollIntoView({ block: "nearest", behavior: "smooth" });
+                historyButton.click();
+              }
+            });
+          }
         }
       } catch (error) {
         if (!root.isConnected) return;
