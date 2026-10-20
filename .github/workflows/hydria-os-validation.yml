@@ -39,6 +39,8 @@ jobs:
         run: npm ci --prefix backend --no-audit --no-fund
       - name: Validate PdfCraft integration contract and pinned installer
         run: node backend/scripts/osPdfCraftGate.mjs
+      - name: Validate persistent PDF Drive revisions and access
+        run: node backend/scripts/osPdfDriveGate.mjs
       - name: Database volume and frontend readiness diagnostics
         run: node backend/scripts/osReadinessGate.mjs
       - name: Production single-user authentication and origin checks
@@ -294,3 +296,5 @@ jobs:
         run: node backend/scripts/osDriveBrowserGate.mjs
       - name: PDF Studio missing-runtime fallback and PDF Blob handoff
         run: node backend/scripts/osPdfCraftBrowserGate.mjs
+      - name: PDF Drive upload, version and browser navigation acceptance
+        run: node backend/scripts/osPdfDriveBrowserGate.mjs
