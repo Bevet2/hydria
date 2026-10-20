@@ -28,6 +28,7 @@ try {
   assert.equal(result.files, 3);
   assert.match((await readFile(path.join(directory, "index.html"), "utf8")), /PdfCraft/);
   assert.equal((await readFile(path.join(directory, "test_bg.wasm"))).length, 8);
+  await rm(path.join(directory, "index.html"), { force: true });
   const bad = new AdmZip();
   bad.addFile("fake/index.html", Buffer.from("test"));
   await assert.rejects(unpackPdfCraftArchive(bad.toBuffer(), directory), /Incomplete/);
