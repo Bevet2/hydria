@@ -69,6 +69,7 @@ app.get("/.well-known/appspecific/com.chrome.devtools.json", (req, res) => {
 app.use(
   express.static(config.paths.frontendDir, {
     setHeaders: (res, filePath) => {
+      if (/\.wasm$/i.test(filePath)) res.setHeader("Content-Type", "application/wasm");
       if (/\.(?:html|js|css|json|svg)$/i.test(filePath)) {
         res.setHeader("Cache-Control", "no-store");
       }
