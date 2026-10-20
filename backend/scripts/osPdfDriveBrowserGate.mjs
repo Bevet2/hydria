@@ -7,6 +7,19 @@ const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
 const bytes1 = Buffer.from("%PDF-1.4\n1 0 obj\nendobj\n%%EOF\n");
 const bytes2 = Buffer.from("%PDF-1.5\n2 0 obj\nendobj\n%%EOF\n");
 try {
+  // This browser test must not inherit a user or delayed boot state from
+  // unrelated workspace acceptance tests that share the same test server.
+  const createdUserResponse = await page.request.post(base + "/api/users", {
+    data: { username: "pdf-drive-gate-" + Date.now() },
+    headers: { "content-type": "application/json" }
+  });
+  assert.ok(createdUserResponse.ok(), "Could not create isolated PDF test user");
+  const createdUser = await createdUserResponse.json();
+  const isolatedUserId = Number(createdUser.user?.id || 0);
+  assert.ok(isolatedUserId > 0);
+  await page.addInitScript((id) => {
+    window.localStorage.setItem("hydria:userId", String(id));
+  }, isolatedUserId);
   await page.goto(base + "/workspace/pdf", { waitUntil: "domcontentloaded" });
   await page.locator(".hydria-pdf-workbench").waitFor({ timeout: 30_000 });
   await page.getByText("Installation nécessaire").waitFor({ timeout: 15_000 });
@@ -36,7 +49,7 @@ try {
     const selected = document.querySelector("#user-select")?.value;
     return Number(selected || options[0]?.value || 0);
   });
-  assert.ok(userId > 0);
+  assert.equal(userId, isolatedUserId);
   let fetched = await page.request.get(base + "/api/work-objects/" + id + "/pdf-content?userId=" + userId);
   assert.equal(fetched.status(), 200);
   assert.equal(fetched.headers()["content-type"]?.includes("application/pdf"), true);
