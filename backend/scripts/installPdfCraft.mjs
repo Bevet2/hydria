@@ -21,7 +21,8 @@ export const PDFCRAFT_SHA256 =
 
 const maxCompressedBytes = 30 * 1024 * 1024;
 const maxExtractedBytes = 85 * 1024 * 1024;
-const maxSingleBytes = 35 * 1024 * 1024;
+// The pinned v0.9.0 WASM is 38,987,023 bytes (about 37.2 MiB).
+const maxSingleBytes = 45 * 1024 * 1024;
 const maxEntries = 200;
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const destination = path.join(rootDir, "frontend", "vendor", "pdfcraft");

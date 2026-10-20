@@ -143,7 +143,7 @@ export function renderHydriaDriveWorkspace(container, {
     const filtered = savedPdfs.filter(item => String(item.filename || "").toLocaleLowerCase().includes(q));
     filtered.sort((a,b) => view.sort === "name"
       ? String(a.filename).localeCompare(String(b.filename), "fr")
-      : String(b.created_at).localeCompare(String(a.created_at)));
+      : String(b.updated_at || b.created_at).localeCompare(String(a.updated_at || a.created_at)));
     if (!filtered.length) {
       pdfList.append(node("p", "hydria-pdf-saved-empty", "Aucun PDF ne correspond à cette recherche."));
       return 0;
@@ -156,7 +156,8 @@ export function renderHydriaDriveWorkspace(container, {
       const download = node("a", "hydria-pdf-button", "Télécharger");
       download.href = storedPdfUrl(item.id);
       download.setAttribute("download", String(item.filename || "document.pdf"));
-      row.append(name, open, download);
+      const version = node("small", "", "Version " + Number(item.revision || 1));
+      row.append(name, version, open, download);
       pdfList.append(row);
     }
     return filtered.length;

@@ -1,6 +1,7 @@
-# Hydria PDF Studio — ArtCraft PdfCraft WASM (premier incrément)
+# Hydria PDF Studio — ArtCraft PdfCraft et sauvegarde Drive
 
-**Branche:** `feat/pdfcraft-native-workspace-2026-10-20`  
+**Mise à jour :** 20 octobre 2026 — pont officiel, sauvegarde et révisions PDF.
+
 **Référence officielle :** https://github.com/storytold/pdfcraft  
 **Version épinglée :** PdfCraft v0.9.0 (GitHub release 18/10/2026).
 
@@ -8,13 +9,26 @@
 
 - Un workspace natif Hydria `/workspace/pdf` dans la navigation de l'OS.
 - Affichage embarqué de **la véritable application PdfCraft WebAssembly**, une fois ses fichiers installés localement.
-- Depuis la liste des documents Hydria, export PDF via le **générateur existant du backend** et ouverture dans PdfCraft grâce au paramètre `?file=<URL>` reconnu par l'upstream.
+- Depuis la liste des documents Hydria, export PDF via le **générateur existant du backend** et ouverture dans PdfCraft par son pont officiel `?host=parent` / `pdfcraft:open`.
 - **Exporter dans Drive** pour conserver un PDF produit depuis Docs ; import explicite d'un PDF local ou téléchargé depuis PdfCraft, avec liste, téléchargement et réouverture des PDF stockés.
 - Ouverture de PDF locaux, édition, téléchargement : fonctionnalités natives de PdfCraft, selon la maturité de sa version alpha.
 - État explicite **« installation nécessaire »** si le moteur n'est pas déployé ; aucun renvoi silencieux vers un site tiers.
 - Aucun CDN ni service IA externe obligatoire.
+- **Ctrl+S / Enregistrer dans PdfCraft** transmet le PDF édité à Hydria. Une zone « PDF à enregistrer dans Drive » propose une nouvelle copie, une nouvelle version du PDF Drive ouvert, un téléchargement et le retrait explicite de l'export.
+- Les révisions PDF sont immuables : historique consultable, téléchargement de chaque version, intégrité SHA-256 et conflit HTTP 409 si un autre éditeur a déjà enregistré une version plus récente.
+- Les anciens PDF Drive sont migrés sans déplacer ni réécrire leur fichier original. L'installation du WASM officiel de 38 987 023 octets est désormais acceptée par une limite unitaire de 45 Mio, sans modifier l'empreinte de la release.
 
-**Limites :** PdfCraft enregistre ses modifications via un **téléchargement navigateur** ; l’utilisateur doit ensuite utiliser **Importer un PDF dans Hydria Drive** pour conserver ce résultat. Il n’y a **pas de write-back automatique de l’iframe** ni de synchronisation vers la source Docs. Chaque import est une nouvelle copie PDF immutable, pas une révision du fichier DOCX/Markdown.
+**Limites :** la sauvegarde dans Drive nécessite une action explicite dans Hydria après Ctrl+S. Le protocole upstream ne fournit pas d'identifiant stable par onglet natif : aucun export n'est associé silencieusement à un fichier. Le bouton d'ajout de version nomme explicitement le PDF Drive ciblé. « Enregistrer sous » propose uniquement une copie. Le PDF ne resynchronise pas le DOCX/Markdown source. Les exports en attente sont conservés en mémoire pendant la navigation interne, mais pas après fermeture, rechargement forcé ou crash du navigateur ; un avertissement protège la fermeture ordinaire. Un export dépassant 20 Mio reste téléchargeable localement et n'est pas envoyé à Drive.
+
+## Contrat du pont vérifié
+
+Source : [apps/pdfcraft-web/src/main.rs au tag v0.9.0](https://github.com/storytold/pdfcraft/blob/v0.9.0/apps/pdfcraft-web/src/main.rs). Le binaire officiel épinglé contient bien ce pont.
+
+- Hydria attend `pdfcraft:ready` du **frame actuellement monté**, sur son origine exacte, avant de transmettre `{type:"pdfcraft:open", name, bytes}` avec un ArrayBuffer transféré.
+- PdfCraft émet `pdfcraft:save` avec `{name, saveAs, bytes}`, `pdfcraft:dirty` et `pdfcraft:failed`.
+- Hydria vérifie source, origine, forme et types des messages. Aucun message ne déclenche une écriture réseau sans validation explicite de l'export dans l'interface Hydria.
+- Une erreur de stockage ou un conflit conserve les octets préparés pour réessayer, télécharger ou enregistrer une copie. Un conflit ne met jamais à jour automatiquement la révision attendue pour écraser la modification concurrente.
+- À l'ouverture depuis Drive, les métadonnées et les octets d'une **révision déterminée** sont lus ; l'éditeur ne repose pas sur une ligne de bibliothèque éventuellement périmée.
 
 ## Installation (instance privée)
 
@@ -60,26 +74,30 @@ node backend/scripts/osPdfCraftGate.mjs
 npx --yes esbuild@0.25.10 frontend/app.js --bundle --format=esm --platform=browser --outfile=/tmp/hydria-pdf-bundle.js
 ```
 
-La validation CI contrôle la route, le format du transfert `blob:`, le SHA figé, l'extraction ZIP de test et le frontend. Le **rendu WebAssembly réel et la fidélité PDF** restent à valider sur une instance ayant exécuté l'installation.
+La CI contrôle le contrat, le SHA figé, l'extraction ZIP, l'installation réelle, le frontend, les API de révisions et le pont navigateur. Un test avec le vrai WASM ouvre un PDF d'une page, le fait pivoter à 90° avec la palette de commandes native, utilise Ctrl+S puis l'enregistrement Drive au clavier, vérifie le texte, la rotation, la conservation de l'original et la réouverture après rechargement. Ce cas ne démontre pas la fidélité de tous les PDF, formulaires, annotations ou signatures.
 
 ## Prochain incrément
 
-1. Isoler PdfCraft sur une **origine séparée** avec un protocole sûr et un endpoint de fichiers temporaire authentifié.
-2. Ajouter un protocole de sauvegarde automatique de PdfCraft vers **Hydria Drive** avec des ACL serveur et des révisions ; aujourd’hui seule une importation manuelle sûre est disponible.
-3. Gérer explicitement les changements non enregistrés, conflits de version et reprise après crash.
+1. Étudier une **origine séparée** : le pont officiel actuel accepte uniquement un parent sur la même origine ; une isolation réelle demande une adaptation du protocole upstream.
+2. Ajouter identité utilisateur, ACL serveur, quotas globaux et politiques de rétention ; les révisions actuelles sont bornées à 50 par PDF.
+3. Ajouter récupération durable des exports en attente et protection de tous les modes de navigation, dont retour/avance de l'historique ; l'avertissement actuel couvre fermeture/rechargement et clics de navigation ordinaires.
 4. Brancher les commandes autorisées à Hydria Core, idéalement via un service contrôlé plutôt qu'un port MCP accessible depuis le navigateur.
 
 ## Import et persistance Drive (PR #76)
 
-- **API privée :** `POST /api/drive/pdf-assets` (formulaire `multipart/form-data`, champ `file`, jusqu'à **20 Mio**), `GET /api/drive/pdf-assets` (liste bornée à 500), `GET /api/drive/pdf-assets/:id/download` (téléchargement avec contrôle SHA-256).
+- **API privée :** `POST /api/drive/pdf-assets` (formulaire `multipart/form-data`, champ `file`, jusqu'à **20 Mio**), `GET /api/drive/pdf-assets` (liste bornée à 500), `GET /api/drive/pdf-assets/:id` (métadonnées), `GET /api/drive/pdf-assets/:id/download` (dernière version avec contrôle SHA-256).
+- **Versions :** `POST /api/drive/pdf-assets/:id/versions` (champs `file` et `expectedRevision`), `GET /api/drive/pdf-assets/:id/versions`, `GET /api/drive/pdf-assets/:id/versions/:revision/download`. Une nouvelle version conserve l'identifiant du PDF. Les fichiers sont écrits et synchronisés avant la transaction SQLite ; les écritures concurrentes sont arbitrées dans cette transaction.
 - Stockage des octets dans `HYDRIA_OS_DATA_DIR/drive-pdf-assets/` et des métadonnées dans la base SQLite principale. Les sauvegardes du répertoire de données doivent inclure **à la fois la base et ces fichiers** ; restauration de la seule SQLite insuffisante.
 - PDF Studio propose **Exporter dans Drive** pour un document Docs, **Importer un PDF dans Hydria Drive** pour un PDF local/téléchargé, puis **Ouvrir** et **Télécharger** pour les PDF conservés. Drive affiche également les PDF enregistrés et ouvre PDF Studio par lien dédié.
 - Le backend vérifie la signature et le marqueur de fin PDF, sans prétendre valider toute la structure ou purifier le contenu PDF. **Ne pas considérer un PDF importé comme fiable.**
-- **Périmètre privé uniquement :** l'authentification Basic partagée de l'OS protège le déploiement privé, mais il n'y a **ni propriétaire de fichier, ni ACL multi-tenant, ni suppression/versioning**. Ne pas rendre cette API publique avant une couche d'identité/autorisation serveur et un quota global.
+- **Périmètre privé uniquement :** l'authentification Basic partagée de l'OS protège le déploiement privé, mais il n'y a **ni propriétaire de fichier, ni ACL multi-tenant, ni suppression**. Ne pas rendre cette API publique avant une couche d'identité/autorisation serveur et un quota global.
 
 ### Tests
 
 ```bash
 node backend/scripts/osDrivePdfAssetsGate.mjs  # serveur local en marche
-node backend/scripts/osPdfCraftBrowserGate.mjs # serveur + Chromium, fixture PdfCraft
+node backend/scripts/osDrivePdfMigrationGate.mjs
+node backend/scripts/osPdfCraftRealBrowserGate.mjs # serveur + Chromium + vrai runtime installé
+# Sur un checkout sans runtime PdfCraft installé :
+node backend/scripts/osPdfCraftBrowserGate.mjs # fixture du protocole, pas un test du WASM
 ```
