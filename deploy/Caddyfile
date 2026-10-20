@@ -4,7 +4,9 @@
         Strict-Transport-Security "max-age=31536000"
         X-Content-Type-Options "nosniff"
         Referrer-Policy "strict-origin-when-cross-origin"
-        X-Frame-Options "DENY"
+        # X-Frame-Options and frame-ancestors are provided by the backend:
+        # DENY by default, SAMEORIGIN only for verified ArtCraft HTML entrypoints.
+        # Do not override here: a blanket DENY breaks embedded PDF/Photo/Design.
     }
     reverse_proxy hydria-os:3001
 }
