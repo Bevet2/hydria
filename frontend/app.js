@@ -1,5 +1,6 @@
 import { renderChatMessage } from "./components/chatMessage.js";
 import { renderHydriaLibraryExplorer } from "./components/workspaceLibraryExplorer.js";
+import { renderPdfCraftWorkbench } from "./components/pdfCraftWorkbench.js";
 import { renderRunDetails } from "./components/detailsPanel.js";
 import {
   applyWorkspaceBlockEdit,
@@ -494,7 +495,7 @@ async function activateWorkspacePage(page = null, { historyMode = "push" } = {})
       return;
     }
 
-    if (page.slug === "chat") {
+    if (page.slug === "chat" || page.slug === "pdf") {
       await flushPendingWorkObjectChanges();
       clearCurrentWorkObjectState();
       renderWorkspace();
@@ -17070,6 +17071,34 @@ function renderWorkspaceLauncher(hasVisibleWorkspace = false) {
     renderCrmWorkspaceEmbed(container, { userId: state.currentUserId });
     return;
   }
+  if (activePage?.slug === "pdf") {
+    renderPdfCraftWorkbench(container, {
+      documents: state.workObjects.filter(isDocumentWorkObject),
+      onExportDocument: async (id) => {
+        const item = state.workObjects.find((workObject) => String(workObject.id) === String(id));
+        if (!item || !isDocumentWorkObject(item)) throw Error("Document introuvable");
+        const result = await apiClient.getWorkObject(item.id, preferredOpenPath(item));
+        const doc = result.workObject;
+        if (!doc || !isDocumentWorkObject(doc)) throw Error("Document non disponible");
+        const markdown = String(doc.file?.content || doc.content || "");
+        if (!markdown.trim()) throw Error("Le document est vide");
+        const response = await fetch(
+          "/api/work-objects/" + encodeURIComponent(item.id) + "/document-export",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "same-origin",
+            body: JSON.stringify({ format: "pdf", markdown, title: doc.title || "Document" })
+          }
+        );
+        if (!response.ok) {
+          throw Error("Export PDF impossible (HTTP " + response.status + ")");
+        }
+        return response.blob();
+      }
+    });
+    return;
+  }
   const header = document.createElement("div");
   header.className = "workspace-launcher-header";
   const title = document.createElement("div");
@@ -17121,7 +17150,7 @@ function renderWorkspace() {
       : state.currentWorkObject;
   const project = state.currentWorkspace?.project || null;
   const hasVisibleWorkspace = Boolean(workObject);
-  const hasEmbeddedPage = activePage?.slug === "crm" || activePage?.slug === "chat";
+  const hasEmbeddedPage = ["crm", "chat", "pdf"].includes(activePage?.slug);
   const workspaceLens = currentWorkspaceLens();
   const workspaceFamilyId = currentWorkspaceFamilyId();
   const isDocumentCloneWorkspace = workspaceFamilyId === "document_knowledge";
