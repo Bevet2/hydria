@@ -2,6 +2,7 @@ import { renderChatMessage } from "./components/chatMessage.js";
 import { renderHydriaLibraryExplorer } from "./components/workspaceLibraryExplorer.js";
 import { renderHydriaDriveWorkspace } from "./components/hydriaDriveWorkspace.js";
 import { renderPdfCraftWorkbench } from "./components/pdfCraftWorkbench.js";
+import { renderArtCraftWorkspace } from "./components/artCraftWorkspaces.js";
 import { renderRunDetails } from "./components/detailsPanel.js";
 import {
   applyWorkspaceBlockEdit,
@@ -496,7 +497,8 @@ async function activateWorkspacePage(page = null, { historyMode = "push" } = {})
       return;
     }
 
-    if (page.slug === "chat" || page.slug === "drive" || page.slug === "pdf") {
+    if (page.slug === "chat" || page.slug === "drive" || page.slug === "pdf" ||
+        page.slug === "photo" || page.slug === "fig") {
       await flushPendingWorkObjectChanges();
       clearCurrentWorkObjectState();
       renderWorkspace();
@@ -6826,7 +6828,8 @@ function renderWorkspaceSwitcher(hasVisibleWorkspace = false) {
     const badge = document.createElement("small");
     badge.textContent = String(count);
     badge.setAttribute("aria-label", `${count} ${item.label} objects`);
-    chip.append(label, badge);
+    chip.append(label);
+    if (item.kind !== "virtual" || item.slug === "drive") chip.append(badge);
     chip.addEventListener("click", () => {
       activateWorkspacePage(item).catch(handleError);
     });
@@ -17087,6 +17090,12 @@ function renderWorkspaceLauncher(hasVisibleWorkspace = false) {
     });
     return;
   }
+  if (activePage?.slug === "photo" || activePage?.slug === "fig") {
+    renderArtCraftWorkspace(container, {
+      editor: activePage.slug
+    });
+    return;
+  }
   if (activePage?.slug === "pdf") {
     renderPdfCraftWorkbench(container, {
       documents: state.workObjects.filter(isDocumentWorkObject),
@@ -17166,7 +17175,7 @@ function renderWorkspace() {
       : state.currentWorkObject;
   const project = state.currentWorkspace?.project || null;
   const hasVisibleWorkspace = Boolean(workObject);
-  const hasEmbeddedPage = ["crm", "chat", "drive", "pdf"].includes(activePage?.slug);
+  const hasEmbeddedPage = ["crm", "chat", "drive", "pdf", "photo", "fig"].includes(activePage?.slug);
   const workspaceLens = currentWorkspaceLens();
   const workspaceFamilyId = currentWorkspaceFamilyId();
   const isDocumentCloneWorkspace = workspaceFamilyId === "document_knowledge";

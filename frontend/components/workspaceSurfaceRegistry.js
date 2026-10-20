@@ -101,6 +101,24 @@ export const WORKSPACE_PAGES = Object.freeze([
     hint: "Create a whiteboard"
   },
   {
+    slug: "photo",
+    kind: "virtual",
+    family: "artcraft_photo",
+    label: "Photo Studio",
+    title: "Hydria Photo",
+    description: "Retouchez des images dans PhotoCraft et conservez vos exports dans Drive.",
+    hint: "Ouvrir PhotoCraft"
+  },
+  {
+    slug: "fig",
+    kind: "virtual",
+    family: "artcraft_fig",
+    label: "Design Studio",
+    title: "Hydria Design",
+    description: "Prototypage d'interfaces avec le moteur libre FigCraft Web.",
+    hint: "Ouvrir FigCraft"
+  },
+  {
     slug: "pdf",
     kind: "virtual",
     family: "document_knowledge",
@@ -139,6 +157,8 @@ export const WORKSPACE_FAMILY_LABELS = Object.freeze({
   finance: "Finance",
   hr: "HR",
   file_storage: "Files & Storage",
+  artcraft_photo: "Photo & Image Editing",
+  artcraft_fig: "Interface Design",
   testing_qa: "Testing & QA",
   web_cms: "Web & CMS",
   media: "Media",

@@ -39,6 +39,8 @@ jobs:
         run: npm ci --prefix backend --no-audit --no-fund
       - name: Validate PdfCraft integration contract and pinned installer
         run: node backend/scripts/osPdfCraftGate.mjs
+      - name: Validate PhotoCraft/FigCraft releases and raster types
+        run: node backend/scripts/osArtCraftGate.mjs
       - name: Database volume and frontend readiness diagnostics
         run: node backend/scripts/osReadinessGate.mjs
       - name: Production single-user authentication and origin checks
@@ -103,6 +105,8 @@ jobs:
 
       - name: Persist, retrieve and validate PDF assets in Drive
         run: node backend/scripts/osDrivePdfAssetsGate.mjs
+      - name: Persist, preview and validate images in Drive
+        run: node backend/scripts/osDriveImageAssetsGate.mjs
       - name: Verify live Flow dashboard assets
         run: |
           curl --fail --silent --show-error http://127.0.0.1:3001/flow-dashboard.html | grep -q 'Live Flow Dashboard'
@@ -296,3 +300,5 @@ jobs:
         run: node backend/scripts/osDriveBrowserGate.mjs
       - name: PDF Studio missing-runtime fallback and PDF Blob handoff
         run: node backend/scripts/osPdfCraftBrowserGate.mjs
+      - name: PhotoCraft and FigCraft browser and image Drive acceptance
+        run: node backend/scripts/osArtCraftBrowserGate.mjs
