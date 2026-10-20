@@ -6,6 +6,8 @@ services:
       dockerfile: deploy/Dockerfile
       args:
         INSTALL_PDFCRAFT: ${HYDRIA_INSTALL_PDFCRAFT:-false}
+        INSTALL_PHOTOCRAFT: ${HYDRIA_INSTALL_PHOTOCRAFT:-false}
+        INSTALL_FIGCRAFT: ${HYDRIA_INSTALL_FIGCRAFT:-false}
     restart: unless-stopped
     init: true
     env_file:
