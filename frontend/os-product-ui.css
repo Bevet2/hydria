@@ -513,3 +513,36 @@ html body[data-os-theme="dark"] .os-focus-toggle[aria-pressed="true"]{
   }
   body.os-focus-mode .os-mobile-files {display:none !important;}
 }
+
+
+/* Hydria Drive — first unified native work-object library.
+   Uses existing Hydria permissions and persistence; no separate file copies. */
+.hydria-drive{display:flex;flex-direction:column;gap:20px;padding:4px 2px 32px;max-width:1100px;margin:0 auto;}
+.hydria-drive-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;padding:12px 0 8px;}
+.hydria-drive-heading h2{font-size:clamp(22px,2.6vw,32px);font-weight:700;line-height:1.15;letter-spacing:-.035em;margin:8px 0 10px;}
+.hydria-drive-eyebrow{margin:0;font:600 11px/1.4 "IBM Plex Mono",monospace;letter-spacing:.12em;opacity:.68;}
+.hydria-drive-subtitle{max-width:620px;margin:0;color:#64748b;font-size:13px;line-height:1.65;}
+.hydria-drive-total{flex:none;border:1px solid #dce3ec;border-radius:999px;padding:7px 12px;font-size:12px;font-weight:650;color:#475569;background:#fff;white-space:nowrap;}
+.hydria-drive-quick{display:flex;gap:10px;flex-wrap:wrap;}
+.hydria-drive-new{font:inherit;font-size:13px;font-weight:650;border-radius:12px;border:1px solid #cbd5e1;background:#fff;color:#1e293b;padding:11px 15px;cursor:pointer;transition:background .15s,border-color .15s;}
+.hydria-drive-new:hover{background:#eff6ff;border-color:#a5b4fc;}
+.hydria-drive-controls{display:grid;grid-template-columns:minmax(220px,1fr) 190px 155px;gap:10px;}
+.hydria-drive-controls input,.hydria-drive-controls select{font:inherit;width:100%;min-width:0;min-height:42px;background:#fff;border:1px solid #d6deea;border-radius:11px;color:#334155;padding:10px 12px;}
+.hydria-drive-controls :is(input,select):focus-visible,.hydria-drive :is(button):focus-visible{outline:2px solid #4f46e5;outline-offset:2px;}
+.hydria-drive-results{margin:0;color:#64748b;font-size:12px;font-weight:600;}
+.hydria-drive-list{display:grid;gap:8px;min-width:0;}
+.hydria-drive-item{display:flex;align-items:center;gap:15px;width:100%;text-align:left;border:1px solid #e2e8f0;background:#fff;color:#0f172a;border-radius:14px;padding:13px 16px;cursor:pointer;transition:background .15s,border-color .15s,transform .15s;}
+.hydria-drive-item:hover{background:#f8faff;border-color:#aebee1;transform:translateY(-1px);}
+.hydria-drive-item-symbol{display:grid;place-items:center;flex:none;width:42px;height:42px;border-radius:11px;background:#eef2ff;color:#4338ca;font-size:23px;}
+.hydria-drive-item-copy{display:flex;flex:1;min-width:0;flex-direction:column;gap:4px;}
+.hydria-drive-item-copy strong{font-size:14px;white-space:nowrap;text-overflow:ellipsis;overflow:hidden;}
+.hydria-drive-item-copy small{color:#64748b;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.hydria-drive-item-arrow{flex:none;color:#64748b;font-size:12px;font-weight:650;}
+.hydria-drive-empty{padding:40px 18px;text-align:center;background:#fff;border:1px dashed #cbd5e1;border-radius:14px;color:#64748b;line-height:1.7;}
+html body[data-os-theme="dark"] .hydria-drive-subtitle,html body[data-os-theme="dark"] .hydria-drive-results{color:#aab7cc;}
+html body[data-os-theme="dark"] .hydria-drive-total,html body[data-os-theme="dark"] .hydria-drive-new,html body[data-os-theme="dark"] .hydria-drive-controls :is(input,select),html body[data-os-theme="dark"] .hydria-drive-item,html body[data-os-theme="dark"] .hydria-drive-empty{background:#252a40;border-color:#434b67;color:#e2e8f0;}
+html body[data-os-theme="dark"] .hydria-drive-new:hover,html body[data-os-theme="dark"] .hydria-drive-item:hover{background:#303852;border-color:#707aa6;}
+html body[data-os-theme="dark"] .hydria-drive-item-copy small{color:#aab7cc;}
+html body[data-os-theme="dark"] .hydria-drive-item-symbol{background:#323957;color:#c7d2fe;}
+@media(max-width:780px){.hydria-drive-heading{flex-wrap:wrap}.hydria-drive-controls{grid-template-columns:1fr 1fr}.hydria-drive-search{grid-column:1/-1}.hydria-drive-item-arrow{display:none}}
+@media(max-width:430px){.hydria-drive-controls{grid-template-columns:1fr}.hydria-drive-search{grid-column:auto}.hydria-drive-item{padding:11px}.hydria-drive-total{font-size:11px}}
