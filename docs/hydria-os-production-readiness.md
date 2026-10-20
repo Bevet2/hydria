@@ -53,6 +53,39 @@ own credentials and reachability checks.
   rate-limited login, OAuth/SSO, audit and intrusion monitoring are future
   milestones; do not present this gateway as a complete security solution.
 
+## ArtCraft embedded editors in production
+
+PDF Studio, Photo Studio et Design Studio intègrent respectivement PdfCraft,
+PhotoCraft et FigCraft dans une `iframe` **sur la même origine** que Hydria OS.
+
+Par défaut, toutes les autres ressources du serveur refusent l'intégration
+(`X-Frame-Options: DENY`, `Content-Security-Policy: frame-ancestors 'none'`).
+**Seuls** les points d'entrée exacts suivants permettent `SAMEORIGIN` et
+`frame-ancestors 'self'` :
+
+- `/vendor/pdfcraft/index.html`
+- `/vendor/photocraft/index.html`
+- `/vendor/figcraft/index.html`
+
+Le middleware Node ajoute ces en-têtes après contrôle de l'authentification
+Basic. Le proxy Caddy doit **transmettre les en-têtes d'Express** ; n'ajoutez
+pas de règle globale `X-Frame-Options: DENY` ou de politique
+`frame-ancestors 'none'` qui écraserait cette exception, faute de quoi
+les éditeurs intégrés ne fonctionneront pas en production.
+
+Ce réglage n'autorise pas les autres sites à embarquer les éditeurs Hydria,
+ne donne pas d'accès public aux bundles WASM, et **n'isole pas** les moteurs
+open source de la page parent : une iframe avec `allow-scripts` et
+`allow-same-origin` demeure du code exécuté avec la confiance de l'origine.
+La vérification SHA-256 des bundles et un pilote mono-propriétaire restent
+des précautions, pas une sandbox de sécurité complète. Pour un SaaS public,
+prévoir une origine isolée et un protocole inter-frame à permissions bornées.
+
+Les tests `productionAccessGate.mjs` et `productionBrowserGate.mjs`
+valident l'allowlist, la conservation des refus par défaut, les ressources
+authentifiées et le chargement de trois éditeurs factices dans Chromium.
+Ils ne remplacent pas un test visuel des vrais moteurs sur le VPS.
+
 ## Deployment acceptance gates
 
 Run these from a checkout with `npm ci --prefix backend`:
