@@ -24,6 +24,25 @@ Une modification d'un fichier après sauvegarde est donc détectée, **tant
 que le manifeste lui-même est conservé dans un environnement fiable**.
 Ce mécanisme n'est ni un chiffrement ni une signature cryptographique.
 
+## Vérification du catalogue Hydria Drive
+
+À partir de ce correctif, la commande `backup` **refuse de produire une archive marquée comme complète** si la copie SQLite référence un binaire PDF ou image manquant, tronqué, modifié ou associé à la mauvaise révision. La commande `verify` vérifie également cette cohérence avant de permettre une restauration.
+
+La validation couvre les fichiers PDF et images actuellement stockés dans `drive-pdf-assets/` et `drive-images/`, **y compris les versions historiques**. Elle examine les métadonnées et les empreintes SHA-256 de chaque version, compare les révisions successives et détecte les enregistrements orphelins. Les anciennes installations avec stockage PDF/image *sans table de versions* restent prises en charge : leurs fichiers sont considérés comme révision 1.
+
+Les fichiers de données non référencés sont **signalés** dans `unreferencedFiles`, mais pas effacés ni considérés comme bloquants. Ils peuvent correspondre à un import abandonné. Aucune suppression automatique n'est effectuée pour éviter une perte de données.
+
+Pour exécuter le contrôle de façon isolée en développement :
+
+```bash
+npm ci --prefix backend
+node backend/scripts/osDriveAssetIntegrityGate.mjs
+```
+
+Les résultats des contrôles logiques sont disponibles dans `verifyHydriaBackup(...).drive` : `checkedAssets`, `checkedVersions`, `checkedBytes`, `unreferencedFiles`. Les téléchargements et les versions restent protégés par les limites de l'instance privée : il ne s'agit **pas** d'une gestion multi-utilisateur ou d'une sauvegarde chiffrée.
+
+**Limite conservée :** la copie de SQLite et le parcours du système de fichiers ne constituent toujours pas une transaction unique. Le contrôle rejette les incohérences détectées ; il ne remplace ni l'isolation des écritures, ni des sauvegardes hors site ni un test de restauration de l'application sur un autre serveur.
+
 ## Sauvegarder un conteneur actif
 
 Un conteneur exécutant Hydria OS peut créer une sauvegarde **sans arrêter
