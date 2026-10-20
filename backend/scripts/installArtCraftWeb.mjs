@@ -67,7 +67,9 @@ export async function installArtCraftWeb(which, {
     }
     if (which === "photo") {
       const partsFile = await readFile(path.join(staging, "app", "parts.txt"), "utf8");
-      const parts = partsFile.split(/\r?\n/).map((part) => part.trim()).filter(Boolean);
+      const lines = partsFile.split(/\r?\n/).map((part) => part.trim()).filter(Boolean);
+      if (lines[0] !== "photocraft-parts 1") throw Error("Unsupported PhotoCraft parts manifest");
+      const parts = lines.slice(1);
       if (!parts.length || parts.some((part) =>
         !/^[A-Za-z0-9._-]+\.part-[A-Za-z0-9_-]+$/.test(part)
       )) throw Error("Unexpected PhotoCraft WASM parts manifest");
