@@ -1,9 +1,8 @@
 import { expect, test } from "@playwright/test";
+import { signIn } from "./helpers";
 
 test.beforeEach(async ({ page }) => {
-  await page.goto("/login");
-  await page.locator("form").getByRole("button", { name: "Sign in", exact: true }).click();
-  await expect(page).toHaveURL(/\/$/);
+  await signIn(page);
 });
 
 test("core CRM workspaces render without browser errors or overflow", async ({ page }, testInfo) => {
@@ -14,7 +13,7 @@ test("core CRM workspaces render without browser errors or overflow", async ({ p
   page.on("pageerror", (error) => browserErrors.push(error.message));
 
   for (const route of ["/products", "/tasks", "/tickets", "/communications", "/platform", "/settings"]) {
-    await page.goto(route);
+    await page.goto("/crm" + route);
     await expect(page.locator("h1")).toBeVisible();
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
     if (route === "/communications" || route === "/platform") {
@@ -22,7 +21,7 @@ test("core CRM workspaces render without browser errors or overflow", async ({ p
     }
   }
 
-  await page.goto("/contacts");
+  await page.goto("/crm/contacts");
   const firstContact = page.locator(".record-link").first();
   if (await firstContact.count()) {
     await firstContact.click();

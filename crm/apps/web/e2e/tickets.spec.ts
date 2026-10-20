@@ -1,14 +1,13 @@
 import { expect, test } from "@playwright/test";
+import { signIn } from "./helpers";
 
 test.beforeEach(async ({ page }) => {
-  await page.goto("/login");
-  await page.locator("form").getByRole("button", { name: "Sign in", exact: true }).click();
-  await expect(page).toHaveURL(/\/$/);
+  await signIn(page);
 });
 
 test("support tickets can be created, resolved and deleted", async ({ page }) => {
   const marker = `Browser ticket ${Date.now()}`;
-  await page.goto("/tickets");
+  await page.goto("/crm/tickets");
   await expect(page.getByRole("heading", { name: "Tickets" })).toBeVisible();
   await page.getByRole("button", { name: "Ticket", exact: true }).click();
 

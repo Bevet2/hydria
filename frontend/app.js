@@ -410,6 +410,15 @@ async function activateWorkspacePage(page = null, { historyMode = "push" } = {})
       return;
     }
 
+    const rememberedId = sessionStore.getWorkspaceObject(state.currentUserId, page.slug);
+    const remembered = state.workObjects.find(object => String(object.id) === rememberedId &&
+      workspacePageForWorkObject(object)?.slug === page.slug);
+    if (remembered && String(state.currentWorkObjectId) !== String(remembered.id)) {
+      await selectWorkObject(remembered.id, preferredOpenPath(remembered), {
+        syncRoute: false, syncProject: true
+      });
+      return;
+    }
     const currentPage = workspacePageForWorkObject(state.currentWorkObject);
     if (currentPage?.slug === page.slug) {
       renderWorkspace();
@@ -18172,6 +18181,9 @@ async function selectWorkObject(workObjectId, filePath = "", options = {}) {
   }
 
   mergeWorkObject(workObject);
+  if (!state.routeHydrating) {
+    sessionStore.setWorkspaceObject(state.currentUserId, workspacePageForWorkObject(workObject)?.slug, workObject.id);
+  }
   startWorkObjectCollaboration(workObject);
   renderWorkObjects();
   renderWorkspace();
