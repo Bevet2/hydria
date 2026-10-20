@@ -14,7 +14,13 @@ try {
   await page.locator(".hydria-pdf-upload-file").setInputFiles({
     name: "hydria-acceptance.pdf", mimeType: "application/pdf", buffer: bytes1
   });
-  await page.getByText("PDF enregistré · révision 1").waitFor({ timeout: 20_000 });
+  await page.waitForFunction(() => {
+    const label = document.querySelector(".hydria-pdf-status")?.textContent || "";
+    return label.includes("PDF enregistré") || label.includes("Enregistrement refusé");
+  }, { timeout: 20_000 });
+  const statusText = await page.locator(".hydria-pdf-status").innerText();
+  const errorText = await page.locator(".hydria-pdf-error").innerText();
+  assert.match(statusText, /PDF enregistré · révision 1/, "PDF upload failure: " + errorText);
   const id = await page.getByRole("combobox", { name: "PDF Hydria Drive" }).inputValue();
   assert.match(id, /^[0-9a-f-]{36}$/i);
   const userId = await page.evaluate(() => {
