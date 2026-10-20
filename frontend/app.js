@@ -17125,6 +17125,7 @@ function renderWorkspaceLauncher(hasVisibleWorkspace = false) {
         if (!response.ok || !result.workObject?.id) {
           throw Error(result.error || "Échec de sauvegarde PDF (HTTP " + response.status + ")");
         }
+        state.pendingPdfId = String(result.workObject.id);
         mergeWorkObject(result.workObject);
         renderWorkObjects();
         return result.workObject;
