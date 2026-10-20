@@ -1,0 +1,55 @@
+name: Hydria PDF Drive targeted acceptance
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "backend/src/work-objects/**"
+      - "backend/routes/workObjects.js"
+      - "frontend/components/pdfCraftWorkbench.js"
+      - "frontend/components/hydriaDriveWorkspace.js"
+      - "frontend/components/workspaceSurfaceRegistry.js"
+      - "frontend/app.js"
+      - "backend/scripts/osPdfDriveGate.mjs"
+      - "backend/scripts/osPdfDriveBrowserGate.mjs"
+      - ".github/workflows/hydria-pdf-drive.yml"
+permissions:
+  contents: read
+jobs:
+  isolated-pdf-workflow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci --prefix backend --no-audit --no-fund
+      - run: npx --prefix backend playwright install --with-deps chromium
+      - name: Validate binary storage model
+        run: node backend/scripts/osPdfDriveGate.mjs
+      - name: Start a disposable Hydria server
+        run: |
+          export HYDRIA_OS_DATA_DIR="$(mktemp -d)"
+          echo "HYDRIA_OS_DATA_DIR=$HYDRIA_OS_DATA_DIR" >> "$GITHUB_ENV"
+          NODE_ENV=test ENABLE_LOCAL_TOOLS=false HYDRIA_OS_DATA_DIR="$HYDRIA_OS_DATA_DIR" \
+            npm run start --prefix backend > /tmp/hydria-pdf-drive.log 2>&1 &
+          ready=false
+          for i in {1..30}; do
+            if curl --silent --fail http://127.0.0.1:3001/livez >/dev/null; then ready=true; break; fi
+            sleep 1
+          done
+          if [ "$ready" != "true" ]; then cat /tmp/hydria-pdf-drive.log; exit 1; fi
+          curl --fail --silent --show-error -X POST http://127.0.0.1:3001/api/users \
+            -H 'content-type: application/json' -d '{"username":"pdf-drive-ci"}'
+      - name: Browser upload, revision, download and Drive opening
+        run: node backend/scripts/osPdfDriveBrowserGate.mjs
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hydria-pdf-drive-server-log
+          path: /tmp/hydria-pdf-drive.log
+          if-no-files-found: ignore
+          retention-days: 5
