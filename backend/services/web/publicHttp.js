@@ -7,6 +7,14 @@ import { ExternalServiceError } from "../../utils/errors.js";
 function denied(message = "The web reader only permits public Internet addresses.") {
   return new ExternalServiceError(message, "browser_fetch", 400);
 }
+function withAbort(promise, signal) {
+  return new Promise((resolve, reject) => {
+    const aborted = () => reject(signal.reason);
+    signal.addEventListener("abort", aborted, { once: true });
+    if (signal.aborted) aborted();
+    promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", aborted));
+  });
+}
 export async function resolvePublicUrl(value, resolve = lookup) {
   let url;
   try { url = new URL(value); } catch { throw denied("Invalid web URL."); }
@@ -71,7 +79,7 @@ export async function fetchPublicPage(value, {
   const signal = AbortSignal.timeout(Math.min(Math.max(100, timeoutMs), 45000));
   let current = value;
   for (let redirects = 0; redirects <= 5; redirects++) {
-    const { url, address } = await resolvePublicUrl(current, resolve);
+    const { url, address } = await withAbort(resolvePublicUrl(current, resolve), signal);
     signal.throwIfAborted();
     const response = await request(url, address, { headers, signal, maxBytes });
     if ([301, 302, 303, 307, 308].includes(response.status)) {

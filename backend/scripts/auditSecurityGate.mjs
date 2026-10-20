@@ -90,6 +90,13 @@ try {
   const successful = await fetchPublicPage("https://example.com", { resolve,
     request: async () => ({ status: 200, headers: { "content-type": "text/plain" }, buffer: Buffer.from("Public page") }) });
   assert.equal(successful.buffer.toString(), "Public page");
+  // A stuck resolver must respect the same deadline as the HTTP transfer.
+  const keepAlive = setInterval(() => {}, 1000);
+  try {
+    await assert.rejects(fetchPublicPage("https://example.com", {
+      timeoutMs: 100, resolve: () => new Promise(() => {})
+    }), { name: "TimeoutError" });
+  } finally { clearInterval(keepAlive); }
 
   for (const mode of ["core-first", "local-first", "openrouter-first", "openrouter-only"]) {
     const result = spawnSync(process.execPath, ["--input-type=module", "-e", `

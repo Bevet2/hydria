@@ -59,7 +59,8 @@ test("admin can run the core CRM workflow", async ({ page }, testInfo) => {
     await editDialog.getByRole("button", { name: "Save changes" }).click();
     await expect(page.getByText("Revenue Tester", { exact: true }).first()).toBeVisible();
 
-    await page.getByRole("button", { name: "Task", exact: true }).click();
+    await page.locator(".record-section").filter({ has: page.getByRole("heading", { name: "Tasks", exact: true }) })
+      .getByRole("button", { name: "Task", exact: true }).click();
     const taskDialog = page.getByRole("dialog", { name: "New task" });
     await taskDialog.getByLabel("Title").fill(taskName);
     await taskDialog.getByLabel("Priority").selectOption("HIGH");
