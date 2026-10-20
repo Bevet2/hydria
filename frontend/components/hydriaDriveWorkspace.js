@@ -200,12 +200,13 @@ export function renderHydriaDriveWorkspace(container, {
       thumb.loading = "lazy";
       const name = node("strong", "", String(item.filename || "image.png"));
       const open = node("a", "hydria-artcraft-button", "Photo Studio");
-      open.href = "/workspace/photo";
+      open.href = "/workspace/photo?imageId=" + encodeURIComponent(item.id);
       open.title = "Télécharger cette image, puis l'ouvrir dans PhotoCraft";
       const download = node("a", "hydria-artcraft-button", "Télécharger");
       download.href = imageAssetUrl(item.id);
       download.setAttribute("download", String(item.filename || "image.png"));
-      row.append(thumb, name, download, open);
+      const revision = node("small", "hydria-drive-image-revision", "Version " + Number(item.revision || 1));
+      row.append(thumb, name, revision, download, open);
       imageList.append(row);
     }
     return filtered.length;
