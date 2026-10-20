@@ -19,8 +19,6 @@ jobs:
           node-version: 22
       - name: Bundle frontend and validate module exports
         run: npx --yes esbuild@0.25.10 frontend/app.js --bundle --format=esm --platform=browser --outfile=/tmp/hydria-integration.js
-      - name: Validate PdfCraft integration contract and pinned installer
-        run: node backend/scripts/osPdfCraftGate.mjs
       - name: Check JavaScript syntax for integrated files
         run: |
           for file in frontend/app.js frontend/components/workspaceCanvasPanel.js frontend/components/workspacePanel.js frontend/components/workspaceMenuUi.js backend/server.js backend/routes/canvas.js; do
@@ -37,6 +35,8 @@ jobs:
           cache-dependency-path: backend/package-lock.json
       - name: Install backend dependencies
         run: npm ci --prefix backend --no-audit --no-fund
+      - name: Validate PdfCraft integration contract and pinned installer
+        run: node backend/scripts/osPdfCraftGate.mjs
       - name: Database volume and frontend readiness diagnostics
         run: node backend/scripts/osReadinessGate.mjs
       - name: Production single-user authentication and origin checks
