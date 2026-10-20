@@ -39,10 +39,24 @@ const schema = z.object({
   INTEGRATION_SYNC_INTERVAL_MINUTES: z.coerce.number().int().min(5).max(1440).default(15),
   BACKUP_DIR: z.string().default("./storage/backups"),
   ATTACHMENT_DIR: z.string().default("./storage/attachments"),
-  HYDRIA_INTEGRATION_SECRET: z
-    .string()
-    .min(16)
-    .default("hydria-crm-local-integration-secret-change-me")
+  HYDRIA_INTEGRATION_SECRET: optionalString.pipe(z.string().min(32).optional()),
+  HYDRIA_INTEGRATION_INSTANCE_ID: z.string().regex(/^[a-zA-Z0-9_-]{3,80}$/).default("hydria-local"),
+  HYDRIA_INTEGRATION_ORGANIZATION_ID: optionalString.pipe(z.string().uuid().optional())
+}).superRefine((value, context) => {
+  if (value.NODE_ENV !== "production") return;
+  for (const field of ["JWT_SECRET", "SECRET_ENCRYPTION_KEY", "HYDRIA_INTEGRATION_SECRET"] as const) {
+    const secret = value[field];
+    if ((field !== "HYDRIA_INTEGRATION_SECRET" || secret) &&
+        (!secret || secret.length < 32 || /^(replace|change|example|sample|hydria-crm-local)/i.test(secret))) {
+      context.addIssue({ code: "custom", path: [field], message: "Production requires an independent random secret of at least 32 characters" });
+    }
+  }
+  if (value.SECRET_ENCRYPTION_KEY === value.JWT_SECRET) {
+    context.addIssue({ code: "custom", path: ["SECRET_ENCRYPTION_KEY"], message: "Encryption and JWT keys must differ" });
+  }
+  if (value.HYDRIA_INTEGRATION_SECRET && !value.HYDRIA_INTEGRATION_ORGANIZATION_ID) {
+    context.addIssue({ code: "custom", path: ["HYDRIA_INTEGRATION_ORGANIZATION_ID"], message: "An enabled production bridge requires an explicit organization" });
+  }
 });
 
 export const env = schema.parse(process.env);

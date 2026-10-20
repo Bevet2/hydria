@@ -236,14 +236,7 @@ export function getModelChain(kind = "general", overrideModel = "") {
 export function getProviderModelChain(kind = "general", override = null) {
   if (override?.provider && override?.model) {
     const fallbackChain = getProviderModelChain(kind);
-    return uniqueTargets([override, ...fallbackChain]);
-  }
-
-  if (isPremiumKind(kind)) {
-    return uniqueTargets([
-      ...getOpenRouterChain(kind),
-      ...getLocalChain(fallbackLocalKindForPremium(kind))
-    ]);
+    return uniqueTargets([...(isProviderAllowed(override.provider) ? [override] : []), ...fallbackChain]);
   }
 
   const targets = [];
@@ -254,7 +247,7 @@ export function getProviderModelChain(kind = "general", override = null) {
     }
 
     if (provider === "local") {
-      targets.push(...getLocalChain(kind));
+      targets.push(...getLocalChain(isPremiumKind(kind) ? fallbackLocalKindForPremium(kind) : kind));
       continue;
     }
 
@@ -264,6 +257,13 @@ export function getProviderModelChain(kind = "general", override = null) {
   }
 
   return uniqueTargets(targets);
+}
+
+export function isProviderAllowed(provider) {
+  if (!getProviderOrder().includes(provider)) return false;
+  return provider === "local" ? config.localLlm.enabled
+    : provider === "hydria-core" ? config.hydriaCore.enabled
+    : provider === "openrouter" && config.openrouter.enabled;
 }
 
 export function getPrimaryModelTarget(kind = "general", override = null) {

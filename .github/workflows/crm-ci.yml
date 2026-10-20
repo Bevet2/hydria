@@ -55,6 +55,10 @@ jobs:
       - run: npm run db:seed
       - run: npm run typecheck
       - run: npm run build
+      - name: Token separation and public response redaction
+        run: node --import tsx apps/api/scripts/auditSecurityGate.ts
+      - name: Dependency security
+        run: npm audit --audit-level=high
       - run: npx playwright install --with-deps chromium
       - name: Start CRM
         run: |
@@ -76,6 +80,8 @@ jobs:
       - run: npm run gate:operations
       - run: npm run gate:productivity
       - run: npm run gate:platform
+      - name: Two-tenant isolation and MFA regression over HTTP
+        run: node --import tsx apps/api/scripts/auditIsolationGate.ts
       - run: npm run gate:resilience
       - run: npm run gate:oauth
       - run: npm run gate:communications

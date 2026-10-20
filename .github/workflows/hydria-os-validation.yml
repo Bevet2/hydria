@@ -35,6 +35,14 @@ jobs:
           cache-dependency-path: backend/package-lock.json
       - name: Install backend dependencies
         run: npm ci --prefix backend --no-audit --no-fund
+      - name: Audit security and data integrity regressions
+        run: node backend/scripts/auditSecurityGate.mjs
+      - name: Workspace action approval HTTP regression
+        run: node backend/scripts/osActionConsentGate.mjs
+      - name: Production frontend bundle
+        run: node backend/scripts/buildFrontend.mjs
+      - name: Dependency security
+        run: npm audit --prefix backend --audit-level=high
       - name: Database volume and frontend readiness diagnostics
         run: node backend/scripts/osReadinessGate.mjs
       - name: Production single-user authentication and origin checks
@@ -242,6 +250,8 @@ jobs:
         run: node --check frontend/components/osProductChrome.js
       - name: Product UI desktop and mobile acceptance
         run: node backend/scripts/osProductUiGate.mjs
+      - name: Mobile editing and action confirmation
+        run: node backend/scripts/osAuditUxGate.mjs
       - name: Upload product UI screenshots
         if: always()
         uses: actions/upload-artifact@v4

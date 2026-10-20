@@ -1,3 +1,5 @@
+import { createWorkspaceState } from "./services/workspaceState.js";
+import { showWorkspaceActionConsent } from "./components/workspaceActionConsent.js";
 import { renderChatMessage } from "./components/chatMessage.js";
 import { renderHydriaLibraryExplorer } from "./components/workspaceLibraryExplorer.js";
 import { renderRunDetails } from "./components/detailsPanel.js";
@@ -50,100 +52,7 @@ import { sessionStore } from "./services/sessionStore.js";
 const initialWorkspacePage = parseWorkspacePagePath();
 let workspaceCommandPalette = null;
 
-const state = {
-  config: null,
-  users: [],
-  conversations: [],
-  messages: [],
-  preferences: {},
-  lastRun: null,
-  loading: false,
-  pendingAttachments: [],
-  currentUserId: null,
-  currentConversationId: null,
-  projects: [],
-  currentProjectId: null,
-  currentWorkspace: null,
-  workObjects: [],
-  currentWorkObjectId: null,
-  currentWorkObject: null,
-  currentWorkObjectFile: "",
-  currentSections: [],
-  currentSectionId: "",
-  currentBlocks: [],
-  currentBlockId: "",
-  currentStructuredItemId: "",
-  currentStructuredSubItemId: "",
-  currentPreviewFilter: "",
-  currentDimension: "",
-  currentSurfaceId: "",
-  currentRuntimeSession: null,
-  currentRuntimePatch: null,
-  liveRuntimeDraft: "",
-  workspaceMode: "view",
-  copilotOpen: false,
-  editorDirty: false,
-  editorDraft: "",
-  editorDraftKey: "",
-  autoSaveHandle: null,
-  autoSavePreserveScroll: false,
-  autoSaveSkipWorkspaceRefresh: false,
-  autoSaving: false,
-  liveDraftRefreshHandle: null,
-  runtimeSyncHandle: null,
-  runtimeSyncRequestId: 0,
-  documentProjectContextVisible: true,
-  closedSheetDocumentIds: [],
-  workspacePreviewExpanded: false,
-  workspacePageSlug: initialWorkspacePage?.slug || "",
-  routeHydrating: true,
-  routeTransitioning: false,
-  coreChatLoading: false,
-  coreChatAttachments: [],
-  coreChatPendingMessages: [],
-  coreChatStreamingText: "",
-  coreChatGenerationId: "",
-  coreChatStatus: "",
-  coreChatModel: "hydria-core",
-  coreChatToolMode: "auto",
-  coreChatCatalog: { models: [], tools: [] },
-  chatProjects: [],
-  conversationTree: [],
-  currentChatProjectId: "",
-  currentConversationFolder: "",
-  conversationSearch: "",
-  showArchivedConversations: false,
-  workspaceLibraryQuery: "",
-  workspaceLibraryShowArchived: false,
-  workspaceLibraryShowTrash: false,
-  workspaceLibrarySearchResults: [],
-  workspacePresence: [],
-  workspaceRemoteRevision: null,
-  collaborationVersion: 0,
-  collaborationPersistedRevision: 0,
-  collaborationServerContent: "",
-  collaborationClientId: collaborationClientId(),
-  collaborationQueueSize: collaborationQueueSize(),
-  collaborationApplyingRemote: false,
-  sheetCalculation: null,
-  sheetCalculationEngineId: "",
-  presentationClipboard: null,
-  presentationZoom: 1,
-  presentationRibbonTab: "home",
-  presentationSelectedElementIds: [],
-  presentationSelectionCleared: false,
-  presentationFormatBrush: null,
-  presentationUndoStack: [],
-  presentationRedoStack: [],
-  presentationShowGrid: false,
-  presentationShowGuides: false,
-  presentationSnapToGrid: false,
-  presentationShowSlideRail: true,
-  presentationShowInspector: false,
-  offline: !navigator.onLine,
-  ready: false,
-  bootPromise: null
-};
+const state = createWorkspaceState(initialWorkspacePage);
 
 const el = {};
 let workspacePreviewExpandedPlaceholder = null;
@@ -396,7 +305,7 @@ async function createBlankWorkspace(kind, familyId, label) {
   await ensureConversationForWorkspace();
   const payload = await apiClient.createWorkObject({
     kind,
-    title: label ? `New ${label}` : `New ${kind}`,
+    title: ({ document: "Nouveau document", dataset: "Nouveau tableur", presentation: "Nouvelle présentation", dashboard: "Nouveau tableau de bord", workflow: "Nouveau flux", design: "Nouveau tableau blanc" })[kind] || `Nouveau ${label || kind}`,
     userId: state.currentUserId,
     conversationId: state.currentConversationId,
     workspaceFamilyId: familyId || ""
@@ -5034,8 +4943,8 @@ function renderWorkspaceModeNav() {
     return;
   }
   const modes = [
-    { id: "view", label: "Preview" },
-    { id: "edit", label: "Modify" }
+    { id: "view", label: "Éditeur" },
+    { id: "edit", label: "Structure" }
   ];
 
   for (const mode of modes) {
@@ -5194,6 +5103,15 @@ function enhanceWorkspacePreviewHeader() {
       });
       structured.prepend(button);
     }
+    mountWorkspacePreviewPane();
+    return;
+  }
+
+  // Native editors own their full-screen action. A second floating control
+  // obscured Flow Manager panel toggles and duplicated the same operation.
+  if (preview.querySelector(".hydria-flow-manager,.workspace-canvas-surface,.workspace-sheet-app,.workspace-powerpoint-app,.workspace-dashboard-powerbi,.workspace-document-preview-shell-docs")) {
+    preview.querySelector(":scope > .workspace-page-preview-expand-button.is-fallback")?.remove();
+    preview.classList.remove("has-global-preview-control");
     mountWorkspacePreviewPane();
     return;
   }
@@ -5704,7 +5622,7 @@ function syncEditorDraft(nextValue = "", options = {}) {
     }
     if (el["workspace-save-button"]) {
       el["workspace-save-button"].disabled = !state.editorDirty;
-      el["workspace-save-button"].textContent = state.editorDirty ?"Save" : "Saved";
+      el["workspace-save-button"].textContent = state.editorDirty ?"Enregistrer" : "Enregistré";
     }
   }, 120);
 
@@ -6950,7 +6868,7 @@ function currentWorkspaceDocumentListConfig() {
   if (page?.slug === "docs") {
     return {
       title: "Open Docs",
-      newTitle: "New Docs document",
+      newTitle: "Nouveau document",
       newKind: "document",
       newFamily: "document_knowledge",
       newLabel: "Docs",
@@ -6966,7 +6884,7 @@ function currentWorkspaceDocumentListConfig() {
   if (page?.slug === "sheets") {
     return {
       title: "Open Sheets",
-      newTitle: "New Sheets document",
+      newTitle: "Nouveau tableur",
       newKind: "dataset",
       newFamily: "data_spreadsheet",
       newLabel: "Sheets",
@@ -6982,7 +6900,7 @@ function currentWorkspaceDocumentListConfig() {
   if (page?.slug === "dashboard") {
     return {
       title: "Open Dashboards",
-      newTitle: "New Dashboard",
+      newTitle: "Nouveau tableau de bord",
       newKind: "dashboard",
       newFamily: "analytics_dashboard",
       newLabel: "Dashboard",
@@ -17220,6 +17138,7 @@ function renderWorkspace() {
   el["work-object-kind"].textContent = workObject?.objectKind || workObject?.kind || "None";
   if (el["workspace-panel-root"]) {
     el["workspace-panel-root"].dataset.mode = state.workspaceMode;
+    el["workspace-panel-root"].dataset.nativeEditor = String(["docs", "sheets", "slides", "dashboard", "flows", "whiteboard"].includes(activePage?.slug));
     el["workspace-panel-root"].dataset.kind = workspaceLens.kind || "creation";
     el["workspace-panel-root"].dataset.family = currentWorkspaceFamilyId() || "generic";
     el["workspace-panel-root"].dataset.hasWorkspace = hasVisibleWorkspace ? "true" : "false";
@@ -17300,8 +17219,8 @@ function renderWorkspace() {
   if (el["workspace-project-context-toggle"]) {
     el["workspace-project-context-toggle"].classList.toggle("hidden", !isDocumentCloneWorkspace || !hasVisibleWorkspace);
     el["workspace-project-context-toggle"].textContent = state.documentProjectContextVisible
-      ? "Hide project"
-      : "Show project";
+      ? "Masquer le projet"
+      : "Afficher le projet";
   }
   el["active-work-object-badge"].textContent = workObject
     ?`${workspaceLens.kindLabel}: ${currentScopeLabel()}`
@@ -17532,7 +17451,7 @@ function renderWorkspace() {
   el["save-work-object-button"].disabled = !workObject || !filePath;
   if (el["workspace-save-button"]) {
     el["workspace-save-button"].disabled = !workObject || !filePath || !state.editorDirty;
-    el["workspace-save-button"].textContent = state.editorDirty ?"Save" : "Saved";
+    el["workspace-save-button"].textContent = state.editorDirty ?"Enregistrer" : "Enregistré";
   }
   el["work-object-improve-prompt"].disabled = !workObject || !filePath;
   el["improve-work-object-button"].disabled = !workObject || !filePath;
@@ -18330,7 +18249,7 @@ async function saveWorkObjectChanges(options = {}) {
     state.autoSaving = true;
     if (el["workspace-save-button"]) {
       el["workspace-save-button"].disabled = true;
-      el["workspace-save-button"].textContent = "Saving...";
+      el["workspace-save-button"].textContent = "Enregistrement…";
     }
     try {
       await flushCollaborativeOperation();
@@ -18384,7 +18303,7 @@ async function saveWorkObjectChanges(options = {}) {
       state.autoSaving = false;
       if (el["workspace-save-button"]) {
         el["workspace-save-button"].disabled = !state.editorDirty;
-        el["workspace-save-button"].textContent = state.editorDirty ? "Save" : "Saved";
+        el["workspace-save-button"].textContent = state.editorDirty ? "Enregistrer" : "Enregistré";
       }
     }
   }
@@ -18395,7 +18314,7 @@ async function saveWorkObjectChanges(options = {}) {
   }
   if (el["workspace-save-button"]) {
     el["workspace-save-button"].disabled = true;
-    el["workspace-save-button"].textContent = "Saving...";
+    el["workspace-save-button"].textContent = "Enregistrement…";
   }
   try {
     const payload = await apiClient.updateWorkObjectContent(
@@ -18498,7 +18417,7 @@ async function saveWorkObjectChanges(options = {}) {
       }
       if (el["workspace-save-button"]) {
         el["workspace-save-button"].disabled = !state.editorDirty;
-        el["workspace-save-button"].textContent = state.editorDirty ? "Save" : "Saved";
+        el["workspace-save-button"].textContent = state.editorDirty ? "Enregistrer" : "Enregistré";
       }
     }
   }
@@ -18621,6 +18540,8 @@ async function applyHydriaControlPayload(payload = {}) {
   const workspaceToolResults = payload.workspaceToolResults || payload.execution?.workspaceToolResults || [];
   const completedWorkspaceToolResult = workspaceToolResults.find((result) => result?.status === "completed");
   const pendingWorkspaceToolResult = workspaceToolResults.find((result) => result?.status === "needs_confirmation");
+  showWorkspaceActionConsent({ results: workspaceToolResults, userId: state.currentUserId,
+    onApplied: applyHydriaControlPayload, onError: handleError });
   updateLastRun({
     strategy: "hydria-core-control",
     modelsUsed: [payload.control?.source === "public_api_v1" ? "Hydria Core API v1" : "Hydria Core"],

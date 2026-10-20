@@ -844,7 +844,7 @@ const scenarios = [
       const firstCell = page.locator(".workspace-sheet-cell-input").first();
       assert.equal(await isVisible(firstCell), true, "A Sheets cell should be visible for context menu testing");
       assert.equal(
-        await isVisible(page.locator(".workspace-page-preview-expand-button").first()),
+        await isVisible(page.getByRole("button", { name: /full screen/i }).first()),
         true,
         "Sheets full-screen control should exist before interacting with cells"
       );
@@ -1406,6 +1406,7 @@ try {
     const page = await context.newPage();
     const pageErrors = [];
     page.on("pageerror", (error) => pageErrors.push(error.stack || error.message));
+    page.on("requestfailed", request => console.log("BROWSER_REQUEST_FAILED", request.url(), request.failure()?.errorText));
     page.on("console", (message) => {
       if (message.type() === "error") pageErrors.push(message.text());
     });
@@ -1417,6 +1418,7 @@ try {
         result.error = [result.error, ...pageErrors].filter(Boolean).join("\n");
       }
       results.push(result);
+      console.log(result.ok ? "SCENARIO PASS" : "SCENARIO FAIL", scenario.name, result.error || "");
     } finally {
       await page.close().catch(() => {});
     }

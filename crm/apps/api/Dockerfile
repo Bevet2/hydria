@@ -15,6 +15,7 @@ COPY --from=build /app/node_modules /app/node_modules
 COPY --from=build /app/apps/api/package.json /app/apps/api/package.json
 COPY --from=build /app/apps/api/dist /app/apps/api/dist
 COPY --from=build /app/apps/api/prisma /app/apps/api/prisma
+COPY --from=build /app/apps/api/crm-workspace-tools.json /app/apps/api/crm-workspace-tools.json
 WORKDIR /app/apps/api
 EXPOSE 4010
 CMD ["sh", "-c", "npx prisma migrate deploy && if [ \"$RUN_DB_SEED\" = \"true\" ]; then npm run db:seed; fi && node dist/src/server.js"]

@@ -1,3 +1,4 @@
+import { readJsonFile, writeJsonFile } from "../../utils/durableFiles.js";
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -8,7 +9,7 @@ import { searchPatternItems } from "./pattern.search.js";
 function ensureFile(filePath) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   if (!fs.existsSync(filePath)) {
-    fs.writeFileSync(filePath, JSON.stringify({ version: 1, items: [] }, null, 2));
+    writeJsonFile(filePath, { version: 1, items: [] });
   }
 }
 
@@ -20,18 +21,18 @@ export class PatternLibrary {
 
   readState() {
     try {
-      const parsed = JSON.parse(fs.readFileSync(this.filePath, "utf8"));
+      const parsed = readJsonFile(this.filePath);
       return {
         version: parsed.version || 1,
         items: Array.isArray(parsed.items) ? parsed.items.map((item) => normalizePatternItem(item)) : []
       };
-    } catch {
-      return { version: 1, items: [] };
+    } catch (error) {
+      throw error;
     }
   }
 
   writeState(state) {
-    fs.writeFileSync(this.filePath, JSON.stringify(state, null, 2));
+    writeJsonFile(this.filePath, state);
   }
 
   async ingestLearnings(learnings = []) {

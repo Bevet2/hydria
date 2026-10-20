@@ -38,3 +38,4 @@ ollama/
 __pycache__/
 *.pyc
 crm/storage/
+frontend-dist/

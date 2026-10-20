@@ -22,8 +22,11 @@ import {
 } from "../workspace/universalSurfaceService.js";
 import { resolveWorkspaceFamily } from "../workspaces/workspaceRegistry.js";
 import { AppError } from "../../utils/errors.js";
+import { atomicWriteFile, readJsonFile } from "../../utils/durableFiles.js";
+import { withKeyedLock } from "../../utils/keyedLock.js";
 
 const WORK_OBJECT_ROLES = new Set(["viewer", "commenter", "editor"]);
+const recoveredCatalogs = new Set();
 
 function normalizeWorkObjectSharing(workObject = {}) {
   const sharing =
@@ -983,6 +986,23 @@ export class WorkObjectService {
     this.projectStore = projectStore;
     this.presence = new Map();
     ensureDirectory(rootDir);
+    const catalogKey = path.resolve(this.store.filePath);
+    if (!recoveredCatalogs.has(catalogKey)) {
+      // A crash between the source rename and catalog commit is recoverable.
+      for (const object of this.store.readState().items) {
+        if (!object.workspacePath) continue;
+        const journalPath = path.join(object.workspacePath, ".hydria-pending-save.json");
+        if (!fs.existsSync(journalPath)) continue;
+        const journal = readJsonFile(journalPath);
+        if (typeof journal.entryPath !== "string" || typeof journal.previousContent !== "string" ||
+            typeof journal.historyId !== "string") throw new AppError("Invalid save journal; restore a verified backup", 503);
+        if (!(object.history || []).some(entry => entry.id === journal.historyId)) {
+          atomicWriteFile(safeResolveWithin(object.workspacePath, journal.entryPath), journal.previousContent);
+        }
+        fs.rmSync(journalPath);
+      }
+      recoveredCatalogs.add(catalogKey);
+    }
   }
 
   list(options = {}) {
@@ -2318,7 +2338,12 @@ export class WorkObjectService {
     };
   }
 
-  async updateContent({
+  async updateContent(options = {}) {
+    return withKeyedLock(`${path.resolve(this.store.filePath)}:${options.workObjectId}`,
+      () => this.updateContentLocked(options));
+  }
+
+  async updateContentLocked({
     workObjectId,
     entryPath = "",
     content = "",
@@ -2354,8 +2379,14 @@ export class WorkObjectService {
     ensureDirectory(historyDirectory);
     const historyFilename = `${String(current.workObject.revision || 1).padStart(6, "0")}-${historyId}.snapshot`;
     const historyAbsolutePath = safeResolveWithin(historyDirectory, historyFilename);
-    fs.writeFileSync(historyAbsolutePath, current.content, "utf8");
-    fs.writeFileSync(absolutePath, String(content || ""), "utf8");
+    atomicWriteFile(historyAbsolutePath, current.content);
+    const journalPath = path.join(current.workObject.workspacePath, ".hydria-pending-save.json");
+    atomicWriteFile(journalPath, JSON.stringify({
+      entryPath: current.entryPath, historyId, previousContent: current.content
+    }));
+    atomicWriteFile(absolutePath, String(content || ""));
+    let committed = false;
+    try {
     const stats = fs.statSync(absolutePath);
 
     const exportArtifact =
@@ -2426,10 +2457,21 @@ export class WorkObjectService {
       ].slice(-25)
     }));
 
+    // Catalog rename is the commit point. Recovery uses the committed history ID.
+    committed = true;
+    fs.rmSync(journalPath, { force: true });
     return compactWorkObject(updated, {
       entryPath: current.entryPath,
       content: String(content || "")
     });
+    } catch (error) {
+      // Failed rendering/catalog writes must not leave an unacknowledged edit.
+      if (!committed) {
+        atomicWriteFile(absolutePath, current.content);
+        fs.rmSync(journalPath, { force: true });
+      }
+      throw error;
+    }
   }
 
   listHistory(workObjectId = "") {

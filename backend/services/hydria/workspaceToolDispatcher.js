@@ -2,6 +2,7 @@ import { AppError } from "../../utils/errors.js";
 import { CRM_WORKSPACE_TOOLS } from "../crm/crmIntegrationClient.js";
 import { filterContentPreviewByRole } from "./dataAccessFilterService.js";
 import { getUserDataRole } from "../memory/historyService.js";
+import { workspaceActionConsent } from "./workspaceActionConsent.js";
 
 const SHEET_WORKSPACE_TOOLS = Object.freeze([
   "sheet.apply_formula",
@@ -5410,6 +5411,9 @@ function isRiskyWorkspaceToolCall(call = null, operations = [], engine = "") {
     return true;
   }
   return operations.some((operation) => {
+    // This policy belongs to the server; a model cannot downgrade a deletion.
+    if (/^(?:sheet|doc|slide)\.(?:delete|clear|remove|unprotect)(?:_|$)/.test(operation.type) ||
+        ["sheet.import_data", "sheet.find_replace", "doc.replace_text"].includes(operation.type)) return true;
     if (engine === "doc" && operation.type === "doc.replace_block") {
       return operation.target?.wholeFile || operation.target?.blockId === "whole-file" || !operation.target?.oldText;
     }
@@ -5462,6 +5466,7 @@ export async function executeWorkspaceToolCalls({
   userId,
   prompt = "",
   confirmed = false,
+  expectedRevision = null,
   activeWorkObject = null,
   workObjectService = null
 } = {}) {
@@ -5493,6 +5498,9 @@ export async function executeWorkspaceToolCalls({
 
       try {
         const source = await workObjectService.readContent({ workObjectId: sourceId, entryPath: "" });
+        assertWorkObjectAccess(source.workObject, userId);
+        const role = getUserDataRole(userId);
+        const fields = buildWorkspaceContextFields({ activeWorkObject: source.workObject, contentPreview: source.content || "" });
         results.push({
           type: "workspace_tool_call",
           status: "completed",
@@ -5500,7 +5508,7 @@ export async function executeWorkspaceToolCalls({
           workObjectId: sourceId,
           importedTitle: source.workObject?.title || sourceId,
           importedKind: source.workObject?.objectKind || source.workObject?.kind || "document",
-          importedContent: (source.content || "").slice(0, maxChars),
+          importedContent: filterContentPreviewByRole(source.content || "", role, fields.workspaceFamilyId).slice(0, maxChars),
           issues: []
         });
       } catch {
@@ -5574,6 +5582,9 @@ export async function executeWorkspaceToolCalls({
       entryPath
     });
     assertWorkObjectAccess(current.workObject, userId);
+    if (expectedRevision !== null && Number(expectedRevision) !== Number(current.workObject.revision)) {
+      throw new AppError("The document changed after confirmation was requested. Review the action again.", 409);
+    }
 
     const currentWorkObject = {
       ...current.workObject,
@@ -5618,6 +5629,8 @@ export async function executeWorkspaceToolCalls({
       results.push({
         type: "workspace_tool_call",
         status: "needs_confirmation",
+        confirmationToken: workspaceActionConsent.issue({ call: { ...call, payload: { ...call.payload, operations }, target: { workObjectId, entryPath: current.entryPath } },
+          userId, revision: current.workObject.revision, entryPath: current.entryPath }),
         toolName: call.payload.toolName,
         engine,
         workObjectId,
@@ -5664,7 +5677,9 @@ export async function executeWorkspaceToolCalls({
       entryPath: current.entryPath,
       content: applied.content,
       note: buildWorkspaceToolHistoryNote(trace),
-      actor: "hydria_core_api"
+      actor: "hydria_core_api",
+      actorUserId: userId,
+      expectedRevision: current.workObject.revision
     });
 
     results.push({

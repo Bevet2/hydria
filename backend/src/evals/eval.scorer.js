@@ -468,7 +468,7 @@ export function scoreExecution({
     domain: effectiveDomain,
     prompt,
     finalAnswer,
-    evidenceCount: evidenceCount + Math.min(candidateCount, 2)
+    evidenceCount
   });
   const clarity = scoreClarity({
     classification: effectiveDomain,

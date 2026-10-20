@@ -2,7 +2,10 @@
 FROM node:22-bookworm AS dependencies
 WORKDIR /build
 COPY backend/package.json backend/package-lock.json ./backend/
-RUN npm ci --prefix backend --omit=dev --no-audit --no-fund
+RUN npm ci --prefix backend --no-audit --no-fund
+COPY frontend/ ./frontend/
+COPY backend/scripts/buildFrontend.mjs ./backend/scripts/buildFrontend.mjs
+RUN node backend/scripts/buildFrontend.mjs && npm prune --prefix backend --omit=dev --no-audit --no-fund
 
 FROM node:22-bookworm-slim
 # Optional PostgreSQL Flow Manager connector uses the system psql client.
@@ -15,7 +18,8 @@ ENV NODE_ENV=production \
 WORKDIR /app
 COPY --from=dependencies /build/backend/node_modules ./backend/node_modules
 COPY --chown=node:node backend/ ./backend/
-COPY --chown=node:node frontend/ ./frontend/
+COPY --from=dependencies --chown=node:node /build/frontend-dist/ ./frontend/
+COPY --chown=node:node crm/apps/api/crm-workspace-tools.json ./crm/apps/api/crm-workspace-tools.json
 RUN mkdir -p /app/data /app/backups && chown node:node /app/data /app/backups
 USER node
 EXPOSE 3001

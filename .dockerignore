@@ -2,7 +2,10 @@
 .github/
 data/
 logs/
-crm/
+crm/**
+!crm/apps/
+!crm/apps/api/
+!crm/apps/api/crm-workspace-tools.json
 hydria_models/
 ollama/
 .tools/

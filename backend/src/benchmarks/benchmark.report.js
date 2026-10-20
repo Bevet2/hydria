@@ -20,6 +20,11 @@ export function buildBenchmarkReport(results = []) {
   );
 
   return {
+    assessment: {
+      kind: "internal-heuristic",
+      factualAccuracyVerified: false,
+      note: "Internal diagnostic scores; not a product acceptance rate or an independent factual accuracy measure."
+    },
     total: results.length,
     averageScore: Number(
       (
