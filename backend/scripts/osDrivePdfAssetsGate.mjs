@@ -28,7 +28,7 @@ assert.equal(items.find(x => x.id === item.id)?.sha256, item.sha256);
 
 const download = await fetch(api + "/" + item.id + "/download");
 assert.equal(download.status, 200);
-assert.match(download.headers.get("content-type") || "", /application\\/pdf/);
+assert.equal((download.headers.get("content-type") || "").split(";")[0], "application/pdf");
 assert.match(download.headers.get("content-disposition") || "", /attachment/);
 assert.match(download.headers.get("cache-control") || "", /no-store/);
 assert.equal(download.headers.get("x-content-type-options"), "nosniff");
