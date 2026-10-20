@@ -650,3 +650,20 @@ html body[data-os-theme="dark"] .hydria-artcraft-image-feedback,html body[data-o
 .hydria-drive-image-thumb{flex:none;width:62px;height:58px;object-fit:contain;background:#e2e8f0;border-radius:7px;}
 .hydria-drive-image-row .hydria-artcraft-button{padding:7px 9px;}
 html body[data-os-theme="dark"] .hydria-drive-image-row{background:#222940;border-color:#414b69;color:#e2e8f0;}
+
+
+/* PhotoCraft -> Drive: non-destructive image version controls */
+.hydria-artcraft-image-item .hydria-artcraft-version-button,
+.hydria-artcraft-image-item .hydria-artcraft-history-button{white-space:nowrap}
+.hydria-artcraft-image-item .hydria-artcraft-version-input[hidden],
+.hydria-artcraft-version-history[hidden]{display:none!important}
+.hydria-artcraft-version-history{display:grid;gap:6px;flex:1 0 100%;padding:10px 12px;
+  background:var(--os-subtle,#f8fafc);border:1px solid var(--os-border,#e2e8f0);border-radius:9px}
+.hydria-artcraft-history-row{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;
+  border-bottom:1px solid var(--os-border,#e2e8f0);padding:8px 0}
+.hydria-artcraft-history-row:last-child{border-bottom:0}
+.hydria-artcraft-history-row>span{flex:1 1 200px;overflow-wrap:anywhere;font-size:12px}
+.hydria-artcraft-history-row>a{white-space:nowrap;text-decoration:none}
+.hydria-artcraft-image-item.hydria-artcraft-target-image{outline:2px solid var(--os-focus,#6366f1);outline-offset:2px}
+html body[data-os-theme="dark"] .hydria-artcraft-version-history{
+  color:#e2e8f0;background:#252a40;border-color:#434b67}
