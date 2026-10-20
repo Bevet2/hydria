@@ -572,6 +572,18 @@ html body[data-os-theme="dark"] .hydria-drive-item-symbol{background:#323957;col
 .hydria-pdf-loading{display:grid;place-content:center;min-height:450px;text-align:center;color:#64748b;padding:24px;}
 .hydria-pdf-error{font-size:12px;padding:12px 14px;background:#fff4ed;color:#9a3412;border:1px solid #fdba74;border-radius:10px;line-height:1.7;}
 .hydria-pdf-error[hidden]{display:none;}
+.hydria-pdf-prepared{display:grid;gap:12px;padding:14px;border:1px solid #a5b4fc;border-radius:10px;background:#eef2ff;min-width:0;}
+.hydria-pdf-prepared[hidden]{display:none;}
+.hydria-pdf-prepared h3{margin:0;font-size:14px;color:#1e1b4b;}
+.hydria-pdf-prepared-item{display:grid;gap:10px;min-width:0;}
+.hydria-pdf-prepared-item strong{overflow-wrap:anywhere;font-size:13px;color:#1e1b4b;}
+.hydria-pdf-prepared .hydria-pdf-button{white-space:normal;overflow-wrap:anywhere;text-decoration:none;text-align:left;}
+.hydria-pdf-history{font-size:12px;max-width:100%;}
+.hydria-pdf-history summary{cursor:pointer;padding:8px;color:#334155;}
+.hydria-pdf-history-list{display:flex;flex-wrap:wrap;gap:8px;padding:8px 0;}
+.hydria-pdf-workbench :is(a,summary):focus-visible{outline:2px solid #4f46e5;outline-offset:2px;}
+html body[data-os-theme="dark"] .hydria-pdf-prepared{background:#252a40;border-color:#818cf8;}
+html body[data-os-theme="dark"] .hydria-pdf-prepared :is(h3,strong),html body[data-os-theme="dark"] .hydria-pdf-history summary{color:#e2e8f0;}
 html body[data-os-theme="dark"] .hydria-pdf-desc,
 html body[data-os-theme="dark"] .hydria-pdf-eyebrow,
 html body[data-os-theme="dark"] .hydria-pdf-hint{color:#aab7cc;}
@@ -586,6 +598,8 @@ html body[data-os-theme="dark"] .hydria-pdf-viewport{background:#171c30;border-c
 .hydria-pdf-import{display:flex;align-items:center;flex-wrap:wrap;gap:12px;padding:14px 16px;border:1px dashed #b4c2d9;border-radius:12px;background:#f8fafc;}
 .hydria-pdf-import strong{flex:1 1 260px;font-size:12px;line-height:1.4;color:#334155;}
 .hydria-pdf-upload{flex:1 1 210px;max-width:480px;font-size:12px;color:#475569;}
+.hydria-pdf-workbench input[type="file"].hydria-pdf-upload,
+.hydria-artcraft input[type="file"].hydria-artcraft-image-upload{display:block;min-width:0;max-width:100%;}
 .hydria-pdf-upload::file-selector-button{border:1px solid #cbd5e1;background:#fff;border-radius:8px;color:#1e293b;cursor:pointer;padding:9px 12px;font:inherit;margin-right:12px;}
 .hydria-pdf-saved{border:1px solid #e2e8f0;background:#fff;border-radius:14px;padding:14px;display:grid;gap:12px;min-width:0;}
 .hydria-pdf-saved-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;}

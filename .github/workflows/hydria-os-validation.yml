@@ -45,6 +45,10 @@ jobs:
         run: npm audit --prefix backend --audit-level=high
       - name: Validate PdfCraft integration contract and pinned installer
         run: node backend/scripts/osPdfCraftGate.mjs
+      - name: Legacy PDF revision migration
+        run: node backend/scripts/osDrivePdfMigrationGate.mjs
+      - name: Verify authentic PdfCraft installation
+        run: node backend/scripts/installPdfCraft.mjs
       - name: Validate PhotoCraft/FigCraft releases and raster types
         run: node backend/scripts/osArtCraftGate.mjs
       - name: Legacy PhotoCraft Drive image migration and idempotency
@@ -318,6 +322,19 @@ jobs:
         run: npm run test:visual-workspace --prefix backend -- --scenario "shared-command-adapters,docs-shared-menu-definitions,docs-context-menu-helper,sheets-toolbar-context-menu-fullscreen,slides-presentation-smoke,canvas-whiteboard-smoke,dashboard-editor-smoke,dataflow-workbench-smoke,os-global-command-palette,os-project-explorer,os-per-file-tree-smoke,shared-icons,shared-context-menu-helper,docs-word-review-layout,docs-context-format-page-break"
       - name: Hydria Drive browser navigation and creation
         run: node backend/scripts/osDriveBrowserGate.mjs
+      - name: Real PdfCraft WASM edit, save and reopen
+        run: |
+          node backend/scripts/installPdfCraft.mjs
+          node backend/scripts/osPdfCraftRealBrowserGate.mjs
+          rm -r frontend/vendor/pdfcraft
+      - name: Upload PDF save visual evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hydria-pdf-save-real-wasm
+          path: /tmp/hydria-pdf-save/*.png
+          retention-days: 7
+          if-no-files-found: ignore
       - name: PDF Studio missing-runtime fallback and PDF Blob handoff
         run: node backend/scripts/osPdfCraftBrowserGate.mjs
       - name: PhotoCraft and FigCraft browser and image Drive acceptance
