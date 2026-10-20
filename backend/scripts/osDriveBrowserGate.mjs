@@ -12,15 +12,17 @@ try {
     "Tous vos espaces, au même endroit");
   assert.equal(await page.locator('.workspace-switcher-chip[data-workspace-page="drive"]').count(), 1);
 
-  // The library uses the existing native creation and persistence path.
+  // Other browser suites create documents first; assert the delta, not an empty database.
+  const initialCount = await page.locator(".hydria-drive-item").count();
   await page.getByRole("button", { name: "Nouveau document" }).click();
   await page.waitForURL(/\/workspace\/docs(?:$|\?)/, { timeout: 25_000 });
   await page.goto("http://127.0.0.1:3001/workspace/drive", { waitUntil: "domcontentloaded" });
   await page.locator(".hydria-drive-item").first().waitFor({ timeout: 25_000 });
+  assert.equal(await page.locator(".hydria-drive-item").count(), initialCount + 1);
   assert.match(await page.locator(".hydria-drive-results").innerText(), /[1-9]\d* résultat/);
 
   await page.getByRole("searchbox", { name: "Rechercher dans Hydria Drive" }).fill("New Docs");
-  assert.equal(await page.locator(".hydria-drive-item").count(), 1);
+  assert.ok(await page.locator(".hydria-drive-item").count() >= 1);
   await page.getByRole("combobox", { name: "Filtrer les types" }).selectOption("dataset");
   assert.equal(await page.locator(".hydria-drive-item").count(), 0);
   await page.getByRole("combobox", { name: "Filtrer les types" }).selectOption("document");
