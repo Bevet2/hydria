@@ -6,6 +6,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { promises as fsp } from "node:fs";
 import Database from "better-sqlite3";
+import { inspectDriveSnapshot } from "./driveAssetIntegrity.js";
 
 const DATABASE = "hydria.sqlite";
 const MANIFEST = "backup-manifest.json";
@@ -90,6 +91,9 @@ export async function backupHydriaData(sourceDir, outputDir) {
       }
     } finally { backedUpDb.close(); }
     await copyDataTree(source,staging);
+    // Copying a SQLite snapshot and filesystem blobs is not a distributed
+    // transaction. Abort instead of shipping an internally inconsistent Drive.
+    await inspectDriveSnapshot(path.join(staging,DATABASE),staging);
     const entries=await collectFiles(staging);
     const manifest={format:BACKUP_FORMAT,createdAt:new Date().toISOString(),files:entries};
     await fsp.writeFile(path.join(staging,MANIFEST),JSON.stringify(manifest,null,2)+"\n",{mode:0o600});
@@ -130,7 +134,11 @@ export async function verifyHydriaBackup(backupDir) {
     const integrity=db.pragma("integrity_check",{simple:true});
     if (integrity !== "ok") invalid("SQLite backup integrity check failed.");
   } finally {db.close();}
+  // Manifest checks alone cannot detect a binary omitted from a backup when
+  // its catalog record was copied correctly. Cross-check all Drive versions.
+  const drive=await inspectDriveSnapshot(path.join(dir,DATABASE),dir);
   return {
+    drive,
     createdAt:manifest.createdAt,
     files:manifest.files.length,
     bytes:manifest.files.reduce((a,b)=>a+b.size,0)
