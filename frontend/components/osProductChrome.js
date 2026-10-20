@@ -1,7 +1,7 @@
 // Hydria OS product shell enhancements.
 // Progressive enhancement only: preserve the existing workspace module actions.
 const icons = {
-  pdf:'<path d="M7 3h8l4 4v14H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M15 3v5h4M9 13h6M9 17h6"/>'
+  pdf:'<path d="M7 3h8l4 4v14H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M15 3v5h4M9 13h6M9 17h6"/>',
   drive:'<rect x="3" y="6" width="18" height="14" rx="2"/><path d="M3 9h18M8 3h8l2 3"/>',
   home:'<path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/><path d="M9 21v-7h6v7"/>',
   chat:'<path d="M20 11.5a7.5 7.5 0 0 1-7.5 7.5H5l1.7-3.4A7.5 7.5 0 1 1 20 11.5z"/><path d="M8 11h8M8 14h5"/>',
