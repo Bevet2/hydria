@@ -1,8 +1,9 @@
 // Hydria Drive — unified library of existing Hydria work objects.
 import { listDrivePdfs, storedPdfUrl } from "../services/drivePdfClient.js";
+import { listDriveImages, imageAssetUrl } from "../services/driveImageClient.js";
 // This is deliberately not a separate file store or a cloud-sync service.
 const SORTS = new Set(["recent", "name", "kind"]);
-const KINDS = new Set(["all", "document", "dataset", "presentation", "dashboard", "workflow", "design", "project", "code", "pdf", "other"]);
+const KINDS = new Set(["all", "document", "dataset", "presentation", "dashboard", "workflow", "design", "project", "code", "pdf", "image", "other"]);
 let view = { query: "", kind: "all", sort: "recent" };
 
 function kindOf(item) {
@@ -105,7 +106,7 @@ export function renderHydriaDriveWorkspace(container, {
   filter.setAttribute("aria-label", "Filtrer les types");
   for (const [value, label] of [
     ["all", "Tous les types"], ["document", "Documents"], ["dataset", "Tableurs"],
-    ["presentation", "Présentations"], ["dashboard", "Dashboards"], ["pdf", "PDF enregistrés"],
+    ["presentation", "Présentations"], ["dashboard", "Dashboards"], ["pdf", "PDF enregistrés"], ["image", "Images enregistrées"],
     ["workflow", "Flux et automatisations"], ["design", "Designs"],
     ["project", "Projets"], ["code", "Code"], ["other", "Autres"]
   ]) {
@@ -165,11 +166,60 @@ export function renderHydriaDriveWorkspace(container, {
       savedPdfs = await listDrivePdfs();
       if (!root.isConnected) return;
       paintResults();
-      total.textContent = String(workObjects.length + savedPdfs.length) + " éléments";
+      total.textContent = String(workObjects.length + savedPdfs.length + savedImages.length) + " éléments";
     } catch (error) {
       if (!root.isConnected) return;
       pdfList.replaceChildren(node("p", "hydria-pdf-saved-empty",
         "Impossible de charger les PDF Drive : " + String(error?.message || error)));
+    }
+  }
+  let savedImages = [];
+  const imageGroup = node("section", "hydria-drive-pdf-group hydria-drive-image-group");
+  imageGroup.setAttribute("aria-label", "Images enregistrées dans Hydria Drive");
+  const imageTitle = node("h3", "", "Images enregistrées");
+  const imageList = node("div", "hydria-drive-image-list");
+  imageGroup.append(imageTitle, imageList);
+  function paintSavedImages() {
+    imageGroup.hidden = view.kind !== "all" && view.kind !== "image";
+    imageList.replaceChildren();
+    if (imageGroup.hidden) return 0;
+    const q = String(view.query).toLocaleLowerCase().trim();
+    const filtered = savedImages.filter(item => String(item.filename || "").toLocaleLowerCase().includes(q));
+    filtered.sort((a,b) => view.sort === "name"
+      ? String(a.filename).localeCompare(String(b.filename), "fr")
+      : String(b.created_at).localeCompare(String(a.created_at)));
+    if (!filtered.length) {
+      imageList.append(node("p", "hydria-pdf-saved-empty", "Aucune image ne correspond à cette recherche."));
+      return 0;
+    }
+    for (const item of filtered) {
+      const row = node("div", "hydria-drive-image-row");
+      const thumb = node("img", "hydria-drive-image-thumb");
+      thumb.src = imageAssetUrl(item.id, "preview");
+      thumb.alt = "";
+      thumb.loading = "lazy";
+      const name = node("strong", "", String(item.filename || "image.png"));
+      const open = node("a", "hydria-artcraft-button", "Photo Studio");
+      open.href = "/workspace/photo";
+      open.title = "Télécharger cette image, puis l'ouvrir dans PhotoCraft";
+      const download = node("a", "hydria-artcraft-button", "Télécharger");
+      download.href = imageAssetUrl(item.id);
+      download.setAttribute("download", String(item.filename || "image.png"));
+      row.append(thumb, name, download, open);
+      imageList.append(row);
+    }
+    return filtered.length;
+  }
+  async function loadSavedImages() {
+    try {
+      savedImages = await listDriveImages();
+      if (!root.isConnected) return;
+      paintResults();
+      total.textContent = String(workObjects.length + savedPdfs.length + savedImages.length) + " éléments";
+    } catch (error) {
+      if (!root.isConnected) return;
+      imageList.replaceChildren(node("p", "hydria-pdf-saved-empty",
+        "Impossible de charger les images Drive : " + String(error?.message || error)));
     }
   }
   const list = node("div", "hydria-drive-list");
@@ -178,10 +228,11 @@ export function renderHydriaDriveWorkspace(container, {
   function paintResults() {
     const filtered = filterDriveObjects(workObjects, view);
     const pdfCount = paintSavedPdfs();
-    const count = filtered.length + pdfCount;
+    const imageCount = paintSavedImages();
+    const count = filtered.length + pdfCount + imageCount;
     summary.textContent = count + " résultat" + (count === 1 ? "" : "s");
     list.replaceChildren();
-    if (!filtered.length && !pdfCount) {
+    if (!filtered.length && !pdfCount && !imageCount) {
       list.append(node("p", "hydria-drive-empty",
         workObjects.length
           ? "Aucun élément ne correspond à cette recherche."
@@ -218,8 +269,9 @@ export function renderHydriaDriveWorkspace(container, {
   search.addEventListener("input", () => { view.query = search.value; paintResults(); });
   filter.addEventListener("change", () => { view.kind = filter.value; paintResults(); });
   sort.addEventListener("change", () => { view.sort = sort.value; paintResults(); });
-  root.append(heading, quick, controls, summary, list, pdfGroup);
+  root.append(heading, quick, controls, summary, list, pdfGroup, imageGroup);
   container.append(root);
   paintResults();
   loadSavedPdfs();
+  loadSavedImages();
 }
