@@ -35,6 +35,35 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "../..");
 const MAX_ZIP_BYTES = 30 * 1024 * 1024;
 
+export async function validateArtCraftBuild(which, staging) {
+  const release = ARTCRAFT_WEB_RELEASES[which];
+  if (!release) throw Error("Unknown ArtCraft product");
+  for (const required of release.requiredFiles) {
+    const file = path.join(staging, required);
+    if (!(await stat(file)).isFile()) throw Error("Missing ArtCraft web asset: " + required);
+  }
+  if (which === "photo") {
+    const lines = (await readFile(path.join(staging, "app", "parts.txt"), "utf8"))
+      .split(/\r?\n/).map((part) => part.trim()).filter(Boolean);
+    if (lines[0] !== "photocraft-parts 1") throw Error("Unsupported PhotoCraft parts manifest");
+    const parts = lines.slice(1);
+    if (!parts.length || parts.some(part =>
+      !/^[A-Za-z0-9._-]+\.part-[A-Za-z0-9_-]+$/.test(part)
+    )) throw Error("Unexpected PhotoCraft WASM parts manifest");
+    for (const part of parts) {
+      const asset = path.join(staging, "app", part);
+      if (!(await stat(asset)).isFile()) throw Error("Missing PhotoCraft WASM part: " + part);
+    }
+  } else {
+    const { readdir } = await import("node:fs/promises");
+    const entries = await readdir(staging);
+    if (!entries.some(name => /^figcraft-web-.*_bg\.wasm$/.test(name))) {
+      throw Error("FigCraft distribution missing WASM");
+    }
+  }
+  return true;
+}
+
 export async function installArtCraftWeb(which, {
   fetchImpl = fetch,
   target
@@ -60,33 +89,7 @@ export async function installArtCraftWeb(which, {
   let previousMoved = false;
   try {
     const unpacked = await unpackPdfCraftArchive(bytes, staging);
-    for (const required of release.requiredFiles) {
-      if (!(await stat(path.join(staging, required))).isFile()) {
-        throw Error("Missing ArtCraft web asset: " + required);
-      }
-    }
-    if (which === "photo") {
-      const partsFile = await readFile(path.join(staging, "app", "parts.txt"), "utf8");
-      const lines = partsFile.split(/\r?\n/).map((part) => part.trim()).filter(Boolean);
-      if (lines[0] !== "photocraft-parts 1") throw Error("Unsupported PhotoCraft parts manifest");
-      const parts = lines.slice(1);
-      if (!parts.length || parts.some((part) =>
-        !/^[A-Za-z0-9._-]+\.part-[A-Za-z0-9_-]+$/.test(part)
-      )) throw Error("Unexpected PhotoCraft WASM parts manifest");
-      for (const part of parts) {
-        // A published part must be present next to parts.txt, never elsewhere.
-        if (!(await stat(path.join(staging, "app", part))).isFile()) {
-          throw Error("Missing PhotoCraft WASM part: " + part);
-        }
-      }
-    }
-    if (which === "fig") {
-      const { readdir } = await import("node:fs/promises");
-      const entries = await readdir(staging);
-      if (!entries.some((name) => /^figcraft-web-.*_bg\.wasm$/.test(name))) {
-        throw Error("FigCraft distribution missing WASM");
-      }
-    }
+    await validateArtCraftBuild(which, staging);
     await rm(backup, { force: true, recursive: true });
     try {
       if ((await stat(dest)).isDirectory()) {
