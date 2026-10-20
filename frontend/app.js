@@ -98,6 +98,7 @@ const state = {
   closedSheetDocumentIds: [],
   workspacePreviewExpanded: false,
   workspacePageSlug: initialWorkspacePage?.slug || "",
+  pendingPdfId: "",
   routeHydrating: true,
   routeTransitioning: false,
   coreChatLoading: false,
@@ -17078,8 +17079,14 @@ function renderWorkspaceLauncher(hasVisibleWorkspace = false) {
   if (activePage?.slug === "drive") {
     renderHydriaDriveWorkspace(container, {
       workObjects: state.workObjects,
-      onOpen: (workObject) =>
-        selectWorkObject(workObject.id, preferredOpenPath(workObject)).catch(handleError),
+      onOpen: (workObject) => {
+        if (String(workObject.kind || workObject.objectKind) === "pdf") {
+          state.pendingPdfId = String(workObject.id);
+          activateWorkspacePage(workspacePageFromSlug("pdf")).catch(handleError);
+          return;
+        }
+        selectWorkObject(workObject.id, preferredOpenPath(workObject)).catch(handleError);
+      },
       onCreate: (kind, family) =>
         createBlankWorkspace(kind, family, ({
           document: "Docs", dataset: "Sheets", presentation: "Slides"
@@ -17090,6 +17097,38 @@ function renderWorkspaceLauncher(hasVisibleWorkspace = false) {
   if (activePage?.slug === "pdf") {
     renderPdfCraftWorkbench(container, {
       documents: state.workObjects.filter(isDocumentWorkObject),
+      pdfFiles: state.workObjects.filter((item) => String(item.kind || item.objectKind) === "pdf"),
+      initialPdfId: state.pendingPdfId,
+      onReadSavedPdf: async (id) => {
+        const response = await fetch(
+          "/api/work-objects/" + encodeURIComponent(id) +
+          "/pdf-content?userId=" + encodeURIComponent(state.currentUserId),
+          { credentials: "same-origin", cache: "no-store" }
+        );
+        if (!response.ok) throw Error("Lecture PDF refusée (HTTP " + response.status + ")");
+        return response.blob();
+      },
+      onStorePdf: async (file, existing = null) => {
+        if (!state.currentUserId) throw Error("Connectez un utilisateur Hydria");
+        const data = new FormData();
+        data.append("file", file, file.name || "document.pdf");
+        data.append("userId", String(state.currentUserId));
+        data.append("title", String(file.name || "Document PDF").replace(/\\.pdf$/i, ""));
+        if (existing) {
+          data.append("workObjectId", String(existing.id));
+          data.append("expectedRevision", String(existing.revision || 1));
+        }
+        const response = await fetch("/api/work-objects/pdf-binaries", {
+          method: "POST", credentials: "same-origin", body: data
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || !result.workObject?.id) {
+          throw Error(result.error || "Échec de sauvegarde PDF (HTTP " + response.status + ")");
+        }
+        mergeWorkObject(result.workObject);
+        renderWorkObjects();
+        return result.workObject;
+      },
       onExportDocument: async (id) => {
         const item = state.workObjects.find((workObject) => String(workObject.id) === String(id));
         if (!item || !isDocumentWorkObject(item)) throw Error("Document introuvable");
