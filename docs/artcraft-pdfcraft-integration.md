@@ -76,6 +76,22 @@ npx --yes esbuild@0.25.10 frontend/app.js --bundle --format=esm --platform=brows
 
 La CI contrôle le contrat, le SHA figé, l'extraction ZIP, l'installation réelle, le frontend, les API de révisions et le pont navigateur. Un test avec le vrai WASM ouvre un PDF d'une page, le fait pivoter à 90° avec la palette de commandes native, utilise Ctrl+S puis l'enregistrement Drive au clavier, vérifie le texte, la rotation, la conservation de l'original et la réouverture après rechargement. Ce cas ne démontre pas la fidélité de tous les PDF, formulaires, annotations ou signatures.
 
+## Lecture PDF et tests indépendants
+
+Le lecteur partagé `backend/utils/pdfReader.js` copie exactement la plage d'octets reçue dans un `Uint8Array` standard avant PDF.js. Le chemin des pièces jointes utilise le même lecteur. Cette normalisation corrige l'échec `bad XRef entry` reproduit avec un Buffer Node, alors que QPDF, Poppler et la copie Uint8Array lisent le même fichier.
+
+La fixture synthétique capturée est conservée dans `backend/scripts/fixtures/pdfcraft-incremental-rotation.json` avec son SHA-256. `osPdfReaderGate.mjs` vérifie Buffer et vues typées à six décalages, texte, rotation, octets inchangés et extraction des pièces jointes sans repli sur le parseur regex.
+
+Le test du vrai WASM exige aussi **QPDF et Poppler** (`qpdf`, `pdfinfo`, `pdftotext`). Sur Ubuntu, installer ces outils avant son exécution :
+
+```bash
+sudo apt-get install qpdf poppler-utils
+node backend/scripts/osPdfReaderGate.mjs
+node backend/scripts/osPdfCraftRealBrowserGate.mjs
+```
+
+La CI installe ces outils et répète trois sauvegardes réelles. Elle exige zéro erreur ou avertissement QPDF, une page, une rotation de 90° et le texte attendu. Les PDF synthétiques, rapports et captures sont conservés comme artefacts ; le contrôle n'a pas été remplacé par un simple test de démarrage.
+
 ## Prochain incrément
 
 1. Étudier une **origine séparée** : le pont officiel actuel accepte uniquement un parent sur la même origine ; une isolation réelle demande une adaptation du protocole upstream.

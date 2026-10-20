@@ -1,5 +1,7 @@
 # Roadmap technique
 
+Le programme produit Hydria OS est décrit dans la [feuille de route en quatre chantiers](hydria-os-four-workstreams-2026-10-20.md) : amélioration des workspaces, ArtCraft, fonctions Microsoft et nouveaux usages à évaluer.
+
 ## V1
 
 - boucle agentique modulaire
