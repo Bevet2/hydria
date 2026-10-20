@@ -181,7 +181,7 @@ export function renderHydriaDriveWorkspace(container, {
     const count = filtered.length + pdfCount;
     summary.textContent = count + " résultat" + (count === 1 ? "" : "s");
     list.replaceChildren();
-    if (!filtered.length) {
+    if (!filtered.length && !pdfCount) {
       list.append(node("p", "hydria-drive-empty",
         workObjects.length
           ? "Aucun élément ne correspond à cette recherche."
