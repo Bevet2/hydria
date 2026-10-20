@@ -2200,7 +2200,7 @@ export class WorkObjectService {
       try {
         const keep = new Set((updated.history || []).map((item) => item.pdfSnapshotPath).filter(Boolean));
         for (const name of fs.readdirSync(historyDir)) {
-          if (!/^v[0-9]+-[0-9a-f-]{36}\\.pdf$/i.test(name)) continue;
+          if (!/^v[0-9]+-[0-9a-f-]{36}\.pdf$/i.test(name)) continue;
           const relative = ".hydria-pdf-versions/" + name;
           if (!keep.has(relative)) fs.unlinkSync(safeResolveWithin(historyDir, name));
         }
