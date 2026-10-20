@@ -13,7 +13,19 @@
 - État explicite **« installation nécessaire »** si le moteur n'est pas déployé ; aucun renvoi silencieux vers un site tiers.
 - Aucun CDN ni service IA externe obligatoire.
 
-**Limites :** les modifications faites dans PdfCraft se sauvegardent via son téléchargement navigateur ; il n'y a PAS ENCORE de sauvegarde directement dans le document Hydria d'origine, ni de synchronisation avec Drive. Le PDF créé depuis Docs est une **copie exportée** de l'état persisté et non une édition directe de sa source DOCX/Markdown.
+**Limites :** PdfCraft produit toujours des téléchargements dans le navigateur, sans synchronisation automatique du bouton Save vers Hydria. Pour conserver le fichier, l'utilisateur le réimporte depuis PDF Studio : Hydria crée alors un objet PDF natif dans Drive, ou une nouvelle révision de celui sélectionné. Les PDF générés depuis Docs restent des **copies exportées** (pas une modification de la source DOCX/Markdown).
+
+## Import PDF et versions dans Hydria Drive
+
+1. Ouvrez **PDF Studio** et éditez/ouvrez un PDF.
+2. Utilisez Save/Export dans PdfCraft pour télécharger le fichier modifié.
+3. Dans la barre « PDF Hydria Drive », laissez « Nouveau fichier PDF » pour créer un objet ou choisissez un PDF existant pour remplacer son contenu après vérification de sa révision.
+4. Cliquez « Importer / Enregistrer dans Drive » et sélectionnez le PDF téléchargé.
+5. Le fichier est conservé en **binaire**, indexé comme objet `kind=pdf`, visible dans Drive et réouvrable depuis PDF Studio.
+
+API privée : `POST /api/work-objects/pdf-binaries` (multipart `file`, `userId`, éventuellement `workObjectId` + `expectedRevision`), puis `GET /api/work-objects/:id/pdf-content?userId=...`. Limites : PDF validé par marqueur d'en-tête et fin, 25 Mo par fichier, contrôle d'accès des work objects et HTTP 409 lors d'une révision périmée. Une copie binaire précédente est conservée dans `.hydria-pdf-versions` avec un événement d'historique. Le format n'est pas intégralement vérifié par un parseur PDF ni antivirus.
+
+**Sécurité :** cette API réutilise le modèle d'accès **mono-propriétaire** actuel (Basic Auth au niveau de l'instance et `userId` côté API). Elle **ne peut pas être ouverte au multi-tenant** sans identité serveur vérifiée, protections CSRF spécifiques et ACL serveur indépendantes des paramètres fournis par le client. La sauvegarde binaire et l'enregistrement des métadonnées ne sont pas encore une transaction durable multi-processus ; une coupure pendant l'opération impose une reprise contrôlée.
 
 ## Installation (instance privée)
 
