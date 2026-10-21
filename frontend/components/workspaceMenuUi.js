@@ -320,29 +320,32 @@ export function createWorkspaceNestedMenuController({
   leftLookaheadWidth = 540,
   onClose = null
 } = {}) {
+  let returnFocus = null;
   const isOpen = () => Boolean(root && !root.hidden && root.isConnected);
   const outsideController = createWorkspaceMenuOutsideController({
     isOpen,
     closeOnViewportChange: true,
     shouldKeepOpen: (event) => Boolean(root?.contains?.(event.target)),
-    onClose: () => {
-      close();
+    onClose: (event) => {
+      close({ restoreFocus: event?.key === "Escape" });
     }
   });
 
-  const close = () => {
+  const close = ({ restoreFocus = false } = {}) => {
     outsideController.remove();
-    if (!root) {
-      return;
-    }
+    if (!root) return;
+    const focusedInside = root.contains(document.activeElement);
+    const target = returnFocus;
     root.hidden = true;
-    root.innerHTML = "";
+    root.replaceChildren();
     root.classList.remove(rootOpenLeftClassName);
     root.style.left = "";
     root.style.top = "";
     root.style.maxHeight = "";
-    if (removeRootOnClose && root.isConnected) {
-      root.remove();
+    returnFocus = null;
+    if (removeRootOnClose && root.isConnected) root.remove();
+    if (restoreFocus && focusedInside && target?.isConnected) {
+      target.focus({ preventScroll: true });
     }
     onClose?.();
   };
@@ -383,6 +386,8 @@ export function createWorkspaceNestedMenuController({
     Array.from(host?.children || []).forEach((child) => {
       if (child !== activeRow) {
         child.classList?.remove(itemOpenClassName);
+        child.querySelector?.(':scope > button[aria-haspopup="menu"]')
+          ?.setAttribute("aria-expanded", "false");
       }
     });
   };
@@ -439,13 +444,57 @@ export function createWorkspaceNestedMenuController({
   const openSubmenu = (row = null, host = root) => {
     closeSiblingSubmenus(host, row);
     row?.classList.add(itemOpenClassName);
+    row?.querySelector(':scope > button[aria-haspopup="menu"]')
+      ?.setAttribute("aria-expanded", "true");
     window.requestAnimationFrame(() => placeSubmenu(row));
   };
 
-  const open = ({ clientX = 0, clientY = 0, appendTo = document.body } = {}) => {
-    if (!root) {
-      return false;
+  // Scope arrow navigation to the currently focused menu level: never steal
+  // shortcuts from an editor, form input, or an unrelated toolbar.
+  const enabledButtons = (level) => Array.from(level?.children || [])
+    .map(row => row.matches("button") ? row : row.querySelector(":scope > button"))
+    .filter(button => button && !button.disabled && button.getClientRects().length > 0);
+
+  root?.addEventListener("keydown", (event) => {
+    if (!isOpen() || !["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Home","End"].includes(event.key)) return;
+    if (event.target.matches?.("input,textarea,select,[contenteditable='true']")) return;
+    const button = event.target.closest?.("button");
+    if (!button || !root.contains(button)) return;
+    const level = button.closest('[role="menu"]') || root;
+    const buttons = enabledButtons(level);
+    if (["ArrowUp","ArrowDown","Home","End"].includes(event.key)) {
+      const index = buttons.indexOf(button);
+      if (index === -1 || !buttons.length) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const target = event.key === "Home" ? buttons[0]
+        : event.key === "End" ? buttons[buttons.length - 1]
+        : buttons[(index + (event.key === "ArrowDown" ? 1 : -1) + buttons.length) % buttons.length];
+      target.focus({ preventScroll:true });
+    } else if (event.key === "ArrowRight") {
+      const row = button.parentElement;
+      const submenu = getDirectChildByClassName(row, submenuClassName);
+      const first = submenu && enabledButtons(submenu)[0];
+      if (!first) return;
+      event.preventDefault();
+      event.stopPropagation();
+      openSubmenu(row, level);
+      first.focus({ preventScroll:true });
+    } else if (event.key === "ArrowLeft" && level !== root) {
+      const parentRow = level.parentElement;
+      const parentButton = parentRow?.querySelector(":scope > button");
+      if (!parentButton) return;
+      event.preventDefault();
+      event.stopPropagation();
+      parentRow.classList.remove(itemOpenClassName);
+      parentButton.setAttribute("aria-expanded","false");
+      parentButton.focus({ preventScroll:true });
     }
+  });
+
+  const open = ({ clientX = 0, clientY = 0, appendTo = document.body } = {}) => {
+    if (!root) return false;
+    returnFocus = document.activeElement;
     if (!root.isConnected) {
       appendTo.appendChild(root);
     }
@@ -671,6 +720,7 @@ export function createWorkspaceMenuActionButton(
   }
   if (hasSubmenu) {
     button.setAttribute("aria-haspopup", "menu");
+    button.setAttribute("aria-expanded", "false");
   }
 
   if (iconClassName) {
