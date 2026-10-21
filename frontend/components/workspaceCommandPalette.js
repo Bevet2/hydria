@@ -66,12 +66,17 @@ export function installWorkspaceCommandPalette({ getActions, getObjects, searchO
       hint: [item.match?.entryPath || item.primaryFile, item.match?.snippet || ""].filter(Boolean).join(" · ")
     }));
     const seen = new Set();
-    matches = [...actions, ...objects, ...found]
+    // Surface native Drive files even when a workspace has hundreds of
+    // matching ordinary work objects. The 40-result cap must not hide them.
+    const nativeAssets = found.filter(item => Boolean(item.target.assetFamily));
+    const remoteWorkObjects = found.filter(item => !item.target.assetFamily);
+    matches = [...actions, ...nativeAssets, ...objects, ...remoteWorkObjects]
       .filter((item) => !text || (item.label + " " + item.hint).toLowerCase().includes(text))
       .filter((item) => {
         const key = item.kind === "workspace"
           ? "workspace:" + item.target.slug
-          : "object:" + item.target.id + ":" + (item.target.match?.entryPath || item.target.primaryFile || "");
+          : "object:" + (item.target.assetFamily || "work-object") + ":" +
+            item.target.id + ":" + (item.target.match?.entryPath || item.target.primaryFile || "");
         if (seen.has(key)) return false;
         seen.add(key);
         return true;
