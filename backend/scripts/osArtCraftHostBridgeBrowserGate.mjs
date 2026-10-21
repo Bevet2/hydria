@@ -79,9 +79,16 @@ try {
       frame.contentWindow.__hydriaNativeFrameTest = "kept-alive";
     });
     await page.getByRole("button",{name:"Ouvrir en plein écran"}).click();
+    // requestFullscreen() settles asynchronously. Wait for the browser to
+    // enter it before calling exitFullscreen(); otherwise the fullscreen
+    // viewport can cover Drive buttons and intercept subsequent clicks.
+    await page.waitForFunction(() => Boolean(document.fullscreenElement) ||
+      document.querySelector(".hydria-artcraft-bridge-status")?.dataset.status === "error",
+      { timeout: 5000 }).catch(() => {});
     await page.evaluate(async () => {
       if (document.fullscreenElement) await document.exitFullscreen();
     });
+    await page.waitForFunction(() => !document.fullscreenElement);
     assert.equal(await page.locator(".hydria-artcraft-frame").evaluate(
       frame => frame.contentWindow.__hydriaNativeFrameTest), "kept-alive");
 
