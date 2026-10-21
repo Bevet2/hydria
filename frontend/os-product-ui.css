@@ -739,3 +739,46 @@ html body[data-os-theme="dark"] .hydria-photocraft-project-item{background:#2229
 html body[data-os-theme="dark"] .hydria-photocraft-project-icon{color:#fbcfe8;background:#50334b}
 @media(max-width:650px){.hydria-photocraft-project-item{padding:10px}
   .hydria-photocraft-project-item>.hydria-artcraft-image-copy{flex-basis:calc(100% - 54px)}}
+
+/* Interaction hardening — apple-design, animation-performance and mobile-native.
+   Target shared chrome: editor modules retain their native gesture systems. */
+html { -webkit-tap-highlight-color:transparent;overscroll-behavior-y:none; }
+body { overscroll-behavior-y:none; }
+:is(button,[role="button"]) {touch-action:manipulation;-webkit-user-select:none;user-select:none;}
+:is(.os-icon-control,.os-command-search,.sidebar .workspace-switcher-chip,.workspace-launcher-card):active {
+  transform:scale(.985) !important;
+  transition:transform 90ms ease-out,background-color 120ms ease-out,border-color 120ms ease-out;
+}
+@media (hover:none), (pointer:coarse) {
+  /* Touch hover is sticky; keep state on the active press rather than :hover. */
+  .os-icon-control:hover {background:transparent;color:inherit;}
+  .sidebar .workspace-switcher-chip:not(.active):hover{background:transparent !important;}
+  .workspace-launcher-card:hover{box-shadow:0 1px 2px rgba(15,23,42,.035) !important;}
+}
+@media (pointer:coarse) {
+  /* Avoid iOS Safari zooming the entire workspace on text-field focus. */
+  :is(input,select,textarea){font-size:16px !important;}
+}
+@media (max-width:960px){
+  .app-shell,.workspace{min-height:100dvh;}
+  .sidebar{
+    height:100dvh;max-height:100dvh;
+    padding-top:calc(16px + env(safe-area-inset-top,0px)) !important;
+    padding-bottom:calc(10px + env(safe-area-inset-bottom,0px)) !important;
+  }
+  .os-command-bar{
+    height:calc(var(--os-header-height) + env(safe-area-inset-top,0px));
+    padding-top:env(safe-area-inset-top,0px);
+  }
+  .os-sidebar-scrim{height:100dvh;}
+  body.os-sidebar-open{overflow:hidden;}
+  #workspace-panel-root.workspace-panel{min-height:calc(100dvh - var(--os-header-height)) !important;}
+}
+@media (max-width:640px){
+  .os-command-bar{height:calc(54px + env(safe-area-inset-top,0px));}
+}
+@media (prefers-reduced-motion:reduce){
+  :is(.os-icon-control,.os-command-search,.sidebar .workspace-switcher-chip,.workspace-launcher-card):active{
+    transform:none !important;transition:none !important;
+  }
+}

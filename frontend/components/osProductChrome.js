@@ -24,6 +24,9 @@ const nav=document.getElementById("workspace-switcher");
 const workspaceLabel=document.getElementById("os-active-workspace");
 const mobileMenu=document.getElementById("os-mobile-menu");
 const sidebarScrim=document.getElementById("os-sidebar-scrim");
+const sidebar=document.getElementById("os-sidebar");
+const mobileBreakpoint=window.matchMedia("(max-width:960px)");
+let drawerReturnFocus=null;
 const collapseBtn=document.getElementById("os-collapse-sidebar");
 const themeBtn=document.getElementById("os-theme-toggle");
 const searchBtn=document.getElementById("os-command-search");
@@ -65,13 +68,28 @@ if(nav){
   // Rendering replaces nav children; no need for repeated polling or extra events.
   scheduleNav();
 }
-function setMobileOpen(open){
-  document.body.classList.toggle("os-sidebar-open",Boolean(open));
-  mobileMenu?.setAttribute("aria-expanded",String(Boolean(open)));
-  if(open){
-    const first=nav?.querySelector(".workspace-switcher-chip.active");
+function setMobileOpen(open,{restoreFocus=true}={}){
+  const next=Boolean(open)&&mobileBreakpoint.matches;
+  const wasOpen=document.body.classList.contains("os-sidebar-open");
+  if(!next&&!wasOpen)return;
+  if(next&&!wasOpen)drawerReturnFocus=document.activeElement;
+  document.body.classList.toggle("os-sidebar-open",next);
+  mobileMenu?.setAttribute("aria-expanded",String(next));
+  if(next){
+    const first=nav?.querySelector(".workspace-switcher-chip.active") ||
+      sidebar?.querySelector("button:not([disabled])");
     first?.focus({preventScroll:true});
-  }else mobileMenu?.focus({preventScroll:true});
+  }else{
+    if(restoreFocus&&wasOpen&&drawerReturnFocus?.isConnected)
+      drawerReturnFocus.focus({preventScroll:true});
+    drawerReturnFocus=null;
+  }
+}
+const drawerFocusSelector='a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),summary,[tabindex]:not([tabindex="-1"])';
+function visibleDrawerFocusables(){
+  return [...(sidebar?.querySelectorAll(drawerFocusSelector)||[])].filter(
+    el=>el.getClientRects().length>0&&getComputedStyle(el).visibility!=="hidden"
+  );
 }
 mobileMenu?.addEventListener("click",()=>setMobileOpen(true));
 sidebarScrim?.addEventListener("click",()=>setMobileOpen(false));
@@ -94,6 +112,7 @@ if(safelyGet("hydria:os:sidebar-collapsed")==="1")
 
 function applyTheme(theme){
   document.body.dataset.osTheme=theme;
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content",theme==="dark"?"#11151c":"#f8fafc");
   themeBtn?.setAttribute("aria-label",theme==="dark"?"Passer au thème clair":"Passer au thème sombre");
   themeBtn?.setAttribute("aria-pressed",String(theme==="dark"));
   themeBtn.title=theme==="dark"?"Thème clair":"Thème sombre";
@@ -107,8 +126,24 @@ searchBtn?.addEventListener("click",()=>{
   nav?.querySelector(".workspace-search-chip")?.click();
 });
 document.addEventListener("keydown",(event)=>{
-  if(event.key==="Escape"&&document.body.classList.contains("os-sidebar-open"))
+  if(!document.body.classList.contains("os-sidebar-open"))return;
+  if(event.key==="Escape"){
+    event.preventDefault();
     setMobileOpen(false);
+    return;
+  }
+  if(event.key!=="Tab")return;
+  const items=visibleDrawerFocusables();
+  if(!items.length){event.preventDefault();return;}
+  const first=items[0],last=items[items.length-1],active=document.activeElement;
+  if(event.shiftKey&&(active===first||!sidebar.contains(active))){
+    event.preventDefault();last.focus();
+  }else if(!event.shiftKey&&(active===last||!sidebar.contains(active))){
+    event.preventDefault();first.focus();
+  }
+});
+mobileBreakpoint.addEventListener("change",()=>{
+  if(!mobileBreakpoint.matches)setMobileOpen(false,{restoreFocus:false});
 });
 
 /* The original workspaces are real buttons with native creation callbacks.
