@@ -10,7 +10,7 @@
   const editor = script?.dataset.hydriaEditor;
   if (!["photo","fig"].includes(editor) || window.parent === window ||
       new URLSearchParams(location.search).get("hydriaHost") !== "1") return;
-  const projectExt = editor === "photo" ? ".pcraft" : ".figcraft";
+  const projectExts = editor === "photo" ? [".pcraft",".psd",".psb"] : [".figcraft"];
   const MAX_BINARY = 30 * 1024 * 1024;
   const origin = location.origin;
   let session = null;
@@ -22,7 +22,7 @@
   const revokeUrl = URL.revokeObjectURL.bind(URL);
   const realAnchorClick = HTMLAnchorElement.prototype.click;
   const realInputClick = HTMLInputElement.prototype.click;
-  const allowedExts = editor === "photo" ? [".pcraft",".png",".jpg",".jpeg",".webp"] : [".figcraft"];
+  const allowedExts = editor === "photo" ? [".pcraft",".psd",".psb",".png",".jpg",".jpeg",".webp"] : [".figcraft"];
 
   function inform(type, extra = {}, transfer = []) {
     if (!session) return;
@@ -73,7 +73,7 @@
   HTMLAnchorElement.prototype.click = function(...args) {
     const name = String(this.download || "");
     const ext = name.match(/\.[a-z0-9]+$/i)?.[0]?.toLowerCase();
-    const kind = ext === projectExt ? "project" :
+    const kind = projectExts.includes(ext) ? "project" :
       (editor === "photo" && [".png",".jpg",".jpeg",".webp"].includes(ext) ? "image" : null);
     const blob = kind && urls.get(this.href);
     if (!session || !kind || !blob || !blob.size ||
