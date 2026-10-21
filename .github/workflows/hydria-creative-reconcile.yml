@@ -23,6 +23,11 @@ jobs:
           git config user.email "98226545+Bevet2@users.noreply.github.com"
           git fetch --no-tags origin feat/creative-direct-drive-bridge-20261021
           git merge --no-ff --no-edit -X ours FETCH_HEAD -m "chore(creative): reconcile pinned PhotoCraft/FigCraft direct Drive bridge"
+          # The runner GitHub token cannot modify Actions workflows. Keep the
+          # existing validated workflow on the first parent; add targeted tests
+          # through the authenticated connector after merging code.
+          git checkout HEAD^1 -- .github/workflows/hydria-os-validation.yml
+          git commit --amend --no-edit
           git diff --check HEAD~1 HEAD
           echo "Merged creative files:"
           git diff --name-status HEAD~1 HEAD
