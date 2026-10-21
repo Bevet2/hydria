@@ -22,6 +22,8 @@ export async function prepareHydriaFigCraftBuild({
   await writeFile(path.join(target,"index.html"),html,"utf8");
   await cp(path.join(path.resolve(source),"LICENSE-MIT"),
     path.join(target,"LICENSE-FIGCRAFT-MIT.txt"));
+  await cp(path.join(path.resolve(source),"LICENSE-APACHE"),
+    path.join(target,"LICENSE-FIGCRAFT-APACHE.txt"));
   await cp(path.join(path.resolve(source),"NOTICE"),
     path.join(target,"NOTICE-FIGCRAFT.txt"));
   await cp(path.join(path.resolve(source),"ATTRIBUTION.md"),
