@@ -46,7 +46,7 @@ export function renderArtCraftWorkspace(container, { editor = "photo" } = {}) {
     node("p", "hydria-artcraft-eyebrow", "HYDRIA / CREATIVE STUDIO"),
     node("h2", "", config.title),
     node("p", "hydria-artcraft-description", editor === "photo"
-      ? "Éditez des projets PhotoCraft .pcraft et conservez vos documents et exports dans Hydria Drive."
+      ? "Éditez des projets PhotoCraft .pcraft et des documents Photoshop PSD/PSB, avec versions dans Hydria Drive."
       : "Concevez vos interfaces avec FigCraft Web, dans l'espace de travail Hydria.")
   );
   const status = node("span", "hydria-artcraft-status", "Vérification du moteur…");
@@ -57,7 +57,7 @@ export function renderArtCraftWorkspace(container, { editor = "photo" } = {}) {
   instructions.append(
     node("strong", "", editor === "photo" ? "Comment travailler avec Drive ?" : "Éditeur web en accès anticipé"),
     node("p", "", editor === "photo"
-      ? "PhotoCraft v0.11.1 sait ouvrir des images et des projets .pcraft dans le navigateur et les enregistrer par téléchargement. Drive conserve séparément les projets natifs .pcraft éditables et les exports PNG/JPEG/WebP. Depuis Drive, cliquez sur « Ouvrir directement » pour transmettre le document natif ou l’image au moteur. Fichier > Enregistrer transmet les projets natifs à Drive ; si la sauvegarde échoue, une copie est téléchargée. Vous pouvez toujours utiliser les imports et téléchargements classiques."
+      ? "PhotoCraft v0.11.1 sait ouvrir images, projets .pcraft et documents PSD/PSB ; Hydria conserve leurs octets et révisions. Drive conserve séparément les projets natifs .pcraft éditables et les exports PNG/JPEG/WebP. Depuis Drive, cliquez sur « Ouvrir directement » pour transmettre le document natif ou l’image au moteur. Fichier > Enregistrer transmet les projets natifs à Drive ; si la sauvegarde échoue, une copie est téléchargée. Vous pouvez toujours utiliser les imports et téléchargements classiques."
       : "FigCraft Web v0.8 sait ouvrir et sauvegarder un fichier natif .figcraft par le navigateur. Cliquez sur « Ouvrir directement » dans la bibliothèque pour transmettre un projet au moteur. Fichier > Enregistrer renvoie le projet natif vers Drive en nouvelle version, avec un téléchargement de secours si nécessaire.")
   );
 
@@ -116,7 +116,7 @@ export function renderArtCraftWorkspace(container, { editor = "photo" } = {}) {
     window.open(config.path, "_blank", "noopener,noreferrer");
   });
   const caution = node("p", "hydria-artcraft-caution", editor === "photo"
-    ? "PhotoCraft fonctionne dans votre navigateur. Vos sauvegardes natives .pcraft peuvent être transférées directement dans Drive. Vérifiez la confirmation de sauvegarde avant de fermer : sans confirmation, une copie locale est téléchargée."
+    ? "PhotoCraft fonctionne dans votre navigateur. Vos sauvegardes natives .pcraft / PSD / PSB peuvent être transférées directement dans Drive. Vérifiez la confirmation de sauvegarde avant de fermer : sans confirmation, une copie locale est téléchargée."
     : "Enregistrez dans FigCraft et vérifiez la confirmation Drive avant de fermer. En cas d'échec, récupérez la copie locale. Il n'y a pas de sauvegarde périodique automatique.");
   let library = null;
   if (editor === "photo") {
