@@ -15,13 +15,14 @@ const page = await browser.newPage({viewport:{width:1360,height:900}});
 const errors=[];
 page.on("pageerror",error=>errors.push(error.message));
 const name="studio-e2e-"+Date.now()+".figcraft";
+const v1=nativeDesign("v1"), v2=nativeDesign("v2");
 try {
   await page.goto(base+"/workspace/fig",{waitUntil:"domcontentloaded"});
   const library=page.getByRole("region",{name:"Projets FigCraft conservés dans Drive"});
   await library.waitFor({timeout:30000});
   assert.ok(await page.getByText("Fichier > Ouvrir",{exact:false}).count()>0);
   await page.getByLabel("Importer un projet FigCraft dans Drive")
-    .setInputFiles({name,mimeType:"application/octet-stream",buffer:nativeDesign("v1")});
+    .setInputFiles({name,mimeType:"application/octet-stream",buffer:v1});
   const row=page.locator(".hydria-figcraft-project-item").filter({hasText:name});
   await row.waitFor({timeout:16000});
   await row.getByText("Version 1").waitFor({timeout:16000});
@@ -29,10 +30,10 @@ try {
   assert.match(url1,/\/api\/drive\/design-assets\/[a-f0-9-]+\/download/);
   const original=(await page.request.get(base+url1));
   assert.equal(original.status(),200);
-  assert.deepEqual(Buffer.from(await original.body()),nativeDesign("v1"));
+  assert.deepEqual(Buffer.from(await original.body()),v1);
 
   await row.locator(".hydria-figcraft-version-upload")
-    .setInputFiles({name,mimeType:"application/octet-stream",buffer:nativeDesign("v2")});
+    .setInputFiles({name,mimeType:"application/octet-stream",buffer:v2});
   const updated=page.locator(".hydria-figcraft-project-item").filter({hasText:name});
   await updated.getByText("Version 2").waitFor({timeout:16000});
   await updated.getByRole("button",{name:"Historique"}).click();
@@ -42,8 +43,8 @@ try {
   const old=history.filter({hasText:"Version 1"}).getByRole("link",{name:"Télécharger cette version"});
   const response=await page.request.get(base+(await old.getAttribute("href")));
   assert.equal(response.status(),200);
-  assert.deepEqual(Buffer.from(await response.body()),nativeDesign("v1"));
-  assert.deepEqual(Buffer.from(await (await page.request.get(base+url1)).body()),nativeDesign("v2"));
+  assert.deepEqual(Buffer.from(await response.body()),v1);
+  assert.deepEqual(Buffer.from(await (await page.request.get(base+url1)).body()),v2);
 
   await page.goto(base+"/workspace/drive",{waitUntil:"domcontentloaded"});
   const drive=page.locator(".hydria-drive-design-row").filter({hasText:name});
