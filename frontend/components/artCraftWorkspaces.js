@@ -4,6 +4,7 @@ import {
 } from "../services/driveImageClient.js";
 import { renderFigCraftDriveLibrary } from "./figCraftDriveLibrary.js";
 import { renderPhotoCraftDriveLibrary } from "./photoCraftProjectLibrary.js";
+import { createArtCraftHostBridge } from "./artCraftHostAdapter.js";
 
 // Upstream distributions are pinned and installed separately. In the browser
 // their native renderers operate in an iframe; no fictitious postMessage API.
@@ -56,8 +57,8 @@ export function renderArtCraftWorkspace(container, { editor = "photo" } = {}) {
   instructions.append(
     node("strong", "", editor === "photo" ? "Comment travailler avec Drive ?" : "Éditeur web en accès anticipé"),
     node("p", "", editor === "photo"
-      ? "PhotoCraft v0.11.1 sait ouvrir des images et des projets .pcraft dans le navigateur et les enregistrer par téléchargement. Drive conserve séparément les projets natifs .pcraft éditables et les exports PNG/JPEG/WebP. Pour modifier un document Drive : téléchargez-le, ouvrez-le dans PhotoCraft, enregistrez-le dans PhotoCraft, puis importez le fichier obtenu comme nouvelle version. Pas de synchronisation automatique."
-      : "FigCraft Web v0.8 sait ouvrir et sauvegarder un fichier natif .figcraft par le navigateur. Téléchargez les projets Drive puis ouvrez-les avec Fichier > Ouvrir. Après modification, faites Fichier > Enregistrer et importez ce téléchargement dans Drive comme nouvelle version. Le transfert reste manuel.")
+      ? "PhotoCraft v0.11.1 sait ouvrir des images et des projets .pcraft dans le navigateur et les enregistrer par téléchargement. Drive conserve séparément les projets natifs .pcraft éditables et les exports PNG/JPEG/WebP. Depuis Drive, cliquez sur « Ouvrir directement » pour transmettre le document natif ou l’image au moteur. Fichier > Enregistrer transmet les projets natifs à Drive ; si la sauvegarde échoue, une copie est téléchargée. Vous pouvez toujours utiliser les imports et téléchargements classiques."
+      : "FigCraft Web v0.8 sait ouvrir et sauvegarder un fichier natif .figcraft par le navigateur. Cliquez sur « Ouvrir directement » dans la bibliothèque pour transmettre un projet au moteur. Fichier > Enregistrer renvoie le projet natif vers Drive en nouvelle version, avec un téléchargement de secours si nécessaire.")
   );
 
   const viewport = node("div", "hydria-artcraft-viewport");
@@ -73,6 +74,24 @@ export function renderArtCraftWorkspace(container, { editor = "photo" } = {}) {
   openTab.disabled = true;
   buttonRow.append(reload, openTab);
   let ready = false;
+  let photoNativeLibrary = null;
+  let figNativeLibrary = null;
+  let photoImageRefresh = null;
+  const bridgeStatus = node("p", "hydria-artcraft-bridge-status",
+    "Hydria Drive : connexion de l'éditeur en attente.");
+  bridgeStatus.setAttribute("role", "status");
+  const bridge = createArtCraftHostBridge({
+    editor,
+    onNotice(message, level) {
+      bridgeStatus.textContent = message;
+      bridgeStatus.dataset.status = level;
+    },
+    onSaved() {
+      photoNativeLibrary?.refresh();
+      figNativeLibrary?.refresh();
+      photoImageRefresh?.();
+    }
+  });
   function mountFrame() {
     if (!ready || !root.isConnected) return;
     const iframe = node("iframe", "hydria-artcraft-frame");
@@ -80,7 +99,8 @@ export function renderArtCraftWorkspace(container, { editor = "photo" } = {}) {
     iframe.setAttribute("sandbox", config.sandbox);
     iframe.setAttribute("allow", "fullscreen; clipboard-read; clipboard-write");
     iframe.setAttribute("loading", "eager");
-    iframe.src = config.path;
+    iframe.src = config.path + "?hydriaHost=1";
+    bridge.setFrame(iframe);
     iframe.allowFullscreen = true;
     viewport.replaceChildren(iframe);
   }
@@ -93,8 +113,8 @@ export function renderArtCraftWorkspace(container, { editor = "photo" } = {}) {
     window.open(config.path, "_blank", "noopener,noreferrer");
   });
   const caution = node("p", "hydria-artcraft-caution", editor === "photo"
-    ? "PhotoCraft fonctionne dans votre navigateur. Enregistrez votre projet .pcraft, puis importez ce téléchargement dans Drive avant de fermer l’éditeur. Les exports d’images sont conservés séparément."
-    : "Attention : avant de quitter, enregistrez le document depuis FigCraft puis importez-le dans Drive. Aucun enregistrement automatique de l’iframe. La parité avec Figma n'est pas atteinte.");
+    ? "PhotoCraft fonctionne dans votre navigateur. Vos sauvegardes natives .pcraft peuvent être transférées directement dans Drive. Vérifiez la confirmation de sauvegarde avant de fermer : sans confirmation, une copie locale est téléchargée."
+    : "Enregistrez dans FigCraft et vérifiez la confirmation Drive avant de fermer. En cas d'échec, récupérez la copie locale. Il n'y a pas de sauvegarde périodique automatique.");
   let library = null;
   if (editor === "photo") {
     library = node("section", "hydria-artcraft-library");
@@ -204,7 +224,12 @@ export function renderArtCraftWorkspace(container, { editor = "photo" } = {}) {
                 "Historique indisponible : " + String(error?.message || error)));
             }
           });
-          item.append(thumb, details, link, nextVersion, historyButton, versionInput, history);
+          const directOpen = node("button", "hydria-artcraft-button hydria-artcraft-direct-open", "Ouvrir directement");
+          directOpen.type = "button";
+          directOpen.title = "Charger cette image dans PhotoCraft sans passer par un téléchargement";
+          directOpen.addEventListener("click", () =>
+            bridge.openAsset({ ...image, kind:"image" }));
+          item.append(thumb, details, directOpen, link, nextVersion, historyButton, versionInput, history);
           result.append(item);
           if (targetImageId && String(image.id) === targetImageId) {
             item.classList.add("hydria-artcraft-target-image");
@@ -221,6 +246,7 @@ export function renderArtCraftWorkspace(container, { editor = "photo" } = {}) {
         result.replaceChildren(node("p", "hydria-artcraft-empty", String(error?.message || error)));
       }
     }
+    photoImageRefresh = loadImages;
     refresh.addEventListener("click", () => { loadImages(); });
     fileInput.addEventListener("change", async () => {
       const file = fileInput.files?.[0];
@@ -249,11 +275,20 @@ export function renderArtCraftWorkspace(container, { editor = "photo" } = {}) {
     // Layered .pcraft projects and raster exports use distinct data stores.
     library.prepend(nativeMount);
     library.setAttribute("aria-label", "Projets PhotoCraft et images dans Hydria Drive");
-    renderPhotoCraftDriveLibrary(nativeMount);
+    photoNativeLibrary = renderPhotoCraftDriveLibrary(nativeMount, {
+      onOpen: item => bridge.openAsset(item)
+    });
   }
-  root.append(top, buttonRow, instructions, library || node("div", "hydria-artcraft-no-library"), viewport, caution);
+  root.append(top, buttonRow, instructions, bridgeStatus,
+    library || node("div", "hydria-artcraft-no-library"), viewport, caution);
   container.append(root);
-  if (editor === "fig") renderFigCraftDriveLibrary(library);
+  const lifeObserver = new MutationObserver(() => {
+    if (!root.isConnected) { lifeObserver.disconnect(); bridge.dispose(); }
+  });
+  lifeObserver.observe(document.body, { childList: true, subtree: true });
+  if (editor === "fig") figNativeLibrary = renderFigCraftDriveLibrary(library, {
+    onOpen: item => bridge.openAsset(item)
+  });
 
   // Optional WASM bundles are self-hosted, never redirected to third parties.
   fetch(config.path, { method:"HEAD", cache:"no-store", credentials:"same-origin" })
