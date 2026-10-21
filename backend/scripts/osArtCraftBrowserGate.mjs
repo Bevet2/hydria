@@ -78,6 +78,9 @@ try {
   await page.goto(base+"/workspace/fig",{waitUntil:"domcontentloaded"});
   await page.locator(".hydria-artcraft-status").filter({hasText:"FigCraft disponible"}).waitFor({timeout:16000});
   await page.frameLocator(".hydria-artcraft-frame").getByText("FigCraft WASM fixture").waitFor({timeout:16000});
+  const figSandbox = await page.locator(".hydria-artcraft-frame").getAttribute("sandbox");
+  assert.ok(figSandbox.split(/\s+/).includes("allow-downloads"),
+    "FigCraft native File > Save must be permitted in the iframe");
   assert.equal(await page.getByLabel("Importer une image PhotoCraft dans Drive").count(),0);
   await page.getByText("FigCraft Web v0.8 sait ouvrir et sauvegarder").waitFor();
   await page.getByLabel("Importer un projet FigCraft dans Drive").waitFor();
