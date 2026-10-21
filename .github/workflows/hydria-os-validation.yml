@@ -21,6 +21,8 @@ jobs:
         run: npx --yes esbuild@0.25.10 frontend/app.js --bundle --format=esm --platform=browser --outfile=/tmp/hydria-integration.js
       - name: Hydria Drive library model and safe routing
         run: node backend/scripts/osDriveWorkspaceGate.mjs
+      - name: Global native PDF/Photo/Fig Drive search normalization
+        run: node backend/scripts/osDriveAssetSearchGate.mjs
       - name: Check JavaScript syntax for integrated files
         run: |
           for file in frontend/app.js frontend/components/workspaceCanvasPanel.js frontend/components/workspacePanel.js frontend/components/workspaceMenuUi.js backend/server.js backend/routes/canvas.js; do
@@ -334,6 +336,8 @@ jobs:
         run: npm run test:visual-workspace --prefix backend -- --scenario "shared-command-adapters,docs-shared-menu-definitions,docs-context-menu-helper,sheets-toolbar-context-menu-fullscreen,slides-presentation-smoke,canvas-whiteboard-smoke,dashboard-editor-smoke,dataflow-workbench-smoke,os-global-command-palette,os-project-explorer,os-per-file-tree-smoke,shared-icons,shared-context-menu-helper,docs-word-review-layout,docs-context-format-page-break"
       - name: Hydria Drive browser navigation and creation
         run: node backend/scripts/osDriveBrowserGate.mjs
+      - name: Global command search reaches native Drive assets
+        run: node backend/scripts/osDriveAssetSearchBrowserGate.mjs
       - name: Real PdfCraft WASM edit, save and reopen
         run: |
           sudo apt-get install -y qpdf poppler-utils

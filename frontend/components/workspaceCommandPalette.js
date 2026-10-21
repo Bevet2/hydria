@@ -71,7 +71,8 @@ export function installWorkspaceCommandPalette({ getActions, getObjects, searchO
       .filter((item) => {
         const key = item.kind === "workspace"
           ? "workspace:" + item.target.slug
-          : "object:" + item.target.id + ":" + (item.target.match?.entryPath || item.target.primaryFile || "");
+          : "object:" + (item.target.assetFamily || "work-object") + ":" +
+            item.target.id + ":" + (item.target.match?.entryPath || item.target.primaryFile || "");
         if (seen.has(key)) return false;
         seen.add(key);
         return true;

@@ -49,6 +49,7 @@ import {
   replayCollaborationOperations
 } from "./services/collaborationClient.js";
 import { installWorkspaceCommandPalette } from "./components/workspaceCommandPalette.js";
+import { searchNativeDriveAssets, driveAssetWorkspaceUrl } from "./services/driveAssetSearch.js";
 import { renderWorkspaceFileExplorer } from "./components/workspaceFileExplorer.js";
 import { sessionStore } from "./services/sessionStore.js";
 
@@ -19049,11 +19050,27 @@ async function init() {
     }),
     searchObjects: async (query) => {
       if (!state.currentUserId) return [];
-      const payload = await apiClient.searchWorkObjects(state.currentUserId, query);
-      return payload.results || [];
+      // Native PDF, photo and design assets live in dedicated Drive tables,
+      // not in work_objects. One failed source cannot mask the other.
+      const [objects, assets] = await Promise.allSettled([
+        apiClient.searchWorkObjects(state.currentUserId, query),
+        searchNativeDriveAssets(query)
+      ]);
+      return [
+        ...(objects.status === "fulfilled" && Array.isArray(objects.value?.results)
+          ? objects.value.results : []),
+        ...(assets.status === "fulfilled" ? assets.value : [])
+      ];
     },
     openAction: (page) => activateWorkspacePage(page).catch(handleError),
-    openObject: (object) => selectWorkObject(object.id, object.match?.entryPath || object.primaryFile || "").catch(handleError),
+    openObject: (object) => {
+      if (object.assetFamily) {
+        const url = driveAssetWorkspaceUrl(object);
+        if (url) window.location.assign(url);
+        return;
+      }
+      selectWorkObject(object.id, object.match?.entryPath || object.primaryFile || "").catch(handleError);
+    },
     onSave: () => { if (state.currentWorkObjectId && state.editorDirty) saveWorkObjectChanges().catch(handleError); }
   });
   setWorkspacePage(initialWorkspacePage, { historyMode: "none" });
