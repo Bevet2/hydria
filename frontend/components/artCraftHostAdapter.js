@@ -151,11 +151,14 @@ export function createArtCraftHostBridge({
   }
   window.addEventListener("message", onMessage);
   function setFrame(iframe) {
+    // Drive deep-link loading may finish before the editor's first mount.
+    // Preserve that first pending open, but discard anything from an actual
+    // restart to prevent stale data from entering a different document.
+    const firstMount = frame === null;
     frameEpoch++;
     frame = iframe;
     ready = false;
-    queued = null;
-    bound = null;
+    if (!firstMount) { queued = null; bound = null; }
     if (frame) delete frame.dataset.driveBridgeReady;
   }
   async function openAsset(item) {
