@@ -739,3 +739,16 @@ html body[data-os-theme="dark"] .hydria-photocraft-project-item{background:#2229
 html body[data-os-theme="dark"] .hydria-photocraft-project-icon{color:#fbcfe8;background:#50334b}
 @media(max-width:650px){.hydria-photocraft-project-item{padding:10px}
   .hydria-photocraft-project-item>.hydria-artcraft-image-copy{flex-basis:calc(100% - 54px)}}
+
+
+/* Native PhotoCraft/FigCraft Drive bridge: always visible and accessible. */
+.hydria-artcraft-bridge-status{font-size:12px;padding:10px 14px;line-height:1.5;
+ border:1px solid var(--os-border,#cbd5e1);border-radius:10px;
+ color:var(--os-text,#334155);background:var(--os-subtle,#f8fafc)}
+.hydria-artcraft-bridge-status[data-status="success"]{border-color:#6baf91;background:#e8f7ef;color:#166534}
+.hydria-artcraft-bridge-status[data-status="error"]{border-color:#e39a9a;background:#fef2f2;color:#991b1b}
+.hydria-artcraft-direct-open{font-weight:650;white-space:nowrap}
+.hydria-artcraft-direct-open:focus-visible{outline:2px solid #6366f1;outline-offset:2px}
+html body[data-os-theme="dark"] .hydria-artcraft-bridge-status{background:#232a3f;color:#e2e8f0;border-color:#495578}
+html body[data-os-theme="dark"] .hydria-artcraft-bridge-status[data-status="success"]{background:#153d34;border-color:#2b9679;color:#b7f8d1}
+html body[data-os-theme="dark"] .hydria-artcraft-bridge-status[data-status="error"]{background:#4a202e;border-color:#ac5362;color:#ffcad5}
