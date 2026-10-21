@@ -7,7 +7,7 @@
  * hardened archive extraction routine from the existing PdfCraft installer.
  */
 import { createHash } from "node:crypto";
-import { mkdtemp, mkdir, readFile, rename, rm, stat } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { unpackPdfCraftArchive } from "./installPdfCraft.mjs";
@@ -64,6 +64,24 @@ export async function validateArtCraftBuild(which, staging) {
   return true;
 }
 
+/**
+ * Inject a first-party host shim before wasm-bindgen starts. The official
+ * release archive and its SHA256 remain unchanged; the installed HTML is a
+ * clearly documented Hydria integration derivative. Standalone operation
+ * stays unaffected because the shim requires ?hydriaHost=1 and a parent.
+ */
+export function injectHydriaArtCraftBridge(html, which) {
+  if (!ARTCRAFT_WEB_RELEASES[which] || typeof html !== "string" ||
+      !/<head(?:\s[^>]*)?>/i.test(html) || !/<\/head\s*>/i.test(html)) {
+    throw Error("ArtCraft HTML entrypoint invalid for Hydria bridge");
+  }
+  if (html.includes("/artcraft/hydria-bridge.js")) {
+    throw Error("ArtCraft bridge already injected");
+  }
+  const injected = `<script src="/artcraft/hydria-bridge.js" data-hydria-editor="${which}"></script>`;
+  return html.replace(/<head(?:\s[^>]*)?>/i, match => match + "\n" + injected);
+}
+
 export async function installArtCraftWeb(which, {
   fetchImpl = fetch,
   target
@@ -90,6 +108,9 @@ export async function installArtCraftWeb(which, {
   try {
     const unpacked = await unpackPdfCraftArchive(bytes, staging);
     await validateArtCraftBuild(which, staging);
+    const htmlPath = path.join(staging, "index.html");
+    const html = await readFile(htmlPath, "utf8");
+    await writeFile(htmlPath, injectHydriaArtCraftBridge(html, which), "utf8");
     await rm(backup, { force: true, recursive: true });
     try {
       if ((await stat(dest)).isDirectory()) {
