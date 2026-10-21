@@ -356,6 +356,20 @@ jobs:
         run: node --check backend/scripts/osPhotoCraftProjectsBrowserGate.mjs
       - name: Native PhotoCraft project import and Drive revision history
         run: node backend/scripts/osPhotoCraftProjectsBrowserGate.mjs
+      - name: Authentic PhotoCraft and FigCraft WASM boot, open and save
+        run: |
+          trap 'rm -rf frontend/vendor/photocraft frontend/vendor/figcraft' EXIT
+          node backend/scripts/installArtCraftWeb.mjs photo
+          node backend/scripts/installArtCraftWeb.mjs fig
+          node backend/scripts/osArtCraftRealWasmBrowserGate.mjs
+      - name: Upload authentic creative editor WASM captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hydria-real-artcraft-drive-wasm
+          path: artifacts/hydria-real-*.png
+          retention-days: 7
+          if-no-files-found: ignore
 
   pdf-readback:
     runs-on: ubuntu-latest
