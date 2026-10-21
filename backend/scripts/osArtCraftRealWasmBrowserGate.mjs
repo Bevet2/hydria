@@ -131,11 +131,31 @@ try {
   ({iframe,canvas}=await waitRealEngine("fig"));
   const figRow=page.locator(".hydria-figcraft-project-item").filter({hasText:"ridgeline-studio-dashboard.figcraft"});
   await figRow.waitFor({timeout:30000});
+  const emptyFig = await canvas.screenshot();
   await figRow.getByRole("button",{name:"Ouvrir directement"}).click();
   await page.getByText(/Fichier déposé dans l'éditeur/).waitFor({timeout:30000});
+  await page.waitForTimeout(5000); // native async .figcraft parser and pending open
+  const openedFig = await canvas.screenshot();
+  console.log("Fig genuine project changes the canvas after Drive drop:",!emptyFig.equals(openedFig));
   await canvas.click({position:{x:140,y:150}});
   await page.keyboard.press("Control+s");
-  await page.getByText(/Document enregistré dans Drive · version 2/).waitFor({timeout:30000});
+  await page.waitForTimeout(1200);
+  console.log("Fig after Ctrl+S:",JSON.stringify({
+    bridgeStatus:await page.locator(".hydria-artcraft-bridge-status").textContent(),
+    currentRevision:(await fetch(base+"/api/drive/design-assets/"+stored.id).then(r=>r.json())).revision,
+    consoleProblems
+  }));
+  if(!/Document enregistré dans Drive/.test(await page.locator(".hydria-artcraft-bridge-status").textContent())) {
+    await canvas.click({position:{x:240,y:190}});
+    await page.keyboard.press("Control+Shift+s");
+    await page.waitForTimeout(1500);
+    console.log("Fig after Ctrl+Shift+S:",JSON.stringify({
+      bridgeStatus:await page.locator(".hydria-artcraft-bridge-status").textContent(),
+      currentRevision:(await fetch(base+"/api/drive/design-assets/"+stored.id).then(r=>r.json())).revision
+    }));
+  }
+  await page.screenshot({path:"artifacts/hydria-real-fig-before-save.png",fullPage:true});
+  await page.getByText(/Document enregistré dans Drive · version 2/).waitFor({timeout:12000});
   const changed=Buffer.from(await fetch(base+"/api/drive/design-assets/"+stored.id+"/download").then(r=>r.arrayBuffer()));
   assert.ok(changed.length>10000,"WASM lost native document data while saving");
   assert.ok(new AdmZip(changed).getEntry("document.json"));
