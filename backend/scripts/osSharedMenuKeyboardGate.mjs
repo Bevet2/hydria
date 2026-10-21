@@ -43,9 +43,22 @@ try {
   assert.equal(await more.evaluate(el=>document.activeElement===el),true,
     "Down arrow must focus the next enabled menu action");
   await page.keyboard.press("ArrowRight");
-  const duplicate=root.getByRole("button",{name:"Duplicate"});
-  assert.equal(await duplicate.evaluate(el=>document.activeElement===el),true,
+  const duplicateState=await page.evaluate(()=>{
+    const menu=document.querySelector("#shared-menu-keyboard-fixture");
+    const item=[...menu.querySelectorAll("button")].find(x=>x.textContent.trim()==="Duplicate");
+    const parent=item?.parentElement?.parentElement;
+    return {found:!!item,focused:item===document.activeElement,
+      active:document.activeElement?.textContent?.trim(),
+      subClass:parent?.className,
+      menuVisible:item ? getComputedStyle(item).visibility : null,
+      display:item ? getComputedStyle(item).display : null,
+      subDisplay:parent ? getComputedStyle(parent).display : null,
+      rects:item?.getClientRects()?.length,html:parent?.outerHTML?.slice(0,1600)};
+  });
+  console.log("NESTED_MENU_DIAGNOSTIC",JSON.stringify(duplicateState));
+  assert.equal(duplicateState.focused,true,
     "Right arrow must open nested submenu and focus its first enabled item");
+  const duplicate=root.getByRole("button",{name:"Duplicate"});
   assert.equal(await more.getAttribute("aria-expanded"),"true");
   await page.keyboard.press("ArrowDown");
   assert.equal(await duplicate.evaluate(el=>document.activeElement===el),true,
