@@ -82,6 +82,33 @@ try {
   assert.equal(await page.locator('#workspace-panel-root[data-has-workspace="true"] .workspace-sidebar').isVisible(),false);
   await page.locator("#os-mobile-menu").click();
   assert.equal(await page.locator("body").evaluate(el=>el.classList.contains("os-sidebar-open")),true);
+  assert.equal(await page.locator("body").evaluate(el=>getComputedStyle(el).overflow),"hidden",
+    "Drawer should lock background scrolling");
+  const drawerFocusSelector='a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),summary,[tabindex]:not([tabindex="-1"])';
+  const focusables=await page.evaluate(selector=>{
+    const sidebar=document.querySelector("#os-sidebar");
+    const items=[...sidebar.querySelectorAll(selector)].filter(
+      el=>el.getClientRects().length>0 && getComputedStyle(el).visibility!=="hidden"
+    );
+    if(items.length<2)throw new Error("No navigable sidebar controls");
+    items[items.length-1].focus();
+    return items.length;
+  },drawerFocusSelector);
+  assert.ok(focusables>=2);
+  await page.keyboard.press("Tab");
+  assert.equal(await page.evaluate(selector=>{
+    const sidebar=document.querySelector("#os-sidebar");
+    const first=[...sidebar.querySelectorAll(selector)].find(
+      el=>el.getClientRects().length>0 && getComputedStyle(el).visibility!=="hidden"
+    );
+    return document.activeElement===first;
+  },drawerFocusSelector),true,"Tab must wrap to the first control inside the open drawer");
+  await page.keyboard.press("Escape");
+  assert.equal(await page.locator("body").evaluate(el=>el.classList.contains("os-sidebar-open")),false);
+  assert.equal(await page.locator("#os-mobile-menu").evaluate(el=>document.activeElement===el),true,
+    "Escape must restore focus to the drawer opener");
+  assert.notEqual(await page.locator("body").evaluate(el=>getComputedStyle(el).overflow),"hidden");
+  await page.locator("#os-mobile-menu").click();
   await page.waitForTimeout(260);
   await page.screenshot({path:path.join(output,"05-mobile-drawer.png"),fullPage:false});
   await page.locator("#os-sidebar-scrim").click({position:{x:350,y:400}});
@@ -90,6 +117,13 @@ try {
   await page.screenshot({path:path.join(output,"06-mobile-workspace.png"),fullPage:false});
   const mobileOverflow=await page.evaluate(()=>document.documentElement.scrollWidth>window.innerWidth+2);
   assert.equal(mobileOverflow,false,"Mobile app shell must not cause horizontal overflow");
+  // Accessibility: safe areas and reduced motion must apply to the real shell.
+  assert.match(await page.locator('meta[name="viewport"]').getAttribute("content"),/viewport-fit=cover/);
+  await page.emulateMedia({reducedMotion:"reduce"});
+  const duration=await page.locator(".sidebar").evaluate(el=>getComputedStyle(el).transitionDuration);
+  assert.ok(duration.split(",").every(value=>parseFloat(value)<=.001),
+    "Reduced motion must remove visible drawer transitions: "+duration);
+  await page.emulateMedia({reducedMotion:"no-preference"});
   assert.deepEqual(errors,[],"No browser JS exceptions should be emitted");
   console.log("Hydria product UI desktop, document focus mode, dark theme, collapsing sidebar and mobile editor validated");
 }finally {
