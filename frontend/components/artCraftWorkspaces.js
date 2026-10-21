@@ -111,9 +111,21 @@ export function renderArtCraftWorkspace(container, { editor = "photo" } = {}) {
     if (!ready) return;
     mountFrame(); // Reload may discard unsaved changes inside the upstream app.
   });
-  openTab.addEventListener("click", () => {
+  openTab.addEventListener("click", async () => {
     if (!ready) return;
-    window.open(config.path, "_blank", "noopener,noreferrer");
+    // Keep the trusted session iframe alive: opening an unrelated tab would
+    // sever Hydria Drive binding and silently disable direct native saves.
+    try {
+      if (!document.fullscreenElement) {
+        if (!viewport.requestFullscreen) throw Error("Mode plein écran indisponible");
+        await viewport.requestFullscreen();
+      } else if (document.fullscreenElement === viewport) {
+        await document.exitFullscreen();
+      }
+    } catch (error) {
+      bridgeStatus.textContent = "Mode plein écran : " + String(error?.message || error);
+      bridgeStatus.dataset.status = "error";
+    }
   });
   const caution = node("p", "hydria-artcraft-caution", editor === "photo"
     ? "PhotoCraft fonctionne dans votre navigateur. Vos sauvegardes natives .pcraft / PSD / PSB peuvent être transférées directement dans Drive. Vérifiez la confirmation de sauvegarde avant de fermer : sans confirmation, une copie locale est téléchargée."
