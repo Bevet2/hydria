@@ -29,7 +29,7 @@ const root = await mkdtemp(path.join(tmpdir(), "hydria-artcraft-build-check-"));
 try {
   for (const name of ["photo","fig"]) {
     const zip = new AdmZip();
-    const prefix = name === "photo" ? "photocraft-web-0.10.0/" : "figcraft-web-0.7.0/";
+    const prefix = name === "photo" ? "photocraft-web-0.10.0/" : "figcraft-web-0.8.0/";
     zip.addFile(prefix + "index.html", Buffer.from("<!doctype html><title>ArtCraft</title>"));
     const wasm = Buffer.from([0, 97, 115, 109, 1, 0, 0, 0]);
     if (name === "photo") {

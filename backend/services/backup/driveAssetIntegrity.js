@@ -16,6 +16,11 @@ const FORMATS = Object.freeze({
     directory: "drive-pdf-assets", type: "pdf",
     ext: () => ".pdf"
   },
+  design: {
+    assets: "drive_design_assets", versions: "drive_design_versions",
+    directory: "drive-design-assets", type: "design",
+    ext: () => ".figcraft"
+  },
   image: {
     assets: "drive_image_assets", versions: "drive_image_versions",
     directory: "drive-images", type: "image",
@@ -36,9 +41,10 @@ function tables(database) {
     .map((row) => row.name));
 }
 function validStorageKey(key, format) {
-  return typeof key === "string" && /^[a-f0-9-]{36}\.(?:pdf|png|jpg|webp)$/i.test(key) &&
+  return typeof key === "string" && /^[a-f0-9-]{36}\.(?:pdf|figcraft|png|jpg|webp)$/i.test(key) &&
     UUID.test(key.slice(0, 36)) &&
-    (format === "pdf" ? key.endsWith(".pdf") : /\.(png|jpg|webp)$/i.test(key));
+    (format === "pdf" ? key.endsWith(".pdf") :
+      format === "design" ? key.endsWith(".figcraft") : /\.(png|jpg|webp)$/i.test(key));
 }
 export async function inspectDriveSnapshot(databaseFile, dataDir) {
   const database = new Database(databaseFile, { readonly: true, fileMustExist: true });

@@ -1,6 +1,7 @@
 // Hydria Drive — unified library of existing Hydria work objects.
 import { listDrivePdfs, storedPdfUrl } from "../services/drivePdfClient.js";
 import { listDriveImages, imageAssetUrl } from "../services/driveImageClient.js";
+import { designFileUrl, listDesigns } from "../services/driveDesignClient.js";
 // This is deliberately not a separate file store or a cloud-sync service.
 const SORTS = new Set(["recent", "name", "kind"]);
 const KINDS = new Set(["all", "document", "dataset", "presentation", "dashboard", "workflow", "design", "project", "code", "pdf", "image", "other"]);
@@ -107,7 +108,7 @@ export function renderHydriaDriveWorkspace(container, {
   for (const [value, label] of [
     ["all", "Tous les types"], ["document", "Documents"], ["dataset", "Tableurs"],
     ["presentation", "Présentations"], ["dashboard", "Dashboards"], ["pdf", "PDF enregistrés"], ["image", "Images enregistrées"],
-    ["workflow", "Flux et automatisations"], ["design", "Designs"],
+    ["workflow", "Flux et automatisations"], ["design", "Designs et projets FigCraft"],
     ["project", "Projets"], ["code", "Code"], ["other", "Autres"]
   ]) {
     const opt = node("option", "", label);
@@ -167,7 +168,7 @@ export function renderHydriaDriveWorkspace(container, {
       savedPdfs = await listDrivePdfs();
       if (!root.isConnected) return;
       paintResults();
-      total.textContent = String(workObjects.length + savedPdfs.length + savedImages.length) + " éléments";
+      updateTotal();
     } catch (error) {
       if (!root.isConnected) return;
       pdfList.replaceChildren(node("p", "hydria-pdf-saved-empty",
@@ -217,12 +218,65 @@ export function renderHydriaDriveWorkspace(container, {
       savedImages = await listDriveImages();
       if (!root.isConnected) return;
       paintResults();
-      total.textContent = String(workObjects.length + savedPdfs.length + savedImages.length) + " éléments";
+      updateTotal();
     } catch (error) {
       if (!root.isConnected) return;
       imageList.replaceChildren(node("p", "hydria-pdf-saved-empty",
         "Impossible de charger les images Drive : " + String(error?.message || error)));
     }
+  }
+  let savedDesigns = [];
+  const designGroup = node("section", "hydria-drive-pdf-group hydria-drive-design-group");
+  designGroup.setAttribute("aria-label", "Projets FigCraft dans Hydria Drive");
+  const designTitle = node("h3", "", "Projets FigCraft (.figcraft)");
+  const designList = node("div", "hydria-drive-design-list");
+  designGroup.append(designTitle, designList);
+  function paintSavedDesigns() {
+    designGroup.hidden = view.kind !== "all" && view.kind !== "design";
+    designList.replaceChildren();
+    if (designGroup.hidden) return 0;
+    const q = String(view.query).toLocaleLowerCase().trim();
+    const filtered = savedDesigns.filter(x =>
+      String(x.filename || "").toLocaleLowerCase().includes(q));
+    filtered.sort((a, b) => view.sort === "name"
+      ? String(a.filename).localeCompare(String(b.filename), "fr")
+      : String(b.updated_at || b.created_at).localeCompare(String(a.updated_at || a.created_at)));
+    if (!filtered.length) {
+      designList.append(node("p", "hydria-pdf-saved-empty",
+        "Aucun projet FigCraft ne correspond à cette recherche."));
+      return 0;
+    }
+    for (const item of filtered) {
+      const row = node("div", "hydria-drive-design-row");
+      row.append(node("span", "hydria-figcraft-project-icon", "◆"));
+      row.append(node("strong", "", String(item.filename || "design.figcraft")));
+      row.append(node("small", "hydria-drive-image-revision", "Version " + Number(item.revision || 1)));
+      const open = node("a", "hydria-artcraft-button", "Design Studio");
+      open.href = "/workspace/fig?designId=" + encodeURIComponent(item.id);
+      open.title = "Téléchargez le fichier et ouvrez-le dans FigCraft avec Fichier > Ouvrir";
+      const download = node("a", "hydria-artcraft-button", "Télécharger");
+      download.href = designFileUrl(item.id);
+      download.setAttribute("download", item.filename || "design.figcraft");
+      row.append(download, open);
+      designList.append(row);
+    }
+    return filtered.length;
+  }
+  async function loadSavedDesigns() {
+    try {
+      savedDesigns = await listDesigns();
+      if (!root.isConnected) return;
+      paintResults();
+      updateTotal();
+    } catch (error) {
+      if (!root.isConnected) return;
+      designList.replaceChildren(node("p", "hydria-pdf-saved-empty",
+        "Impossible de charger les projets FigCraft : " + String(error?.message || error)));
+    }
+  }
+  function updateTotal() {
+    total.textContent = String(workObjects.length + savedPdfs.length +
+      savedImages.length + savedDesigns.length) + " éléments";
   }
   const list = node("div", "hydria-drive-list");
   list.setAttribute("role", "list");
@@ -231,10 +285,11 @@ export function renderHydriaDriveWorkspace(container, {
     const filtered = filterDriveObjects(workObjects, view);
     const pdfCount = paintSavedPdfs();
     const imageCount = paintSavedImages();
-    const count = filtered.length + pdfCount + imageCount;
+    const designCount = paintSavedDesigns();
+    const count = filtered.length + pdfCount + imageCount + designCount;
     summary.textContent = count + " résultat" + (count === 1 ? "" : "s");
     list.replaceChildren();
-    if (!filtered.length && !pdfCount && !imageCount) {
+    if (!filtered.length && !pdfCount && !imageCount && !designCount) {
       list.append(node("p", "hydria-drive-empty",
         workObjects.length
           ? "Aucun élément ne correspond à cette recherche."
@@ -271,9 +326,10 @@ export function renderHydriaDriveWorkspace(container, {
   search.addEventListener("input", () => { view.query = search.value; paintResults(); });
   filter.addEventListener("change", () => { view.kind = filter.value; paintResults(); });
   sort.addEventListener("change", () => { view.sort = sort.value; paintResults(); });
-  root.append(heading, quick, controls, summary, list, pdfGroup, imageGroup);
+  root.append(heading, quick, controls, summary, list, pdfGroup, imageGroup, designGroup);
   container.append(root);
   paintResults();
   loadSavedPdfs();
   loadSavedImages();
+  loadSavedDesigns();
 }

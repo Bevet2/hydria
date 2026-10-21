@@ -4,7 +4,7 @@
 
 **Hydria Photo** (`/workspace/photo`) charge une distribution **PhotoCraft WebAssembly officielle** sur l'origine Hydria, lorsqu'elle est installée. Elle fournit aussi une bibliothèque d'images persistantes dans Hydria Drive (`PNG`, `JPEG`, `WebP`) et l'import des exports produits par PhotoCraft. Les images peuvent être téléchargées pour être ouvertes manuellement avec **Fichier → Ouvrir** dans l'éditeur.
 
-**Hydria Design** (`/workspace/fig`) embarque la distribution **FigCraft WebAssembly officielle** dans le shell Hydria, quand elle est installée. La version FigCraft Web ne raccorde pas encore les dialogues natifs de fichiers : **il n'y a pas aujourd'hui d'ouverture/sauvegarde native d'un design Hydria**. L'interface rend cette limite visible.
+**Hydria Design** (`/workspace/fig`) embarque la distribution **FigCraft WebAssembly officielle** dans le shell Hydria, quand elle est installée. FigCraft Web **v0.8.0** permet désormais **Fichier → Ouvrir / Enregistrer (téléchargement)**. Hydria stocke les fichiers natifs `.figcraft` dans Drive avec historique, mais le transfert est **manuel** : télécharger depuis Drive, ouvrir dans FigCraft, enregistrer depuis FigCraft, réimporter dans Drive. L'iframe ne possède pas de protocole de sauvegarde directe authentifié.
 
 Ces deux moteurs sont de véritables éditeurs open source écrits en Rust. **Une page avec une iframe n'est pas une parité Photoshop ou Figma** : leur maturité est encore *alpha*. L'OS n'implémente aucun faux protocole de sauvegarde ou d'automatisation entre le parent et l'iframe.
 
@@ -13,7 +13,7 @@ Ces deux moteurs sont de véritables éditeurs open source écrits en Rust. **Un
 | Moteur | Source GitHub | Release contrôlée | SHA-256 archive zip |
 | --- | --- | --- | --- |
 | PhotoCraft | https://github.com/storytold/photocraft | `v0.10.0` (2026-10-18) | `b121472d1cdc2f24530b8239c4f32843afdbc1da994244e98a2ce4835b410590` |
-| FigCraft | https://github.com/storytold/figcraft | `v0.7.0` (2026-10-18) | `05cb2e373275a3c19d62757d6e50e6ba28dab232c07f91f5d1e1d5d83ad0b262` |
+| FigCraft | https://github.com/storytold/figcraft | `v0.8.0` (2026-10-20) | `75fd4821e0ef8793c82bc56d530764f8244a137e55745f49a745838028c9bb51` |
 
 Les sources des instructions d'hébergement sont
 [PhotoCraft Web](https://github.com/storytold/photocraft/blob/main/packaging/web/README.md)
@@ -97,3 +97,29 @@ La suite GitHub Actions compile aussi le frontend et exécute les validations ex
 ## Étape suivante
 
 Faire valider PhotoCraft et FigCraft installés sur VPS en conditions réelles, ajouter un pont **authentifié/isolé** pour l'ouverture et l'enregistrement des projets (lorsque les API amont le permettent), des historiques et conflits de révision, puis développer les autres applications ArtCraft.
+
+## FigCraft v0.8 : projets natifs et révisions Drive
+
+La distribution FigCraft Web v0.8.0 ajoute les commandes de fichiers dans le navigateur (File ▸ Open, Import, drag/drop et Save via un téléchargement). Elle utilise le format natif **`.figcraft`**, une archive ZIP avec `document.json` (`format: "figcraft"`, `version: 1`) et éventuellement des images et son propre historique. Hydria **ne convertit pas** ce format en JSON ni en objets Docs : elle en conserve les octets d'origine pour éviter une perte silencieuse de fonctionnalités.
+
+**Parcours depuis Design Studio `/workspace/fig` :**
+
+1. Dans FigCraft, créer ou ouvrir le document ; sélectionner **Fichier → Enregistrer** pour télécharger son projet `.figcraft`.
+2. Dans la bibliothèque **Projets FigCraft · Hydria Drive**, choisir **Importer un projet FigCraft dans Drive**. Le serveur valide son format natif et conserve une copie.
+3. Pour poursuivre une édition : **Télécharger pour ouvrir** depuis la bibliothèque, puis **Fichier → Ouvrir** dans FigCraft, et sélectionner le projet téléchargé.
+4. Après modification, sauvegarder depuis FigCraft puis choisir **Nouvelle version** sur le projet correspondant dans Hydria. Le même ID Drive conserve toutes ses versions (limite pilote : 50), sans supprimer les anciennes.
+5. **Historique** permet de télécharger les versions précédentes. Depuis Hydria Drive, un projet FigCraft apparaît au filtre **Designs et projets FigCraft** avec son numéro de version et un lien direct vers son historique.
+
+API interne, protégée par l'authentification privée de l'OS :
+
+- `POST /api/drive/design-assets` — upload `multipart/form-data` champ `file`, limite **30 Mio**.
+- `GET /api/drive/design-assets` — liste, 500 éléments maximum.
+- `GET /api/drive/design-assets/:id` et `GET /api/drive/design-assets/:id/download` — métadonnées et fichier courant.
+- `POST /api/drive/design-assets/:id/versions` — upload + `expectedRevision`. Si un autre éditeur a créé une version entre-temps : réponse **409**, sans écraser ses données.
+- `GET /api/drive/design-assets/:id/versions`, `GET /api/drive/design-assets/:id/versions/:revision/download` — historique et téléchargement vérifié SHA-256.
+
+Les binaires sont enregistrés dans `HYDRIA_OS_DATA_DIR/drive-design-assets/` et les tables `drive_design_assets` / `drive_design_versions` sont conservées en SQLite. Le vérificateur de sauvegarde Hydria audite aussi **toutes** les révisions de ces projets avant de considérer l'archive comme restaurable.
+
+**Validation serveur et limites :** le backend vérifie la structure ZIP superficielle, les limites de taille, la présence d'un `document.json` lisible et son en-tête `format/version`. Ce contrôle **n'est pas** une validation sémantique complète de FigCraft, un antivirus ou une garantie contre un fichier malveillant. L'éditeur est exécuté dans une iframe de même origine, réservée au pilote privé mono-propriétaire. Il n'y a pas encore d'API officielle `postMessage` pour pousser les modifications sans téléchargement intermédiaire. Les tests GitHub vérifient la persistance exacte des octets et l'interface ; la fidélité visuelle d'un projet réel doit encore être contrôlée sur le VPS.
+
+Contrats upstream : [FigCraft v0.8.0](https://github.com/storytold/figcraft/releases/tag/v0.8.0), [web.rs](https://github.com/storytold/figcraft/blob/v0.8.0/apps/figcraft-web/src/web.rs), [format natif](https://github.com/storytold/figcraft/blob/v0.8.0/crates/format/src/lib.rs).

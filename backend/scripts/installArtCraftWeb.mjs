@@ -23,9 +23,9 @@ export const ARTCRAFT_WEB_RELEASES = Object.freeze({
   }),
   fig: Object.freeze({
     product: "FigCraft",
-    version: "0.7.0",
-    archiveUrl: "https://github.com/storytold/figcraft/releases/download/v0.7.0/figcraft-web-0.7.0.zip",
-    sha256: "05cb2e373275a3c19d62757d6e50e6ba28dab232c07f91f5d1e1d5d83ad0b262",
+    version: "0.8.0",
+    archiveUrl: "https://github.com/storytold/figcraft/releases/download/v0.8.0/figcraft-web-0.8.0.zip",
+    sha256: "75fd4821e0ef8793c82bc56d530764f8244a137e55745f49a745838028c9bb51",
     folder: "figcraft",
     requiredFiles: ["index.html"]
   })

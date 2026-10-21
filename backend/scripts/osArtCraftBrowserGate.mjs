@@ -79,7 +79,8 @@ try {
   await page.locator(".hydria-artcraft-status").filter({hasText:"FigCraft disponible"}).waitFor({timeout:16000});
   await page.frameLocator(".hydria-artcraft-frame").getByText("FigCraft WASM fixture").waitFor({timeout:16000});
   assert.equal(await page.getByLabel("Importer une image PhotoCraft dans Drive").count(),0);
-  await page.getByText("ne raccorde pas encore les dialogues").waitFor();
+  await page.getByText("FigCraft Web v0.8 sait ouvrir et sauvegarder").waitFor();
+  await page.getByLabel("Importer un projet FigCraft dans Drive").waitFor();
   assert.deepEqual(errors,[]);
   console.log("Photo/Design browser gate: routes, versioned image upload and history, deep links, missing runtimes, iframe mounts.");
 } finally {
