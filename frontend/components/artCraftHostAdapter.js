@@ -39,7 +39,7 @@ export function createArtCraftHostBridge({
   if (!["photo","fig"].includes(editor)) throw Error("Invalid creative editor");
   const session = crypto.randomUUID();
   let frame = null, ready = false, disposed = false, queued = null, bound = null;
-  let nextOpenId = 0, saving = false;
+  let nextOpenId = 0, saving = false, frameEpoch = 0;
   const origin = location.origin;
   const notify = (message, level = "info") => { if (!disposed) onNotice(message, level); };
   function send(type, extra = {}, transfer = []) {
@@ -50,15 +50,21 @@ export function createArtCraftHostBridge({
     return true;
   }
   async function saveFromEditor(data) {
+    // An asynchronous Drive upload may resolve after the user has reloaded
+    // the native iframe. Never bind that old file to a new editor session.
+    const saveEpoch = frameEpoch;
+    const reply = (ok) => {
+      if (!disposed && saveEpoch === frameEpoch) send("save-result", { id:data.id, ok });
+    };
     const kind = data.kind, filename = safeName(data.name, editor, kind);
     if (kind !== fileType(editor, filename) || !(data.bytes instanceof ArrayBuffer) ||
         !data.bytes.byteLength || data.bytes.byteLength > (kind === "image" ? MAX_IMAGE : MAX_NATIVE)) {
-      send("save-result", { id: data.id, ok: false });
+      reply(false);
       notify("Format ou taille incompatible : téléchargement de secours déclenché.", "error");
       return;
     }
     if (saving) {
-      send("save-result", { id: data.id, ok: false });
+      reply(false);
       notify("Une sauvegarde est déjà en cours. Copie locale conservée.", "error");
       return;
     }
@@ -82,15 +88,22 @@ export function createArtCraftHostBridge({
         result = await storeDesign(blob, sameFile
           ? { id: bound.id, expectedRevision: bound.revision } : {});
       }
+      if (saveEpoch !== frameEpoch || disposed) {
+        // The old save is still durable, but its identity must never become
+        // the document binding of the newly mounted editor.
+        onSaved({ kind, id:result.id, revision:Number(result.revision || 1),
+          filename:result.filename || filename });
+        return;
+      }
       bound = {
         kind, id: result.id, revision: Number(result.revision || 1),
         filename: result.filename || filename
       };
-      send("save-result", { id: data.id, ok: true });
+      reply(true);
       notify("Document enregistré dans Drive · version " + bound.revision, "success");
       onSaved({ ...bound });
     } catch (error) {
-      send("save-result", { id: data.id, ok: false });
+      reply(false);
       notify("Drive a refusé la sauvegarde : " + String(error?.message || error) +
         ". Une copie locale est téléchargée.", "error");
     } finally { saving = false; }
@@ -138,6 +151,7 @@ export function createArtCraftHostBridge({
   }
   window.addEventListener("message", onMessage);
   function setFrame(iframe) {
+    frameEpoch++;
     frame = iframe;
     ready = false;
     queued = null;
