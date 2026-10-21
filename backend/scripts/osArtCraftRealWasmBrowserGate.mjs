@@ -132,18 +132,21 @@ try {
   const figRow=page.locator(".hydria-figcraft-project-item").filter({hasText:"ridgeline-studio-dashboard.figcraft"});
   await figRow.waitFor({timeout:30000});
   const emptyFig = await canvas.screenshot();
+  // Native Open is asynchronous: wait for the REAL Rust engine's success
+  // log, not just the parent iframe's "file dispatched" status.
+  const nativeOpened = page.waitForEvent("console",{
+    predicate: msg => msg.text().includes(
+      "Hydria opened native FigCraft project: ridgeline-studio-dashboard.figcraft"),
+    timeout:60000
+  });
   await figRow.getByRole("button",{name:"Ouvrir directement"}).click();
-  await page.getByText(/Fichier déposé dans l'éditeur/).waitFor({timeout:30000});
-  await page.waitForTimeout(5000); // native async .figcraft parser and pending open
+  await nativeOpened;
+  await page.waitForTimeout(400);
   const openedFig = await canvas.screenshot();
-  console.log("Fig genuine project changes the canvas after Drive drop:",!emptyFig.equals(openedFig));
-  console.log("Fig browser opened tab before native picker:", await iframe.locator("body").evaluate(el => el.innerText.slice(0,200)));
-  await canvas.press("Control+o");
-  await page.waitForTimeout(2800);
-  console.log("Fig after native Ctrl+O:",JSON.stringify({
-    bridgeStatus:await page.locator(".hydria-artcraft-bridge-status").textContent(),
-    selectedTab:await iframe.locator("body").evaluate(el => el.innerText.slice(0,200))
-  }));
+  assert.equal(emptyFig.equals(openedFig),false,
+    "Authentic FigCraft document must change the rendered canvas");
+  // Do not run Ctrl+O here: a second local file-picker open would produce
+  // a DIFFERENT tab and could redirect the Save away from the bound Drive ID.
   await canvas.click({position:{x:140,y:150}});
   await page.keyboard.press("Control+s");
   await page.waitForTimeout(1200);
@@ -166,7 +169,24 @@ try {
   const changed=Buffer.from(await fetch(base+"/api/drive/design-assets/"+stored.id+"/download").then(r=>r.arrayBuffer()));
   assert.ok(changed.length>10000,"WASM lost native document data while saving");
   assert.ok(new AdmZip(changed).getEntry("document.json"));
+  const original=Buffer.from(await fetch(base+"/api/drive/design-assets/"+stored.id+"/versions/1/download").then(r=>r.arrayBuffer()));
+  assert.deepEqual(original,figBytes,"Original FigCraft version must be unchanged");
   await page.screenshot({path:"artifacts/hydria-real-fig-after-save.png",fullPage:true});
+  // Reopen the saved version in a FRESH WebAssembly instance. A ZIP that
+  // merely survives a download isn't proof that FigCraft itself can read it.
+  ({iframe,canvas}=await waitRealEngine("fig"));
+  const reopenedRow=page.locator(".hydria-figcraft-project-item").filter({
+    hasText:"ridgeline-studio-dashboard.figcraft"
+  });
+  await reopenedRow.getByText("Version 2").waitFor({timeout:30000});
+  const engineReopened=page.waitForEvent("console",{
+    predicate: msg => msg.text().includes(
+      "Hydria opened native FigCraft project: ridgeline-studio-dashboard.figcraft"),
+    timeout:60000
+  });
+  await reopenedRow.getByRole("button",{name:"Ouvrir directement"}).click();
+  await engineReopened;
+  await page.screenshot({path:"artifacts/hydria-real-fig-after-reopen.png",fullPage:true});
   assert.deepEqual(consoleProblems,[]);
   console.log("Real PhotoCraft/FigCraft WASM boot, authenticated Drive open, native save and document preservation passed");
 } finally { await browser.close(); }
