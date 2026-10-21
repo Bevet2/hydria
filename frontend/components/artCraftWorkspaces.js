@@ -2,6 +2,7 @@ import {
   imageAssetUrl, imageRevisionDownloadUrl, listDriveImages,
   listImageVersions, saveImageToDrive, saveImageVersion
 } from "../services/driveImageClient.js";
+import { renderFigCraftDriveLibrary } from "./figCraftDriveLibrary.js";
 
 // Upstream distributions are pinned and installed separately. In the browser
 // their native renderers operate in an iframe; no fictitious postMessage API.
@@ -55,7 +56,7 @@ export function renderArtCraftWorkspace(container, { editor = "photo" } = {}) {
     node("strong", "", editor === "photo" ? "Comment travailler avec Drive ?" : "Éditeur web en accès anticipé"),
     node("p", "", editor === "photo"
       ? "Pour retoucher une image de Drive, téléchargez-la puis ouvrez-la avec le menu Fichier de PhotoCraft. Après export, choisissez « Nouvelle version » sur l’image originale pour conserver son historique, ou importez une nouvelle image. Il n’y a pas de sauvegarde automatique."
-      : "FigCraft Web démarre sur un document vierge. La version actuelle ne raccorde pas encore les dialogues natifs de fichiers : ni import d'un document Hydria ni sauvegarde vers Drive. Exportez ou conservez vos travaux localement seulement si votre version de FigCraft le permet.")
+      : "FigCraft Web v0.8 sait ouvrir et sauvegarder un fichier natif .figcraft par le navigateur. Téléchargez les projets Drive puis ouvrez-les avec Fichier > Ouvrir. Après modification, faites Fichier > Enregistrer et importez ce téléchargement dans Drive comme nouvelle version. Le transfert reste manuel.")
   );
 
   const viewport = node("div", "hydria-artcraft-viewport");
@@ -92,7 +93,7 @@ export function renderArtCraftWorkspace(container, { editor = "photo" } = {}) {
   });
   const caution = node("p", "hydria-artcraft-caution", editor === "photo"
     ? "PhotoCraft fonctionne dans votre navigateur. Les projets en cours ne sont pas sauvegardés par Hydria tant que vous n'avez pas exporté puis importé le résultat."
-    : "Attention : une actualisation peut perdre les modifications non enregistrées. La parité avec Figma n'est pas atteinte.");
+    : "Attention : avant de quitter, enregistrez le document depuis FigCraft puis importez-le dans Drive. Aucun enregistrement automatique de l’iframe. La parité avec Figma n'est pas atteinte.");
   let library = null;
   if (editor === "photo") {
     library = node("section", "hydria-artcraft-library");
@@ -241,8 +242,10 @@ export function renderArtCraftWorkspace(container, { editor = "photo" } = {}) {
     library.append(libraryHeader, uploadBox, notice, result);
     loadImages();
   }
+  if (editor === "fig") library = node("div", "hydria-figcraft-library-mount");
   root.append(top, buttonRow, instructions, library || node("div", "hydria-artcraft-no-library"), viewport, caution);
   container.append(root);
+  if (editor === "fig") renderFigCraftDriveLibrary(library);
 
   // Optional WASM bundles are self-hosted, never redirected to third parties.
   fetch(config.path, { method:"HEAD", cache:"no-store", credentials:"same-origin" })
