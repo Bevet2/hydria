@@ -44,6 +44,13 @@ own credentials and reachability checks.
   credentials. Password rotation requires a restart.
 - The independent CRM may require its own session headers. The proxy now
   strips OS Basic credentials instead of forwarding them downstream.
+- The embedded CRM reverse proxy also removes hop-by-hop and untrusted
+  forwarding headers. It sets the public HTTPS host/protocol from
+  `HYDRIA_OS_PUBLIC_ORIGIN`, preserves CRM Bearer tokens and request bodies,
+  and returns a generic HTTP 503/504 when its upstream is disconnected or
+  exceeds `CRM_API_TIMEOUT_MS` (default 15 seconds). The proxy aborts
+  upstream work after the client disconnects. Do not publish the downstream
+  CRM API directly without its own authentication and network controls.
 - Requests that do not send Origin and Fetch Metadata (e.g. automation
   clients) still require the owner password. API clients should also control
   their own requests and secrets.

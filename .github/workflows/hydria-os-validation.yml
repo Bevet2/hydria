@@ -69,6 +69,8 @@ jobs:
         run: node backend/scripts/osReadinessGate.mjs
       - name: Production single-user authentication and origin checks
         run: node backend/scripts/productionAccessGate.mjs
+      - name: Embedded CRM upstream proxy security and timeout regression
+        run: node backend/scripts/crmProxyGate.mjs
       - name: Zoom-aware node placement and fit geometry
         run: node backend/scripts/osFlowCanvasGeometryGate.mjs
       - name: Online WAL backup integrity and clean restore
