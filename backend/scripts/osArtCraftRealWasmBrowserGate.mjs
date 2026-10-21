@@ -137,6 +137,13 @@ try {
   await page.waitForTimeout(5000); // native async .figcraft parser and pending open
   const openedFig = await canvas.screenshot();
   console.log("Fig genuine project changes the canvas after Drive drop:",!emptyFig.equals(openedFig));
+  console.log("Fig browser opened tab before native picker:", await iframe.locator("body").evaluate(el => el.innerText.slice(0,200)));
+  await canvas.press("Control+o");
+  await page.waitForTimeout(2800);
+  console.log("Fig after native Ctrl+O:",JSON.stringify({
+    bridgeStatus:await page.locator(".hydria-artcraft-bridge-status").textContent(),
+    selectedTab:await iframe.locator("body").evaluate(el => el.innerText.slice(0,200))
+  }));
   await canvas.click({position:{x:140,y:150}});
   await page.keyboard.press("Control+s");
   await page.waitForTimeout(1200);
