@@ -17,7 +17,12 @@ jobs:
           node-version: 22
       - name: Rebuild exact secure Vite 6.4.5 dependency lock
         working-directory: crm
-        run: npm install --package-lock-only --ignore-scripts --save-dev --save-exact vite@6.4.5 -w @northstar/web
+        run: |
+          npm install --package-lock-only --ignore-scripts --save-dev --save-exact vite@6.4.5 -w @northstar/web
+          # The plugin-react peer previously retained a *second* vulnerable
+          # hoisted Vite 6.4.3. Update/dedupe both lockfile placements.
+          npm audit fix --package-lock-only --ignore-scripts
+          npm dedupe --package-lock-only --ignore-scripts
       - name: Verify npm install is reproducible and audit has no high findings
         working-directory: crm
         run: |
