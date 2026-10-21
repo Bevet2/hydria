@@ -73,6 +73,18 @@ try {
     const asset=await initial.json();
     await page.goto(base+"/workspace/"+editor,{waitUntil:"domcontentloaded"});
     await page.locator('.hydria-artcraft-frame[data-drive-bridge-ready="true"]').waitFor({timeout:20000});
+    // Fullscreen must never detach a connected native editor and lose Drive's
+    // optimistic revision binding. Keep the same Window instance alive.
+    await page.locator(".hydria-artcraft-frame").evaluate(frame => {
+      frame.contentWindow.__hydriaNativeFrameTest = "kept-alive";
+    });
+    await page.getByRole("button",{name:"Ouvrir en plein écran"}).click();
+    await page.evaluate(async () => {
+      if (document.fullscreenElement) await document.exitFullscreen();
+    });
+    assert.equal(await page.locator(".hydria-artcraft-frame").evaluate(
+      frame => frame.contentWindow.__hydriaNativeFrameTest), "kept-alive");
+
     const row=page.locator(cfg.selector).filter({hasText:filename});
     await row.waitFor({timeout:20000});
     await row.getByRole("button",{name:"Ouvrir directement"}).click();
