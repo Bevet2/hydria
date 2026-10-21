@@ -196,5 +196,9 @@ export function createArtCraftHostBridge({
     window.removeEventListener("message", onMessage);
     queued = null; bound = null; frame = null;
   }
-  return { setFrame, openAsset, dispose, get ready() { return ready; } };
+  return {
+    setFrame, openAsset, dispose,
+    get ready() { return ready; },
+    get saving() { return saving; }
+  };
 }
