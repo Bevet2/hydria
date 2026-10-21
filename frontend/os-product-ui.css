@@ -690,3 +690,27 @@ html body[data-os-theme="dark"] .hydria-artcraft-version-history{
 .hydria-drive-image-revision{white-space:nowrap;font-size:11px;font-weight:700;color:var(--muted,#64748b);
   background:var(--os-subtle,#f8fafc);border:1px solid var(--os-border,#e2e8f0);border-radius:20px;padding:5px 9px}
 html body[data-os-theme="dark"] .hydria-drive-image-revision{background:#252a40;color:#aab7cc;border-color:#434b67}
+
+
+/* FigCraft native project library: coherent Drive/Photo/PDF controls. */
+.hydria-figcraft-library-mount{min-width:0}
+.hydria-figcraft-library{display:grid;gap:12px}
+.hydria-figcraft-guide{margin:0;color:var(--muted,#64748b);font-size:12px;line-height:1.65}
+.hydria-figcraft-upload-label{display:flex;flex-direction:column;gap:7px;flex:1 1 240px;font-weight:600;font-size:12px}
+.hydria-figcraft-upload-label input{font:inherit;font-weight:400;max-width:100%}
+.hydria-figcraft-projects,.hydria-drive-design-list{display:grid;gap:8px}
+.hydria-figcraft-project-item,.hydria-drive-design-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px;
+  border:1px solid var(--os-border,#e2e8f0);border-radius:10px;background:var(--os-subtle,#f8fafc)}
+.hydria-figcraft-project-icon{width:30px;height:30px;flex:0 0 30px;display:grid;place-items:center;border-radius:8px;
+  color:#4f46e5;background:#e0e7ff;font-size:16px}
+.hydria-figcraft-project-item>.hydria-artcraft-image-copy{flex:1 1 180px;min-width:0}
+.hydria-figcraft-project-item .hydria-artcraft-button,.hydria-drive-design-row .hydria-artcraft-button{
+  display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;text-decoration:none}
+.hydria-figcraft-project-item>.hydria-artcraft-version-history{flex-basis:100%}
+.hydria-figcraft-version-upload[hidden]{display:none!important}
+.hydria-drive-design-row>strong{flex:1 1 160px;min-width:0;overflow:hidden;text-overflow:ellipsis}
+html body[data-os-theme="dark"] .hydria-figcraft-project-item,
+html body[data-os-theme="dark"] .hydria-drive-design-row{background:#222940;color:#e2e8f0;border-color:#414b69}
+html body[data-os-theme="dark"] .hydria-figcraft-project-icon{color:#c7d2fe;background:#353963}
+@media(max-width:650px){.hydria-figcraft-project-item,.hydria-drive-design-row{padding:10px}
+  .hydria-figcraft-project-item>.hydria-artcraft-image-copy{flex-basis:calc(100% - 54px)}}
