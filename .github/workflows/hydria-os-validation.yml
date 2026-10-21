@@ -135,6 +135,8 @@ jobs:
         run: node backend/scripts/osDriveImageAssetsGate.mjs
       - name: Native FigCraft project storage, revisions and safe ZIP upload
         run: node backend/scripts/osDriveDesignAssetsGate.mjs
+      - name: Native PhotoCraft layered projects and immutable Drive revisions
+        run: node backend/scripts/osDrivePhotoProjectsGate.mjs
       - name: Verify live Flow dashboard assets
         run: |
           curl --fail --silent --show-error http://127.0.0.1:3001/flow-dashboard.html | grep -q 'Live Flow Dashboard'
@@ -348,6 +350,8 @@ jobs:
         run: node backend/scripts/osArtCraftBrowserGate.mjs
       - name: Native FigCraft project import, revision history and Drive navigation
         run: node backend/scripts/osFigCraftDriveBrowserGate.mjs
+      - name: Native PhotoCraft project import and Drive revision history
+        run: node backend/scripts/osPhotoCraftProjectsBrowserGate.mjs
 
   pdf-readback:
     runs-on: ubuntu-latest
