@@ -99,7 +99,10 @@ export function renderArtCraftWorkspace(container, { editor = "photo" } = {}) {
     iframe.setAttribute("sandbox", config.sandbox);
     iframe.setAttribute("allow", "fullscreen; clipboard-read; clipboard-write");
     iframe.setAttribute("loading", "eager");
-    iframe.src = config.path + "?hydriaHost=1";
+    const flags = new URLSearchParams({ hydriaHost:"1" });
+    if (new URLSearchParams(window.location.search).has("webgl")) flags.set("webgl","1");
+    if (editor === "photo" && new URLSearchParams(window.location.search).has("cpu")) flags.set("cpu","1");
+    iframe.src = config.path + "?" + flags.toString();
     bridge.setFrame(iframe);
     iframe.allowFullscreen = true;
     viewport.replaceChildren(iframe);
