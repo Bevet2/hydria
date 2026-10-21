@@ -44,6 +44,35 @@ try {
   await page.locator("#os-theme-toggle").click();
   assert.equal(await page.locator("body").getAttribute("data-os-theme"),"light");
 
+  // Command palette regression: accessible selection, keyboard containment and focus return.
+  const paletteOpener=page.locator("#os-command-search");
+  await paletteOpener.click();
+  const palette=page.locator(".hydria-command-panel[role='dialog'][aria-modal='true']");
+  await palette.waitFor({state:"visible"});
+  const paletteInput=page.locator(".hydria-command-input");
+  const paletteOptions=page.locator(".hydria-command-result[role='option']");
+  assert.equal(await paletteInput.evaluate(el=>document.activeElement===el),true,
+    "Search must focus its input when opening");
+  const count=await paletteOptions.count();
+  assert.ok(count>=2,"Search must show at least two navigable actions");
+  assert.equal(await paletteInput.getAttribute("aria-activedescendant"),
+    await paletteOptions.nth(0).getAttribute("id"));
+  await page.keyboard.press("ArrowDown");
+  assert.equal(await paletteInput.getAttribute("aria-activedescendant"),
+    await paletteOptions.nth(1).getAttribute("id"),
+    "ArrowDown must update the announced active result");
+  await paletteOptions.last().focus();
+  await page.keyboard.press("Tab");
+  assert.equal(await paletteInput.evaluate(el=>document.activeElement===el),true,
+    "Tab from last search result must stay inside the dialog");
+  await page.keyboard.press("Shift+Tab");
+  assert.equal(await paletteOptions.last().evaluate(el=>document.activeElement===el),true,
+    "Shift+Tab from search input must wrap to last result");
+  await page.keyboard.press("Escape");
+  await palette.waitFor({state:"hidden"});
+  assert.equal(await paletteOpener.evaluate(el=>document.activeElement===el),true,
+    "Closing search must restore keyboard focus to its opener");
+
   // Real functional smoke: open Docs, then create a real editable work object.
   await page.locator("#workspace-switcher .workspace-switcher-chip").filter({hasText:"Docs"}).click();
   await page.locator(".workspace-launcher-grid-single .workspace-launcher-card").first()
