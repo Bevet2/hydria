@@ -400,6 +400,15 @@ jobs:
           cargo install trunk --locked --version 0.21.14
           (cd .third_party/figcraft/apps/figcraft-web && trunk build --release)
           node backend/scripts/prepareHydriaFigCraftBuild.mjs .third_party/figcraft frontend/vendor/figcraft
+      - name: Verify compiled FigCraft survives production frontend packaging
+        run: |
+          node backend/scripts/buildFrontend.mjs
+          test -f frontend-dist/vendor/figcraft/index.html
+          test -f frontend-dist/vendor/figcraft/LICENSE-FIGCRAFT-MIT.txt
+          test -f frontend-dist/vendor/figcraft/LICENSE-FIGCRAFT-APACHE.txt
+          grep -Fq 'data-hydria-fig-native="1"' frontend-dist/vendor/figcraft/index.html
+          grep -Fq '/artcraft/hydria-bridge.js' frontend-dist/vendor/figcraft/index.html
+          test "$(find frontend-dist/vendor/figcraft -maxdepth 1 -name '*_bg.wasm' | wc -l)" -ge 1
       - name: Authentic pinned PhotoCraft and source-patched FigCraft engines
         run: |
           node backend/scripts/installArtCraftWeb.mjs photo
