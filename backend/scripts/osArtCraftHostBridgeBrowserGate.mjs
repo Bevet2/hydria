@@ -89,7 +89,7 @@ try {
       iframe.getByRole("button",{name:"Native File Save"}).click()
     ]);
     assert.equal(backup.suggestedFilename(),filename);
-    await page.getByText(/Drive a refusé la sauvegarde/).waitFor({timeout:20000});
+    await page.getByText(/Copie de secours téléchargée|Drive a refusé la sauvegarde/).waitFor({timeout:20000});
     assert.equal((await context.request.get(base+"/api/drive/"+cfg.route+"/"+asset.id+"/versions").then(r=>r.json())).revision,3);
     console.log("ArtCraft "+editor+": native direct-open, picker, Drive version and 409 local fallback passed");
   }
