@@ -17,7 +17,7 @@ const ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MIME = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp" };
 const fileType = (editor, name) => {
   const ext = String(name || "").split(".").at(-1)?.toLowerCase();
-  if (editor === "photo" && ext === "pcraft") return "project";
+  if (editor === "photo" && ["pcraft","psd","psb"].includes(ext)) return "project";
   if (editor === "fig" && ext === "figcraft") return "project";
   if (editor === "photo" && MIME[ext]) return "image";
   return null;
