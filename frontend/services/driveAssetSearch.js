@@ -21,7 +21,7 @@ const DEFAULT_LOADERS = Object.freeze({
 });
 
 export function driveAssetWorkspaceUrl(asset) {
-  const def = FAMILIES[asset?.assetFamily];
+  const def = Object.hasOwn(FAMILIES, asset?.assetFamily) ? FAMILIES[asset.assetFamily] : null;
   if (!def || !UUID.test(String(asset?.id || ""))) return null;
   return "/workspace/" + def.slug + "?" + def.query + "=" + encodeURIComponent(asset.id);
 }
