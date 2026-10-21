@@ -698,6 +698,8 @@ html body[data-os-theme="dark"] .hydria-drive-image-revision{background:#252a40;
 .hydria-figcraft-guide{margin:0;color:var(--muted,#64748b);font-size:12px;line-height:1.65}
 .hydria-figcraft-upload-label{display:flex;flex-direction:column;gap:7px;flex:1 1 240px;font-weight:600;font-size:12px}
 .hydria-figcraft-upload-label input{font:inherit;font-weight:400;max-width:100%}
+.hydria-artcraft input[type="file"].hydria-figcraft-project-upload{display:block;visibility:visible;min-width:0;max-width:100%;font:inherit}
+.hydria-artcraft input[type="file"].hydria-figcraft-project-upload::file-selector-button{border:1px solid var(--os-border,#e2e8f0);border-radius:7px;padding:7px 10px;cursor:pointer;background:var(--bg-panel,#fff);color:var(--text,#172033)}
 .hydria-figcraft-projects,.hydria-drive-design-list{display:grid;gap:8px}
 .hydria-figcraft-project-item,.hydria-drive-design-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px;
   border:1px solid var(--os-border,#e2e8f0);border-radius:10px;background:var(--os-subtle,#f8fafc)}
