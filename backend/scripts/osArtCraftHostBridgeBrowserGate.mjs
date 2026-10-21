@@ -71,7 +71,8 @@ try {
     const initial=await upload(context.request,editor,original,filename);
     assert.equal(initial.status(),201);
     const asset=await initial.json();
-    await page.goto(base+"/workspace/"+editor,{waitUntil:"domcontentloaded"});
+    const param = editor==="photo" ? "photoProjectId" : "designId";
+    await page.goto(base+"/workspace/"+editor+"?"+param+"="+asset.id,{waitUntil:"domcontentloaded"});
     await page.locator('.hydria-artcraft-frame[data-drive-bridge-ready="true"]').waitFor({timeout:20000});
     // Fullscreen must never detach a connected native editor and lose Drive's
     // optimistic revision binding. Keep the same Window instance alive.
@@ -94,8 +95,9 @@ try {
 
     const row=page.locator(cfg.selector).filter({hasText:filename});
     await row.waitFor({timeout:20000});
-    await row.getByRole("button",{name:"Ouvrir directement"}).click();
     const iframe=page.frameLocator(".hydria-artcraft-frame");
+    // Opening from a Drive link must automatically reach the already-mounted
+    // native editor. No second "open" click or local file picker required.
     await iframe.locator("#drop").getByText(filename,{exact:true}).waitFor({timeout:20000});
     await iframe.getByRole("button",{name:"Native File Open"}).click();
     await iframe.locator("#picker").getByText(filename,{exact:true}).waitFor({timeout:10000});
