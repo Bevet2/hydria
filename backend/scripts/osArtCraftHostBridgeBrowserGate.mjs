@@ -131,6 +131,11 @@ try {
   await page.locator('.hydria-artcraft-frame[data-drive-bridge-ready="true"]').waitFor({timeout:20000});
   await page.locator(".hydria-figcraft-project-item[data-design-id='"+raceAsset.id+"']")
     .getByRole("button",{name:"Ouvrir directement"}).click();
+  // Click handlers start asynchronous Drive downloads. The native editor must
+  // actually receive the file before its first save can be a revision; otherwise
+  // we would race with openAsset() and accidentally test creating a new file.
+  await page.frameLocator(".hydria-artcraft-frame").locator("#drop")
+    .getByText(raceName,{exact:true}).waitFor({timeout:20000});
   let releaseHeldSave;
   const heldSave=new Promise(resolve => { releaseHeldSave=resolve; });
   await page.route("**/api/drive/design-assets/"+raceAsset.id+"/versions",async route=>{
