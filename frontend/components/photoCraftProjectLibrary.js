@@ -15,7 +15,8 @@ function prettyBytes(value) {
 }
 
 export function renderPhotoCraftDriveLibrary(container, {
-  targetPhotoProjectId = new URLSearchParams(window.location.search).get("photoProjectId")
+  targetPhotoProjectId = new URLSearchParams(window.location.search).get("photoProjectId"),
+  onOpen = null
 } = {}) {
   if (!container) return;
   container.replaceChildren();
@@ -100,6 +101,12 @@ export function renderPhotoCraftDriveLibrary(container, {
         download.href = photoProjectFileUrl(item.id);
         download.setAttribute("download", item.filename || "photoProject.pcraft");
         download.title = "Téléchargez le fichier puis ouvrez-le dans PhotoCraft avec Fichier > Ouvrir";
+        const openEditor = node("button", "hydria-artcraft-button hydria-artcraft-direct-open", "Ouvrir directement");
+        openEditor.type = "button";
+        openEditor.title = "Ouvrir les octets du projet Drive dans le moteur créatif sans téléchargement";
+        openEditor.addEventListener("click", () => {
+          if (typeof onOpen === "function" && !busy) onOpen({ ...item, kind:"project" });
+        });
         const newVersion = node("button", "hydria-artcraft-button hydria-photocraft-version-button",
           "Nouvelle version");
         newVersion.type = "button";
@@ -144,7 +151,7 @@ export function renderPhotoCraftDriveLibrary(container, {
         });
         controls.add(historyButton);
         controls.add(newVersion);
-        row.append(icon, details, download, newVersion, historyButton, versionFile, history);
+        row.append(icon, details, openEditor, download, newVersion, historyButton, versionFile, history);
         list.append(row);
         if (targetPhotoProjectId && String(item.id) === targetPhotoProjectId) {
           row.classList.add("hydria-artcraft-target-image");
@@ -180,4 +187,5 @@ export function renderPhotoCraftDriveLibrary(container, {
   section.append(heading, guide, uploadBox, notice, list);
   container.append(section);
   refresh();
+  return { refresh };
 }
