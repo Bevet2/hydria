@@ -34,7 +34,7 @@ try{
  await crm.getByLabel("Email",{exact:true}).fill("admin@northstar.local");
  await crm.getByLabel("Password",{exact:true}).fill("Northstar123!");
  await crm.locator("form").getByRole("button",{name:"Sign in",exact:true}).click();
- await crm.waitForURL(/\\/crm\\/?$/,{timeout:20000});
+ await crm.waitForURL(url => url.pathname === "/crm" || url.pathname === "/crm/",{timeout:20000});
  for(const [key,route,title] of [
  ["dashboard","","Dashboard"],["contacts","contacts","Contacts"],["companies","companies","Companies"],
  ["leads","leads","Leads"],["pipeline","pipeline","Pipeline"],["products","products","Products"],
