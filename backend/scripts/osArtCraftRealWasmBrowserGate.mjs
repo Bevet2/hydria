@@ -7,7 +7,7 @@ import { chromium } from "playwright";
 const base = process.env.HYDRIA_TEST_ORIGIN || "http://127.0.0.1:3001";
 const sourceUrl = "https://raw.githubusercontent.com/storytold/figcraft/v0.8.0/examples/ridgeline-studio-dashboard.figcraft";
 const sourceGitBlobSha1 = "c09f869d786855924b351102196c013554ed44fe";
-const image = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR4nGN0rT7xn4GBgYGJAQoAJiUCi6vmjGkAAAAASUVORK5CYII=", "base64");
+const image = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAIAAAABgCAIAAABaGO0eAAAA6klEQVR4nO3RQQ3AMADEsGs10INfGPnYCoOc7b+bqr7dETIgZkDMgJgBMQNiBsQMiBkQMyBmQMyAmAExA2IGxAyIGRAzIGZAzICYATEDYgbEDIgZEDMgZkDMgJgBMQNiBsQMiBkQMyBmQMyAmAExA2IGxAyIGRAzIGZAzICYATEDYgbEHhtKA7LXLmG5AAAAAElFTkSuQmCC", "base64");
 const browser = await chromium.launch({
   headless:true,
   args:["--no-sandbox","--use-angle=swiftshader","--enable-unsafe-swiftshader","--disable-gpu-sandbox"]
@@ -16,6 +16,8 @@ const context = await browser.newContext({viewport:{width:1440,height:980},accep
 const page = await context.newPage();
 const consoleProblems=[];
 page.on("pageerror",error=>consoleProblems.push(error.message));
+page.on("console",msg => { if (msg.type()==="error" || /photocraft|figcraft|drop|save/i.test(msg.text())) console.log("WASM console ["+msg.type()+"]: "+msg.text().slice(0,400)); });
+page.on("dialog",async dialog=>{ console.log("WASM browser dialog: "+dialog.message()); await dialog.dismiss().catch(()=>{}); });
 await mkdir("artifacts",{recursive:true});
 function nativeId(url) { return url.split("/").at(-2); }
 async function httpUpload(url, bytes, filename, revision=null) {
@@ -48,12 +50,26 @@ try {
   await photoRow.waitFor({timeout:30000});
   await photoRow.getByRole("button",{name:"Ouvrir directement"}).click();
   await page.getByText(/Fichier déposé dans l'éditeur/).waitFor({timeout:30000});
+  const startCanvas = await canvas.screenshot();
+  // A native open can be clean/unchanged; make an intentional brush stroke
+  // before exercising the native Save command.
+  const bounds=await canvas.boundingBox();
+  const x=bounds.x+bounds.width*0.54,y=bounds.y+bounds.height*0.57;
+  await page.mouse.move(x,y);
+  await page.mouse.down();
+  await page.mouse.move(x+28,y+12,{steps:6});
+  await page.mouse.up();
+  await page.waitForTimeout(750);
+  const editedCanvas=await canvas.screenshot();
+  console.log("Photo actual canvas changed after direct image open/brush gesture:",
+    !startCanvas.equals(editedCanvas));
   await canvas.click({position:{x:120,y:120}});
   await page.keyboard.press("Control+s");
   await page.waitForTimeout(2500);
   let photoImages=(await fetch(base+"/api/drive/image-assets").then(r=>r.json())).items;
   const versioned=photoImages.find(x=>x.id===stored.id);
   const nativeCreated=(await fetch(base+"/api/drive/photo-projects").then(r=>r.json())).items;
+  console.log("Photo after native Ctrl+S:",JSON.stringify({imageRevision:versioned?.revision, nativeProjects:nativeCreated.length, bridgeStatus:await page.locator(".hydria-artcraft-bridge-status").textContent(), problems:consoleProblems}));
   // PhotoCraft can either re-save an imported image as raster or save it as
   // an editable native .pcraft. Reject a no-op where neither was persisted.
   assert.ok(versioned.revision>=2 || nativeCreated.length>projectsBefore,
