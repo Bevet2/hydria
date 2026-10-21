@@ -1,0 +1,81 @@
+name: Hydria video authentic UI captures
+on:
+  push:
+    branches:
+      - video/hydria-neural-narration-20261021
+    paths:
+      - .github/workflows/hydria-film-captures.yml
+      - backend/scripts/hydriaVideoCapture.mjs
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: northstar
+          POSTGRES_PASSWORD: northstar_ci
+          POSTGRES_DB: northstar_crm
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U northstar -d northstar_crm"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://northstar:northstar_ci@127.0.0.1:5432/northstar_crm?schema=public
+      JWT_SECRET: crm-film-jwt-secret-at-least-sixteen-characters
+      SECRET_ENCRYPTION_KEY: crm-film-encryption-key-at-least-sixteen
+      WEB_ORIGIN: http://127.0.0.1:5174,http://localhost:3001
+      PUBLIC_WEB_URL: http://127.0.0.1:5174
+      API_PORT: 4010
+      VITE_API_URL: http://127.0.0.1:4010/api
+      CRM_API_URL: http://127.0.0.1:4010/api
+      HYDRIA_INTEGRATION_SECRET: hydria-film-demo-bridge-secret-over-thirty-two-characters
+      CRM_INTEGRATION_SECRET: hydria-film-demo-bridge-secret-over-thirty-two-characters
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Prepare seeded CRM
+        run: |
+          cd crm
+          npm ci --no-audit --no-fund
+          npm run db:generate
+          npm run db:deploy -w @northstar/api
+          npm run db:seed
+          npm run build
+      - name: Prepare Hydria OS and browser
+        run: |
+          npm ci --prefix backend --no-audit --no-fund
+          npx --prefix backend playwright install --with-deps chromium
+      - name: Start CRM and Hydria OS
+        run: |
+          cd crm
+          npm run start -w @northstar/api > /tmp/hydria-film-crm-api.log 2>&1 &
+          npm run preview -w @northstar/web -- --host 127.0.0.1 --port 5174 > /tmp/hydria-film-crm-web.log 2>&1 &
+          cd ..
+          node backend/server.js > /tmp/hydria-film-os.log 2>&1 &
+          for i in {1..70}; do
+            if curl -sf http://127.0.0.1:4010/api/health >/dev/null && curl -sf http://127.0.0.1:5174/crm/login >/dev/null && curl -sf http://127.0.0.1:3001/api/health >/dev/null; then exit 0; fi
+            sleep 2
+          done
+          tail -50 /tmp/hydria-film-crm-api.log /tmp/hydria-film-crm-web.log /tmp/hydria-film-os.log
+          exit 1
+      - name: Capture real OS and seeded CRM screens
+        run: node backend/scripts/hydriaVideoCapture.mjs
+      - name: Upload evidence and screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hydria-full-product-real-captures
+          path: dist/hydria-film-shots/
+          if-no-files-found: error
+          retention-days: 7
