@@ -118,6 +118,43 @@ try {
     console.log("ArtCraft "+editor+": native direct-open, picker, Drive version and 409 local fallback passed");
   }
 
+  // A delayed save from an obsolete iframe must never rebind its Drive ID to
+  // a brand-new editor instance after the user clicks Restart.
+  const raceName="frame-race.figcraft";
+  const raceOriginal=nativeProject("fig","race-v1");
+  const raceEdited=nativeProject("fig","v2");
+  const raceResponse=await upload(context.request,"fig",raceOriginal,raceName);
+  assert.equal(raceResponse.status(),201);
+  const raceAsset=await raceResponse.json();
+  await page.goto(base+"/workspace/fig",{waitUntil:"domcontentloaded"});
+  await page.locator('.hydria-artcraft-frame[data-drive-bridge-ready="true"]').waitFor({timeout:20000});
+  await page.locator(".hydria-figcraft-project-item").filter({hasText:raceName})
+    .getByRole("button",{name:"Ouvrir directement"}).click();
+  let releaseHeldSave;
+  const heldSave=new Promise(resolve => { releaseHeldSave=resolve; });
+  await page.route("**/api/drive/design-assets/"+raceAsset.id+"/versions",async route=>{
+    await heldSave;
+    await route.continue();
+  },{times:1});
+  await page.frameLocator(".hydria-artcraft-frame")
+    .getByRole("button",{name:"Native File Save"}).click();
+  await page.getByText("Sauvegarde dans Hydria Drive…").waitFor({timeout:10000});
+  await page.getByRole("button",{name:"Redémarrer l'éditeur"}).click();
+  await page.locator('.hydria-artcraft-frame[data-drive-bridge-ready="true"]').waitFor({timeout:16000});
+  releaseHeldSave();
+  await page.waitForFunction(async id=>{
+    const response=await fetch("/api/drive/design-assets/"+id);
+    return response.ok && (await response.json()).revision===2;
+  },raceAsset.id,{timeout:16000});
+  const designsBeforeRestartSave=(await context.request.get(base+"/api/drive/design-assets").then(r=>r.json())).items.length;
+  await page.frameLocator(".hydria-artcraft-frame")
+    .getByRole("button",{name:"Native File Save"}).click();
+  await page.getByText("Document enregistré dans Drive · version 1").waitFor({timeout:16000});
+  const designsAfterRestartSave=(await context.request.get(base+"/api/drive/design-assets").then(r=>r.json())).items;
+  assert.equal(designsAfterRestartSave.length,designsBeforeRestartSave+1);
+  assert.equal((await context.request.get(base+"/api/drive/design-assets/"+raceAsset.id).then(r=>r.json())).revision,2);
+  console.log("Creative iframe race passed: stale async save cannot rebind a replaced editor instance.");
+
   await page.goto(base+"/workspace/photo",{waitUntil:"domcontentloaded"});
   await page.locator('.hydria-artcraft-frame[data-drive-bridge-ready="true"]').waitFor();
   const before=(await context.request.get(base+"/api/drive/image-assets").then(r=>r.json())).items.length;
