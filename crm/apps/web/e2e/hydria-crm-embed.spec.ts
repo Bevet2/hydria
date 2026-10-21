@@ -21,6 +21,14 @@ const CRM_SECTIONS = [
 
 test("Hydria CRM workspace exposes every navigable module on desktop and mobile", async ({ page }) => {
   const errors: string[] = [];
+  const forbiddenPrivilegedApi: string[] = [];
+  const privilegedRoutes = /^\\/api\\/(automations(?:\\/|$)|monitoring(?:\\/|$))/;
+  page.on("response", (response) => {
+    const endpoint = new URL(response.url()).pathname;
+    if (response.status() === 403 && privilegedRoutes.test(endpoint)) {
+      forbiddenPrivilegedApi.push(endpoint);
+    }
+  });
   page.on("pageerror", (error) => errors.push(error.message));
   page.on("console", (message) => {
     if (message.type() === "error") errors.push(message.text());
@@ -45,5 +53,8 @@ test("Hydria CRM workspace exposes every navigable module on desktop and mobile"
       timeout: 20_000
     });
   }
+  // A MEMBER embedded session must never issue manager/admin-only API calls.
+  // The server's 403 responses were correct but made the platform UX noisy.
+  expect(forbiddenPrivilegedApi, "Member CRM navigation must not request manager-only APIs").toEqual([]);
   expect(errors, "CRM navigation must not introduce browser exceptions").toEqual([]);
 });
