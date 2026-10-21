@@ -9,7 +9,7 @@ import { renderFigCraftDriveLibrary } from "./figCraftDriveLibrary.js";
 export const ARTCRAFT_EDITORS = Object.freeze({
   photo: Object.freeze({
     slug: "photo", title: "Hydria Photo", product: "PhotoCraft",
-    version: "0.10.0", path: "/vendor/photocraft/index.html",
+    version: "0.11.1", path: "/vendor/photocraft/index.html",
     sandbox: "allow-scripts allow-same-origin allow-downloads allow-popups",
     install: "node backend/scripts/installArtCraftWeb.mjs photo"
   }),
