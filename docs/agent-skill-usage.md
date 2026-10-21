@@ -34,3 +34,13 @@ node backend/scripts/osProductUiGate.mjs
 Verify separately on **real Android and iOS hardware**: desktop emulation alone cannot prove sticky hover state, virtual keyboard zoom, notch/safe-area behavior or physical gesture latency.
 
 This is a first shared-shell improvement, **not** a claim that all individual workspaces are now visually or functionally complete.
+
+## Subsequent verified-scope changes
+
+The workspace implementation pass now also includes:
+- Flow Manager: captured pointer gestures, rollback on cancellation, scoped Delete key, Ctrl+Y redo, disabled Undo/Redo and in-progress Run indicators.
+- Whiteboard: rollback for cancelled block move and resize, pointer identity checks, and bounded movement.
+- Slides: the immersive editor originally hid the only shared Save/“Saved” control. A compact accessible action strip restores it without reimplementing persistence.
+- Real browser regression coverage: Flow graph pointer cancellation and undo/redo, Whiteboard interrupted resize, desktop and 390px mobile for Docs/Sheets/Slides/Dashboard/Flow Manager/Whiteboard.
+
+These changes need CI validation for every updated commit before merge; tests on a real phone remain a separate requirement.
