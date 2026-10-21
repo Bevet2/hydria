@@ -5,7 +5,7 @@ import { chromium } from "playwright";
 const base = process.env.HYDRIA_TEST_ORIGIN || "http://127.0.0.1:3001";
 function nativePhotoProject(label) {
   const zip = new AdmZip();
-  zip.addFile("manifest.json, Buffer.from(JSON.stringify({
+  zip.addFile("manifest.json", Buffer.from(JSON.stringify({
     format_version:1,document:{layers:[],name:label}
   })));
   return zip.toBuffer();
