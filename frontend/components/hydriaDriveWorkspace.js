@@ -2,9 +2,10 @@
 import { listDrivePdfs, storedPdfUrl } from "../services/drivePdfClient.js";
 import { listDriveImages, imageAssetUrl } from "../services/driveImageClient.js";
 import { designFileUrl, listDesigns } from "../services/driveDesignClient.js";
+import { photoProjectFileUrl, listPhotoProjects } from "../services/drivePhotoProjectClient.js";
 // This is deliberately not a separate file store or a cloud-sync service.
 const SORTS = new Set(["recent", "name", "kind"]);
-const KINDS = new Set(["all", "document", "dataset", "presentation", "dashboard", "workflow", "design", "project", "code", "pdf", "image", "other"]);
+const KINDS = new Set(["all", "document", "dataset", "presentation", "dashboard", "workflow", "design", "project", "code", "pdf", "image", "photo-project", "other"]);
 let view = { query: "", kind: "all", sort: "recent" };
 
 function kindOf(item) {
@@ -23,7 +24,7 @@ function typeLabel(kind) {
     document: "Document", dataset: "Tableur", presentation: "Présentation",
     dashboard: "Dashboard", workflow: "Flux", design: "Design",
     project: "Projet", code: "Code", image: "Image", audio: "Audio",
-    video: "Vidéo", pdf: "PDF"
+    video: "Vidéo", pdf: "PDF", "photo-project": "Projet PhotoCraft"
   })[kind] || "Autre";
 }
 function node(tag, className = "", label = "") {
@@ -109,6 +110,7 @@ export function renderHydriaDriveWorkspace(container, {
     ["all", "Tous les types"], ["document", "Documents"], ["dataset", "Tableurs"],
     ["presentation", "Présentations"], ["dashboard", "Dashboards"], ["pdf", "PDF enregistrés"], ["image", "Images enregistrées"],
     ["workflow", "Flux et automatisations"], ["design", "Designs et projets FigCraft"],
+    ["photo-project", "Projets PhotoCraft (.pcraft)"],
     ["project", "Projets"], ["code", "Code"], ["other", "Autres"]
   ]) {
     const opt = node("option", "", label);
@@ -274,9 +276,58 @@ export function renderHydriaDriveWorkspace(container, {
         "Impossible de charger les projets FigCraft : " + String(error?.message || error)));
     }
   }
+  let savedPhotoProjects = [];
+  const photoProjectGroup = node("section", "hydria-drive-pdf-group hydria-drive-photo-project-group");
+  photoProjectGroup.setAttribute("aria-label", "Projets PhotoCraft dans Hydria Drive");
+  const photoProjectTitle = node("h3", "", "Projets PhotoCraft (.pcraft)");
+  const photoProjectList = node("div", "hydria-drive-photo-project-list");
+  photoProjectGroup.append(photoProjectTitle, photoProjectList);
+  function paintSavedPhotoProjects() {
+    photoProjectGroup.hidden = view.kind !== "all" && view.kind !== "photo-project";
+    photoProjectList.replaceChildren();
+    if (photoProjectGroup.hidden) return 0;
+    const q = String(view.query).toLocaleLowerCase().trim();
+    const filtered = savedPhotoProjects.filter(x =>
+      String(x.filename || "").toLocaleLowerCase().includes(q));
+    filtered.sort((a, b) => view.sort === "name"
+      ? String(a.filename).localeCompare(String(b.filename), "fr")
+      : String(b.updated_at || b.created_at).localeCompare(String(a.updated_at || a.created_at)));
+    if (!filtered.length) {
+      photoProjectList.append(node("p", "hydria-pdf-saved-empty",
+        "Aucun projet PhotoCraft ne correspond à cette recherche."));
+      return 0;
+    }
+    for (const item of filtered) {
+      const row = node("div", "hydria-drive-design-row hydria-drive-photo-project-row");
+      row.append(node("span", "hydria-photocraft-project-icon", "◆"));
+      row.append(node("strong", "", String(item.filename || "image.pcraft")));
+      row.append(node("small", "hydria-drive-image-revision", "Version " + Number(item.revision || 1)));
+      const open = node("a", "hydria-artcraft-button", "Photo Studio");
+      open.href = "/workspace/photo?photoProjectId=" + encodeURIComponent(item.id);
+      open.title = "Téléchargez le fichier et ouvrez-le dans PhotoCraft avec Fichier > Ouvrir";
+      const download = node("a", "hydria-artcraft-button", "Télécharger");
+      download.href = photoProjectFileUrl(item.id);
+      download.setAttribute("download", item.filename || "image.pcraft");
+      row.append(download, open);
+      photoProjectList.append(row);
+    }
+    return filtered.length;
+  }
+  async function loadSavedPhotoProjects() {
+    try {
+      savedPhotoProjects = await listPhotoProjects();
+      if (!root.isConnected) return;
+      paintResults();
+      updateTotal();
+    } catch (error) {
+      if (!root.isConnected) return;
+      photoProjectList.replaceChildren(node("p", "hydria-pdf-saved-empty",
+        "Impossible de charger les projets PhotoCraft : " + String(error?.message || error)));
+    }
+  }
   function updateTotal() {
     total.textContent = String(workObjects.length + savedPdfs.length +
-      savedImages.length + savedDesigns.length) + " éléments";
+      savedImages.length + savedDesigns.length + savedPhotoProjects.length) + " éléments";
   }
   const list = node("div", "hydria-drive-list");
   list.setAttribute("role", "list");
@@ -286,10 +337,11 @@ export function renderHydriaDriveWorkspace(container, {
     const pdfCount = paintSavedPdfs();
     const imageCount = paintSavedImages();
     const designCount = paintSavedDesigns();
-    const count = filtered.length + pdfCount + imageCount + designCount;
+    const photoProjectCount = paintSavedPhotoProjects();
+    const count = filtered.length + pdfCount + imageCount + designCount + photoProjectCount;
     summary.textContent = count + " résultat" + (count === 1 ? "" : "s");
     list.replaceChildren();
-    if (!filtered.length && !pdfCount && !imageCount && !designCount) {
+    if (!filtered.length && !pdfCount && !imageCount && !designCount && !photoProjectCount) {
       list.append(node("p", "hydria-drive-empty",
         workObjects.length
           ? "Aucun élément ne correspond à cette recherche."
@@ -326,10 +378,11 @@ export function renderHydriaDriveWorkspace(container, {
   search.addEventListener("input", () => { view.query = search.value; paintResults(); });
   filter.addEventListener("change", () => { view.kind = filter.value; paintResults(); });
   sort.addEventListener("change", () => { view.sort = sort.value; paintResults(); });
-  root.append(heading, quick, controls, summary, list, pdfGroup, imageGroup, designGroup);
+  root.append(heading, quick, controls, summary, list, pdfGroup, imageGroup, designGroup, photoProjectGroup);
   container.append(root);
   paintResults();
   loadSavedPdfs();
   loadSavedImages();
   loadSavedDesigns();
+  loadSavedPhotoProjects();
 }

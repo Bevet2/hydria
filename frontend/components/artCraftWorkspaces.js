@@ -3,13 +3,14 @@ import {
   listImageVersions, saveImageToDrive, saveImageVersion
 } from "../services/driveImageClient.js";
 import { renderFigCraftDriveLibrary } from "./figCraftDriveLibrary.js";
+import { renderPhotoCraftDriveLibrary } from "./photoCraftProjectLibrary.js";
 
 // Upstream distributions are pinned and installed separately. In the browser
 // their native renderers operate in an iframe; no fictitious postMessage API.
 export const ARTCRAFT_EDITORS = Object.freeze({
   photo: Object.freeze({
     slug: "photo", title: "Hydria Photo", product: "PhotoCraft",
-    version: "0.10.0", path: "/vendor/photocraft/index.html",
+    version: "0.11.1", path: "/vendor/photocraft/index.html",
     sandbox: "allow-scripts allow-same-origin allow-downloads allow-popups",
     install: "node backend/scripts/installArtCraftWeb.mjs photo"
   }),
@@ -44,7 +45,7 @@ export function renderArtCraftWorkspace(container, { editor = "photo" } = {}) {
     node("p", "hydria-artcraft-eyebrow", "HYDRIA / CREATIVE STUDIO"),
     node("h2", "", config.title),
     node("p", "hydria-artcraft-description", editor === "photo"
-      ? "Retouchez vos images avec PhotoCraft, puis conservez vos exports dans Hydria Drive."
+      ? "Éditez des projets PhotoCraft .pcraft et conservez vos documents et exports dans Hydria Drive."
       : "Concevez vos interfaces avec FigCraft Web, dans l'espace de travail Hydria.")
   );
   const status = node("span", "hydria-artcraft-status", "Vérification du moteur…");
@@ -55,7 +56,7 @@ export function renderArtCraftWorkspace(container, { editor = "photo" } = {}) {
   instructions.append(
     node("strong", "", editor === "photo" ? "Comment travailler avec Drive ?" : "Éditeur web en accès anticipé"),
     node("p", "", editor === "photo"
-      ? "Pour retoucher une image de Drive, téléchargez-la puis ouvrez-la avec le menu Fichier de PhotoCraft. Après export, choisissez « Nouvelle version » sur l’image originale pour conserver son historique, ou importez une nouvelle image. Il n’y a pas de sauvegarde automatique."
+      ? "PhotoCraft v0.11.1 sait ouvrir des images et des projets .pcraft dans le navigateur et les enregistrer par téléchargement. Drive conserve séparément les projets natifs .pcraft éditables et les exports PNG/JPEG/WebP. Pour modifier un document Drive : téléchargez-le, ouvrez-le dans PhotoCraft, enregistrez-le dans PhotoCraft, puis importez le fichier obtenu comme nouvelle version. Pas de synchronisation automatique."
       : "FigCraft Web v0.8 sait ouvrir et sauvegarder un fichier natif .figcraft par le navigateur. Téléchargez les projets Drive puis ouvrez-les avec Fichier > Ouvrir. Après modification, faites Fichier > Enregistrer et importez ce téléchargement dans Drive comme nouvelle version. Le transfert reste manuel.")
   );
 
@@ -92,7 +93,7 @@ export function renderArtCraftWorkspace(container, { editor = "photo" } = {}) {
     window.open(config.path, "_blank", "noopener,noreferrer");
   });
   const caution = node("p", "hydria-artcraft-caution", editor === "photo"
-    ? "PhotoCraft fonctionne dans votre navigateur. Les projets en cours ne sont pas sauvegardés par Hydria tant que vous n'avez pas exporté puis importé le résultat."
+    ? "PhotoCraft fonctionne dans votre navigateur. Enregistrez votre projet .pcraft, puis importez ce téléchargement dans Drive avant de fermer l’éditeur. Les exports d’images sont conservés séparément."
     : "Attention : avant de quitter, enregistrez le document depuis FigCraft puis importez-le dans Drive. Aucun enregistrement automatique de l’iframe. La parité avec Figma n'est pas atteinte.");
   let library = null;
   if (editor === "photo") {
@@ -243,6 +244,13 @@ export function renderArtCraftWorkspace(container, { editor = "photo" } = {}) {
     loadImages();
   }
   if (editor === "fig") library = node("div", "hydria-figcraft-library-mount");
+  if (editor === "photo" && library) {
+    const nativeMount = node("div", "hydria-photocraft-library-mount");
+    // Layered .pcraft projects and raster exports use distinct data stores.
+    library.prepend(nativeMount);
+    library.setAttribute("aria-label", "Projets PhotoCraft et images dans Hydria Drive");
+    renderPhotoCraftDriveLibrary(nativeMount);
+  }
   root.append(top, buttonRow, instructions, library || node("div", "hydria-artcraft-no-library"), viewport, caution);
   container.append(root);
   if (editor === "fig") renderFigCraftDriveLibrary(library);

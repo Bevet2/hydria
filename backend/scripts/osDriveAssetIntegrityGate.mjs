@@ -18,7 +18,7 @@ const databaseFile = path.join(data, "hydria.sqlite");
 const backup = path.join(root, "backup");
 const restored = path.join(root, "restored");
 const sha = (data) => createHash("sha256").update(data).digest("hex");
-const pdfId = randomUUID(), imageId = randomUUID(), designId = randomUUID();
+const pdfId = randomUUID(), imageId = randomUUID(), designId = randomUUID(), photoId = randomUUID();
 const time = "2026-10-20T12:00:00.000Z";
 const pdf = Buffer.from("%PDF-1.4\n1 0 obj\n<</Type /Catalog>>\nendobj\n%%EOF\n");
 const png1 = Buffer.from(
@@ -27,6 +27,15 @@ const png1 = Buffer.from(
 const png2 = Buffer.concat([png1, Buffer.from("v2")]);
 const imageKey1 = imageId + ".png", imageKey2 = randomUUID() + ".png";
 const pdfKey = pdfId + ".pdf";
+const makePhoto = (name) => {
+  const zip = new AdmZip();
+  zip.addFile("manifest.json", Buffer.from(JSON.stringify({
+    format_version: 1, document: { name, layers: [] }
+  })));
+  return zip.toBuffer();
+};
+const photo1 = makePhoto("Original layers"), photo2 = makePhoto("New layers");
+const photoKey1 = photoId + ".pcraft", photoKey2 = randomUUID() + ".pcraft";
 const makeDesign = (name) => {
   const zip = new AdmZip();
   zip.addFile("document.json",Buffer.from(JSON.stringify({format:"figcraft",version:1,name,pages:[]})));
@@ -37,11 +46,14 @@ const designKey1 = designId + ".figcraft", designKey2 = randomUUID() + ".figcraf
 await mkdir(path.join(data, "drive-pdf-assets"), { recursive: true });
 await mkdir(path.join(data, "drive-images"), { recursive: true });
 await mkdir(path.join(data, "drive-design-assets"), { recursive: true });
+await mkdir(path.join(data, "drive-photo-project-assets"), { recursive: true });
 await writeFile(path.join(data, "drive-pdf-assets", pdfKey), pdf);
 await writeFile(path.join(data, "drive-images", imageKey1), png1);
 await writeFile(path.join(data, "drive-images", imageKey2), png2);
 await writeFile(path.join(data, "drive-design-assets", designKey1), design1);
 await writeFile(path.join(data, "drive-design-assets", designKey2), design2);
+await writeFile(path.join(data, "drive-photo-project-assets", photoKey1), photo1);
+await writeFile(path.join(data, "drive-photo-project-assets", photoKey2), photo2);
 await writeFile(path.join(data, "drive-images", "stale-upload.png"), Buffer.from("orphan"));
 const db = new Database(databaseFile);
 try {
@@ -65,6 +77,12 @@ try {
     created_at TEXT, revision INTEGER, updated_at TEXT);
     CREATE TABLE drive_design_versions(
     asset_id TEXT, revision INTEGER, filename TEXT, size INTEGER, sha256 TEXT,
+    storage_key TEXT, created_at TEXT, PRIMARY KEY(asset_id,revision));
+    CREATE TABLE drive_photo_project_assets(
+    id TEXT PRIMARY KEY, filename TEXT, size INTEGER, sha256 TEXT,
+    created_at TEXT, revision INTEGER, updated_at TEXT);
+    CREATE TABLE drive_photo_project_versions(
+    asset_id TEXT, revision INTEGER, filename TEXT, size INTEGER, sha256 TEXT,
     storage_key TEXT, created_at TEXT, PRIMARY KEY(asset_id,revision));`);
   db.prepare("INSERT INTO drive_pdf_assets VALUES(?,?,?,?,?,?,?)")
     .run(pdfId, "contrat.pdf", pdf.length, sha(pdf), time, 1, time);
@@ -84,17 +102,24 @@ try {
   db.prepare("INSERT INTO drive_design_versions VALUES(?,?,?,?,?,?,?)")
     .run(designId,2,"wireframe.figcraft",design2.length,sha(design2),designKey2,time);
 
+  db.prepare("INSERT INTO drive_photo_project_assets VALUES(?,?,?,?,?,?,?)")
+    .run(photoId,"layered.pcraft",photo2.length,sha(photo2),time,2,time);
+  db.prepare("INSERT INTO drive_photo_project_versions VALUES(?,?,?,?,?,?,?)")
+    .run(photoId,1,"layered.pcraft",photo1.length,sha(photo1),photoKey1,time);
+  db.prepare("INSERT INTO drive_photo_project_versions VALUES(?,?,?,?,?,?,?)")
+    .run(photoId,2,"layered.pcraft",photo2.length,sha(photo2),photoKey2,time);
+
   let checked = await inspectDriveSnapshot(databaseFile, data);
-  assert.equal(checked.checkedAssets, 3);
-  assert.equal(checked.checkedVersions, 5);
-  assert.equal(checked.checkedBytes, pdf.length + png1.length + png2.length + design1.length + design2.length);
+  assert.equal(checked.checkedAssets, 4);
+  assert.equal(checked.checkedVersions, 7);
+  assert.equal(checked.checkedBytes, pdf.length + png1.length + png2.length + design1.length + design2.length + photo1.length + photo2.length);
   assert.equal(checked.unreferencedFiles, 1);
 
   await backupHydriaData(data, backup);
   const verified = await verifyHydriaBackup(backup);
-  assert.equal(verified.drive.checkedVersions, 5);
+  assert.equal(verified.drive.checkedVersions, 7);
   await restoreHydriaBackup(backup, restored);
-  assert.equal((await inspectDriveSnapshot(path.join(restored, "hydria.sqlite"), restored)).checkedVersions, 5);
+  assert.equal((await inspectDriveSnapshot(path.join(restored, "hydria.sqlite"), restored)).checkedVersions, 7);
   assert.deepEqual(await readFile(path.join(restored, "drive-images", imageKey1)), png1);
   assert.deepEqual(await readFile(path.join(restored, "drive-images", imageKey2)), png2);
 
@@ -106,6 +131,15 @@ try {
   await writeFile(path.join(data,"drive-design-assets",designKey2),Buffer.from("corrupt"));
   await assert.rejects(inspectDriveSnapshot(databaseFile,data),/invalid design binary/);
   await writeFile(path.join(data,"drive-design-assets",designKey2),design2);
+
+  assert.deepEqual(await readFile(path.join(restored,"drive-photo-project-assets",photoKey1)),photo1);
+  assert.deepEqual(await readFile(path.join(restored,"drive-photo-project-assets",photoKey2)),photo2);
+  await unlink(path.join(data,"drive-photo-project-assets",photoKey1));
+  await assert.rejects(inspectDriveSnapshot(databaseFile,data),/missing photo_project binary/);
+  await writeFile(path.join(data,"drive-photo-project-assets",photoKey1),photo1);
+  await writeFile(path.join(data,"drive-photo-project-assets",photoKey2),Buffer.from("corrupt"));
+  await assert.rejects(inspectDriveSnapshot(databaseFile,data),/invalid photo_project binary/);
+  await writeFile(path.join(data,"drive-photo-project-assets",photoKey2),photo2);
 
   // The manifest may match all the files a backup actually copied while a
   // referenced file was missing from the original live directory.
@@ -131,8 +165,8 @@ try {
   // catalog must still be restorable from its original on-disk file.
   await rm(path.join(data, "drive-images", imageKey2));
   checked = await inspectDriveSnapshot(databaseFile, data);
-  assert.equal(checked.checkedAssets, 3);
-  assert.equal(checked.checkedVersions, 4);
+  assert.equal(checked.checkedAssets, 4);
+  assert.equal(checked.checkedVersions, 6);
   console.log("Drive snapshot gate passed: revisions, missing/corrupt blobs, backups, restore and legacy catalog.");
 } finally {
   db.close();
