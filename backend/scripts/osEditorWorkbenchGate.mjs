@@ -100,6 +100,27 @@ try {
       await palette.locator(".hydria-flow-catalog-item").first().click();
       assert.equal(await palette.locator(".hydria-flow-search").inputValue(),"filter","search retained after graph mutation");
     }
+
+    // Real mobile-sized editor, not a static mock: preserve the only save action
+    // and contain horizontal overflow inside toolbars, sheets, or canvas rails.
+    await page.setViewportSize({width:390,height:844});
+    await page.waitForTimeout(100);
+    const mobile=await page.evaluate(()=>{
+      const save=document.getElementById("workspace-save-button");
+      const rect=save?.getBoundingClientRect();
+      return {
+        viewport:innerWidth,documentWidth:document.documentElement.scrollWidth,
+        save:rect?{left:rect.left,right:rect.right,width:rect.width}:null,
+        saveVisible:save ? getComputedStyle(save).visibility!=="hidden" &&
+          getComputedStyle(save).display!=="none" && !!rect?.height : false
+      };
+    });
+    assert.ok(mobile.documentWidth<=mobile.viewport+5,
+      item.slug+" mobile shell horizontal overflow: "+JSON.stringify(mobile));
+    assert.ok(mobile.saveVisible&&mobile.save.left>=-1&&mobile.save.right<=mobile.viewport+1,
+      item.slug+" mobile save must remain visible and reachable: "+JSON.stringify(mobile));
+    await page.screenshot({path:path.join(output,(i+1)+"-"+item.slug+"-mobile.png"),fullPage:false});
+    await page.setViewportSize({width:1440,height:900});
   }
   // Scoped visual pages sometimes run transient background data API calls.
   // Record exceptions but do not reject known optional connector errors.
