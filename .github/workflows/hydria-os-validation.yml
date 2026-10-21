@@ -358,7 +358,7 @@ jobs:
   creative-browser:
     name: Native ArtCraft Drive integration
     runs-on: ubuntu-latest
-    timeout-minutes: 18
+    timeout-minutes: 55
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -379,12 +379,32 @@ jobs:
           if [ "$ready" != "true" ]; then cat /tmp/hydria-artcraft-ci.log; exit 1; fi
       - name: Test native pickers, direct saves and recovery in Chromium
         run: node backend/scripts/osArtCraftHostBridgeBrowserGate.mjs
-      - name: Authentic pinned PhotoCraft and FigCraft engines
+      - name: Rust toolchain for source-pinned FigCraft adapter
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Cache pinned FigCraft Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .third_party/figcraft -> target
+          key: hydria-figcraft-v0.8.0-native-bridge
+      - name: Clone, patch and typecheck genuine FigCraft Rust source
         run: |
-          trap 'rm -rf frontend/vendor/photocraft frontend/vendor/figcraft' EXIT
+          mkdir -p .third_party
+          git clone --depth=1 --branch v0.8.0 https://github.com/storytold/figcraft.git .third_party/figcraft
+          test "$(git -C .third_party/figcraft rev-parse HEAD)" = "594dc8c6cf50a03b6d88abce877794f286f759b9"
+          node backend/scripts/patchHydriaFigCraft.mjs .third_party/figcraft
+          cargo check --manifest-path .third_party/figcraft/Cargo.toml -p figcraft-web --target wasm32-unknown-unknown
+      - name: Build genuine Hydria-patched FigCraft WebAssembly
+        run: |
+          cargo install trunk --locked --version 0.21.14
+          (cd .third_party/figcraft/apps/figcraft-web && trunk build --release)
+          node backend/scripts/prepareHydriaFigCraftBuild.mjs .third_party/figcraft frontend/vendor/figcraft
+      - name: Authentic pinned PhotoCraft and source-patched FigCraft engines
+        run: |
           node backend/scripts/installArtCraftWeb.mjs photo
-          node backend/scripts/installArtCraftWeb.mjs fig
           node backend/scripts/osArtCraftRealWasmBrowserGate.mjs
+
       - name: Upload genuine WASM editor screenshots
         if: always()
         uses: actions/upload-artifact@v4
