@@ -14,13 +14,18 @@ const opts = {
   photo: { directory:vendors[0], ext:".pcraft", route:"photo-projects", selector:".hydria-photocraft-project-item",canvas:"photocraft_canvas" },
   fig: { directory:vendors[1], ext:".figcraft", route:"design-assets", selector:".hydria-figcraft-project-item",canvas:"figcraft_canvas" }
 };
+const nativeZipCache = new Map();
 function nativeProject(editor, marker) {
+  const key = editor + ":" + marker;
+  if (nativeZipCache.has(key)) return nativeZipCache.get(key);
   const zip = new AdmZip();
   zip.addFile(editor === "photo" ? "manifest.json" : "document.json",
     Buffer.from(JSON.stringify(editor === "photo" ? {
       format_version:1, document:{ name:marker,layers:[] }
     } : { format:"figcraft",version:1,name:marker,pages:[] })));
-  return zip.toBuffer();
+  const bytes = zip.toBuffer();
+  nativeZipCache.set(key,bytes);
+  return bytes;
 }
 const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR4nGN0rT7xn4GBgYGJAQoAJiUCi6vmjGkAAAAASUVORK5CYII=", "base64");
 function fixture(editor, oldBytes, newBytes) {
