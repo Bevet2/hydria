@@ -279,7 +279,7 @@ export function renderHydriaDriveWorkspace(container, {
   let savedPhotoProjects = [];
   const photoProjectGroup = node("section", "hydria-drive-pdf-group hydria-drive-photo-project-group");
   photoProjectGroup.setAttribute("aria-label", "Projets PhotoCraft dans Hydria Drive");
-  const photoProjectTitle = node("h3", "", "Projets PhotoCraft (.figcraft)");
+  const photoProjectTitle = node("h3", "", "Projets PhotoCraft (.pcraft)");
   const photoProjectList = node("div", "hydria-drive-photo-project-list");
   photoProjectGroup.append(photoProjectTitle, photoProjectList);
   function paintSavedPhotoProjects() {
