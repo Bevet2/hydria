@@ -1,3 +1,41 @@
+## Moteurs ArtCraft intégrés à Hydria Drive
+
+Pour activer PhotoCraft et **le FigCraft réellement capable d'enregistrer directement
+dans Hydria Drive**, modifier `deploy/.env` :
+
+```dotenv
+HYDRIA_INSTALL_PHOTOCRAFT=true
+HYDRIA_INSTALL_FIGCRAFT_NATIVE=true
+# Ne pas utiliser la distribution FigCraft officielle en parallèle :
+HYDRIA_INSTALL_FIGCRAFT=false
+```
+
+Puis reconstruire l'image :
+
+```bash
+docker compose --env-file deploy/.env -f deploy/compose.yaml up -d --build
+```
+
+PhotoCraft v0.11.1 est téléchargé depuis son archive officielle vérifiée SHA-256.
+**FigCraft v0.8.0 officiel ne sait pas sauvegarder un document sans chemin local.**
+L'option `HYDRIA_INSTALL_FIGCRAFT_NATIVE` clone exactement le commit upstream
+`594dc8c6cf50a03b6d88abce877794f286f759b9`, applique l'adaptateur
+Rust Hydria, construit WebAssembly avec Rust 1.95 et Trunk 0.21.14 puis
+embarque le résultat dans l'image Docker. La compilation peut être lourde et
+requiert réseau, espace disque, mémoire et temps CPU suffisants.
+
+**Attention :** `HYDRIA_INSTALL_FIGCRAFT=true` **sans**
+`HYDRIA_INSTALL_FIGCRAFT_NATIVE=true` installe le binaire officiel, qui ne
+garantit pas la sauvegarde directe vers Drive. L'éditeur intégré doit afficher
+une confirmation de sauvegarde Drive après la commande Enregistrer, et les
+versions doivent être consultables dans la bibliothèque. Un simple message
+« Fichier transmis » ne garantit pas l'ouverture réelle d'un projet.
+
+En l'absence de compilation vérifiée du moteur modifié, ne considérez pas
+FigCraft comme opérationnel en sauvegarde directe. Cette intégration est
+réservée au pilote privé mono-propriétaire ; les iframes même origine ne sont
+pas isolées pour un service multi-utilisateur.
+
 # Hydria OS — déploiement privé avec Docker et HTTPS
 
 Cette procédure déploie **Hydria OS** dans un seul conteneur Node.js,

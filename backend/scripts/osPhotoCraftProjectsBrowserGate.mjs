@@ -20,7 +20,9 @@ try {
   await page.goto(base+"/workspace/photo",{waitUntil:"domcontentloaded"});
   const library=page.getByRole("region",{name:"Projets PhotoCraft conservés dans Drive"});
   await library.waitFor({timeout:30000});
-  assert.ok(await page.getByText("Fichier > Ouvrir",{exact:false}).count()>0);
+  // Native library remains present after first-party host integration.
+  await page.getByLabel("Importer un projet PhotoCraft dans Drive").waitFor({state:"visible",timeout:10000});
+  await page.getByRole("region",{name:"Projets PhotoCraft conservés dans Drive"}).waitFor();
   await page.getByLabel("Importer un projet PhotoCraft dans Drive")
     .setInputFiles({name,mimeType:"application/octet-stream",buffer:v1});
   const row=page.locator(".hydria-photocraft-project-item").filter({hasText:name});

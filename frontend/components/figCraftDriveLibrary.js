@@ -15,7 +15,8 @@ function prettyBytes(value) {
 }
 
 export function renderFigCraftDriveLibrary(container, {
-  targetDesignId = new URLSearchParams(window.location.search).get("designId")
+  targetDesignId = new URLSearchParams(window.location.search).get("designId"),
+  onOpen = null
 } = {}) {
   if (!container) return;
   container.replaceChildren();
@@ -43,6 +44,7 @@ export function renderFigCraftDriveLibrary(container, {
   notice.setAttribute("role", "status");
   const list = node("div", "hydria-figcraft-projects");
   let busy = false;
+  let deepLinkOpened = false;
   const controls = new Set();
   function setBusy(value) {
     busy = value;
@@ -100,6 +102,12 @@ export function renderFigCraftDriveLibrary(container, {
         download.href = designFileUrl(item.id);
         download.setAttribute("download", item.filename || "design.figcraft");
         download.title = "Téléchargez le fichier puis ouvrez-le dans FigCraft avec Fichier > Ouvrir";
+        const openEditor = node("button", "hydria-artcraft-button hydria-artcraft-direct-open", "Ouvrir directement");
+        openEditor.type = "button";
+        openEditor.title = "Ouvrir les octets du projet Drive dans le moteur créatif sans téléchargement";
+        openEditor.addEventListener("click", () => {
+          if (typeof onOpen === "function" && !busy) onOpen({ ...item, kind:"project" });
+        });
         const newVersion = node("button", "hydria-artcraft-button hydria-figcraft-version-button",
           "Nouvelle version");
         newVersion.type = "button";
@@ -144,11 +152,17 @@ export function renderFigCraftDriveLibrary(container, {
         });
         controls.add(historyButton);
         controls.add(newVersion);
-        row.append(icon, details, download, newVersion, historyButton, versionFile, history);
+        row.append(icon, details, openEditor, download, newVersion, historyButton, versionFile, history);
         list.append(row);
         if (targetDesignId && String(item.id) === targetDesignId) {
           row.classList.add("hydria-artcraft-target-image");
-          // Open the file's history on direct navigation from Drive.
+          // A Drive link is an explicit request to OPEN the actual editor file,
+          // not just highlight its metadata. Only open once after navigation:
+          // history/refresh triggered by a save must never reload the editor.
+          if (!deepLinkOpened && typeof onOpen === "function") {
+            deepLinkOpened = true;
+            void onOpen({ ...item, kind: "project" });
+          }
           historyButton.click();
         }
       }
@@ -180,4 +194,5 @@ export function renderFigCraftDriveLibrary(container, {
   section.append(heading, guide, uploadBox, notice, list);
   container.append(section);
   refresh();
+  return { refresh };
 }
