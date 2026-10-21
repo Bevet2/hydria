@@ -88,7 +88,8 @@ function setMobileOpen(open,{restoreFocus=true}={}){
 const drawerFocusSelector='a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),summary,[tabindex]:not([tabindex="-1"])';
 function visibleDrawerFocusables(){
   return [...(sidebar?.querySelectorAll(drawerFocusSelector)||[])].filter(
-    el=>el.getClientRects().length>0&&getComputedStyle(el).visibility!=="hidden"
+    el=>el.getClientRects().length>0&&getComputedStyle(el).visibility!=="hidden"&&
+      (!el.closest("details:not([open])")||el.matches("details:not([open]) > summary"))
   );
 }
 mobileMenu?.addEventListener("click",()=>setMobileOpen(true));

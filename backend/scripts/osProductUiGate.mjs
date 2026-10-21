@@ -88,7 +88,8 @@ try {
   const focusables=await page.evaluate(selector=>{
     const sidebar=document.querySelector("#os-sidebar");
     const items=[...sidebar.querySelectorAll(selector)].filter(
-      el=>el.getClientRects().length>0 && getComputedStyle(el).visibility!=="hidden"
+      el=>el.getClientRects().length>0 && getComputedStyle(el).visibility!=="hidden" &&
+      (!el.closest("details:not([open])") || el.matches("details:not([open]) > summary"))
     );
     if(items.length<2)throw new Error("No navigable sidebar controls");
     items[items.length-1].focus();
@@ -99,7 +100,8 @@ try {
   const drawerFocusDiagnostic=await page.evaluate(selector=>{
     const sidebar=document.querySelector("#os-sidebar");
     const items=[...sidebar.querySelectorAll(selector)].filter(
-      el=>el.getClientRects().length>0 && getComputedStyle(el).visibility!=="hidden"
+      el=>el.getClientRects().length>0 && getComputedStyle(el).visibility!=="hidden" &&
+      (!el.closest("details:not([open])") || el.matches("details:not([open]) > summary"))
     );
     const describe=el=>el ? {tag:el.tagName,id:el.id,cls:String(el.className).slice(0,90),
       label:el.getAttribute("aria-label"),text:el.textContent?.trim().slice(0,60)}:null;
