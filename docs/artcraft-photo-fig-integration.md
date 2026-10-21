@@ -153,7 +153,8 @@ Contrat upstream : [PhotoCraft v0.11.1](https://github.com/storytold/photocraft/
 Les installations officielles PhotoCraft 0.11.1 et FigCraft 0.8.0 sont dorénavant **complétées à l'installation** par un script Hydria placé dans leur `index.html` avant le démarrage du moteur WASM. **Les fichiers WebAssembly, leur distribution téléchargeable et le SHA-256 vérifié restent inchangés** ; seul le HTML installé reçoit le script `/artcraft/hydria-bridge.js`. Après mise à jour du dépôt, **réinstaller les bundles ArtCraft** pour activer la passerelle dans les anciennes installations :
 ```bash
 node backend/scripts/installArtCraftWeb.mjs photo
-node backend/scripts/installArtCraftWeb.mjs fig
+# Le FigCraft officiel v0.8.0 ne fournit pas la sauvegarde native d'un
+# document sans chemin. Utiliser la variante Rust ci-dessous.
 ```
 Pour les installations Docker utilisant des flags `HYDRIA_INSTALL_*`, reconstruire l'image et relancer Compose. L'utilisateur ne doit pas modifier les ZIP upstream.
 
@@ -167,3 +168,25 @@ Pour les installations Docker utilisant des flags `HYDRIA_INSTALL_*`, reconstrui
 
 **Validation :** `node backend/scripts/osArtCraftHostBridgeBrowserGate.mjs` vérifie dans Chromium une iframe de test reproduisant les opérations natives exactes (saisie fichier, `Blob`, lien téléchargement) : ouverture par dépôt et sélecteur, enregistrement Drive en nouvelle version, conservation de l'ancienne, conflit 409 avec téléchargement de secours, export PNG aplati. Les tests d'installation vérifient aussi l'injection avant le démarrage WASM. **Une simple fixture n'établit pas la fidélité visuelle d'un vrai projet dans un vrai moteur** : un test de réouverture avec les moteurs WebAssembly réels reste nécessaire avant d'affirmer une compatibilité de production.
 
+
+### FigCraft modifié : configuration de déploiement
+
+**Important :** la distribution officielle FigCraft 0.8.0 possède un sélecteur d'ouverture, mais ne permet pas d'enregistrer un projet sans chemin local. La passerelle JavaScript ne corrige pas seule cette limite. Pour une sauvegarde directe, Hydria compile un WebAssembly FigCraft adapté à partir du commit officiel épinglé `594dc8c6cf50a03b6d88abce877794f286f759b9` et applique `backend/scripts/patchHydriaFigCraft.mjs`. Le format natif reste celui de FigCraft (pas de conversion JSON).
+
+Dans le fichier de configuration privé `deploy/.env` :
+
+```dotenv
+HYDRIA_INSTALL_PHOTOCRAFT=true
+HYDRIA_INSTALL_FIGCRAFT_NATIVE=true
+HYDRIA_INSTALL_FIGCRAFT=false
+```
+
+Puis reconstruire avec la configuration Compose existante :
+
+```bash
+docker compose --env-file deploy/.env -f deploy/compose.yaml up -d --build
+```
+
+L'option `HYDRIA_INSTALL_FIGCRAFT_NATIVE` déclenche la compilation Rust épinglée dans l'étape de construction Docker, la vérification de provenance du dépôt et l'intégration du script Hydria. Le compilateur n'est pas conservé dans l'image finale. **Ne pas réinstaller `installArtCraftWeb.mjs fig` après cette opération**, car cela remettrait la distribution officielle non adaptée et désactiverait l'enregistrement direct.
+
+Les tests `osArtCraftRealWasmBrowserGate.mjs` portent sur le véritable moteur en Chromium, avec ouverture, sauvegarde et réouverture de fichiers natifs ; les tests sur des pages simulées ne suffisent pas. Le test sur l'instance VPS n'est pas effectué par GitHub Actions. Même avec ce parcours, il n'y a **pas de sauvegarde périodique automatique des brouillons non enregistrés** : l'utilisateur doit déclencher « Enregistrer » et attendre la confirmation Drive. Le pilote demeure mono-propriétaire, sans isolation adaptée à un service SaaS public.
