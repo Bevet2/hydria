@@ -1,0 +1,29 @@
+name: Reconcile creative Drive integration branch
+on:
+  push:
+    branches: [integration/creative-drive-reconciled-20261021]
+    paths: [.github/workflows/hydria-creative-reconcile.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Merge tested PhotoCraft/FigCraft bridge without discarding newer main changes
+        run: |
+          git config user.name "hydria-integration-bot"
+          git config user.email "98226545+Bevet2@users.noreply.github.com"
+          git fetch --no-tags origin feat/creative-direct-drive-bridge-20261021
+          git merge --no-ff --no-edit -X ours FETCH_HEAD -m "chore(creative): reconcile pinned PhotoCraft/FigCraft direct Drive bridge"
+          git diff --check HEAD~1 HEAD
+          echo "Merged creative files:"
+          git diff --name-status HEAD~1 HEAD
+          git push origin HEAD:integration/creative-drive-reconciled-20261021
