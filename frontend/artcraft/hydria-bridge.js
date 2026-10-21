@@ -104,9 +104,19 @@
     } catch { return realInputClick.apply(this, args); }
   };
 
-  function pushToNative(file) {
+  async function pushToNative(file) {
     const canvas = document.getElementById(editor === "photo" ? "photocraft_canvas" : "figcraft_canvas");
     if (!canvas) return false;
+    // The Hydria-patched FigCraft WASM build reads this bounded queue in its
+    // own UI loop and invokes FigCraft engine.file.open with native bytes.
+    // Unlike a synthetic DragEvent, the result is a genuine engine operation.
+    if (editor === "fig" && document.documentElement.dataset.hydriaFigNative === "1") {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      if (!bytes.length || bytes.length > MAX_BINARY) return false;
+      (window.__hydriaFigOpenQueue ||= []).push({name:file.name,bytes});
+      canvas.dispatchEvent(new MouseEvent("mousemove",{bubbles:true,cancelable:true}));
+      return true;
+    }
     const transfer = new DataTransfer();
     transfer.items.add(file);
     try {
@@ -118,13 +128,15 @@
   }
   function dispatchWhenReady(file, id) {
     const start = Date.now();
-    function attempt() {
+    async function attempt() {
       if (!pendingOpen || pendingOpen.id !== id) return;
       const loading = document.getElementById(editor === "photo" ? "photocraft_loading" : "figcraft_loading");
-      if (!loading && pushToNative(file)) {
+      const success = !loading && await pushToNative(file).catch(() => false);
+      if (!pendingOpen || pendingOpen.id !== id) return;
+      if (success) {
         pendingOpen = null;
-        // A DOM drop was delivered; only the WASM app can decide whether it
-        // parsed and opened the file. Keep the picker fallback available.
+        // Modified FigCraft processes its queue in the next UI frame.
+        // Upstream engines decide whether the document is valid/opened.
         inform("open-dispatched", { id, name:file.name });
       } else if (Date.now() - start < 25000) {
         setTimeout(attempt, 150);
@@ -133,7 +145,7 @@
         inform("open-picker-needed", { id, name:file.name });
       }
     }
-    attempt();
+    void attempt();
   }
   window.addEventListener("message", event => {
     if (event.origin !== origin || event.source !== window.parent ||
