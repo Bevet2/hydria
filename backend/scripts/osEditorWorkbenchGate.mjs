@@ -112,7 +112,13 @@ try {
         viewport:innerWidth,documentWidth:document.documentElement.scrollWidth,
         save:rect?{left:rect.left,right:rect.right,width:rect.width}:null,
         saveVisible:save ? getComputedStyle(save).visibility!=="hidden" &&
-          getComputedStyle(save).display!=="none" && !!rect?.height : false
+          getComputedStyle(save).display!=="none" && !!rect?.height : false,
+        saveHtml:save?.outerHTML?.slice(0,330),
+        editorType:document.querySelector("#workspace-panel-root")?.dataset.nativeEditor,
+        saveCandidates:[...document.querySelectorAll("button")].filter(el=>
+          /save|enregistrer/i.test((el.textContent||"")+" "+(el.getAttribute("aria-label")||""))
+        ).slice(0,10).map(el=>({text:el.textContent?.trim().slice(0,50),cls:el.className,
+          visible:!!el.getBoundingClientRect().height,rect:el.getBoundingClientRect().right}))
       };
     });
     assert.ok(mobile.documentWidth<=mobile.viewport+5,
