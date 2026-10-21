@@ -44,6 +44,7 @@ export function renderPhotoCraftDriveLibrary(container, {
   notice.setAttribute("role", "status");
   const list = node("div", "hydria-photocraft-projects");
   let busy = false;
+  let deepLinkOpened = false;
   const controls = new Set();
   function setBusy(value) {
     busy = value;
@@ -155,7 +156,13 @@ export function renderPhotoCraftDriveLibrary(container, {
         list.append(row);
         if (targetPhotoProjectId && String(item.id) === targetPhotoProjectId) {
           row.classList.add("hydria-artcraft-target-image");
-          // Open the file's history on direct navigation from Drive.
+          // A Drive link is an explicit request to OPEN the actual editor file,
+          // not just highlight its metadata. Only open once after navigation:
+          // history/refresh triggered by a save must never reload the editor.
+          if (!deepLinkOpened && typeof onOpen === "function") {
+            deepLinkOpened = true;
+            void onOpen({ ...item, kind: "project" });
+          }
           historyButton.click();
         }
       }
