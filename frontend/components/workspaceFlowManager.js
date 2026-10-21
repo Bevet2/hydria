@@ -268,7 +268,8 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
   const abort = new AbortController();
   const onKey = (event) => {
     if (!host.isConnected || !host.contains(document.activeElement) || isFormControl(event.target)) return;
-    if ((event.key === "Delete" || event.key === "Backspace") && state.selected) {
+    if ((event.key === "Delete" || event.key === "Backspace") && state.selected &&
+        graphWrapper.contains(document.activeElement)) {
       event.preventDefault(); removeSelected();
     } else if (event.key === "Escape") {
       state.pending = ""; render();
@@ -291,6 +292,8 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
       }
     } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
       event.preventDefault(); event.shiftKey ? redo() : undo();
+    } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "y") {
+      event.preventDefault(); redo();
     }
   };
   document.addEventListener("keydown", onKey, { signal: abort.signal });
@@ -414,30 +417,63 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
         card.append(output);
       }
       heading.addEventListener("pointerdown", (event) => {
-        if (event.button !== 0) return;
+        if (event.button !== 0 || !event.isPrimary) return;
         event.preventDefault();
         state.selected = node.id;
+        graph.querySelectorAll(".hydria-flow-node").forEach(el =>
+          el.classList.toggle("is-selected", el.dataset.nodeId === node.id));
+        renderInspector();
+        const pointerId = event.pointerId;
         const startX = event.clientX, startY = event.clientY;
         const oldX = Number(node.x || 0), oldY = Number(node.y || 0);
-        let nextX = oldX, nextY = oldY;
+        let nextX = oldX, nextY = oldY, active = true;
+        heading.setPointerCapture(pointerId);
+        card.classList.add("is-dragging");
         const move = (evt) => {
-          nextX = Math.max(0, Math.round(oldX + (evt.clientX - startX) / state.zoom));
-          nextY = Math.max(0, Math.round(oldY + (evt.clientY - startY) / state.zoom));
+          if (!active || evt.pointerId !== pointerId) return;
+          // Clamp to the workflow canvas just as keyboard movement does.
+          nextX = Math.max(0, Math.min(1584, Math.round(oldX + (evt.clientX - startX) / state.zoom)));
+          nextY = Math.max(0, Math.min(1080, Math.round(oldY + (evt.clientY - startY) / state.zoom)));
           node.x = nextX; node.y = nextY;
           card.style.left = nextX + "px"; card.style.top = nextY + "px";
           renderWires();
         };
-        const up = () => {
-          document.removeEventListener("pointermove", move);
-          document.removeEventListener("pointerup", up);
-          if (nextX !== oldX || nextY !== oldY) {
-            state.history.push(JSON.stringify({ ...state.flow, stages: state.flow.stages.map((s) => s.id === node.id ? { ...s, x: oldX, y: oldY } : s) }));
-            state.future = []; persist();
+        const finish = (commit) => {
+          if (!active) return;
+          active = false;
+          heading.removeEventListener("pointermove", move);
+          heading.removeEventListener("pointerup", up);
+          heading.removeEventListener("pointercancel", cancel);
+          heading.removeEventListener("lostpointercapture", cancel);
+          if (heading.hasPointerCapture(pointerId)) heading.releasePointerCapture(pointerId);
+          card.classList.remove("is-dragging");
+          if (!commit) {
+            // Never persist a partially moved node when the gesture is interrupted.
+            node.x = oldX; node.y = oldY;
+            card.style.left = oldX + "px"; card.style.top = oldY + "px";
+            renderWires();
+            return;
           }
-          render();
+          if (nextX !== oldX || nextY !== oldY) {
+            state.history.push(JSON.stringify({
+              ...state.flow,
+              stages: state.flow.stages.map(s => s.id === node.id ? { ...s, x: oldX, y: oldY } : s)
+            }));
+            if (state.history.length > 40) state.history.shift();
+            state.future = [];
+            state.results = null;
+            state.error = "";
+            persist();
+            render();
+          }
         };
-        document.addEventListener("pointermove", move);
-        document.addEventListener("pointerup", up, { once: true });
+        const up = (evt) => { if (evt.pointerId === pointerId) finish(true); };
+        const cancel = (evt) => { if (evt.pointerId === pointerId) finish(false); };
+        heading.addEventListener("pointermove", move);
+        heading.addEventListener("pointerup", up);
+        heading.addEventListener("pointercancel", cancel);
+        heading.addEventListener("lostpointercapture", cancel);
+        abort.signal.addEventListener("abort", () => finish(false), { once: true });
       });
       graph.append(card);
     });
@@ -1316,11 +1352,12 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
     }
   }
   async function run() {
+    if (state.running) return;
     if (!state.flow.executionHistoryId) {
       state.flow.executionHistoryId = crypto.randomUUID();
       persist();
     }
-    state.running = true; state.error = ""; state.results = null; renderConsole();
+    state.running = true; state.error = ""; state.results = null; renderActions(); renderConsole();
     try {
       const response = await fetch("/api/flows/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ flow: state.flow, historyId: state.flow.executionHistoryId, sampleLimit: 30 }) });
       const result = await response.json();
@@ -1331,7 +1368,7 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
       if (!response.ok && !result.errors?.length) state.error = "Flow execution failed.";
     } catch (error) { state.error = error.message || String(error); }
     finally {
-      state.running = false; renderConsole(); renderInspector();
+      state.running = false; renderActions(); renderConsole(); renderInspector();
       await loadRunHistory();
     }
   }
@@ -1345,10 +1382,17 @@ export function renderHydriaFlowManager(host, { content = "", onChange = null, t
       el.title = (pressed ? "Hide " : "Show ") + label.toLowerCase();
       return el;
     };
+    const runButton = button(state.running ? "Running…" : "▶ Run", () => { void run(); }, "hydria-flow-primary");
+    runButton.disabled = state.running;
+    runButton.setAttribute("aria-busy", String(state.running));
+    const undoButton = button("Undo", undo, "hydria-flow-secondary");
+    undoButton.disabled = state.history.length === 0;
+    undoButton.title = "Undo last edit (Ctrl/⌘ + Z)";
+    const redoButton = button("Redo", redo, "hydria-flow-secondary");
+    redoButton.disabled = state.future.length === 0;
+    redoButton.title = "Redo edit (Ctrl/⌘ + Shift + Z or Ctrl + Y)";
     actions.append(
-      button("▶ Run", () => { void run(); }, "hydria-flow-primary"),
-      button("Undo", undo, "hydria-flow-secondary"),
-      button("Redo", redo, "hydria-flow-secondary"),
+      runButton, undoButton, redoButton,
       button("Fit", () => {
         const fit=flowGraphFit(state.flow.stages,graphWrapper.clientWidth,graphWrapper.clientHeight);
         state.zoom=fit.zoom;
