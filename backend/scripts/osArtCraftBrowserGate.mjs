@@ -82,7 +82,7 @@ try {
   assert.ok(figSandbox.split(/\s+/).includes("allow-downloads"),
     "FigCraft native File > Save must be permitted in the iframe");
   assert.equal(await page.getByLabel("Importer une image PhotoCraft dans Drive").count(),0);
-  await page.getByText("FigCraft Web v0.8 sait ouvrir et sauvegarder").waitFor();
+  await page.getByText("Fichier > Enregistrer renvoie le projet natif vers Drive", { exact:false }).waitFor();
   await page.getByLabel("Importer un projet FigCraft dans Drive").waitFor();
   assert.deepEqual(errors,[]);
   console.log("Photo/Design browser gate: routes, versioned image upload and history, deep links, missing runtimes, iframe mounts.");

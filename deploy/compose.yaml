@@ -8,6 +8,7 @@ services:
         INSTALL_PDFCRAFT: ${HYDRIA_INSTALL_PDFCRAFT:-false}
         INSTALL_PHOTOCRAFT: ${HYDRIA_INSTALL_PHOTOCRAFT:-false}
         INSTALL_FIGCRAFT: ${HYDRIA_INSTALL_FIGCRAFT:-false}
+        INSTALL_FIGCRAFT_NATIVE: ${HYDRIA_INSTALL_FIGCRAFT_NATIVE:-false}
     restart: unless-stopped
     init: true
     env_file:

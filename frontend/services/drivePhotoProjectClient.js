@@ -39,13 +39,16 @@ export async function storePhotoProject(file, { id = null, expectedRevision = nu
     throw Error("Le fichier PhotoCraft doit faire entre 32 octets et 30 Mio.");
   }
   const name = String(file.name || "photoProject.pcraft");
-  if (!name.toLowerCase().endsWith(".pcraft")) {
-    throw Error("Sélectionnez un projet natif .pcraft exporté par PhotoCraft.");
+  if (!/\.(pcraft|psd|psb)$/i.test(name)) {
+    throw Error("Sélectionnez un projet .pcraft ou un document Photoshop .psd/.psb.");
   }
-  // The server independently validates ZIP headers and document.json.
+  // Shallow upfront signature check. The server separately validates the
+  // native ZIP manifest or Photoshop PSD/PSB header and byte-size limits.
   const prefix = new Uint8Array(await file.slice(0, 4).arrayBuffer());
-  if (String.fromCharCode(...prefix) !== "PK\x03\x04") {
-    throw Error("Le fichier sélectionné n'est pas une archive .pcraft valide.");
+  const signature = String.fromCharCode(...prefix);
+  const zip = name.toLowerCase().endsWith(".pcraft");
+  if (zip ? signature !== "PK\x03\x04" : signature !== "8BPS") {
+    throw Error("Le fichier sélectionné ne correspond pas au format annoncé.");
   }
   const form = new FormData();
   form.append("file", file, name);

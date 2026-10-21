@@ -24,7 +24,7 @@ const FORMATS = Object.freeze({
   photo_project: {
     assets: "drive_photo_project_assets", versions: "drive_photo_project_versions",
     directory: "drive-photo-project-assets", type: "photo_project",
-    ext: () => ".pcraft"
+    ext: (_mime, item) => /\.(pcraft|psd|psb)$/i.exec(String(item?.filename || ""))?.[0]?.toLowerCase()
   },
   image: {
     assets: "drive_image_assets", versions: "drive_image_versions",
@@ -46,11 +46,11 @@ function tables(database) {
     .map((row) => row.name));
 }
 function validStorageKey(key, format) {
-  return typeof key === "string" && /^[a-f0-9-]{36}\.(?:pdf|figcraft|pcraft|png|jpg|webp)$/i.test(key) &&
+  return typeof key === "string" && /^[a-f0-9-]{36}\.(?:pdf|figcraft|pcraft|psd|psb|png|jpg|webp)$/i.test(key) &&
     UUID.test(key.slice(0, 36)) &&
     (format === "pdf" ? key.endsWith(".pdf") :
       format === "design" ? key.endsWith(".figcraft") :
-      format === "photo_project" ? key.endsWith(".pcraft") : /\.(png|jpg|webp)$/i.test(key));
+      format === "photo_project" ? /\.(pcraft|psd|psb)$/i.test(key) : /\.(png|jpg|webp)$/i.test(key));
 }
 export async function inspectDriveSnapshot(databaseFile, dataDir) {
   const database = new Database(databaseFile, { readonly: true, fileMustExist: true });
@@ -91,7 +91,7 @@ export async function inspectDriveSnapshot(databaseFile, dataDir) {
         const rows = versions.length ? versions : [{
           asset_id: asset.id, revision: 1, filename: asset.filename,
           mime: asset.mime, size: asset.size, sha256: asset.sha256,
-          storage_key: asset.id + (info.ext(asset.mime) || "")
+          storage_key: asset.id + (info.ext(asset.mime, asset) || "")
         }];
         if (versions.length === 0 && expectedCurrent !== 1) {
           fail("missing " + format + " revision history for " + asset.id);
@@ -112,7 +112,7 @@ export async function inspectDriveSnapshot(databaseFile, dataDir) {
           if (!validStorageKey(row.storage_key, format) || references.has(row.storage_key)) {
             fail("invalid or duplicate " + format + " binary key for " + asset.id);
           }
-          const expectedExtension = info.ext(row.mime);
+          const expectedExtension = info.ext(row.mime, row);
           if (!expectedExtension || !row.storage_key.toLowerCase().endsWith(expectedExtension)) {
             fail("mismatched " + format + " file extension for " + asset.id);
           }
