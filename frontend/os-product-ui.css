@@ -752,3 +752,9 @@ html body[data-os-theme="dark"] .hydria-photocraft-project-icon{color:#fbcfe8;ba
 html body[data-os-theme="dark"] .hydria-artcraft-bridge-status{background:#232a3f;color:#e2e8f0;border-color:#495578}
 html body[data-os-theme="dark"] .hydria-artcraft-bridge-status[data-status="success"]{background:#153d34;border-color:#2b9679;color:#b7f8d1}
 html body[data-os-theme="dark"] .hydria-artcraft-bridge-status[data-status="error"]{background:#4a202e;border-color:#ac5362;color:#ffcad5}
+
+
+/* Real fullscreen retains the iframe window and its authenticated Drive bridge. */
+.hydria-artcraft-viewport:fullscreen{height:100dvh;width:100vw;max-width:none;min-height:0;border:0;border-radius:0;background:#151b2c;}
+.hydria-artcraft-viewport:fullscreen .hydria-artcraft-frame{height:100dvh;width:100%;min-height:0;}
+.hydria-artcraft-viewport::backdrop{background:#151b2c;}
