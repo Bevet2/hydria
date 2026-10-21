@@ -23,7 +23,7 @@ async function httpUpload(url, bytes, filename, revision=null) {
   form.append("file",new Blob([bytes]),filename);
   if (revision!==null) form.append("expectedRevision",String(revision));
   const response=await fetch(base+url,{method:"POST",body:form});
-  assert.equal(response.status,revision===null?201:201,await response.text().catch(()=> ""));
+  if (response.status!==201) throw Error("Drive upload failed: "+response.status+" "+await response.text());
   return response.json();
 }
 async function waitRealEngine(editor) {
@@ -41,6 +41,7 @@ async function waitRealEngine(editor) {
 try {
   // The PhotoCraft real WASM must receive an image from Drive without a local
   // download; its native File > Save should make a durable Drive revision.
+  const projectsBefore=(await fetch(base+"/api/drive/photo-projects").then(r=>r.json())).items.length;
   let stored=await httpUpload("/api/drive/image-assets",image,"real-open.png");
   let {iframe,canvas}=await waitRealEngine("photo");
   const photoRow=page.locator(".hydria-artcraft-image-item").filter({hasText:"real-open.png"});
@@ -55,8 +56,7 @@ try {
   const nativeCreated=(await fetch(base+"/api/drive/photo-projects").then(r=>r.json())).items;
   // PhotoCraft can either re-save an imported image as raster or save it as
   // an editable native .pcraft. Reject a no-op where neither was persisted.
-  assert.ok(versioned.revision>=2 ||
-    nativeCreated.some(x=>x.created_at>=stored.created_at),
+  assert.ok(versioned.revision>=2 || nativeCreated.length>projectsBefore,
     "Real PhotoCraft Ctrl+S did not reach Drive");
   await page.screenshot({path:"artifacts/hydria-real-photo-after-save.png",fullPage:true});
 
