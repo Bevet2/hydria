@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { chromium } from "playwright";
 
-const base = String(process.env.HYDRIA_VISUAL_BASE_URL || "http://127.0.0.1:3001").replace(/\\/$/,"");
+const base = String(process.env.HYDRIA_VISUAL_BASE_URL || "http://127.0.0.1:3001");
 const UUIDS = {
   pdf:"20000000-0000-4000-8000-000000000001",
   image:"20000000-0000-4000-8000-000000000002",
@@ -41,7 +41,7 @@ try {
   // Opening a native asset must navigate to its editor rather than calling
   // the ordinary work-object selector with an unrelated UUID.
   await page.locator(".hydria-command-result").filter({hasText:names[2]}).click();
-  await page.waitForURL(/\\/workspace\\/fig\\?designId=/,{timeout:20000});
+  await page.waitForURL(url => url.pathname === "/workspace/fig" && url.searchParams.has("designId"), { timeout: 20000 });
   assert.equal(new URL(page.url()).searchParams.get("designId"),UUIDS.design);
   assert.deepEqual(errors,[],"No browser JS exceptions while opening from global search");
   console.log("Global search reaches all four Drive native asset types and deep-links FigCraft.");
