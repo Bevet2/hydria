@@ -3,7 +3,7 @@ import AdmZip from "adm-zip";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { ARTCRAFT_WEB_RELEASES, installArtCraftWeb, validateArtCraftBuild } from "./installArtCraftWeb.mjs";
+import { ARTCRAFT_WEB_RELEASES, installArtCraftWeb, validateArtCraftBuild, injectHydriaArtCraftBridge } from "./installArtCraftWeb.mjs";
 import { unpackPdfCraftArchive } from "./installPdfCraft.mjs";
 import { ARTCRAFT_EDITORS, artCraftWebPath } from "../../frontend/components/artCraftWorkspaces.js";
 import { workspacePageFromSlug, parseWorkspacePagePath } from "../../frontend/components/workspaceSurfaceRegistry.js";
@@ -20,6 +20,14 @@ for (const [key,slug,folder] of [["photo","photo","photocraft"],["fig","fig","fi
   assert.match(ARTCRAFT_WEB_RELEASES[key].sha256, /^[0-9a-f]{64}$/);
   assert.ok(ARTCRAFT_WEB_RELEASES[key].archiveUrl.startsWith("https://github.com/storytold/"));
 }
+for (const editor of ["photo","fig"]) {
+  const index = '<html><head><title>Official</title></head><body><script src="wasm-glue.js"></script></body></html>';
+  const decorated = injectHydriaArtCraftBridge(index, editor);
+  assert.ok(decorated.includes('data-hydria-editor="' + editor + '"'));
+  assert.ok(decorated.indexOf("/artcraft/hydria-bridge.js") < decorated.indexOf("wasm-glue.js"));
+  assert.throws(() => injectHydriaArtCraftBridge(decorated, editor), /already injected/);
+}
+assert.throws(() => injectHydriaArtCraftBridge("<html></html>", "photo"), /entrypoint invalid/);
 assert.throws(() => artCraftWebPath("unknown"), /Unknown/);
 await assert.rejects(installArtCraftWeb("fake"), /Unknown/);
 await assert.rejects(

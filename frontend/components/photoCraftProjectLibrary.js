@@ -3,7 +3,7 @@
 // host protocol. Every upload is an explicit user action.
 import { photoProjectFileUrl, listPhotoProjects, listPhotoProjectVersions, storePhotoProject } from "../services/drivePhotoProjectClient.js";
 
-const NATIVE_EXTENSION = ".pcraft";
+const NATIVE_EXTENSION = ".pcraft,.psd,.psb";
 function node(tag, className = "", text = "") {
   const result = document.createElement(tag);
   if (className) result.className = className;
@@ -15,7 +15,8 @@ function prettyBytes(value) {
 }
 
 export function renderPhotoCraftDriveLibrary(container, {
-  targetPhotoProjectId = new URLSearchParams(window.location.search).get("photoProjectId")
+  targetPhotoProjectId = new URLSearchParams(window.location.search).get("photoProjectId"),
+  onOpen = null
 } = {}) {
   if (!container) return;
   container.replaceChildren();
@@ -27,22 +28,23 @@ export function renderPhotoCraftDriveLibrary(container, {
   reload.type = "button";
   heading.append(reload);
   const guide = node("p", "hydria-photocraft-guide",
-    "Dans PhotoCraft v0.11.1 : Fichier > Enregistrer télécharge un projet .pcraft. " +
+    "PhotoCraft v0.11.1 enregistre en .pcraft ou en Photoshop .psd / .psb selon le document. " +
     "Importez ce fichier ci-dessous pour le conserver dans Hydria Drive. " +
-    "Pour le rouvrir : téléchargez-le depuis Drive, puis choisissez Fichier > Ouvrir dans PhotoCraft.");
+    "Vous pouvez aussi cliquer sur « Ouvrir directement » sans télécharger le fichier.");
   const uploadBox = node("div", "hydria-artcraft-upload-box");
-  const uploadLabel = node("label", "hydria-photocraft-upload-label", "Importer un projet .pcraft dans Drive");
+  const uploadLabel = node("label", "hydria-photocraft-upload-label", "Importer un projet .pcraft / .psd / .psb dans Drive");
   const importFile = node("input", "hydria-photocraft-project-upload");
   importFile.type = "file";
   importFile.accept = NATIVE_EXTENSION;
   importFile.setAttribute("aria-label", "Importer un projet PhotoCraft dans Drive");
   uploadLabel.append(importFile);
   uploadBox.append(uploadLabel, node("small", "",
-    "Archive native .pcraft · 30 Mio maximum · import explicite, pas de synchronisation automatique"));
+    "PhotoCraft .pcraft / Photoshop .psd,.psb · 30 Mio maximum · contrôle de version automatique via Drive"));
   const notice = node("p", "hydria-artcraft-image-feedback");
   notice.setAttribute("role", "status");
   const list = node("div", "hydria-photocraft-projects");
   let busy = false;
+  let deepLinkOpened = false;
   const controls = new Set();
   function setBusy(value) {
     busy = value;
@@ -85,7 +87,7 @@ export function renderPhotoCraftDriveLibrary(container, {
       list.replaceChildren();
       if (!items.length) {
         list.append(node("p", "hydria-artcraft-empty",
-          "Aucun projet dans Drive. Enregistrez un projet dans PhotoCraft puis importez son fichier ici."));
+          "Aucun projet dans Drive. Ouvrez directement depuis Drive, enregistrez dans PhotoCraft, ou importez un document ici."));
       }
       for (const item of items) {
         const row = node("article", "hydria-photocraft-project-item");
@@ -100,6 +102,12 @@ export function renderPhotoCraftDriveLibrary(container, {
         download.href = photoProjectFileUrl(item.id);
         download.setAttribute("download", item.filename || "photoProject.pcraft");
         download.title = "Téléchargez le fichier puis ouvrez-le dans PhotoCraft avec Fichier > Ouvrir";
+        const openEditor = node("button", "hydria-artcraft-button hydria-artcraft-direct-open", "Ouvrir directement");
+        openEditor.type = "button";
+        openEditor.title = "Ouvrir les octets du projet Drive dans le moteur créatif sans téléchargement";
+        openEditor.addEventListener("click", () => {
+          if (typeof onOpen === "function" && !busy) onOpen({ ...item, kind:"project" });
+        });
         const newVersion = node("button", "hydria-artcraft-button hydria-photocraft-version-button",
           "Nouvelle version");
         newVersion.type = "button";
@@ -144,11 +152,17 @@ export function renderPhotoCraftDriveLibrary(container, {
         });
         controls.add(historyButton);
         controls.add(newVersion);
-        row.append(icon, details, download, newVersion, historyButton, versionFile, history);
+        row.append(icon, details, openEditor, download, newVersion, historyButton, versionFile, history);
         list.append(row);
         if (targetPhotoProjectId && String(item.id) === targetPhotoProjectId) {
           row.classList.add("hydria-artcraft-target-image");
-          // Open the file's history on direct navigation from Drive.
+          // A Drive link is an explicit request to OPEN the actual editor file,
+          // not just highlight its metadata. Only open once after navigation:
+          // history/refresh triggered by a save must never reload the editor.
+          if (!deepLinkOpened && typeof onOpen === "function") {
+            deepLinkOpened = true;
+            void onOpen({ ...item, kind: "project" });
+          }
           historyButton.click();
         }
       }
@@ -180,4 +194,5 @@ export function renderPhotoCraftDriveLibrary(container, {
   section.append(heading, guide, uploadBox, notice, list);
   container.append(section);
   refresh();
+  return { refresh };
 }

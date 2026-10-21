@@ -51,7 +51,7 @@ export function safePhotoProjectName(value) {
     .replace(/[\\/\x00-\x1f\x7f<>:"|?*]/g, "_")
     .trim().slice(0, 128);
   if (!cleaned || /^\.+$/.test(cleaned)) cleaned = "photoProject.pcraft";
-  return cleaned.toLowerCase().endsWith(".pcraft") ? cleaned : cleaned + ".pcraft";
+  return /\.(pcraft|psd|psb)$/i.test(cleaned) ? cleaned : cleaned + ".pcraft";
 }
 
 /**
@@ -109,6 +109,35 @@ export function inspectPhotoCraftArchive(bytes) {
   }
   return { format: "pcraft", version: json.format_version, members: entries.length };
 }
+/**
+ * Retain genuine Photoshop PSD/PSB documents without relabelling them as
+ * native PhotoCraft ZIPs. PSD and PSB have the same fixed 26-byte header;
+ * the version field distinguishes regular and large-document formats.
+ * This checks only the envelope, NOT all layer records or malicious payloads.
+ */
+export function inspectPhotoCraftDocument(bytes, name) {
+  const ext=path.extname(String(name||"")).toLowerCase();
+  if(ext===".pcraft") return inspectPhotoCraftArchive(bytes);
+  if(![".psd",".psb"].includes(ext) || !Buffer.isBuffer(bytes) ||
+      bytes.length<26 || bytes.length>MAX_PHOTO_PROJECT_BYTES ||
+      bytes.toString("ascii",0,4)!=="8BPS") {
+    throw new AppError("Unsupported PhotoCraft or Photoshop native document",400);
+  }
+  const version=bytes.readUInt16BE(4);
+  if(version!==(ext===".psd"?1:2) ||
+      !bytes.subarray(6,12).equals(Buffer.alloc(6))) {
+    throw new AppError("Invalid Photoshop document header",400);
+  }
+  const channels=bytes.readUInt16BE(12),height=bytes.readUInt32BE(14),
+    width=bytes.readUInt32BE(18),depth=bytes.readUInt16BE(22),
+    mode=bytes.readUInt16BE(24);
+  if(channels<1 || channels>56 || !width || !height ||
+      width>300000 || height>300000 || ![1,8,16,32].includes(depth) ||
+      mode>9) {
+    throw new AppError("Invalid Photoshop document dimensions or colour mode",400);
+  }
+  return {format:ext.slice(1),version,width,height,channels};
+}
 function handleUpload(req, res, next) {
   upload.single("file")(req, res, error => {
     if (error instanceof multer.MulterError) {
@@ -121,10 +150,11 @@ function handleUpload(req, res, next) {
 }
 function incoming(req) {
   const bytes = req.file?.buffer;
-  inspectPhotoCraftArchive(bytes);
+  const filename = safePhotoProjectName(req.file?.originalname);
+  inspectPhotoCraftDocument(bytes, filename);
   return {
     bytes,
-    filename: safePhotoProjectName(req.file?.originalname),
+    filename,
     sha256: createHash("sha256").update(bytes).digest("hex")
   };
 }
@@ -148,7 +178,7 @@ function respondSaved(res, asset) {
 router.post("/", handleUpload, async (req, res, next) => {
   try {
     ensureSchema();
-    const file = incoming(req), id = randomUUID(), key = id + ".pcraft";
+    const file = incoming(req), id = randomUUID(), key = id + path.extname(file.filename).toLowerCase();
     const now = new Date().toISOString();
     await storeBytes(key, file.bytes);
     try {
@@ -194,7 +224,7 @@ router.post("/:id/versions", handleUpload, async (req, res, next) => {
     const asset = getAsset(id);
     if (asset.revision !== expected) throw new AppError("PhotoCraft photoProject has a newer revision", 409);
     const file = incoming(req);
-    const key = randomUUID() + ".pcraft", now = new Date().toISOString();
+    const key = randomUUID() + path.extname(file.filename).toLowerCase(), now = new Date().toISOString();
     await storeBytes(key, file.bytes);
     try {
       db.transaction(() => {
@@ -233,7 +263,7 @@ async function download(req, res, next) {
     const saved = db.prepare("SELECT * FROM drive_photo_project_versions " +
       "WHERE asset_id=? AND revision=?").get(asset.id, revision);
     if (!saved) throw new AppError("PhotoCraft revision not found", 404);
-    if (!/^[0-9a-f-]{36}\.pcraft$/i.test(saved.storage_key) ||
+    if (!/^[0-9a-f-]{36}\.(pcraft|psd|psb)$/i.test(saved.storage_key) ||
         !ID.test(saved.storage_key.slice(0, 36))) {
       throw new AppError("Invalid PhotoCraft storage key", 500);
     }
