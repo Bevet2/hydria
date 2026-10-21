@@ -25,6 +25,15 @@ try {
         headers:{"Cache-Control":"no-store"},body:JSON.stringify({items})});
     });
   }
+  // Regression for the old 40-result cap: native files must not be hidden by
+  // a large list of similarly named remote work objects.
+  await page.route(url => url.pathname === "/api/work-objects/search", async route => {
+    const found = Array.from({length:60}, (_,i)=>({
+      id:"work-" + i, title:"search-gate-notes-" + i,kind:"document",primaryFile:"notes.md"
+    }));
+    await route.fulfill({status:200,contentType:"application/json",
+      body:JSON.stringify({results:found})});
+  });
   await page.goto(base + "/workspace/drive",{waitUntil:"domcontentloaded"});
   await page.waitForFunction(()=>document.documentElement.dataset.hydriaBoot==="ready");
   const opener = page.locator("#os-command-search");
@@ -36,8 +45,11 @@ try {
     await page.locator(".hydria-command-result").filter({hasText:name})
       .waitFor({state:"visible",timeout:20000});
   }
-  assert.equal(await page.locator(".hydria-command-result").count(),4,
-    "The search should include PDF, image, design, and photo project");
+  assert.equal(await page.locator(".hydria-command-result").count(),40,
+    "The palette caps mixed native and work object hits at 40");
+  const firstFour = await page.locator(".hydria-command-result").allTextContents();
+  assert.ok(names.every(name => firstFour.slice(0,4).some(text => text.includes(name))),
+    "All four native Drive asset types must remain visible ahead of 60 work objects");
   // Opening a native asset must navigate to its editor rather than calling
   // the ordinary work-object selector with an unrelated UUID.
   await page.locator(".hydria-command-result").filter({hasText:names[2]}).click();
