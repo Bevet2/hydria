@@ -348,21 +348,44 @@ jobs:
         run: node backend/scripts/osPdfCraftBrowserGate.mjs
       - name: PhotoCraft and FigCraft browser and image Drive acceptance
         run: node backend/scripts/osArtCraftBrowserGate.mjs
-      - name: Real browser host bridge, direct native save and 409 recovery
-        run: node backend/scripts/osArtCraftHostBridgeBrowserGate.mjs
       - name: Native FigCraft project import, revision history and Drive navigation
         run: node backend/scripts/osFigCraftDriveBrowserGate.mjs
       - name: Verify native PhotoCraft browser test source syntax
         run: node --check backend/scripts/osPhotoCraftProjectsBrowserGate.mjs
       - name: Native PhotoCraft project import and Drive revision history
         run: node backend/scripts/osPhotoCraftProjectsBrowserGate.mjs
-      - name: Authentic PhotoCraft and FigCraft WASM boot, open and save
+
+  creative-browser:
+    name: Native ArtCraft Drive integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci --prefix backend --no-audit --no-fund
+      - run: npx --prefix backend playwright install --with-deps chromium
+      - name: Start isolated Hydria private-pilot integration instance
+        run: |
+          npm run start --prefix backend > /tmp/hydria-artcraft-ci.log 2>&1 &
+          ready=false
+          for i in {1..35}; do
+            if curl --fail --silent http://127.0.0.1:3001/api/health >/dev/null; then ready=true; break; fi
+            sleep 1
+          done
+          if [ "$ready" != "true" ]; then cat /tmp/hydria-artcraft-ci.log; exit 1; fi
+      - name: Test native pickers, direct saves and recovery in Chromium
+        run: node backend/scripts/osArtCraftHostBridgeBrowserGate.mjs
+      - name: Authentic pinned PhotoCraft and FigCraft engines
         run: |
           trap 'rm -rf frontend/vendor/photocraft frontend/vendor/figcraft' EXIT
           node backend/scripts/installArtCraftWeb.mjs photo
           node backend/scripts/installArtCraftWeb.mjs fig
           node backend/scripts/osArtCraftRealWasmBrowserGate.mjs
-      - name: Upload authentic creative editor WASM captures
+      - name: Upload genuine WASM editor screenshots
         if: always()
         uses: actions/upload-artifact@v4
         with:
