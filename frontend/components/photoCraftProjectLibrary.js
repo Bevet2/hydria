@@ -3,7 +3,7 @@
 // host protocol. Every upload is an explicit user action.
 import { photoProjectFileUrl, listPhotoProjects, listPhotoProjectVersions, storePhotoProject } from "../services/drivePhotoProjectClient.js";
 
-const NATIVE_EXTENSION = ".pcraft";
+const NATIVE_EXTENSION = ".pcraft,.psd,.psb";
 function node(tag, className = "", text = "") {
   const result = document.createElement(tag);
   if (className) result.className = className;
@@ -32,14 +32,14 @@ export function renderPhotoCraftDriveLibrary(container, {
     "Importez ce fichier ci-dessous pour le conserver dans Hydria Drive. " +
     "Pour le rouvrir : téléchargez-le depuis Drive, puis choisissez Fichier > Ouvrir dans PhotoCraft.");
   const uploadBox = node("div", "hydria-artcraft-upload-box");
-  const uploadLabel = node("label", "hydria-photocraft-upload-label", "Importer un projet .pcraft dans Drive");
+  const uploadLabel = node("label", "hydria-photocraft-upload-label", "Importer un projet .pcraft / .psd / .psb dans Drive");
   const importFile = node("input", "hydria-photocraft-project-upload");
   importFile.type = "file";
   importFile.accept = NATIVE_EXTENSION;
   importFile.setAttribute("aria-label", "Importer un projet PhotoCraft dans Drive");
   uploadLabel.append(importFile);
   uploadBox.append(uploadLabel, node("small", "",
-    "Archive native .pcraft · 30 Mio maximum · import explicite, pas de synchronisation automatique"));
+    "PhotoCraft .pcraft / Photoshop .psd,.psb · 30 Mio maximum · contrôle de version automatique via Drive"));
   const notice = node("p", "hydria-artcraft-image-feedback");
   notice.setAttribute("role", "status");
   const list = node("div", "hydria-photocraft-projects");
