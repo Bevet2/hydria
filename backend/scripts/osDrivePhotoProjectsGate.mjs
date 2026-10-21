@@ -87,4 +87,49 @@ const huge = new FormData();
 huge.append("file",new Blob([Buffer.alloc(30*1024*1024+32)]),"huge.pcraft");
 assert.equal((await fetch(api,{method:"POST",body:huge})).status,413);
 assert.equal((await fetch(api).then(r=>r.json())).items.length,before.length+1);
-console.log("Native PhotoCraft Drive passed: ZIP contract, upload/download identical, revision 2, 409, history and limits.");
+
+// PhotoCraft's real web Save can produce a layered Photoshop PSD/PSB,
+// not merely .pcraft. Keep the original bytes and extension unchanged.
+function photoshopDocument(version = 1) {
+  const data = Buffer.alloc(72);
+  data.write("8BPS", 0, 4, "ascii");
+  data.writeUInt16BE(version, 4);
+  data.writeUInt16BE(3, 12);
+  data.writeUInt32BE(24, 14);
+  data.writeUInt32BE(48, 18);
+  data.writeUInt16BE(8, 22);
+  data.writeUInt16BE(3, 24);
+  return data;
+}
+for (const [ext,version] of [["psd",1],["psb",2]]) {
+  const initial = photoshopDocument(version);
+  const saved = await upload(initial, "calques." + ext);
+  assert.equal(saved.status, 201, "Native Photoshop " + ext + " upload must succeed");
+  const asset = await saved.json();
+  assert.equal(asset.filename,"calques." + ext);
+  assert.equal(asset.sha256,sha(initial));
+  assert.deepEqual(
+    Buffer.from(await fetch(api+"/"+asset.id+"/download").then(r=>r.arrayBuffer())),initial
+  );
+  const changed = Buffer.concat([initial,Buffer.from("modified Photoshop bytes")]);
+  const secondResponse = await upload(changed, "calques." + ext, {
+    assetId:asset.id,expectedRevision:1
+  });
+  assert.equal(secondResponse.status,201);
+  assert.equal((await secondResponse.json()).revision,2);
+  assert.deepEqual(
+    Buffer.from(await fetch(api+"/"+asset.id+"/download").then(r=>r.arrayBuffer())),changed
+  );
+  assert.deepEqual(
+    Buffer.from(await fetch(api+"/"+asset.id+"/versions/1/download").then(r=>r.arrayBuffer())),initial
+  );
+  assert.equal((await upload(initial,"stale."+ext,{
+    assetId:asset.id,expectedRevision:1
+  })).status,409);
+  // A malicious or mislabeled binary must not be stored.
+  assert.equal((await upload(initial,"mismatch."+ (ext === "psd" ? "psb" : "psd"))).status,400);
+  const corrupt=Buffer.from(initial);
+  corrupt.write("RIFF",0,4,"ascii");
+  assert.equal((await upload(corrupt,"bad."+ext)).status,400);
+}
+console.log("Native PhotoCraft Drive passed: ZIP + PSD/PSB byte-exact versions, 409, history and limits.");
