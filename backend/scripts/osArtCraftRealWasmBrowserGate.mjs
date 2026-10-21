@@ -1,13 +1,53 @@
 import assert from "node:assert/strict";
 import AdmZip from "adm-zip";
 import { createHash } from "node:crypto";
+import { deflateSync } from "node:zlib";
 import { mkdir, writeFile } from "node:fs/promises";
 import { chromium } from "playwright";
 
 const base = process.env.HYDRIA_TEST_ORIGIN || "http://127.0.0.1:3001";
 const sourceUrl = "https://raw.githubusercontent.com/storytold/figcraft/v0.8.0/examples/ridgeline-studio-dashboard.figcraft";
 const sourceGitBlobSha1 = "c09f869d786855924b351102196c013554ed44fe";
-const image = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAY0lEQVR4nO3PQQ3AIADAQEASmtCOjongcVnSU9DOu8/4s6UDXjWgNaA1oDWgNaA1oDWgNaA1oDWgNaA1oDWgNaA1oDWgNaA1oDWgNaA1oDWgNaA1oDWgNaA1oDWgNaA1oDWgNaA1oDWgfeGnAfyCFXjSAAAAAElFTkSuQmCC", "base64");
+// Generate a standards-compliant PNG instead of copying a fragile base64 test
+// literal. CRCs are calculated for every chunk and decoded by real PhotoCraft.
+function crc32(bytes) {
+  let value=0xffffffff;
+  for(const byte of bytes) {
+    value ^= byte;
+    for(let bit=0;bit<8;bit++)
+      value = (value >>> 1) ^ ((value & 1) ? 0xedb88320 : 0);
+  }
+  return (value ^ 0xffffffff) >>> 0;
+}
+function pngChunk(type,data) {
+  const chunk=Buffer.alloc(data.length+12);
+  chunk.writeUInt32BE(data.length,0);
+  chunk.write(type,4,4,"ascii");
+  data.copy(chunk,8);
+  chunk.writeUInt32BE(crc32(chunk.subarray(4,8+data.length)),8+data.length);
+  return chunk;
+}
+function createValidPng(width=64,height=64) {
+  const ihdr=Buffer.alloc(13);
+  ihdr.writeUInt32BE(width,0);
+  ihdr.writeUInt32BE(height,4);
+  ihdr[8]=8;ihdr[9]=2; // RGB, 8 bits per channel
+  const scan=Buffer.alloc(height*(1+width*3));
+  for(let y=0;y<height;y++)
+    for(let x=0;x<width;x++) {
+      const offset=y*(1+width*3)+1+x*3;
+      scan[offset]=(x*3)&255;
+      scan[offset+1]=(y*3)&255;
+      scan[offset+2]=180;
+    }
+  return Buffer.concat([
+    Buffer.from([137,80,78,71,13,10,26,10]),
+    pngChunk("IHDR",ihdr),
+    pngChunk("IDAT",deflateSync(scan)),
+    pngChunk("IEND",Buffer.alloc(0))
+  ]);
+}
+const image=createValidPng();
 const browser = await chromium.launch({
   headless:true,
   args:["--no-sandbox","--use-angle=swiftshader","--enable-unsafe-swiftshader","--disable-gpu-sandbox"]
