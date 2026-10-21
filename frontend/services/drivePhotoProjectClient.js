@@ -21,20 +21,20 @@ export function photoProjectFileUrl(id, revision = null) {
   }
   return target + "/versions/" + Number(revision) + "/download";
 }
-export async function listDesigns() {
+export async function listPhotoProjects() {
   const response = await requireOk(await fetch(API, { credentials: "same-origin", cache: "no-store" }));
   const value = await response.json();
   if (!Array.isArray(value.items)) throw Error("Réponse Drive PhotoCraft invalide");
   return value.items;
 }
-export async function listDesignVersions(id) {
+export async function listPhotoProjectVersions(id) {
   const response = await requireOk(await fetch(API + "/" + encodeURIComponent(requireId(id)) +
     "/versions", { credentials: "same-origin", cache: "no-store" }));
   const value = await response.json();
   if (!Array.isArray(value.items)) throw Error("Historique PhotoCraft invalide");
   return value;
 }
-export async function storeDesign(file, { id = null, expectedRevision = null } = {}) {
+export async function storePhotoProject(file, { id = null, expectedRevision = null } = {}) {
   if (!(file instanceof Blob) || file.size < 32 || file.size > PHOTO_PROJECT_LIMIT_BYTES) {
     throw Error("Le fichier PhotoCraft doit faire entre 32 octets et 30 Mio.");
   }
