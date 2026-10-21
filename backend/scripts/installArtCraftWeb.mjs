@@ -15,9 +15,9 @@ import { unpackPdfCraftArchive } from "./installPdfCraft.mjs";
 export const ARTCRAFT_WEB_RELEASES = Object.freeze({
   photo: Object.freeze({
     product: "PhotoCraft",
-    version: "0.10.0",
-    archiveUrl: "https://github.com/storytold/photocraft/releases/download/v0.10.0/photocraft-web-0.10.0.zip",
-    sha256: "b121472d1cdc2f24530b8239c4f32843afdbc1da994244e98a2ce4835b410590",
+    version: "0.11.1",
+    archiveUrl: "https://github.com/storytold/photocraft/releases/download/v0.11.1/photocraft-web-0.11.1.zip",
+    sha256: "f954c8096eeb5ab7ab20cd73445420097a4afde46f3d79547b3c9fe4f03d735f",
     folder: "photocraft",
     requiredFiles: ["index.html", "app/parts.txt", "app/photocraft-web.js"]
   }),
