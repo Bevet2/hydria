@@ -2,7 +2,7 @@
 
 ## État livré par le code
 
-**Hydria Photo** (`/workspace/photo`) charge une distribution **PhotoCraft WebAssembly officielle** sur l'origine Hydria, lorsqu'elle est installée. Elle fournit aussi une bibliothèque d'images persistantes dans Hydria Drive (`PNG`, `JPEG`, `WebP`) et l'import des exports produits par PhotoCraft. Les images peuvent être téléchargées pour être ouvertes manuellement avec **Fichier → Ouvrir** dans l'éditeur.
+**Hydria Photo** (`/workspace/photo`) charge une distribution **PhotoCraft WebAssembly officielle** sur l'origine Hydria, lorsqu'elle est installée. Elle fournit désormais une bibliothèque de **projets natifs éditables `.pcraft`** et une bibliothèque distincte d'images exportées (`PNG`, `JPEG`, `WebP`), toutes deux persistantes et versionnées dans Hydria Drive. Les images peuvent être téléchargées pour être ouvertes manuellement avec **Fichier → Ouvrir** dans l'éditeur.
 
 **Hydria Design** (`/workspace/fig`) embarque la distribution **FigCraft WebAssembly officielle** dans le shell Hydria, quand elle est installée. FigCraft Web **v0.8.0** permet désormais **Fichier → Ouvrir / Enregistrer (téléchargement)**. Hydria stocke les fichiers natifs `.figcraft` dans Drive avec historique, mais le transfert est **manuel** : télécharger depuis Drive, ouvrir dans FigCraft, enregistrer depuis FigCraft, réimporter dans Drive. L'iframe ne possède pas de protocole de sauvegarde directe authentifié.
 
@@ -12,7 +12,7 @@ Ces deux moteurs sont de véritables éditeurs open source écrits en Rust. **Un
 
 | Moteur | Source GitHub | Release contrôlée | SHA-256 archive zip |
 | --- | --- | --- | --- |
-| PhotoCraft | https://github.com/storytold/photocraft | `v0.10.0` (2026-10-18) | `b121472d1cdc2f24530b8239c4f32843afdbc1da994244e98a2ce4835b410590` |
+| PhotoCraft | https://github.com/storytold/photocraft | `v0.11.1` (2026-10-20) | `f954c8096eeb5ab7ab20cd73445420097a4afde46f3d79547b3c9fe4f03d735f` |
 | FigCraft | https://github.com/storytold/figcraft | `v0.8.0` (2026-10-20) | `75fd4821e0ef8793c82bc56d530764f8244a137e55745f49a745838028c9bb51` |
 
 Les sources des instructions d'hébergement sont
@@ -123,3 +123,26 @@ Les binaires sont enregistrés dans `HYDRIA_OS_DATA_DIR/drive-design-assets/` et
 **Validation serveur et limites :** le backend vérifie la structure ZIP superficielle, les limites de taille, la présence d'un `document.json` lisible et son en-tête `format/version`. Ce contrôle **n'est pas** une validation sémantique complète de FigCraft, un antivirus ou une garantie contre un fichier malveillant. L'éditeur est exécuté dans une iframe de même origine, réservée au pilote privé mono-propriétaire. Il n'y a pas encore d'API officielle `postMessage` pour pousser les modifications sans téléchargement intermédiaire. Les tests GitHub vérifient la persistance exacte des octets et l'interface ; la fidélité visuelle d'un projet réel doit encore être contrôlée sur le VPS.
 
 Contrats upstream : [FigCraft v0.8.0](https://github.com/storytold/figcraft/releases/tag/v0.8.0), [web.rs](https://github.com/storytold/figcraft/blob/v0.8.0/apps/figcraft-web/src/web.rs), [format natif](https://github.com/storytold/figcraft/blob/v0.8.0/crates/format/src/lib.rs).
+
+## PhotoCraft v0.11.1 : documents natifs et historique Drive
+
+PhotoCraft possède **deux types d'enregistrement distincts** :
+
+- **Projets natifs `.pcraft`** : documents éditables (calques, masques, objets, réglages, etc.), structurés sous forme d'une archive ZIP incluant `manifest.json` et potentiellement des tuiles compressées `tiles/*.zst` et données `blobs/*.zst`. Cette nouvelle bibliothèque se trouve dans Photo Studio, au-dessus des images exportées.
+- **Exports PNG/JPEG/WebP** : rendus aplatis, déjà conservés dans Drive et toujours disponibles. Un PNG n'est **pas** une sauvegarde complète d'un projet multi-calques.
+
+**Parcours natif réel :** dans PhotoCraft v0.11.1, **Fichier → Enregistrer** déclenche le téléchargement d'un projet `.pcraft`. Importez ce fichier dans **Projets PhotoCraft · Hydria Drive**. Pour continuer un travail, téléchargez ce projet depuis Drive, ouvrez-le via **Fichier → Ouvrir** dans PhotoCraft, enregistrez les modifications dans PhotoCraft puis utilisez **Nouvelle version** dans Drive. Le serveur préserve les versions précédentes et refuse un enregistrement basé sur une révision devenue obsolète (**409 Conflict**). Drive affiche les projets `.pcraft` via son filtre **Projets PhotoCraft**, avec un lien direct vers leur historique.
+
+API authentifiée du pilote privé :
+
+- `POST /api/drive/photo-projects` : fichier natif `.pcraft` en multipart `file` (limite **30 Mio**).
+- `GET /api/drive/photo-projects` et `GET /api/drive/photo-projects/:id` : inventaire et métadonnées.
+- `GET /api/drive/photo-projects/:id/download` : version courante téléchargée à l'identique, avec contrôle SHA-256.
+- `POST /api/drive/photo-projects/:id/versions` : `file` et `expectedRevision`, jusqu'à 50 versions.
+- `GET /api/drive/photo-projects/:id/versions` et `GET /api/drive/photo-projects/:id/versions/:revision/download` : historique et ancienne révision.
+
+Les binaires `.pcraft` sont stockés dans `HYDRIA_OS_DATA_DIR/drive-photo-project-assets/` et répertoriés dans `drive_photo_project_assets` et `drive_photo_project_versions` (SQLite). Ils sont inclus dans la vérification préalable de cohérence des sauvegardes et des restaurations. Les ZIP sont refusés en cas d'entrée suspecte, de taille excessive, de manifeste absent ou de `format_version` incompatible. **Il s'agit d'un contrôle de structure limité**, sans validation complète du document natif ou détection de logiciels malveillants.
+
+**Limite actuelle :** l'éditeur reste une distribution WebAssembly upstream dans une iframe, sans API publique de write-back vers Hydria. Aucun brouillon n'est automatiquement transféré dans Drive : l'utilisateur doit télécharger puis importer explicitement son projet. Pour un déploiement public, une origine isolée, des droits par utilisateur, quotas et une validation approfondie sont nécessaires.
+
+Contrat upstream : [PhotoCraft v0.11.1](https://github.com/storytold/photocraft/releases/tag/v0.11.1), [web.rs](https://github.com/storytold/photocraft/blob/v0.11.1/apps/photocraft-web/src/web.rs) et [format natif `.pcraft`](https://github.com/storytold/photocraft/blob/v0.11.1/book/src/formats/pcraft.md).
