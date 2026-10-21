@@ -21,7 +21,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install free voice client
-        run: python -m pip install --disable-pip-version-check 'edge-tts>=7.0,<9'
+        run: python -m pip install --disable-pip-version-check 'edge-tts>=7.0,<9' 'mutagen>=1.46'
       - name: Generate 15 French neural narration scenes
         run: python tools/video/hydria_neural_voice.py
       - name: Upload audio and timings

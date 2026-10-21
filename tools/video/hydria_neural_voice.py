@@ -5,7 +5,7 @@ import asyncio
 import json
 import os
 from pathlib import Path
-import subprocess
+from mutagen.mp3 import MP3
 import edge_tts
 
 SENTENCES = ["Hydria OS. Une même ambition : réunir nos outils de travail dans un seul environnement.","Une plateforme pour écrire, analyser des données, automatiser des traitements et créer, sans changer d'écosystème.","L'interface partage une navigation commune, une bibliothèque de projets, la recherche et les thèmes clair et sombre.","Avec Docs, on crée et on modifie de vrais documents. La sauvegarde et la réouverture sont testées.","Sheets rassemble tableaux, cellules et formules. Les grands classeurs et les opérations complexes restent à renforcer.","Slides propose la composition des présentations. Les animations et la fidélité des exports restent à perfectionner.","Dashboard permet de construire des vues. Les filtres, les connexions et la mise en page doivent encore gagner en maturité.","Flow Manager relie des sources, des transformations et des résultats : un éditeur de flux visuel inspiré des outils E T L.","Whiteboard offre une surface libre pour organiser des idées, déplacer des éléments et créer des liens.","L'atelier P D F progresse : ouvrir, modifier, sauvegarder, puis rouvrir un fichier fait partie des scénarios validés.","L'interface s'adapte aussi aux petits écrans. Il reste du travail sur l'ergonomie tactile et la robustesse mobile.","Ces images viennent de captures réelles du navigateur pendant les tests automatiques d'Hydria. Ce ne sont pas des maquettes.","Il reste quatre chantiers majeurs : enrichir les éditeurs, fiabiliser les fichiers, terminer la suite créative et sécuriser la livraison.","La suite est claire : stabiliser les fonctionnalités, harmoniser chaque workspace, tester sur de vrais usages, puis déployer.","Hydria OS. Le socle existe déjà. Le prochain défi, c'est d'en faire un produit véritablement abouti."]
@@ -29,8 +29,7 @@ async def make_scene(i, text, voice):
             await edge_tts.Communicate(text=text, voice=voice, rate="+0%", pitch="-1Hz", volume="+0%").save(str(dest))
             if not dest.exists() or dest.stat().st_size < 1000:
                 raise RuntimeError("MP3 missing or too small")
-            probe = subprocess.check_output(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=nw=1:nk=1", str(dest)], text=True).strip()
-            duration = float(probe)
+            duration = float(MP3(dest).info.length)
             if not 0.5 < duration < 120:
                 raise RuntimeError(f"Invalid duration: {duration}")
             print(f"SCENE {i:02d}: {duration:.2f}s ({dest.stat().st_size} bytes)", flush=True)
