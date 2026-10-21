@@ -383,18 +383,20 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
-      - name: Cache pinned FigCraft Rust build
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: .third_party/figcraft -> target
-          key: hydria-figcraft-v0.8.0-native-bridge
-      - name: Clone, patch and typecheck genuine FigCraft Rust source
+      - name: Clone and patch pinned FigCraft Rust source
         run: |
           mkdir -p .third_party
           git clone --depth=1 --branch v0.8.0 https://github.com/storytold/figcraft.git .third_party/figcraft
           test "$(git -C .third_party/figcraft rev-parse HEAD)" = "594dc8c6cf50a03b6d88abce877794f286f759b9"
           node backend/scripts/patchHydriaFigCraft.mjs .third_party/figcraft
-          cargo check --manifest-path .third_party/figcraft/Cargo.toml -p figcraft-web --target wasm32-unknown-unknown
+      - name: Cache verified pinned FigCraft Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .third_party/figcraft -> target
+          key: hydria-figcraft-v0.8.0-native-bridge
+          cache-on-failure: true
+      - name: Typecheck real FigCraft WebAssembly after Rust patch
+        run: cargo check --manifest-path .third_party/figcraft/Cargo.toml -p figcraft-web --target wasm32-unknown-unknown
       - name: Build genuine Hydria-patched FigCraft WebAssembly
         run: |
           cargo install trunk --locked --version 0.21.14
