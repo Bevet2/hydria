@@ -1,0 +1,306 @@
+[
+  {
+    "id": "intro",
+    "cat": "PRODUIT",
+    "title": "Hydria OS",
+    "subtitle": "Tout ce qui existe. Tout ce qu'il reste à construire.",
+    "shot": "os-home",
+    "voice": "Hydria OS. Bien plus qu'une application : un ensemble d'outils réunis dans un environnement unique. Voici le produit, ses fonctionnalités réelles, et les chantiers encore ouverts."
+  },
+  {
+    "id": "ecosystem",
+    "cat": "ÉCOSYSTÈME",
+    "title": "Un environnement. Plusieurs métiers.",
+    "subtitle": "Productivité · IA · CRM · Données · Création",
+    "shot": "os-home",
+    "voice": "Notre objectif : regrouper la productivité, le travail sur les données, la relation client, la création et les agents intelligents, sans multiplier les applications séparées."
+  },
+  {
+    "id": "shell",
+    "cat": "HYDRIA OS",
+    "title": "L'interface commune",
+    "subtitle": "Navigation · Projets · Recherche · Thèmes · Raccourcis",
+    "shot": "os-home",
+    "voice": "Tout part du même socle : navigation partagée, gestion des projets et des fichiers, recherche globale, raccourcis et modes d'affichage. C'est la base de la cohérence d'Hydria."
+  },
+  {
+    "id": "chat",
+    "cat": "HYDRIA CORE",
+    "title": "Chat et assistants IA",
+    "subtitle": "Conversations · Pièces jointes · Projets · Modèles",
+    "shot": "os-chat",
+    "voice": "Hydria Chat centralise les échanges avec les modèles. Il gère les projets, les pièces jointes, les branches de conversation et l'acheminement des demandes vers différents fournisseurs."
+  },
+  {
+    "id": "drive",
+    "cat": "HYDRIA DRIVE",
+    "title": "Fichiers et versions",
+    "subtitle": "Bibliothèques · Recherche · Révisions · Restauration",
+    "shot": "os-drive",
+    "voice": "Hydria Drive rassemble les documents et les ressources. On y retrouve la recherche, les favoris, les historiques de versions et la conservation de fichiers, d'images et de PDF."
+  },
+  {
+    "id": "docs",
+    "cat": "PRODUCTIVITÉ",
+    "title": "Hydria Docs",
+    "subtitle": "Documents · Tableaux · Images · Commentaires · PDF / DOCX",
+    "shot": "os-docs",
+    "voice": "Docs permet de modifier des documents, des sections, des tableaux, des images et des commentaires. L'import, l'export et la fidélité des mises en page complexes restent à améliorer."
+  },
+  {
+    "id": "sheets",
+    "cat": "PRODUCTIVITÉ",
+    "title": "Hydria Sheets",
+    "subtitle": "Formules · Filtres · Graphiques · Imports · Historique",
+    "shot": "os-sheets",
+    "voice": "Sheets apporte les cellules, les formules, le calcul, les filtres et les graphiques. Les grands classeurs et les compatibilités avancées avec Excel nécessitent encore du travail."
+  },
+  {
+    "id": "slides",
+    "cat": "PRODUCTIVITÉ",
+    "title": "Hydria Slides",
+    "subtitle": "Diapositives · Éditeur · Objets · Export",
+    "shot": "os-slides",
+    "voice": "Slides offre un éditeur de présentations intégré. La création et la modification existent, tandis que les animations, les modèles et la fidélité des exports doivent progresser."
+  },
+  {
+    "id": "dashboard",
+    "cat": "ANALYSE",
+    "title": "Hydria Dashboard",
+    "subtitle": "Tableaux de bord · Visualisations · Données partagées",
+    "shot": "os-dashboard",
+    "voice": "Dashboard transforme les informations en vues visuelles. Les tableaux de bord se connectent progressivement aux résultats de traitement, avec encore des améliorations attendues sur les filtres et l'ergonomie."
+  },
+  {
+    "id": "crm-home",
+    "cat": "HYDRIA CRM",
+    "title": "Le CRM, une application complète",
+    "subtitle": "PostgreSQL · Multi-organisations · React · Intégration OS",
+    "shot": "crm-dashboard",
+    "voice": "Hydria CRM n'est pas un simple onglet. C'est une application métier complète, avec sa base PostgreSQL, son interface dédiée et son intégration dans l'environnement Hydria."
+  },
+  {
+    "id": "crm-contacts",
+    "cat": "CRM · RELATION CLIENT",
+    "title": "Contacts et entreprises",
+    "subtitle": "Fiches à 360° · Recherche · Historique · Import CSV",
+    "shot": "crm-contacts",
+    "voice": "Le CRM gère les contacts et les entreprises, leurs fiches détaillées, les activités et les recherches. Il propose aussi l'importation, l'exportation et la détection des doublons."
+  },
+  {
+    "id": "crm-leads",
+    "cat": "CRM · PROSPECTION",
+    "title": "Prospects et qualification",
+    "subtitle": "Leads · Conversion · Affectation · Vues enregistrées",
+    "shot": "crm-leads",
+    "voice": "La prospection couvre les leads, leur qualification, les règles d'affectation et leur conversion. Les vues enregistrées et les opérations groupées facilitent le travail quotidien."
+  },
+  {
+    "id": "crm-pipeline",
+    "cat": "CRM · VENTES",
+    "title": "Opportunités et pipeline",
+    "subtitle": "Étapes commerciales · Prévisions · Objectifs",
+    "shot": "crm-pipeline",
+    "voice": "Pour les ventes, Hydria propose un pipeline commercial, des opportunités et des prévisions. L'équipe peut suivre ses étapes, ses objectifs et la progression des dossiers."
+  },
+  {
+    "id": "crm-products",
+    "cat": "CRM · COMMERCE",
+    "title": "Produits, devis et signatures",
+    "subtitle": "Catalogue · Lignes de devis · Approbation · PDF",
+    "shot": "crm-products",
+    "voice": "Le CRM comprend un catalogue de produits, des devis versionnés, des remises, des taxes, des validations et des signatures électroniques. Ce sont de véritables processus commerciaux."
+  },
+  {
+    "id": "crm-invoicing",
+    "cat": "CRM · FINANCE",
+    "title": "Facturation et paiements",
+    "subtitle": "Factures · Échéances · Avoirs · Stripe optionnel",
+    "shot": "crm-sales-ops",
+    "voice": "Le cycle commercial se prolonge avec les factures, les échéances, les paiements manuels, les avoirs et les relances. Le paiement en ligne dépend d'une configuration Stripe."
+  },
+  {
+    "id": "crm-support",
+    "cat": "CRM · SUPPORT",
+    "title": "Tickets et service client",
+    "subtitle": "SLA · Routage · Escalade · Portail client",
+    "shot": "crm-tickets",
+    "voice": "Hydria CRM dispose aussi d'un support client : tickets, priorités, affectations, délais de service, escalades, échanges et portail dédié. Ce module mérite une vraie démonstration."
+  },
+  {
+    "id": "crm-communications",
+    "cat": "CRM · COMMUNICATIONS",
+    "title": "Emails et calendrier",
+    "subtitle": "Modèles · Conversations · Rendez-vous · OAuth",
+    "shot": "crm-communications",
+    "voice": "Les communications réunissent modèles d'e-mails, conversations, pièces jointes et rendez-vous. Les synchronisations Google et Microsoft exigent des comptes et des identifiants configurés."
+  },
+  {
+    "id": "crm-tasks",
+    "cat": "CRM · ORGANISATION",
+    "title": "Tâches et rappels",
+    "subtitle": "Récurrence · Notifications · Activités",
+    "shot": "crm-tasks",
+    "voice": "Les tâches, rappels et activités complètent le suivi des équipes. Une partie des processus fonctionne avec des traitements persistants, des reprises et un historique d'exécution."
+  },
+  {
+    "id": "crm-analytics",
+    "cat": "CRM · PILOTAGE",
+    "title": "Rapports et prévisions",
+    "subtitle": "KPI · Tableaux de bord · Prévisions · Objectifs",
+    "shot": "crm-reports",
+    "voice": "Le CRM intègre des rapports, des prévisions et des tableaux de bord personnalisables. L'objectif est de piloter l'activité commerciale et la qualité du service avec les mêmes données."
+  },
+  {
+    "id": "crm-custom",
+    "cat": "CRM · EXTENSIBILITÉ",
+    "title": "Objets métier personnalisés",
+    "subtitle": "Champs typés · Enregistrements · Permissions",
+    "shot": "crm-custom-objects",
+    "voice": "Hydria permet également de définir des objets métier personnalisés et des champs adaptés aux besoins. Les données ne sont donc pas limitées aux seules fiches commerciales classiques."
+  },
+  {
+    "id": "crm-platform",
+    "cat": "CRM · ADMINISTRATION",
+    "title": "Sécurité et intégrations",
+    "subtitle": "Rôles · MFA · API · Webhooks · Audit",
+    "shot": "crm-platform",
+    "voice": "Le CRM possède ses propres comptes, rôles, authentification multifacteur, journaux d'audit, clés API et webhooks. Cela ne signifie pas encore que tout Hydria OS est multi-tenant."
+  },
+  {
+    "id": "automation",
+    "cat": "AUTOMATISATION",
+    "title": "Hydria Automation",
+    "subtitle": "Règles · Actions · Exécutions",
+    "shot": "os-automation",
+    "voice": "Automation vise à déclencher et enchaîner les actions récurrentes. À distinguer de Flow Manager : ici, l'objectif est d'automatiser les opérations, pas de transformer des jeux de données."
+  },
+  {
+    "id": "flow",
+    "cat": "DATA · ETL",
+    "title": "Flow Manager",
+    "subtitle": "Nœuds · Connexions · Transformations · Aperçus",
+    "shot": "os-flows",
+    "voice": "Flow Manager propose un éditeur de flux visuel : sources de données, filtres, jointures, agrégations et sorties. Les connexions entre nœuds et les aperçus sont testés dans Chromium."
+  },
+  {
+    "id": "flow-data",
+    "cat": "DATA · INTÉGRATIONS",
+    "title": "Connecteurs et planification",
+    "subtitle": "CSV · JSON · SQL · API · Planification",
+    "shot": "os-flows",
+    "voice": "Les flux savent traiter du CSV et du JSON, et disposent de connecteurs contrôlés vers certaines bases et API. L'ordonnancement et les publications de résultats progressent également."
+  },
+  {
+    "id": "builder",
+    "cat": "CRÉATION D'APPS",
+    "title": "App Builder",
+    "subtitle": "Interfaces · Aperçus · Composants",
+    "shot": "os-builder",
+    "voice": "App Builder introduit la création de petites applications directement dans l'OS, avec des surfaces d'édition et d'aperçu. Ce chantier doit encore gagner en profondeur et en fiabilité."
+  },
+  {
+    "id": "code",
+    "cat": "DÉVELOPPEMENT",
+    "title": "Code Studio",
+    "subtitle": "Fichiers · Code · Prévisualisation",
+    "shot": "os-code",
+    "voice": "Code Studio offre un espace pour explorer et travailler sur du code, des fichiers et des aperçus. Hydria cherche ici à rapprocher conception, réalisation et assistance intelligente."
+  },
+  {
+    "id": "whiteboard",
+    "cat": "CRÉATIVITÉ",
+    "title": "Whiteboard",
+    "subtitle": "Éléments · Déplacement · Connexions · PDF",
+    "shot": "os-whiteboard",
+    "voice": "Whiteboard permet d'organiser librement des idées, de déplacer des éléments et de dessiner des connexions. La navigation clavier et l'export font partie des parcours déjà testés."
+  },
+  {
+    "id": "pdf",
+    "cat": "SUITE CRÉATIVE",
+    "title": "PDF Studio",
+    "subtitle": "PdfCraft · Édition · Révisions · Drive",
+    "shot": "os-pdf",
+    "voice": "PDF Studio utilise le moteur PdfCraft lorsqu'il est installé. Ouvrir, modifier, enregistrer et rouvrir un PDF ont été vérifiés, mais les documents complexes restent à éprouver."
+  },
+  {
+    "id": "photo",
+    "cat": "SUITE CRÉATIVE",
+    "title": "Photo Studio",
+    "subtitle": "PhotoCraft · Images · Projets natifs",
+    "shot": "os-photo",
+    "voice": "Photo Studio s'appuie sur PhotoCraft, un éditeur libre. Hydria gère les images et les projets versionnés dans Drive, tandis que l'intégration native de bout en bout reste à consolider."
+  },
+  {
+    "id": "design",
+    "cat": "SUITE CRÉATIVE",
+    "title": "Design Studio",
+    "subtitle": "FigCraft · Designs · Fichiers natifs",
+    "shot": "os-fig",
+    "voice": "Design Studio intègre FigCraft comme moteur de conception optionnel. Les fichiers natifs peuvent être conservés dans Drive, mais le parcours de sauvegarde directe doit encore mûrir."
+  },
+  {
+    "id": "connected",
+    "cat": "UNIFICATION",
+    "title": "Les outils partagent le même socle",
+    "subtitle": "Objets · Révisions · Actions · Recherche",
+    "shot": "os-drive",
+    "voice": "Le véritable intérêt d'Hydria est de relier ces applications : fichiers persistants, historique, recherche, commandes partagées et échanges contrôlés entre workspaces."
+  },
+  {
+    "id": "agents",
+    "cat": "HYDRIA CORE",
+    "title": "IA et actions contrôlées",
+    "subtitle": "Routage des modèles · Outils · Contexte",
+    "shot": "os-chat",
+    "voice": "Hydria Core apporte le raisonnement, le contexte des workspaces et des actions proposées à l'application. Leur exécution doit respecter les validations et les permissions locales."
+  },
+  {
+    "id": "mobile",
+    "cat": "EXPÉRIENCE",
+    "title": "Desktop et mobile",
+    "subtitle": "Navigation adaptée · Menus · Clavier",
+    "shot": "os-home",
+    "voice": "La navigation s'adapte aux écrans mobiles, avec des menus, raccourcis et règles d'accessibilité améliorés. Une bonne adaptation reste à vérifier dans chaque outil."
+  },
+  {
+    "id": "proof",
+    "cat": "QUALITÉ",
+    "title": "Du code, des données, des tests",
+    "subtitle": "Frontend · Backend · Navigateur · Docker",
+    "shot": "os-dashboard",
+    "voice": "Le dépôt contient des tests sur les API, les éditeurs, les sauvegardes, les flux et plusieurs parcours navigateur. Ces validations prouvent des scénarios précis, pas une parité totale avec les suites payantes."
+  },
+  {
+    "id": "roadmap-editors",
+    "cat": "FEUILLE DE ROUTE",
+    "title": "Approfondir les applications",
+    "subtitle": "Docs · Sheets · Slides · Dashboard · CRM",
+    "shot": "os-sheets",
+    "voice": "Premier chantier : rendre chaque application plus complète, plus cohérente et plus rapide. Les imports, les exports, les grands documents et les usages avancés restent prioritaires."
+  },
+  {
+    "id": "roadmap-creative",
+    "cat": "FEUILLE DE ROUTE",
+    "title": "Fiabiliser la suite créative",
+    "subtitle": "PDF · Photo · Design · Drive",
+    "shot": "os-photo",
+    "voice": "Deuxième chantier : finaliser les ponts entre les éditeurs créatifs et Drive, préserver les fichiers natifs, éviter les pertes de données et améliorer la reprise après erreur."
+  },
+  {
+    "id": "roadmap-prod",
+    "cat": "FEUILLE DE ROUTE",
+    "title": "Passer du pilote au produit",
+    "subtitle": "Comptes · Permissions · Sécurité · Déploiement",
+    "shot": "os-home",
+    "voice": "Troisième chantier : sécuriser l'OS pour plusieurs utilisateurs, renforcer les permissions serveur, les sauvegardes, les performances et les déploiements. Le pilote privé n'est pas encore un SaaS public."
+  },
+  {
+    "id": "outro",
+    "cat": "CONCLUSION",
+    "title": "Hydria OS",
+    "subtitle": "Un socle réel. Un produit à finir.",
+    "shot": "os-home",
+    "voice": "Hydria a déjà beaucoup de substance : des éditeurs, un CRM complet, des flux, une suite créative et des outils intelligents. La prochaine étape, c'est de tout réunir au niveau d'un produit abouti."
+  }
+]

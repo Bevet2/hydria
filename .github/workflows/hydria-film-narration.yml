@@ -1,0 +1,32 @@
+name: Hydria full product French narration
+on:
+  push:
+    branches:
+      - video/hydria-neural-narration-20261021
+    paths:
+      - tools/video/hydria_complete_scenes.json
+      - tools/video/hydria_complete_voice.py
+      - .github/workflows/hydria-film-narration.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  voice:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install neural French speech tools
+        run: python -m pip install --disable-pip-version-check 'edge-tts>=7.0,<9' 'mutagen>=1.46'
+      - name: Render full Hydria product narration
+        run: python tools/video/hydria_complete_voice.py
+      - name: Publish voice tracks
+        uses: actions/upload-artifact@v4
+        with:
+          name: hydria-full-product-fr-voice
+          path: dist/hydria-full-voice/
+          retention-days: 7
+          if-no-files-found: error
