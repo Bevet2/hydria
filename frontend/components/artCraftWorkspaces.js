@@ -151,6 +151,7 @@ export function renderArtCraftWorkspace(container, { editor = "photo" } = {}) {
     notice.setAttribute("role", "status");
     let busy = false;
     const targetImageId = new URLSearchParams(window.location.search).get("imageId");
+    let imageDeepLinkOpened = false;
     async function loadImages() {
       result.replaceChildren(node("p", "hydria-artcraft-empty", "Chargement des images…"));
       try {
@@ -248,6 +249,10 @@ export function renderArtCraftWorkspace(container, { editor = "photo" } = {}) {
           result.append(item);
           if (targetImageId && String(image.id) === targetImageId) {
             item.classList.add("hydria-artcraft-target-image");
+            if (!imageDeepLinkOpened) {
+              imageDeepLinkOpened = true;
+              void bridge.openAsset({ ...image, kind:"image" });
+            }
             requestAnimationFrame(() => {
               if (item.isConnected) {
                 item.scrollIntoView({ block: "nearest", behavior: "smooth" });
