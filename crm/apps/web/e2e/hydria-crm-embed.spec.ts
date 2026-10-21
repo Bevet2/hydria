@@ -22,10 +22,11 @@ const CRM_SECTIONS = [
 test("Hydria CRM workspace exposes every navigable module on desktop and mobile", async ({ page }) => {
   const errors: string[] = [];
   const forbiddenPrivilegedApi: string[] = [];
-  const privilegedRoutes = /^\\/api\\/(automations(?:\\/|$)|monitoring(?:\\/|$))/;
+  const privilegedRoutes = ["/api/automations", "/api/monitoring"];
   page.on("response", (response) => {
     const endpoint = new URL(response.url()).pathname;
-    if (response.status() === 403 && privilegedRoutes.test(endpoint)) {
+    if (response.status() === 403 &&
+        privilegedRoutes.some(prefix => endpoint === prefix || endpoint.startsWith(prefix + "/"))) {
       forbiddenPrivilegedApi.push(endpoint);
     }
   });
