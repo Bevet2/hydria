@@ -14,7 +14,7 @@ export const ARTCRAFT_EDITORS = Object.freeze({
   }),
   fig: Object.freeze({
     slug: "fig", title: "Hydria Design", product: "FigCraft",
-    version: "0.7.0", path: "/vendor/figcraft/index.html",
+    version: "0.8.0", path: "/vendor/figcraft/index.html",
     sandbox: "allow-scripts allow-same-origin allow-popups",
     install: "node backend/scripts/installArtCraftWeb.mjs fig"
   })
