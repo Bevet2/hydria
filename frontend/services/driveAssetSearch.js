@@ -73,6 +73,9 @@ export function createDriveAssetSearch({
     }
     return inFlight;
   }
-  return async (query) => filterDriveAssetSearch(await load(), query);
+  return async (query) => {
+    if (String(query || "").trim().length < 3) return [];
+    return filterDriveAssetSearch(await load(), query);
+  };
 }
 export const searchNativeDriveAssets = createDriveAssetSearch();
