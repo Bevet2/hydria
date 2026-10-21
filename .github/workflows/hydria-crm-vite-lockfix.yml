@@ -21,7 +21,9 @@ jobs:
       - name: Verify npm install is reproducible and audit has no high findings
         working-directory: crm
         run: |
+          node -e "const l=require('./package-lock.json'); console.log('VITE_LOCK_ENTRIES',JSON.stringify(Object.entries(l.packages).filter(([k])=>k.includes('vite')).map(([k,v])=>[k,v.version])))"
           npm ci --ignore-scripts --no-audit --no-fund
+          npm ls vite --all || true
           npm audit --audit-level=high
       - name: Commit only the resolved package manifest and integrity-locked dependency
         run: |
