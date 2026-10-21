@@ -120,15 +120,14 @@ try {
 
   // A delayed save from an obsolete iframe must never rebind its Drive ID to
   // a brand-new editor instance after the user clicks Restart.
-  const raceName="frame-race.figcraft";
+  const raceName="bridge-fig.figcraft";
   const raceOriginal=nativeProject("fig","race-v1");
-  const raceEdited=nativeProject("fig","v2");
   const raceResponse=await upload(context.request,"fig",raceOriginal,raceName);
   assert.equal(raceResponse.status(),201);
   const raceAsset=await raceResponse.json();
   await page.goto(base+"/workspace/fig",{waitUntil:"domcontentloaded"});
   await page.locator('.hydria-artcraft-frame[data-drive-bridge-ready="true"]').waitFor({timeout:20000});
-  await page.locator(".hydria-figcraft-project-item").filter({hasText:raceName})
+  await page.locator(".hydria-figcraft-project-item[data-design-id='"+raceAsset.id+"']")
     .getByRole("button",{name:"Ouvrir directement"}).click();
   let releaseHeldSave;
   const heldSave=new Promise(resolve => { releaseHeldSave=resolve; });
