@@ -24,3 +24,10 @@ Dependency package licenses remain in their installed packages. Preserve
 applicable notices when distributing dependencies. The shared CRM workspace
 tool registry is `crm/apps/api/crm-workspace-tools.json` and is packaged in
 both production images.
+
+## Agent skills vendored for Hydria development
+
+- Emil Kowalski's `emilkowalski/skills` — interface and motion design skills (MIT License, Copyright (c) 2026 Emil Kowalski). Source: https://github.com/emilkowalski/skills. Full notice: `.agents/licenses/emil-kowalski-MIT.txt`.
+- Jesse Vincent's `obra/superpowers` — TDD, systematic debugging and evidence-based verification skills (MIT License, Copyright (c) 2025 Jesse Vincent). Source: https://github.com/obra/superpowers. Full notice: `.agents/licenses/superpowers-MIT.txt`.
+
+These agent instructions are developer guidance, not validated production features. No endorsement by the upstream authors is implied.

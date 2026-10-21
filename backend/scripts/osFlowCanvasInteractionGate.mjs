@@ -43,6 +43,10 @@ try {
   const graph=manager.locator(".hydria-flow-scroll");
   const count=await manager.locator(".hydria-flow-node").count();
   assert.equal(count,2);
+  assert.equal(await manager.getByRole("button",{name:"Undo",exact:true}).isDisabled(),true,
+    "Undo must be unavailable before the first edit");
+  assert.equal(await manager.getByRole("button",{name:"Redo",exact:true}).isDisabled(),true,
+    "Redo must be unavailable without a reverted edit");
   const bounds=await graph.boundingBox();
   assert.ok(bounds?.width>300&&bounds.height>100);
   await source.dragTo(graph,{targetPosition:{x:Math.min(350,bounds.width*.6),y:160}});
@@ -74,6 +78,42 @@ try {
   assert.equal(await manager.locator(".hydria-flow-node").count(),3,"fit preserves workflow");
   const stored=await page.evaluate(()=>JSON.parse(window.__hydriaFlowSerialized));
   assert.equal(stored.stages.length,3,"model changes persisted to editor onChange");
+
+  // Pointer cancel must roll back the live coordinate and never persist a half-finished drag.
+  const sourceNode=manager.locator('.hydria-flow-node[data-node-id="input-1"]');
+  const initial=await sourceNode.evaluate(el=>({x:parseInt(el.style.left),y:parseInt(el.style.top)}));
+  const heading=sourceNode.locator(".hydria-flow-node-heading");
+  await heading.scrollIntoViewIfNeeded();
+  const headingBounds=await heading.boundingBox();
+  assert.ok(headingBounds);
+  const dragStart={x:headingBounds.x+Math.min(40,headingBounds.width/2),y:headingBounds.y+headingBounds.height/2};
+  await page.mouse.move(dragStart.x,dragStart.y);
+  await page.mouse.down();
+  await page.mouse.move(dragStart.x+65,dragStart.y+35,{steps:6});
+  assert.ok(await sourceNode.evaluate(el=>parseInt(el.style.left))>initial.x,
+    "Pointer movement must continuously update the visible flow node");
+  await heading.dispatchEvent("pointercancel",{bubbles:true,pointerId:1});
+  await page.mouse.up();
+  assert.equal(await sourceNode.evaluate(el=>parseInt(el.style.left)),initial.x,
+    "Cancelled drag must visually restore original coordinate");
+  assert.equal(JSON.parse(await page.evaluate(()=>window.__hydriaFlowSerialized)).stages.find(el=>el.id==="input-1").x,initial.x,
+    "Cancelled drag must not persist changed coordinates");
+
+  const nextHeading=sourceNode.locator(".hydria-flow-node-heading");
+  const nextBounds=await nextHeading.boundingBox();
+  assert.ok(nextBounds);
+  await page.mouse.move(nextBounds.x+Math.min(40,nextBounds.width/2),nextBounds.y+nextBounds.height/2);
+  await page.mouse.down();
+  await page.mouse.move(nextBounds.x+Math.min(40,nextBounds.width/2)+50,nextBounds.y+nextBounds.height/2+20,{steps:5});
+  await page.mouse.up();
+  const moved=JSON.parse(await page.evaluate(()=>window.__hydriaFlowSerialized)).stages.find(el=>el.id==="input-1");
+  assert.ok(moved.x>initial.x,"Pointer release commits a single drag to workflow state");
+  await manager.getByRole("button",{name:"Undo",exact:true}).click();
+  assert.equal(JSON.parse(await page.evaluate(()=>window.__hydriaFlowSerialized)).stages.find(el=>el.id==="input-1").x,initial.x,
+    "Undo reverts the committed pointer movement");
+  await manager.getByRole("button",{name:"Redo",exact:true}).click();
+  assert.equal(JSON.parse(await page.evaluate(()=>window.__hydriaFlowSerialized)).stages.find(el=>el.id==="input-1").x,moved.x,
+    "Redo restores the committed pointer movement");
   await fs.mkdir("/tmp",{recursive:true});
   await page.screenshot({path:output,fullPage:false});
   console.log("Real Flow Manager component: drag/drop, keyboard movement, undo, zoom fit and persistence passed.");

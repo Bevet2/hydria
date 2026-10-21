@@ -381,3 +381,56 @@ body[data-os-theme="dark"] .workspace-sheet-toolbar-group-label {color:#cbd5e1;}
   .workspace-document-ruler,.workspace-document-page-ruler {display:none !important;}
   .workspace-document-page p,.workspace-document-page h1,.workspace-document-page h2 {overflow-wrap:anywhere;}
 }
+
+/* Slides: the legacy immersive layout hides the shared shell header entirely.
+   It also hides the only global Save action/status. Restore a compact,
+   functional action row instead of silently depending on auto-save. */
+#workspace-panel-root[data-kind="presentation"][data-mode="edit"] > .workspace-shell-header {
+  display:flex !important;
+  align-items:center !important;
+  justify-content:space-between !important;
+  gap:10px !important;
+  min-width:0;
+  min-height:44px;
+  margin:0 0 8px !important;
+  padding:6px 10px !important;
+  background:var(--bg-elevated,#fff);
+  border:1px solid var(--os-editor-border);
+  border-radius:8px;
+}
+#workspace-panel-root[data-kind="presentation"][data-mode="edit"] > .workspace-shell-header .workspace-title-group {
+  min-width:0;
+  flex:1 1 0;
+}
+#workspace-panel-root[data-kind="presentation"][data-mode="edit"] > .workspace-shell-header .workspace-title-group h2 {
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+#workspace-panel-root[data-kind="presentation"][data-mode="edit"] > .workspace-shell-header .workspace-shell-actions {
+  flex:0 0 auto;
+  align-items:center;
+}
+.hydria-flow-actions button:disabled {
+  opacity:.5;
+  cursor:not-allowed;
+  transform:none !important;
+}
+.hydria-flow-node.is-dragging {
+  z-index:5 !important;
+  cursor:grabbing;
+  box-shadow:0 8px 25px rgba(15,23,42,.15);
+}
+@media(max-width:600px){
+  #workspace-panel-root[data-kind="presentation"][data-mode="edit"] > .workspace-shell-header {
+    min-height:40px;
+    margin-bottom:5px !important;
+    padding:5px 7px !important;
+  }
+  #workspace-panel-root[data-kind="presentation"][data-mode="edit"] > .workspace-shell-header .workspace-title-group h2 {
+    max-width:45vw;
+    font-size:15px !important;
+  }
+  #workspace-panel-root[data-kind="presentation"][data-mode="edit"] > .workspace-shell-header #workspace-save-button {
+    min-height:34px;
+    min-width:85px;
+  }
+}

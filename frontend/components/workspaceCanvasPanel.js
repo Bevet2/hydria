@@ -1067,13 +1067,15 @@ function createCanvasElement(data, context) {
   node.addEventListener("pointerdown", (event) => {
     if (
       event.button !== 0 ||
+      !event.isPrimary ||
       isCanvasEditingTarget(event.target) ||
       event.target.closest(".workspace-canvas-item-actions") ||
       event.target.classList.contains("workspace-canvas-resize")
     ) {
       return
     }
-
+    event.preventDefault()
+    const pointerId = event.pointerId
     const startX = event.clientX
     const startY = event.clientY
     const initialX = data.x
@@ -1081,15 +1083,18 @@ function createCanvasElement(data, context) {
     let nextX = initialX
     let nextY = initialY
     let didMove = false
+    let active = true
 
-    node.setPointerCapture(event.pointerId)
+    node.setPointerCapture(pointerId)
     node.classList.add("is-dragging")
 
     const move = (pointerEvent) => {
-      nextX = Math.max(0, initialX + ((pointerEvent.clientX - startX) / zoom))
-      nextY = Math.max(0, initialY + ((pointerEvent.clientY - startY) / zoom))
-      didMove =
-        didMove ||
+      if (!active || pointerEvent.pointerId !== pointerId) return
+      nextX = Math.max(0, Math.min(CANVAS_BOARD_WIDTH - data.width,
+        initialX + ((pointerEvent.clientX - startX) / zoom)))
+      nextY = Math.max(0, Math.min(CANVAS_BOARD_HEIGHT - data.height,
+        initialY + ((pointerEvent.clientY - startY) / zoom)))
+      didMove = didMove ||
         Math.abs(pointerEvent.clientX - startX) > 4 ||
         Math.abs(pointerEvent.clientY - startY) > 4
       node.style.left = `${nextX}px`
@@ -1099,36 +1104,40 @@ function createCanvasElement(data, context) {
         y: Math.round(nextY)
       })
     }
-
-    const up = () => {
+    const finish = (commit) => {
+      if (!active) return
+      active = false
       node.removeEventListener("pointermove", move)
       node.removeEventListener("pointerup", up)
-      try {
-        node.releasePointerCapture(event.pointerId)
-      } catch {
-        // Ignore release errors from detached or inactive pointers.
-      }
+      node.removeEventListener("pointercancel", cancel)
+      node.removeEventListener("lostpointercapture", cancel)
+      if (node.hasPointerCapture(pointerId)) node.releasePointerCapture(pointerId)
       node.classList.remove("is-dragging")
-      if (didMove) {
-        onCommit(data.id, {
-          x: Math.round(nextX),
-          y: Math.round(nextY)
-        })
+      if (!commit) {
+        node.style.left = `${initialX}px`
+        node.style.top = `${initialY}px`
+        onLiveUpdate(data.id, { x: initialX, y: initialY })
         return
       }
-      onActivate(data.id)
+      if (didMove) {
+        onCommit(data.id, { x: Math.round(nextX), y: Math.round(nextY) })
+      } else {
+        onActivate(data.id)
+      }
     }
-
+    const up = (evt) => { if (evt.pointerId === pointerId) finish(true) }
+    const cancel = (evt) => { if (evt.pointerId === pointerId) finish(false) }
     node.addEventListener("pointermove", move)
     node.addEventListener("pointerup", up)
+    node.addEventListener("pointercancel", cancel)
+    node.addEventListener("lostpointercapture", cancel)
   })
 
   resize.addEventListener("pointerdown", (event) => {
-    if (event.button !== 0) {
-      return
-    }
+    if (event.button !== 0 || !event.isPrimary) return
+    event.preventDefault()
     event.stopPropagation()
-
+    const pointerId = event.pointerId
     const startX = event.clientX
     const startY = event.clientY
     const initialWidth = data.width
@@ -1136,14 +1145,16 @@ function createCanvasElement(data, context) {
     let nextWidth = initialWidth
     let nextHeight = initialHeight
     let didResize = false
-
-    resize.setPointerCapture(event.pointerId)
+    let active = true
+    resize.setPointerCapture(pointerId)
 
     const move = (pointerEvent) => {
-      nextWidth = Math.max(80, initialWidth + ((pointerEvent.clientX - startX) / zoom))
-      nextHeight = Math.max(60, initialHeight + ((pointerEvent.clientY - startY) / zoom))
-      didResize =
-        didResize ||
+      if (!active || pointerEvent.pointerId !== pointerId) return
+      nextWidth = Math.max(80, Math.min(CANVAS_BOARD_WIDTH - data.x,
+        initialWidth + ((pointerEvent.clientX - startX) / zoom)))
+      nextHeight = Math.max(60, Math.min(CANVAS_BOARD_HEIGHT - data.y,
+        initialHeight + ((pointerEvent.clientY - startY) / zoom)))
+      didResize = didResize ||
         Math.abs(pointerEvent.clientX - startX) > 4 ||
         Math.abs(pointerEvent.clientY - startY) > 4
       node.style.width = `${nextWidth}px`
@@ -1153,14 +1164,19 @@ function createCanvasElement(data, context) {
         height: Math.round(nextHeight)
       })
     }
-
-    const up = () => {
+    const finish = (commit) => {
+      if (!active) return
+      active = false
       resize.removeEventListener("pointermove", move)
       resize.removeEventListener("pointerup", up)
-      try {
-        resize.releasePointerCapture(event.pointerId)
-      } catch {
-        // Ignore release errors from detached or inactive pointers.
+      resize.removeEventListener("pointercancel", cancel)
+      resize.removeEventListener("lostpointercapture", cancel)
+      if (resize.hasPointerCapture(pointerId)) resize.releasePointerCapture(pointerId)
+      if (!commit) {
+        node.style.width = `${initialWidth}px`
+        node.style.height = `${initialHeight}px`
+        onLiveUpdate(data.id, { width: initialWidth, height: initialHeight })
+        return
       }
       if (didResize) {
         onCommit(data.id, {
@@ -1169,9 +1185,12 @@ function createCanvasElement(data, context) {
         })
       }
     }
-
+    const up = (evt) => { if (evt.pointerId === pointerId) finish(true) }
+    const cancel = (evt) => { if (evt.pointerId === pointerId) finish(false) }
     resize.addEventListener("pointermove", move)
     resize.addEventListener("pointerup", up)
+    resize.addEventListener("pointercancel", cancel)
+    resize.addEventListener("lostpointercapture", cancel)
   })
 
   return node

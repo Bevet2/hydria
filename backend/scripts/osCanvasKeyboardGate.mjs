@@ -43,6 +43,34 @@ try{
   await page.keyboard.press("ArrowRight");
   current=await page.evaluate(()=>JSON.parse(window.__whiteboardState).elements.find(x=>x.id==="note-test"));
   assert.equal(current.x,original.x+10,"editing text must not nudge a block");
-  console.log("Canvas keyboard block selection, persisted movement, and editing isolation passed.");
+  // A touch/mouse gesture that is interrupted must not leave a resized block.
+  // This regression also proves a completed gesture still persists correctly.
+  const beforeResize=await page.evaluate(()=>JSON.parse(window.__whiteboardState).elements.find(el=>el.id==="note-test"));
+  const resize=host.locator('.workspace-canvas-item[data-id="note-test"] .workspace-canvas-resize');
+  await resize.scrollIntoViewIfNeeded();
+  const bounds=await resize.boundingBox();
+  assert.ok(bounds,"Whiteboard block has a resize handle");
+  const start={x:bounds.x+bounds.width/2,y:bounds.y+bounds.height/2};
+  await page.mouse.move(start.x,start.y);
+  await page.mouse.down();
+  await page.mouse.move(start.x+55,start.y+30,{steps:6});
+  const during=await host.locator('.workspace-canvas-item[data-id="note-test"]').evaluate(el=>parseFloat(el.style.width));
+  assert.ok(during>beforeResize.width,"Resize tracks pointer movement continuously");
+  await resize.dispatchEvent("pointercancel",{bubbles:true,pointerId:1});
+  await page.mouse.up();
+  assert.equal(await host.locator('.workspace-canvas-item[data-id="note-test"]').evaluate(el=>Math.round(parseFloat(el.style.width))),beforeResize.width,
+    "Interrupted resize must restore block width");
+  let after=await page.evaluate(()=>JSON.parse(window.__whiteboardState).elements.find(el=>el.id==="note-test"));
+  assert.equal(after.width,beforeResize.width,"Cancelled resize must not be persisted");
+  const freshBounds=await resize.boundingBox();
+  assert.ok(freshBounds);
+  const x=freshBounds.x+freshBounds.width/2,y=freshBounds.y+freshBounds.height/2;
+  await page.mouse.move(x,y);
+  await page.mouse.down();
+  await page.mouse.move(x+40,y+25,{steps:5});
+  await page.mouse.up();
+  after=await page.evaluate(()=>JSON.parse(window.__whiteboardState).elements.find(el=>el.id==="note-test"));
+  assert.ok(after.width>=beforeResize.width+35,"Completed resize persists the new block width");
+  console.log("Canvas keyboard and interruptible resize persistence passed.");
   await page.screenshot({path:"/tmp/hydria-canvas-keyboard.png",fullPage:false});
 }finally{await browser.close();}
