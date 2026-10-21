@@ -350,6 +350,8 @@ jobs:
         run: node backend/scripts/osArtCraftBrowserGate.mjs
       - name: Native FigCraft project import, revision history and Drive navigation
         run: node backend/scripts/osFigCraftDriveBrowserGate.mjs
+      - name: Verify native PhotoCraft browser test source syntax
+        run: node --check backend/scripts/osPhotoCraftProjectsBrowserGate.mjs
       - name: Native PhotoCraft project import and Drive revision history
         run: node backend/scripts/osPhotoCraftProjectsBrowserGate.mjs
 
