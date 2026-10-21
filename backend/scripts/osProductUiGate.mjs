@@ -96,13 +96,19 @@ try {
   },drawerFocusSelector);
   assert.ok(focusables>=2);
   await page.keyboard.press("Tab");
-  assert.equal(await page.evaluate(selector=>{
+  const drawerFocusDiagnostic=await page.evaluate(selector=>{
     const sidebar=document.querySelector("#os-sidebar");
-    const first=[...sidebar.querySelectorAll(selector)].find(
+    const items=[...sidebar.querySelectorAll(selector)].filter(
       el=>el.getClientRects().length>0 && getComputedStyle(el).visibility!=="hidden"
     );
-    return document.activeElement===first;
-  },drawerFocusSelector),true,"Tab must wrap to the first control inside the open drawer");
+    const describe=el=>el ? {tag:el.tagName,id:el.id,cls:String(el.className).slice(0,90),
+      label:el.getAttribute("aria-label"),text:el.textContent?.trim().slice(0,60)}:null;
+    return {first:describe(items[0]),last:describe(items.at(-1)),actual:describe(document.activeElement),
+      count:items.length,opened:document.body.classList.contains("os-sidebar-open")};
+  },drawerFocusSelector);
+  console.log("MOBILE_DRAWER_FOCUS",JSON.stringify(drawerFocusDiagnostic));
+  assert.equal(JSON.stringify(drawerFocusDiagnostic.actual),JSON.stringify(drawerFocusDiagnostic.first),
+    "Tab must wrap to the first control inside the open drawer");
   await page.keyboard.press("Escape");
   assert.equal(await page.locator("body").evaluate(el=>el.classList.contains("os-sidebar-open")),false);
   assert.equal(await page.locator("#os-mobile-menu").evaluate(el=>document.activeElement===el),true,
