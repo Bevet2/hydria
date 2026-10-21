@@ -14,6 +14,9 @@ for (const [key,slug,folder] of [["photo","photo","photocraft"],["fig","fig","fi
   assert.equal(parseWorkspacePagePath("/workspace/" + slug)?.slug, slug);
   assert.equal(ARTCRAFT_EDITORS[key].path, "/vendor/" + folder + "/index.html");
   assert.equal(artCraftWebPath(key), "/vendor/" + folder + "/index.html");
+  // Native File > Save must work inside the sandboxed iframe.
+  assert.ok(ARTCRAFT_EDITORS[key].sandbox.split(" ").includes("allow-downloads"),
+    `${key} must allow its native project download`);
   assert.match(ARTCRAFT_WEB_RELEASES[key].sha256, /^[0-9a-f]{64}$/);
   assert.ok(ARTCRAFT_WEB_RELEASES[key].archiveUrl.startsWith("https://github.com/storytold/"));
 }
