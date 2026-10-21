@@ -10,7 +10,7 @@ COPY backend/scripts/buildFrontend.mjs backend/scripts/patchHydriaFigCraft.mjs b
 # binary replacement: pin git SHA and compile the actual full-fidelity engine.
 # Build toolchain stays in this discarded build stage, not the runtime image.
 ARG INSTALL_FIGCRAFT_NATIVE=false
-RUN if [ "$INSTALL_FIGCRAFT_NATIVE" = "true" ]; then \
+RUN set -eu; if [ "$INSTALL_FIGCRAFT_NATIVE" = "true" ]; then \
       apt-get update && apt-get install -y --no-install-recommends curl git build-essential pkg-config libssl-dev ca-certificates && rm -rf /var/lib/apt/lists/*; \
       curl --fail --silent --show-error --location https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.95.0; \
       export PATH="/root/.cargo/bin:$PATH"; \
