@@ -18,6 +18,10 @@ export function installWorkspaceCommandPalette({ getActions, getObjects, searchO
   input.placeholder = "Search workspaces, projects, documents, files…";
   input.setAttribute("aria-label", "Search workspace commands");
   const results = make("div", "hydria-command-results");
+  results.setAttribute("role", "listbox");
+  results.setAttribute("aria-label", "Search results");
+  input.setAttribute("aria-controls", "hydria-command-results");
+  results.id = "hydria-command-results";
   const help = make("p", "hydria-command-help", "↑↓ Navigate · Enter Open · Esc Close · Ctrl/⌘ K");
   panel.append(input, results, help);
   backdrop.appendChild(panel); document.body.appendChild(backdrop);
@@ -27,7 +31,7 @@ export function installWorkspaceCommandPalette({ getActions, getObjects, searchO
     clearTimeout(searchHandle);
     backdrop.hidden = true;
     document.body.classList.remove("hydria-command-open");
-    priorFocus?.focus?.();
+    if (priorFocus?.isConnected) priorFocus.focus();
   }
   function open() {
     priorFocus = document.activeElement;
@@ -74,10 +78,12 @@ export function installWorkspaceCommandPalette({ getActions, getObjects, searchO
       }).slice(0, 40);
     active = Math.min(active, Math.max(0, matches.length - 1));
     results.replaceChildren();
-    if (!matches.length) { results.appendChild(make("p", "hydria-command-empty", "No matching workspaces or files.")); return; }
+    if (!matches.length) { results.appendChild(make("p", "hydria-command-empty", "No matching workspaces or files.")); input.removeAttribute("aria-activedescendant"); return; }
+    input.setAttribute("aria-activedescendant", "hydria-command-option-" + active);
     matches.forEach((item, index) => {
       const btn = make("button", "hydria-command-result" + (index === active ? " is-active" : ""));
       btn.type = "button";
+      btn.id = "hydria-command-option-" + index;
       btn.setAttribute("role", "option");
       btn.setAttribute("aria-selected", index === active ? "true" : "false");
       const icon = make("span", "hydria-command-kind", item.kind === "workspace" ? "◈" : "▤");
@@ -85,7 +91,7 @@ export function installWorkspaceCommandPalette({ getActions, getObjects, searchO
       body.append(make("strong", "", item.label), make("small", "", item.hint));
       btn.append(icon, body);
       btn.addEventListener("click", () => dispatch(item));
-      btn.addEventListener("mouseenter", () => { active = index; results.querySelectorAll(".hydria-command-result").forEach((item, i) => { item.classList.toggle("is-active", i === index); item.setAttribute("aria-selected", i === index ? "true" : "false"); }); });
+      btn.addEventListener("mouseenter", () => { active = index; input.setAttribute("aria-activedescendant", btn.id); results.querySelectorAll(".hydria-command-result").forEach((item, i) => { item.classList.toggle("is-active", i === index); item.setAttribute("aria-selected", i === index ? "true" : "false"); }); });
       results.appendChild(btn);
     });
   }
@@ -99,6 +105,13 @@ export function installWorkspaceCommandPalette({ getActions, getObjects, searchO
       event.preventDefault(); backdrop.hidden ? open() : close(); return;
     }
     if (backdrop.hidden) return;
+    if (event.key === "Tab") {
+      const focusable = [input, ...results.querySelectorAll("button:not([disabled])")];
+      const index = focusable.indexOf(document.activeElement);
+      if (event.shiftKey && index <= 0) { event.preventDefault(); focusable.at(-1)?.focus(); }
+      else if (!event.shiftKey && (index === focusable.length - 1 || index < 0)) { event.preventDefault(); input.focus(); }
+      return;
+    }
     if (event.key === "Escape") { event.preventDefault(); close(); }
     else if (event.key === "ArrowDown") { event.preventDefault(); active = (active + 1) % Math.max(1, matches.length); refresh(); }
     else if (event.key === "ArrowUp") { event.preventDefault(); active = (active + matches.length - 1) % Math.max(1, matches.length); refresh(); }

@@ -7,6 +7,10 @@ const browser=await chromium.launch({headless:true});
 const page=await browser.newPage({viewport:{width:1024,height:768}});
 try {
   await page.goto(base+"/",{waitUntil:"domcontentloaded",timeout:22000});
+  // The integration shell initializes asynchronously. Inject the fixture only
+  // after boot completes, otherwise startup may recreate or detach its host.
+  await page.waitForFunction(() => document.documentElement.dataset.hydriaBoot === "ready",
+    {timeout:20000});
   await page.evaluate(async()=>{
     const {createWorkspaceContextMenu}=await import("/components/workspaceMenuUi.js");
     const opener=document.createElement("button");
@@ -35,6 +39,9 @@ try {
     window.__sharedMenu=menu;
   });
   const root=page.locator("#shared-menu-keyboard-fixture");
+  await root.waitFor({state:"visible",timeout:15000});
+  assert.ok(await root.locator("button").count()>=3,
+    "The shared menu fixture must render its actions before keyboard testing");
   const rename=root.getByRole("button",{name:"Rename"});
   const more=root.getByRole("button",{name:"More"});
   const exportButton=root.getByRole("button",{name:"Export"});
