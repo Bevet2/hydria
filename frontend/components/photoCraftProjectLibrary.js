@@ -28,9 +28,9 @@ export function renderPhotoCraftDriveLibrary(container, {
   reload.type = "button";
   heading.append(reload);
   const guide = node("p", "hydria-photocraft-guide",
-    "Dans PhotoCraft v0.11.1 : Fichier > Enregistrer télécharge un projet .pcraft. " +
+    "PhotoCraft v0.11.1 enregistre en .pcraft ou en Photoshop .psd / .psb selon le document. " +
     "Importez ce fichier ci-dessous pour le conserver dans Hydria Drive. " +
-    "Pour le rouvrir : téléchargez-le depuis Drive, puis choisissez Fichier > Ouvrir dans PhotoCraft.");
+    "Vous pouvez aussi cliquer sur « Ouvrir directement » sans télécharger le fichier.");
   const uploadBox = node("div", "hydria-artcraft-upload-box");
   const uploadLabel = node("label", "hydria-photocraft-upload-label", "Importer un projet .pcraft / .psd / .psb dans Drive");
   const importFile = node("input", "hydria-photocraft-project-upload");
@@ -86,7 +86,7 @@ export function renderPhotoCraftDriveLibrary(container, {
       list.replaceChildren();
       if (!items.length) {
         list.append(node("p", "hydria-artcraft-empty",
-          "Aucun projet dans Drive. Enregistrez un projet dans PhotoCraft puis importez son fichier ici."));
+          "Aucun projet dans Drive. Ouvrez directement depuis Drive, enregistrez dans PhotoCraft, ou importez un document ici."));
       }
       for (const item of items) {
         const row = node("article", "hydria-photocraft-project-item");
