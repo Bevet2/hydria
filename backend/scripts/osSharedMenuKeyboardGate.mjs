@@ -25,7 +25,10 @@ try {
     root.hidden=true;
     document.body.append(opener,root);
     window.__sharedMenuSelected="";
-    opener.focus();
+    // The fixture opener is appended after a potentially tall app shell.
+    // Focus without scrolling: an incidental viewport scroll would correctly
+    // dismiss the context menu before the keyboard assertions can start.
+    opener.focus({preventScroll:true});
     const menu=createWorkspaceContextMenu({root});
     menu.open([
       {label:"Rename",onSelect:()=>{window.__sharedMenuSelected="rename";}},
