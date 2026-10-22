@@ -8,6 +8,7 @@ import { db } from "../db/sqlite.js";
 import config from "../config/hydria.config.js";
 import { AppError } from "../utils/errors.js";
 import { createDriveRenameHandler } from "../services/driveAssetRename.js";
+import { createDriveTrashHandler, migrateDriveTrashColumn } from "../services/driveAssetTrash.js";
 
 export const MAX_DRIVE_PDF_BYTES = 20 * 1024 * 1024;
 export const MAX_DRIVE_PDF_REVISIONS = 50;
@@ -27,6 +28,7 @@ export function migrateDrivePdfSchema(database) {
   const columns = new Set(database.prepare("PRAGMA table_info(drive_pdf_assets)").all().map(x => x.name));
   if (!columns.has("revision")) database.exec("ALTER TABLE drive_pdf_assets ADD COLUMN revision INTEGER NOT NULL DEFAULT 1");
   if (!columns.has("updated_at")) database.exec("ALTER TABLE drive_pdf_assets ADD COLUMN updated_at TEXT");
+  migrateDriveTrashColumn(database, "drive_pdf_assets");
   database.exec(`CREATE TABLE IF NOT EXISTS drive_pdf_versions (
     asset_id TEXT NOT NULL REFERENCES drive_pdf_assets(id) ON DELETE CASCADE,
     revision INTEGER NOT NULL CHECK(revision > 0), filename TEXT NOT NULL,
@@ -76,7 +78,7 @@ function validRevision(value) {
 }
 function asset(id) {
   validId(id);
-  const item = db.prepare("SELECT * FROM drive_pdf_assets WHERE id=?").get(id);
+  const item = db.prepare("SELECT * FROM drive_pdf_assets WHERE id=? AND deleted_at IS NULL").get(id);
   if (!item) throw new AppError("PDF not found", 404);
   return item;
 }
@@ -121,11 +123,11 @@ router.post("/", handleUpload, async (req, res, next) => {
     reply(res, id, 1, file);
   } catch (error) { next(error); }
 });
-router.get("/", (_req, res, next) => {
+router.get("/", (req, res, next) => {
   try {
     schema(); res.setHeader("Cache-Control", "private, no-store");
-    res.json({ items: db.prepare(`SELECT id,filename,size,sha256,created_at,revision,updated_at
-      FROM drive_pdf_assets ORDER BY COALESCE(updated_at,created_at) DESC,id DESC LIMIT 500`).all() });
+    res.json({ items: db.prepare(`SELECT id,filename,size,sha256,created_at,revision, updated_at, deleted_at
+      FROM drive_pdf_assets WHERE deleted_at ${req.query?.trashed === "1" ? "IS NOT NULL" : "IS NULL"} ORDER BY COALESCE(updated_at,created_at) DESC,id DESC LIMIT 500`).all() });
   } catch (error) { next(error); }
 });
 router.post("/:id/versions", handleUpload, async (req, res, next) => {
@@ -139,7 +141,7 @@ router.post("/:id/versions", handleUpload, async (req, res, next) => {
     try {
       db.transaction(() => {
         const result = db.prepare(`UPDATE drive_pdf_assets SET filename=?,size=?,sha256=?,revision=?,updated_at=?
-          WHERE id=? AND revision=?`).run(file.filename, file.bytes.length, file.sha256, expected + 1, now, id, expected);
+          WHERE id=? AND revision=? AND deleted_at IS NULL`).run(file.filename, file.bytes.length, file.sha256, expected + 1, now, id, expected);
         if (result.changes !== 1) throw new AppError("Une version plus récente existe dans Drive. Rouvrez-la ou enregistrez une copie.", 409);
         recordVersion(id, expected + 1, file, key, now);
       })();
@@ -182,6 +184,13 @@ router.get("/:id/download", download);
 router.get("/:id/versions/:revision/download", download);
 router.patch("/:id/metadata", createDriveRenameHandler({
   table: "drive_pdf_assets", initialize: schema
+}));
+
+router.post("/:id/trash", createDriveTrashHandler({
+  table: "drive_pdf_assets", initialize: schema, operation: "trash"
+}));
+router.post("/:id/restore", createDriveTrashHandler({
+  table: "drive_pdf_assets", initialize: schema, operation: "restore"
 }));
 
 export default router;

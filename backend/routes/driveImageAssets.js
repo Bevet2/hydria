@@ -10,6 +10,7 @@ import config from "../config/hydria.config.js";
 import { db } from "../db/sqlite.js";
 import { AppError } from "../utils/errors.js";
 import { createDriveRenameHandler } from "../services/driveAssetRename.js";
+import { createDriveTrashHandler, migrateDriveTrashColumn } from "../services/driveAssetTrash.js";
 
 export const MAX_DRIVE_IMAGE_BYTES = 15 * 1024 * 1024;
 export const MAX_DRIVE_IMAGE_REVISIONS = 50;
@@ -36,6 +37,7 @@ export function migrateDriveImageSchema(database) {
   const existing = new Set(database.prepare("PRAGMA table_info(drive_image_assets)").all().map(x => x.name));
   if (!existing.has("revision")) database.exec("ALTER TABLE drive_image_assets ADD COLUMN revision INTEGER NOT NULL DEFAULT 1");
   if (!existing.has("updated_at")) database.exec("ALTER TABLE drive_image_assets ADD COLUMN updated_at TEXT");
+  migrateDriveTrashColumn(database, "drive_image_assets");
   database.exec(`CREATE TABLE IF NOT EXISTS drive_image_versions (
     asset_id TEXT NOT NULL,
     revision INTEGER NOT NULL CHECK(revision > 0),
@@ -108,7 +110,7 @@ function validRevision(value) {
 }
 function getAsset(id) {
   validId(id);
-  const item = db.prepare("SELECT * FROM drive_image_assets WHERE id=?").get(id);
+  const item = db.prepare("SELECT * FROM drive_image_assets WHERE id=? AND deleted_at IS NULL").get(id);
   if (!item) throw new AppError("Image not found", 404);
   return item;
 }
@@ -169,13 +171,13 @@ router.post("/", prepareUpload, async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
-router.get("/", (_req, res, next) => {
+router.get("/", (req, res, next) => {
   try {
     schema();
     res.setHeader("Cache-Control", "private, no-store");
     res.json({ items: db.prepare(`SELECT
-      id, filename, mime, size, sha256, created_at, revision, updated_at
-      FROM drive_image_assets ORDER BY COALESCE(updated_at, created_at) DESC, id DESC LIMIT 500`).all() });
+      id, filename, mime, size, sha256, created_at, revision, updated_at, deleted_at
+      FROM drive_image_assets WHERE deleted_at ${req.query?.trashed === "1" ? "IS NOT NULL" : "IS NULL"} ORDER BY COALESCE(updated_at, created_at) DESC, id DESC LIMIT 500`).all() });
   } catch (error) { next(error); }
 });
 
@@ -206,7 +208,7 @@ router.post("/:id/versions", prepareUpload, async (req, res, next) => {
         }
         const updated = db.prepare(`UPDATE drive_image_assets
           SET filename=?, mime=?, size=?, sha256=?, revision=?, updated_at=?
-          WHERE id=? AND revision=?`)
+          WHERE id=? AND revision=? AND deleted_at IS NULL`)
           .run(filename, type.mime, bytes.length, sha256, revision, now, id, expected);
         if (updated.changes !== 1) throw new AppError("Image has a newer revision. Refresh and retry.", 409);
         db.prepare(`INSERT INTO drive_image_versions
@@ -265,6 +267,13 @@ router.get("/:id/versions/:revision/download",
 
 router.patch("/:id/metadata", createDriveRenameHandler({
   table: "drive_image_assets", initialize: schema
+}));
+
+router.post("/:id/trash", createDriveTrashHandler({
+  table: "drive_image_assets", initialize: schema, operation: "trash"
+}));
+router.post("/:id/restore", createDriveTrashHandler({
+  table: "drive_image_assets", initialize: schema, operation: "restore"
 }));
 
 export default router;

@@ -16,9 +16,9 @@ export function createDriveRenameHandler({ table, initialize }) {
   if (!ALLOWED_TABLES.has(table) || typeof initialize !== "function") {
     throw new Error("Unsafe Drive rename table or schema initializer");
   }
-  const lookup = "SELECT id,filename,revision,size,sha256,updated_at FROM " + table + " WHERE id=?";
+  const lookup = "SELECT id,filename,revision,size,sha256,updated_at FROM " + table + " WHERE id=? AND deleted_at IS NULL";
   const rename = "UPDATE " + table +
-    " SET filename=?,updated_at=? WHERE id=? AND revision=? AND filename=?";
+    " SET filename=?,updated_at=? WHERE id=? AND revision=? AND filename=? AND deleted_at IS NULL";
   return function renameDriveNativeAsset(req, res, next) {
     try {
       initialize();
