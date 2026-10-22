@@ -833,3 +833,29 @@ body { overscroll-behavior-y:none; }
 .hydria-drive-trash-action:focus-visible,
 .hydria-drive-trash-toggle:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
 .hydria-drive-trash-action:disabled { opacity: .55; cursor: progress; }
+
+/* Read-only revision-aware native Drive storage overview. */
+.hydria-drive-usage {
+  padding: .85rem 1rem;
+  margin: .65rem 0;
+  border: 1px solid var(--os-border, #c5ccd7);
+  border-radius: .7rem;
+}
+.hydria-drive-usage h3 { margin: 0 0 .4rem; }
+.hydria-drive-usage-summary { font-weight: 600; margin: .2rem 0 .8rem; }
+.hydria-drive-usage-families {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr));
+  gap: .55rem;
+}
+.hydria-drive-usage-family {
+  display: flex;
+  flex-direction: column;
+  gap: .25rem;
+  padding: .65rem;
+  border: 1px solid var(--os-border, #c5ccd7);
+  border-radius: .55rem;
+  min-width: 0;
+}
+.hydria-drive-usage-family small { opacity: .8; overflow-wrap: anywhere; }
+.hydria-drive-usage-help { font-size: .8rem; opacity: .7; margin: .75rem 0 0; }

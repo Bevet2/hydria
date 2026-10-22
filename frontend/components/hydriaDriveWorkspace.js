@@ -6,6 +6,7 @@ import { photoProjectFileUrl, listPhotoProjects } from "../services/drivePhotoPr
 import { renameNativeDriveAsset } from "../services/driveAssetRenameClient.js";
 import { searchNativeDriveAssets } from "../services/driveAssetSearch.js";
 import { changeNativeDriveTrash } from "../services/driveAssetTrashClient.js";
+import { fetchNativeDriveUsage } from "../services/driveStorageUsageClient.js";
 // This is deliberately not a separate file store or a cloud-sync service.
 const SORTS = new Set(["recent", "name", "kind"]);
 const KINDS = new Set(["all", "document", "dataset", "presentation", "dashboard", "workflow", "design", "project", "code", "pdf", "image", "photo-project", "other"]);
@@ -149,6 +150,51 @@ export function renderHydriaDriveWorkspace(container, {
   controls.append(search, filter, sort, trashToggle);
 
   const summary = node("p", "hydria-drive-results");
+  // Counts every SQLite-indexed version, including the recycle bin. This is
+  // not allocated disk space or a global quota; app/vendor/backup files differ.
+  const usagePanel = node("section", "hydria-drive-usage");
+  usagePanel.setAttribute("aria-label", "Stockage des fichiers natifs Drive");
+  const usageTitle = node("h3", "", "Stockage des fichiers natifs");
+  const usageOverview = node("p", "hydria-drive-usage-summary", "Calcul du stockage…");
+  usageOverview.setAttribute("aria-live", "polite");
+  const usageFamilies = node("div", "hydria-drive-usage-families");
+  const usageHelp = node("p", "hydria-drive-usage-help",
+    "Tailles des fichiers enregistrées en base, versions incluses. " +
+    "Les sauvegardes externes, fichiers orphelins et ressources système ne sont pas comptés.");
+  usagePanel.append(usageTitle, usageOverview, usageFamilies, usageHelp);
+  function formatSize(bytes) {
+    const value = Number(bytes);
+    if (!Number.isFinite(value) || value < 0) return "—";
+    const units = ["o", "Ko", "Mo", "Go", "To"];
+    let size = value, unit = 0;
+    while (size >= 1024 && unit < units.length - 1) { size /= 1024; unit++; }
+    return new Intl.NumberFormat("fr-FR", {maximumFractionDigits:unit===0?0:1})
+      .format(size) + " " + units[unit];
+  }
+  async function loadUsage() {
+    try {
+      const usage = await fetchNativeDriveUsage();
+      if (!root.isConnected) return;
+      const t = usage.total;
+      usageOverview.textContent = formatSize(t.storedBytes) +
+        " conservés · " + t.activeFiles + " fichiers actifs · " +
+        t.trashedFiles + " à la corbeille · " + t.versions + " versions";
+      usageFamilies.replaceChildren();
+      for (const family of usage.families) {
+        const item = node("div", "hydria-drive-usage-family");
+        const title = node("strong", "", family.label);
+        const detail = node("small", "",
+          formatSize(family.storedBytes) + " · " + family.activeFiles + " actifs · " +
+          family.trashedFiles + " supprimés · " + family.versions + " versions");
+        item.append(title, detail);
+        usageFamilies.append(item);
+      }
+    } catch(error) {
+      if (root.isConnected) usageOverview.textContent =
+        "Bilan de stockage indisponible : " + String(error?.message || error);
+    }
+  }
+
   const renameNotice = node("p", "hydria-drive-rename-notice");
   renameNotice.setAttribute("role", "status");
   renameNotice.setAttribute("aria-live", "polite");
@@ -238,6 +284,7 @@ export function renderHydriaDriveWorkspace(container, {
           ? "Fichier restauré : " + item.filename
           : "Fichier placé dans la corbeille : " + item.filename;
         await reloadNativeFamily(family);
+        void loadUsage();
       } catch (error) {
         if (!root.isConnected) return;
         button.disabled = false;
@@ -539,11 +586,10 @@ export function renderHydriaDriveWorkspace(container, {
   search.addEventListener("input", () => { view.query = search.value; paintResults(); });
   filter.addEventListener("change", () => { view.kind = filter.value; paintResults(); });
   sort.addEventListener("change", () => { view.sort = sort.value; paintResults(); });
-  root.append(heading, quick, controls, summary, renameNotice, list, pdfGroup, imageGroup, designGroup, photoProjectGroup);
+  root.append(heading, quick, controls, usagePanel, summary, renameNotice, list, pdfGroup, imageGroup, designGroup, photoProjectGroup);
   container.append(root);
   paintResults();
-  loadSavedPdfs();
-  loadSavedImages();
-  loadSavedDesigns();
-  loadSavedPhotoProjects();
+  void Promise.allSettled([
+    loadSavedPdfs(), loadSavedImages(), loadSavedDesigns(), loadSavedPhotoProjects()
+  ]).then(() => { if (root.isConnected) void loadUsage(); });
 }

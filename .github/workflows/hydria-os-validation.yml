@@ -141,6 +141,10 @@ jobs:
         run: node backend/scripts/osDriveTrashMigrationGate.mjs
       - name: Native Drive trash/restore API and immutable binary revisions
         run: node backend/scripts/osDriveTrashGate.mjs
+      - name: Native Drive versioned storage accounting and legacy tables
+        run: node backend/scripts/osDriveUsageGate.mjs
+      - name: Native Drive storage totals across uploads, versions and trash
+        run: node backend/scripts/osDriveUsageHttpGate.mjs
       - name: Persist, preview and validate images in Drive
         run: node backend/scripts/osDriveImageAssetsGate.mjs
       - name: Native FigCraft project storage, revisions and safe ZIP upload
@@ -346,6 +350,8 @@ jobs:
         run: node backend/scripts/osDriveRenameBrowserGate.mjs
       - name: Native Drive trash and restore browser acceptance
         run: node backend/scripts/osDriveTrashBrowserGate.mjs
+      - name: Native Drive storage metrics browser acceptance
+        run: node backend/scripts/osDriveUsageBrowserGate.mjs
       - name: Global command search reaches native Drive assets
         run: node backend/scripts/osDriveAssetSearchBrowserGate.mjs
       - name: Real PdfCraft WASM edit, save and reopen
