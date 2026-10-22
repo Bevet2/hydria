@@ -13,8 +13,8 @@ async function responseOrThrow(response) {
   try { details = (await response.json()).error; } catch { /* response not JSON */ }
   throw Error(details || "Image Drive indisponible (HTTP " + response.status + ")");
 }
-export async function listDriveImages() {
-  const r = await responseOrThrow(await fetch(IMAGE_API, { credentials:"same-origin", cache:"no-store" }));
+export async function listDriveImages({ trashed = false } = {}) {
+  const r = await responseOrThrow(await fetch(IMAGE_API + (trashed ? "?trashed=1" : ""), { credentials:"same-origin", cache:"no-store" }));
   const v = await r.json();
   if (!Array.isArray(v.items)) throw Error("Invalid image Drive payload");
   return v.items;
