@@ -36,13 +36,14 @@ export function PlatformPage() {
   const [error, setError] = useState("");
   const [selectedRule, setSelectedRule] = useState<Rule | null>(null);
   const isAdmin = user?.role === "ADMIN";
+  const canManageAutomation = isAdmin || user?.role === "MANAGER";
 
   const load = useCallback(async () => {
     const [ruleData, runData, goalData, monitorData, readinessData] = await Promise.all([
-      api<{ rules: Rule[] }>("/automations"),
-      api<{ runs: AutomationRun[] }>("/automations/runs/history?limit=30"),
+      canManageAutomation ? api<{ rules: Rule[] }>("/automations") : Promise.resolve({ rules: [] }),
+      canManageAutomation ? api<{ runs: AutomationRun[] }>("/automations/runs/history?limit=30") : Promise.resolve({ runs: [] }),
       api<{ goals: GoalItem[] }>("/commercial/goals"),
-      api<Monitor>("/monitoring/summary"),
+      canManageAutomation ? api<Monitor>("/monitoring/summary") : Promise.resolve(null),
       api<Readiness>("/integrations/readiness")
     ]);
     setRules(ruleData.rules);
@@ -68,7 +69,7 @@ export function PlatformPage() {
       setSchedule(backupData.schedule);
       setJobs(jobData.jobs);
     }
-  }, [isAdmin]);
+  }, [isAdmin, canManageAutomation]);
 
   useEffect(() => { void load().catch((cause) => setError(cause instanceof Error ? cause.message : "Unable to load platform settings")); }, [load]);
 
@@ -167,7 +168,8 @@ export function PlatformPage() {
     {secret && <section className="settings-section secret-banner"><div><KeyRound size={18} /><p><strong>Secret shown once</strong><code>{secret}</code></p><button className="icon-button" onClick={() => setSecret("")}>×</button></div></section>}
 
     <section className="settings-section">
-      <div className="section-title"><div><Workflow size={19} /><span><h2>Automation rules</h2><p>Assignment, tasks, email and pipeline actions</p></span></div><button className="secondary-button" onClick={() => { setSelectedRule(null); setDialog("rule"); }}><Plus size={16} />Rule</button></div>
+      <div className="section-title"><div><Workflow size={19} /><span><h2>Automation rules</h2><p>Assignment, tasks, email and pipeline actions</p></span></div>{canManageAutomation && <button className="secondary-button" onClick={() => { setSelectedRule(null); setDialog("rule"); }}><Plus size={16} />Rule</button>}</div>
+      {!canManageAutomation && <p className="empty-state">Automation rules and execution history are available to managers and administrators.</p>}
       <div className="field-list">{rules.map((rule) => <div key={rule.id}><strong>{rule.name}</strong><span>{rule.trigger.toLowerCase().replaceAll("_", " ")}</span><code>{rule.steps?.length || 1} step(s)</code><b>{rule._count?.runs || 0} runs</b><label className="switch-label"><input type="checkbox" checked={rule.active} onChange={() => void toggleRule(rule)} /><span>{rule.active ? "Active" : "Paused"}</span></label><button className="icon-button" title="Edit rule" onClick={() => { setSelectedRule(rule); setDialog("rule"); }}><Pencil size={15} /></button><button className="icon-button danger-icon" title="Delete rule" onClick={() => remove(`/automations/${rule.id}`, `Delete ${rule.name}?`)}><Trash2 size={15} /></button></div>)}{!rules.length && <p className="empty-state">No automation rule.</p>}</div>
       <div className="automation-runs">
         <h3>Recent executions</h3>
@@ -181,7 +183,7 @@ export function PlatformPage() {
     </section>
 
     <section className="settings-section">
-      <div className="section-title"><div><Goal size={19} /><span><h2>Sales goals</h2><p>Revenue, won deals and activity targets</p></span></div><button className="secondary-button" onClick={() => setDialog("goal")}><Plus size={16} />Goal</button></div>
+      <div className="section-title"><div><Goal size={19} /><span><h2>Sales goals</h2><p>Revenue, won deals and activity targets</p></span></div>{canManageAutomation && <button className="secondary-button" onClick={() => setDialog("goal")}><Plus size={16} />Goal</button>}</div>
       <div className="goal-grid">{goals.map((goal) => <article key={goal.id}><strong>{goal.name}</strong><span>{goal.achieved} / {Number(goal.target)}</span><div className="progress-track"><i style={{ width: `${Math.min(100, goal.progressPercent)}%` }} /></div><small>{goal.progressPercent}%</small></article>)}{!goals.length && <p className="empty-state">No sales goal.</p>}</div>
     </section>
 

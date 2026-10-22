@@ -1,14 +1,27 @@
 name: CRM CI
 
+# Changes to the Hydria OS CRM integration can break embedded CRM flows without
+# touching crm/**. Keep both products under one end-to-end acceptance contract.
 on:
   push:
     paths:
       - "crm/**"
+      - "backend/middleware/crmApiProxy.js"
+      - "backend/services/crm/**"
+      - "backend/routes/hydriaApi.js"
+      - "backend/middleware/osProductionAccess.js"
+      - "frontend/components/workspacePanel.js"
       - ".github/workflows/crm-ci.yml"
   pull_request:
     paths:
       - "crm/**"
+      - "backend/middleware/crmApiProxy.js"
+      - "backend/services/crm/**"
+      - "backend/routes/hydriaApi.js"
+      - "backend/middleware/osProductionAccess.js"
+      - "frontend/components/workspacePanel.js"
       - ".github/workflows/crm-ci.yml"
+  workflow_dispatch:
 
 jobs:
   verify:
