@@ -51,6 +51,30 @@ label with only their shared work objects in the navigator.
 it enforces read permissions before loading content; absent actor retains the
 legacy internal/private-pilot behavior until the API migration is complete.
 
+## Opt-in authenticated document mutations (versioned slice)
+
+The following routes also require the verified session cookie and derive their
+actor from that session, not from a caller-provided `userId`:
+
+| Method and endpoint | Body | Required role |
+| --- | --- | --- |
+| `PATCH /api/work-objects/mine/:workObjectId` | `{ "title": "New title", "expectedRevision": 3 }` | Editor or owner |
+| `POST /api/work-objects/mine/:workObjectId/trash` | `{ "expectedRevision": 3 }` | Editor or owner |
+| `POST /api/work-objects/mine/:workObjectId/restore` | `{ "expectedRevision": 4 }` | Editor or owner |
+
+`expectedRevision` is a required positive integer matching the current object
+revision. A stale revision returns `409` and does not overwrite the current
+state. Invalid titles or missing revisions return `400`; unauthorized users
+receive `401`/`403`. Successful responses disable caching and include the
+updated work object and its new revision. These operations are reversible;
+an attempt to trash an already trashed document (or restore an active one)
+returns `409` without changing its previous recovery status. There is no
+authenticated permanent-delete route in this slice.
+
+The original, unscoped document APIs are **unchanged and still restricted to
+the private single-owner pilot**. These new routes are an incremental contract
+for a future authenticated UI, not a multi-tenant launch.
+
 ## Provision an existing profile
 
 Use the normal `HYDRIA_OS_DATA_DIR` pointing to the deployment's persistent
@@ -83,8 +107,10 @@ users yet.
 
 Next security slices:
 
-1. Migrate the existing project/work-object read/write endpoints and assets to
-   the verified actor, then switch the UI to the scoped equivalents.
+1. Continue migrating the existing project/work-object endpoints, file content
+   edits, history, sharing, exports and assets to the verified actor, then switch
+   the UI to the scoped equivalents. The first rename/trash/restore routes are
+   implemented but the legacy UI still uses its historical APIs.
 2. Separate explicit public share-token endpoints and internal service access
    from interactive private user access, with tests for every file operation.
 3. Bind conversation, preferences, Drive native assets, Flow, CRM and other
