@@ -44,9 +44,11 @@ export function createDriveAssetSearch({
   let cached = null;
   let expires = 0;
   let inFlight = null;
+  let generation = 0;
   async function load() {
     if (cached && now() < expires) return cached;
     if (!inFlight) {
+      const thisGeneration = generation;
       inFlight = Promise.allSettled(Object.entries(FAMILIES).map(async ([family, config]) => {
         const loader = loaders[family];
         if (typeof loader !== "function") return [];
@@ -66,16 +68,28 @@ export function createDriveAssetSearch({
         const available = results.filter(result => result.status === "fulfilled");
         // Do not cache transient complete outages; the next search should retry.
         if (!available.length) return [];
-        cached = available.flatMap(result => result.value);
-        expires = now() + Math.max(0, Number(ttlMs) || 0);
-        return cached;
-      }).finally(() => { inFlight = null; });
+        const merged = available.flatMap(result => result.value);
+        if (thisGeneration === generation) {
+          cached = merged;
+          expires = now() + Math.max(0, Number(ttlMs) || 0);
+        }
+        return merged;
+      }).finally(() => { if (thisGeneration === generation) inFlight = null; });
     }
     return inFlight;
   }
-  return async (query) => {
+  const search = async (query) => {
     if (String(query || "").trim().length < 3) return [];
     return filterDriveAssetSearch(await load(), query);
   };
+  // A Drive rename changes the search index without changing asset bytes.
+  // Invalidate in-flight loads too, so stale requests cannot overwrite new data.
+  search.invalidate = () => {
+    generation++;
+    cached = null;
+    expires = 0;
+    inFlight = null;
+  };
+  return search;
 }
 export const searchNativeDriveAssets = createDriveAssetSearch();

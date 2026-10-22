@@ -10,6 +10,7 @@ import path from "node:path";
 import config from "../config/hydria.config.js";
 import { db } from "../db/sqlite.js";
 import { AppError } from "../utils/errors.js";
+import { createDriveRenameHandler } from "../services/driveAssetRename.js";
 
 export const MAX_DESIGN_BYTES = 30 * 1024 * 1024;
 export const MAX_DESIGN_REVISIONS = 50;
@@ -241,12 +242,16 @@ async function download(req, res, next) {
     res.setHeader("Cache-Control", "private, no-store");
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Content-Security-Policy", "default-src 'none'; sandbox");
-    res.attachment(saved.filename);
+    res.attachment(req.params.revision === undefined ? asset.filename : saved.filename);
     res.type("application/octet-stream");
     res.send(bytes);
   } catch (error) { next(error); }
 }
 router.get("/:id/download", download);
 router.get("/:id/versions/:revision/download", download);
+
+router.patch("/:id/metadata", createDriveRenameHandler({
+  table: "drive_design_assets", initialize: ensureSchema
+}));
 
 export default router;

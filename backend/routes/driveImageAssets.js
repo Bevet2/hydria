@@ -9,6 +9,7 @@ import path from "node:path";
 import config from "../config/hydria.config.js";
 import { db } from "../db/sqlite.js";
 import { AppError } from "../utils/errors.js";
+import { createDriveRenameHandler } from "../services/driveAssetRename.js";
 
 export const MAX_DRIVE_IMAGE_BYTES = 15 * 1024 * 1024;
 export const MAX_DRIVE_IMAGE_REVISIONS = 50;
@@ -251,7 +252,7 @@ async function serve(req, res, next, disposition, requestedRevision = null) {
     res.setHeader("Cache-Control", "private, no-store");
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Content-Security-Policy", "default-src 'none'; sandbox");
-    if (disposition === "attachment") res.attachment(version.filename);
+    if (disposition === "attachment") res.attachment(requestedRevision === null ? item.filename : version.filename);
     else res.setHeader("Content-Disposition", "inline");
     res.type(version.mime);
     res.send(bytes);
@@ -261,5 +262,9 @@ router.get("/:id/preview", (req, res, next) => serve(req, res, next, "inline"));
 router.get("/:id/download", (req, res, next) => serve(req, res, next, "attachment"));
 router.get("/:id/versions/:revision/download",
   (req, res, next) => serve(req, res, next, "attachment", req.params.revision));
+
+router.patch("/:id/metadata", createDriveRenameHandler({
+  table: "drive_image_assets", initialize: schema
+}));
 
 export default router;

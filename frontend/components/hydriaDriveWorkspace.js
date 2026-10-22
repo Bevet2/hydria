@@ -3,6 +3,8 @@ import { listDrivePdfs, storedPdfUrl } from "../services/drivePdfClient.js";
 import { listDriveImages, imageAssetUrl } from "../services/driveImageClient.js";
 import { designFileUrl, listDesigns } from "../services/driveDesignClient.js";
 import { photoProjectFileUrl, listPhotoProjects } from "../services/drivePhotoProjectClient.js";
+import { renameNativeDriveAsset } from "../services/driveAssetRenameClient.js";
+import { searchNativeDriveAssets } from "../services/driveAssetSearch.js";
 // This is deliberately not a separate file store or a cloud-sync service.
 const SORTS = new Set(["recent", "name", "kind"]);
 const KINDS = new Set(["all", "document", "dataset", "presentation", "dashboard", "workflow", "design", "project", "code", "pdf", "image", "photo-project", "other"]);
@@ -132,6 +134,66 @@ export function renderHydriaDriveWorkspace(container, {
   controls.append(search, filter, sort);
 
   const summary = node("p", "hydria-drive-results");
+  const renameNotice = node("p", "hydria-drive-rename-notice");
+  renameNotice.setAttribute("role", "status");
+  renameNotice.setAttribute("aria-live", "polite");
+
+  function nativeRenameControl(row, item, family) {
+    const button = node("button", "hydria-artcraft-button hydria-drive-rename", "Renommer");
+    button.type = "button";
+    button.setAttribute("aria-label", "Renommer " + String(item.filename || "fichier"));
+    button.addEventListener("click", () => {
+      if (row.querySelector(".hydria-drive-rename-form")) return;
+      const form = node("form", "hydria-drive-rename-form");
+      const field = node("input", "hydria-drive-rename-input");
+      field.type = "text";
+      field.value = String(item.filename || "");
+      field.maxLength = 128;
+      field.required = true;
+      field.setAttribute("aria-label", "Nouveau nom du fichier, extension comprise");
+      const save = node("button", "hydria-artcraft-button", "Enregistrer");
+      save.type = "submit";
+      const cancel = node("button", "hydria-artcraft-button", "Annuler");
+      cancel.type = "button";
+      const errorText = node("small", "hydria-drive-rename-error");
+      errorText.setAttribute("role", "alert");
+      const close = () => {
+        form.remove();
+        button.hidden = false;
+        button.focus();
+      };
+      cancel.addEventListener("click", close);
+      field.addEventListener("keydown", event => {
+        if (event.key === "Escape") { event.preventDefault(); close(); }
+      });
+      form.addEventListener("submit", async event => {
+        event.preventDefault();
+        if (save.disabled) return;
+        save.disabled = true;
+        try {
+          const updated = await renameNativeDriveAsset(family, item, field.value);
+          if (!root.isConnected) return;
+          item.filename = updated.filename;
+          item.updated_at = updated.updated_at;
+          searchNativeDriveAssets.invalidate();
+          renameNotice.textContent = "Fichier renommé : " + updated.filename;
+          paintResults();
+        } catch (error) {
+          if (!form.isConnected) return;
+          errorText.textContent = String(error?.message || error);
+          save.disabled = false;
+          field.focus();
+        }
+      });
+      form.append(field, save, cancel, errorText);
+      button.hidden = true;
+      row.append(form);
+      field.focus();
+      field.select();
+    });
+    return button;
+  }
+
   let savedPdfs = [];
   const pdfGroup = node("section", "hydria-drive-pdf-group");
   pdfGroup.setAttribute("aria-label", "PDF enregistrés dans Hydria Drive");
@@ -160,7 +222,7 @@ export function renderHydriaDriveWorkspace(container, {
       download.href = storedPdfUrl(item.id);
       download.setAttribute("download", String(item.filename || "document.pdf"));
       const version = node("small", "", "Version " + Number(item.revision || 1));
-      row.append(name, version, open, download);
+      row.append(name, version, nativeRenameControl(row, item, "pdf"), open, download);
       pdfList.append(row);
     }
     return filtered.length;
@@ -210,7 +272,7 @@ export function renderHydriaDriveWorkspace(container, {
       download.href = imageAssetUrl(item.id);
       download.setAttribute("download", String(item.filename || "image.png"));
       const revision = node("small", "hydria-drive-image-revision", "Version " + Number(item.revision || 1));
-      row.append(thumb, name, revision, download, open);
+      row.append(thumb, name, revision, nativeRenameControl(row, item, "image"), download, open);
       imageList.append(row);
     }
     return filtered.length;
@@ -259,7 +321,7 @@ export function renderHydriaDriveWorkspace(container, {
       const download = node("a", "hydria-artcraft-button", "Télécharger");
       download.href = designFileUrl(item.id);
       download.setAttribute("download", item.filename || "design.figcraft");
-      row.append(download, open);
+      row.append(nativeRenameControl(row, item, "design"), download, open);
       designList.append(row);
     }
     return filtered.length;
@@ -308,7 +370,7 @@ export function renderHydriaDriveWorkspace(container, {
       const download = node("a", "hydria-artcraft-button", "Télécharger");
       download.href = photoProjectFileUrl(item.id);
       download.setAttribute("download", item.filename || "image.pcraft");
-      row.append(download, open);
+      row.append(nativeRenameControl(row, item, "photo-project"), download, open);
       photoProjectList.append(row);
     }
     return filtered.length;
@@ -378,7 +440,7 @@ export function renderHydriaDriveWorkspace(container, {
   search.addEventListener("input", () => { view.query = search.value; paintResults(); });
   filter.addEventListener("change", () => { view.kind = filter.value; paintResults(); });
   sort.addEventListener("change", () => { view.sort = sort.value; paintResults(); });
-  root.append(heading, quick, controls, summary, list, pdfGroup, imageGroup, designGroup, photoProjectGroup);
+  root.append(heading, quick, controls, summary, renameNotice, list, pdfGroup, imageGroup, designGroup, photoProjectGroup);
   container.append(root);
   paintResults();
   loadSavedPdfs();

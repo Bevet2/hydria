@@ -7,6 +7,7 @@ import path from "node:path";
 import { db } from "../db/sqlite.js";
 import config from "../config/hydria.config.js";
 import { AppError } from "../utils/errors.js";
+import { createDriveRenameHandler } from "../services/driveAssetRename.js";
 
 export const MAX_DRIVE_PDF_BYTES = 20 * 1024 * 1024;
 export const MAX_DRIVE_PDF_REVISIONS = 50;
@@ -174,9 +175,13 @@ async function download(req, res, next) {
     res.setHeader("Cache-Control", "private, no-store");
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Content-Security-Policy", "default-src 'none'; sandbox");
-    res.attachment(version.filename); res.type("application/pdf"); res.send(bytes);
+    res.attachment(req.params.revision === undefined ? item.filename : version.filename); res.type("application/pdf"); res.send(bytes);
   } catch (error) { next(error); }
 }
 router.get("/:id/download", download);
 router.get("/:id/versions/:revision/download", download);
+router.patch("/:id/metadata", createDriveRenameHandler({
+  table: "drive_pdf_assets", initialize: schema
+}));
+
 export default router;
