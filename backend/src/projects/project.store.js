@@ -3,6 +3,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { normalizeProject } from "./project.types.js";
 import { readJsonFile, writeJsonFile } from "../../utils/durableFiles.js";
+import { invalidExplicitActorId } from "../security/actorScope.js";
 
 function ensureFile(filePath) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -42,8 +43,15 @@ export class ProjectStore {
     const state = this.readState();
     const normalizedName = String(name || "").trim().toLowerCase();
     const expectedConversationId = String(metadata?.conversationId || "").trim();
+    const expectedUserId = Number(metadata?.userId || 0);
     const existing = state.items.find((item) => {
       if (item.name.toLowerCase() !== normalizedName) {
+        return false;
+      }
+
+      // A project name is not a global identity; never reuse another user's
+      // project even if the names (and absent conversation IDs) match.
+      if (expectedUserId && Number(item.metadata?.userId || 0) !== expectedUserId) {
         return false;
       }
 
@@ -95,6 +103,7 @@ export class ProjectStore {
   }
 
   listProjects({ ids = [], userId = null, conversationId = null, limit = 100 } = {}) {
+    if (invalidExplicitActorId(userId)) return [];
     const allowedIds = new Set((ids || []).map((id) => String(id || "").trim()).filter(Boolean));
     return this.readState().items
       .filter((item) => !allowedIds.size || allowedIds.has(item.id))

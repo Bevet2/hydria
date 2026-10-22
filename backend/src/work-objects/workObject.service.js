@@ -24,6 +24,7 @@ import { resolveWorkspaceFamily } from "../workspaces/workspaceRegistry.js";
 import { AppError } from "../../utils/errors.js";
 import { atomicWriteFile, readJsonFile } from "../../utils/durableFiles.js";
 import { withKeyedLock } from "../../utils/keyedLock.js";
+import { invalidExplicitActorId } from "../security/actorScope.js";
 
 const WORK_OBJECT_ROLES = new Set(["viewer", "commenter", "editor"]);
 const recoveredCatalogs = new Set();
@@ -1010,11 +1011,12 @@ export class WorkObjectService {
   }
 
   listForConversation({ userId = null, conversationId = null, limit = 30 } = {}) {
+    if (invalidExplicitActorId(userId)) return [];
     return this.store
       .readState()
       .items
       .filter((item) => {
-        if (!userId) {
+        if (userId == null) {
           return true;
         }
         const access = this.resolveAccess(item, { actorUserId: userId });
@@ -1068,14 +1070,13 @@ export class WorkObjectService {
     if (!projectId) {
       return [];
     }
-
-    const scoped = this.store.list({ projectId, userId, limit });
-    if (scoped.length || !userId) {
-      return scoped.map((item) => compactWorkObject(item));
-    }
-
+    // Never retry a user-scoped lookup as an unrestricted query: that leaks
+    // private project documents when the caller owns no object in the project.
+    if (invalidExplicitActorId(userId)) return [];
     return this.store
-      .list({ projectId, userId: null, limit })
+      .list({ projectId, userId: null, limit: Number.MAX_SAFE_INTEGER })
+      .filter((item) => userId == null || this.resolveAccess(item, { actorUserId: userId }).allowed)
+      .slice(0, limit)
       .map((item) => compactWorkObject(item));
   }
 
@@ -1214,6 +1215,7 @@ export class WorkObjectService {
   }
 
   searchContent({ userId = null, query = "", kind = "", limit = 30 } = {}) {
+    if (invalidExplicitActorId(userId)) return [];
     const needle = String(query || "").trim().toLowerCase();
     if (!needle) {
       return [];
