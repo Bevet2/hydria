@@ -11,6 +11,7 @@ import config from "../config/hydria.config.js";
 import { db } from "../db/sqlite.js";
 import { AppError } from "../utils/errors.js";
 import { createDriveRenameHandler } from "../services/driveAssetRename.js";
+import { createDriveTrashHandler, migrateDriveTrashColumn } from "../services/driveAssetTrash.js";
 
 export const MAX_PHOTO_PROJECT_BYTES = 30 * 1024 * 1024;
 export const MAX_PHOTO_PROJECT_REVISIONS = 50;
@@ -34,6 +35,7 @@ function ensureSchema() {
     "size INTEGER NOT NULL CHECK(size > 0), sha256 TEXT NOT NULL, " +
     "storage_key TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL, " +
     "PRIMARY KEY(asset_id, revision))");
+  migrateDriveTrashColumn(db, "drive_photo_project_assets");
   schemaReady = true;
 }
 const ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -161,7 +163,7 @@ function incoming(req) {
 }
 function getAsset(id) {
   validId(id);
-  const asset = db.prepare("SELECT * FROM drive_photo_project_assets WHERE id=?").get(id);
+  const asset = db.prepare("SELECT * FROM drive_photo_project_assets WHERE id=? AND deleted_at IS NULL").get(id);
   if (!asset) throw new AppError("PhotoCraft project not found", 404);
   return asset;
 }
@@ -199,12 +201,13 @@ router.post("/", handleUpload, async (req, res, next) => {
       sha256: file.sha256, revision: 1 });
   } catch (error) { next(error); }
 });
-router.get("/", (_req, res, next) => {
+router.get("/", (req, res, next) => {
   try {
     ensureSchema();
     res.setHeader("Cache-Control", "private, no-store");
     res.json({ items: db.prepare("SELECT id, filename, size, sha256, created_at, " +
-      "revision, updated_at FROM drive_photo_project_assets " +
+      "revision, updated_at, deleted_at FROM drive_photo_project_assets " +
+      "WHERE deleted_at " + (req.query?.trashed === "1" ? "IS NOT NULL " : "IS NULL ") +
       "ORDER BY updated_at DESC,id DESC LIMIT 500").all() });
   } catch (error) { next(error); }
 });
@@ -230,7 +233,7 @@ router.post("/:id/versions", handleUpload, async (req, res, next) => {
     try {
       db.transaction(() => {
         const result = db.prepare("UPDATE drive_photo_project_assets SET " +
-          "filename=?,size=?,sha256=?,revision=?,updated_at=? WHERE id=? AND revision=?")
+          "filename=?,size=?,sha256=?,revision=?,updated_at=? WHERE id=? AND revision=? AND deleted_at IS NULL")
           .run(file.filename, file.bytes.length, file.sha256, expected + 1, now, id, expected);
         if (result.changes !== 1) throw new AppError("PhotoCraft photoProject has a newer revision", 409);
         db.prepare("INSERT INTO drive_photo_project_versions" +
@@ -286,6 +289,13 @@ router.get("/:id/versions/:revision/download", download);
 
 router.patch("/:id/metadata", createDriveRenameHandler({
   table: "drive_photo_project_assets", initialize: ensureSchema
+}));
+
+router.post("/:id/trash", createDriveTrashHandler({
+  table: "drive_photo_project_assets", initialize: ensureSchema, operation: "trash"
+}));
+router.post("/:id/restore", createDriveTrashHandler({
+  table: "drive_photo_project_assets", initialize: ensureSchema, operation: "restore"
 }));
 
 export default router;

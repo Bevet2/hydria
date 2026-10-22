@@ -820,3 +820,16 @@ body { overscroll-behavior-y:none; }
   outline: 2px solid currentColor;
   outline-offset: 2px;
 }
+
+/* Soft trash lifecycle actions; inline confirmation can be cancelled by Esc. */
+.hydria-drive-trash-toggle,
+.hydria-drive-trash-action,
+.hydria-drive-trash-confirm button {
+  cursor: pointer;
+}
+.hydria-drive-trash-toggle[aria-pressed="true"] { font-weight: 650; }
+.hydria-drive-trash-confirm { display: inline-flex; align-items: center; gap: .35rem; }
+.hydria-drive-trash-confirm :focus-visible,
+.hydria-drive-trash-action:focus-visible,
+.hydria-drive-trash-toggle:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.hydria-drive-trash-action:disabled { opacity: .55; cursor: progress; }

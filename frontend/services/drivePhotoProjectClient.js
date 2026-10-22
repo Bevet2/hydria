@@ -21,8 +21,8 @@ export function photoProjectFileUrl(id, revision = null) {
   }
   return target + "/versions/" + Number(revision) + "/download";
 }
-export async function listPhotoProjects() {
-  const response = await requireOk(await fetch(API, { credentials: "same-origin", cache: "no-store" }));
+export async function listPhotoProjects({ trashed = false } = {}) {
+  const response = await requireOk(await fetch(API + (trashed ? "?trashed=1" : ""), { credentials: "same-origin", cache: "no-store" }));
   const value = await response.json();
   if (!Array.isArray(value.items)) throw Error("Réponse Drive PhotoCraft invalide");
   return value.items;

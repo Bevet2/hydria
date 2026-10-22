@@ -17,8 +17,8 @@ export function storedPdfUrl(id) {
   return PDF_API + "/" + encodeURIComponent(id) + "/download";
 }
 
-export async function listDrivePdfs() {
-  const response = await expectOk(await fetch(PDF_API, {
+export async function listDrivePdfs({ trashed = false } = {}) {
+  const response = await expectOk(await fetch(PDF_API + (trashed ? "?trashed=1" : ""), {
     credentials: "same-origin", cache: "no-store"
   }));
   const payload = await response.json();
