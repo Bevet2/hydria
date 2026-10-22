@@ -1,0 +1,48 @@
+import assert from "node:assert/strict";
+import { chromium } from "playwright";
+const origin = process.env.HYDRIA_VISUAL_BASE_URL || "http://127.0.0.1:3001";
+const source="e2e-original.pdf";
+const nextName="e2e-renamed.pdf";
+const pdf=Buffer.from("%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\nstartxref\n0\n%%EOF\n","ascii");
+const form=new FormData();
+form.append("file",new Blob([pdf],{type:"application/pdf"}),source);
+const created=await fetch(origin+"/api/drive/pdf-assets",{method:"POST",body:form});
+assert.equal(created.status,201);
+const item=await created.json();
+const browser=await chromium.launch({headless:true,args:["--no-sandbox"]});
+const page=await browser.newPage({viewport:{width:1280,height:900}});
+const errors=[];
+page.on("pageerror",error=>errors.push(String(error.message||error)));
+try {
+  await page.goto(origin+"/workspace/drive",{waitUntil:"domcontentloaded"});
+  await page.waitForFunction(()=>document.documentElement.dataset.hydriaBoot==="ready");
+  const getRow=(text)=>page.locator(".hydria-drive-pdf-row").filter({hasText:text});
+  const initial=getRow(source);
+  await initial.waitFor({state:"visible",timeout:20000});
+  await initial.getByRole("button",{name:"Renommer "+source}).click();
+  const field=initial.getByRole("textbox",{name:"Nouveau nom du fichier, extension comprise"});
+  assert.equal(await field.inputValue(),source);
+  await field.fill("broken.txt");
+  const bad=page.waitForResponse(res=>res.url().endsWith("/"+item.id+"/metadata")&&res.request().method()==="PATCH");
+  await initial.getByRole("button",{name:"Enregistrer"}).click();
+  assert.equal((await bad).status(),400);
+  await initial.getByRole("alert").waitFor({state:"visible"});
+  await field.fill(nextName);
+  const pending=page.waitForResponse(res=>res.url().endsWith("/"+item.id+"/metadata")&&res.request().method()==="PATCH"&&res.status()===200);
+  await initial.getByRole("button",{name:"Enregistrer"}).click();
+  assert.equal((await pending).status(),200);
+  await getRow(nextName).waitFor({state:"visible",timeout:20000});
+  assert.equal(await page.getByRole("status").filter({hasText:"Fichier renommé"}).count(),1);
+  const renamed=getRow(nextName);
+  await renamed.getByRole("button",{name:"Renommer "+nextName}).click();
+  await renamed.getByRole("textbox",{name:"Nouveau nom du fichier, extension comprise"}).press("Escape");
+  assert.equal(await renamed.locator(".hydria-drive-rename-form").count(),0);
+  const persisted=(await fetch(origin+"/api/drive/pdf-assets").then(r=>r.json())).items.find(x=>x.id===item.id);
+  assert.equal(persisted.filename,nextName);
+  assert.equal(persisted.revision,1);
+  assert.deepEqual(Buffer.from(await fetch(origin+"/api/drive/pdf-assets/"+item.id+"/download").then(r=>r.arrayBuffer())),pdf);
+  assert.deepEqual(errors,[]);
+  console.log("Drive inline rename passed: keyboard, extension validation, persistence and original bytes.");
+} finally {
+  await browser.close();
+}
