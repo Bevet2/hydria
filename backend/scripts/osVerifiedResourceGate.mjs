@@ -50,6 +50,15 @@ try {
     workObjectId: shared.id, actorUserId: accounts[0].id, visibility: "private",
     shares: [{ userId: accounts[1].id, role: "viewer" }]
   });
+  await projects.updateProject(aliceProject.id, () => ({
+    workObjectIds: [secret.id, shared.id],
+    activeWorkObjectId: secret.id,
+    graph: { nodes: [{ id: secret.id, label: "Private financial forecast" }], edges: [], workspaceFamilies: [] },
+    dimensions: ["Private acquisition"],
+    internalCapabilities: ["Confidential finance"],
+    globalProject: { secret: "Stealth launch valuation" },
+    exportArtifact: { filename: "payroll-private.pdf" }
+  }));
 
   for (const invalidId of [null, 0, "", NaN, "invalid"]) {
     assert.throws(() => objects.get(secret.id, { actorUserId: invalidId }),
@@ -121,6 +130,14 @@ try {
     "A collaborator should only receive objects explicitly shared in this project");
   const sharedWorkspace = (await (await request(`/api/projects/mine/${aliceProject.id}`, bob)).json()).workspace;
   assert.deepEqual(sharedWorkspace.workObjects.map(object => object.id), [shared.id]);
+  const sharedPayload = JSON.stringify(sharedWorkspace);
+  for (const secretFragment of [
+    secret.id, "Alice confidential plans", "Private financial forecast",
+    "Private acquisition", "Confidential finance", "Stealth launch valuation", "payroll-private.pdf"
+  ]) {
+    assert.equal(sharedPayload.includes(secretFragment), false,
+      `A document share must not disclose unrelated project metadata: ${secretFragment}`);
+  }
 
   const aliceObjects = (await (await request("/api/work-objects/mine", alice)).json()).workObjects;
   assert.deepEqual(new Set(aliceObjects.map(object => object.id)), new Set([secret.id, shared.id]));

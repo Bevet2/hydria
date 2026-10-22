@@ -42,7 +42,10 @@ Authentication errors return `401`; attempting to impersonate another
 `userId` or read someone else's private work object returns `403`. A project
 that is not accessible returns `404`. Responses set `Cache-Control: no-store`.
 Project listings include owned projects; collaborators can open an explicitly
-shared project's navigator by ID without gaining its private documents.
+shared project's navigator by ID without gaining its private documents **or
+private project metadata** (including the project graph, plan, exports and
+unshared work-object IDs). Collaborators receive a generic `Shared project`
+label with only their shared work objects in the navigator.
 
 `WorkObjectService.get` now accepts an optional `actorUserId`. When present,
 it enforces read permissions before loading content; absent actor retains the

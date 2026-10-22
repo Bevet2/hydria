@@ -38,7 +38,8 @@ router.get("/mine", requireAccount, (req, res) => {
 function handleVerifiedWorkspace(req, res, next) {
   try {
     const workspace = workspaceService.getWorkspace(req.params.projectId, {
-      userId: req.hydriaIdentity.id
+      userId: req.hydriaIdentity.id,
+      redactSharedProjectMetadata: true
     });
     if (!workspace) throw new AppError("Project not found", 404);
     res.setHeader("Cache-Control", "no-store");
