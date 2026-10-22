@@ -1,3 +1,5 @@
+import { invalidExplicitActorId } from "../security/actorScope.js";
+
 function compactProject(project = {}, workObjects = []) {
   return {
     id: project.id,
@@ -64,6 +66,7 @@ export class ProjectWorkspaceService {
   }
 
   listProjects({ userId = null, conversationId = null, limit = 50 } = {}) {
+    if (invalidExplicitActorId(userId)) return [];
     const projects = this.projectStore.listProjects({
       userId,
       conversationId,
@@ -89,6 +92,7 @@ export class ProjectWorkspaceService {
   }
 
   getWorkspace(projectId, { userId = null } = {}) {
+    if (invalidExplicitActorId(userId)) return null;
     const project = this.projectStore.getProject(String(projectId || ""));
     if (!project) {
       return null;
