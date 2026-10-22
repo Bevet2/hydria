@@ -19,6 +19,9 @@ import WorkObjectService from "../src/work-objects/workObject.service.js";
 import WorkObjectCollaborationService from "../src/work-objects/workObjectCollaboration.service.js";
 import { AppError } from "../utils/errors.js";
 import { EventEmitter } from "node:events";
+import { db } from "../db/sqlite.js";
+import { IdentitySessionStore } from "../services/identity/identitySessionStore.js";
+import { requireVerifiedIdentity } from "./identity.js";
 
 const router = Router();
 const workObjectEvents = new EventEmitter();
@@ -51,6 +54,43 @@ const DOCUMENT_EXPORT_FORMATS = new Set(["pdf", "docx", "txt"]);
 const PRESENTATION_SLIDE_META_PATTERN = /^<!--\s*hydria-slide:\s*(\{[\s\S]*\})\s*-->\s*$/i;
 const PRESENTATION_SLIDE_WIDTH = 13.333;
 const PRESENTATION_SLIDE_HEIGHT = 7.5;
+const requireAccount = requireVerifiedIdentity(new IdentitySessionStore(db));
+
+router.get("/mine", requireAccount, (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  res.json({
+    success: true,
+    workObjects: workObjectService.listForConversation({ userId: req.hydriaIdentity.id })
+  });
+});
+
+router.get("/mine/search", requireAccount, (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  res.json({
+    success: true,
+    results: workObjectService.searchContent({
+      userId: req.hydriaIdentity.id,
+      query: req.query.q || req.query.query || "",
+      kind: req.query.kind || "",
+      limit: Math.min(100, Math.max(1, Number(req.query.limit) || 30))
+    })
+  });
+});
+
+router.get("/mine/:workObjectId", requireAccount, (req, res, next) => {
+  try {
+    const workObject = workObjectService.get(req.params.workObjectId, {
+      actorUserId: req.hydriaIdentity.id,
+      includeContent: req.query.content === "1" || Boolean(req.query.path),
+      entryPath: req.query.path || req.query.entryPath || ""
+    });
+    if (!workObject) throw new AppError("Work object not found", 404);
+    res.setHeader("Cache-Control", "no-store");
+    res.json({ success: true, workObject });
+  } catch (error) {
+    next(error);
+  }
+});
 
 router.get("/", (req, res) => {
   const userId = req.query.userId ? Number(req.query.userId) : null;

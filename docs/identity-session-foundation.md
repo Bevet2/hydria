@@ -24,6 +24,33 @@ gate (production still requires Basic authentication and an HTTPS origin):
 There is **no** self-service password registration. Existing profiles cannot
 be claimed just by guessing their username.
 
+## Opt-in authenticated project and document reads (next slice)
+
+The following additional routes require the above session cookie. They always
+resolve the actor from `req.hydriaIdentity.id`, never from a query parameter:
+
+| Endpoint | Response | Visibility |
+| --- | --- | --- |
+| `GET /api/projects/mine` | `projects` | Projects owned by the account |
+| `GET /api/projects/mine/:projectId` | `workspace` | Owned project or explicitly shared work objects only |
+| `GET /api/projects/mine/:projectId/workspace` | `workspace` | Same scoped project navigator |
+| `GET /api/work-objects/mine` | `workObjects` | Owned and directly shared objects |
+| `GET /api/work-objects/mine/search?q=...` | `results` | Search restricted to those objects |
+| `GET /api/work-objects/mine/:workObjectId?content=1` | `workObject` | Detail and editable source content, if authorized |
+
+Authentication errors return `401`; attempting to impersonate another
+`userId` or read someone else's private work object returns `403`. A project
+that is not accessible returns `404`. Responses set `Cache-Control: no-store`.
+Project listings include owned projects; collaborators can open an explicitly
+shared project's navigator by ID without gaining its private documents **or
+private project metadata** (including the project graph, plan, exports and
+unshared work-object IDs). Collaborators receive a generic `Shared project`
+label with only their shared work objects in the navigator.
+
+`WorkObjectService.get` now accepts an optional `actorUserId`. When present,
+it enforces read permissions before loading content; absent actor retains the
+legacy internal/private-pilot behavior until the API migration is complete.
+
 ## Provision an existing profile
 
 Use the normal `HYDRIA_OS_DATA_DIR` pointing to the deployment's persistent
@@ -47,8 +74,8 @@ for multiple people.
 This tranche establishes **proof of identity**, not complete **authorization**.
 The old user selection UI and many existing API routes still accept client
 `userId` or use single-owner implicit access. The new
-`requireVerifiedIdentity(identity)` middleware exists for progressively binding
-those routes to a verified account, but is **not** a global policy yet. A
+`requireVerifiedIdentity(identity)` middleware binds the opt-in read routes
+above to a verified account, but is **not** a global policy yet. A
 cookie does **not** make the existing Docs, Drive, CRM, Flow, assets, search or
 shared-file routes safe for multiple unrelated users. Keep the single-owner
 production access restriction; do not offer independent accounts to external
@@ -56,8 +83,8 @@ users yet.
 
 Next security slices:
 
-1. Bind all user-scoped read/write endpoints to `req.hydriaIdentity.id` and
-   reject spoofed IDs, starting with project/work-object detail and assets.
+1. Migrate the existing project/work-object read/write endpoints and assets to
+   the verified actor, then switch the UI to the scoped equivalents.
 2. Separate explicit public share-token endpoints and internal service access
    from interactive private user access, with tests for every file operation.
 3. Bind conversation, preferences, Drive native assets, Flow, CRM and other
@@ -72,6 +99,8 @@ Next security slices:
 npm run gate:identity-sessions --prefix backend
 ```
 
-The gate performs an actual HTTP exchange with two distinct identities, checks
+The gate performs real HTTP exchanges with two distinct identities, checks
 revocation, expiration, cookie attributes, ID spoofing and retry throttling,
-and provisions a persisted SQLite account through a separate CLI process.
+provisions a persisted SQLite account through a separate CLI process, then
+checks project navigation, private file content, explicit document sharing and
+cross-account search with the full Hydria backend.

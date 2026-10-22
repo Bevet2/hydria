@@ -91,7 +91,7 @@ export class ProjectWorkspaceService {
       .slice(0, limit);
   }
 
-  getWorkspace(projectId, { userId = null } = {}) {
+  getWorkspace(projectId, { userId = null, redactSharedProjectMetadata = false } = {}) {
     if (invalidExplicitActorId(userId)) return null;
     const project = this.projectStore.getProject(String(projectId || ""));
     if (!project) {
@@ -112,11 +112,46 @@ export class ProjectWorkspaceService {
       workObjects[0] ||
       null;
 
+    const navigator = buildNavigator(project, workObjects);
+
+    // A share grants access to individual work objects, not the owner's
+    // entire project graph, internal plan, export names or other metadata.
+    // Legacy private-pilot callers keep the original workspace response;
+    // verified-session routes opt in to this minimal collaborator view.
+    if (redactSharedProjectMetadata && userId != null &&
+        Number(project.metadata?.userId || 0) !== Number(userId)) {
+      return {
+        project: {
+          id: project.id,
+          name: "Shared project",
+          type: "shared",
+          workObjectIds: workObjects.map((item) => item.id),
+          workObjectCount: workObjects.length,
+          activeWorkObjectId: activeWorkObject?.id || "",
+          graph: { nodes: [], edges: [], workspaceFamilies: [] },
+          workspaceFamilies: [],
+          dimensions: [],
+          internalCapabilities: [],
+          globalProject: null,
+          exportArtifact: null,
+          metadata: { userId: null, conversationId: null }
+        },
+        activeWorkObjectId: activeWorkObject?.id || "",
+        workObjects,
+        navigator: {
+          dimensions: [],
+          editableSurfaces: [],
+          workspaceSurfaces: navigator.workspaceSurfaces,
+          workObjects: navigator.workObjects
+        }
+      };
+    }
+
     return {
       project: compactProject(project, workObjects),
       activeWorkObjectId: activeWorkObject?.id || "",
       workObjects,
-      navigator: buildNavigator(project, workObjects)
+      navigator
     };
   }
 }
