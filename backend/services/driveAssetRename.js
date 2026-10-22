@@ -9,7 +9,7 @@ const ALLOWED_TABLES = new Set([
   "drive_pdf_assets", "drive_image_assets",
   "drive_photo_project_assets", "drive_design_assets"
 ]);
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ILLEGAL = /[\/\\\x00-\x1f\x7f<>:"|?*]/;
 
 export function createDriveRenameHandler({ table, initialize }) {

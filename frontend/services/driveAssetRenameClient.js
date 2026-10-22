@@ -5,7 +5,7 @@ const ROOTS = Object.freeze({
   design: "/api/drive/design-assets",
   "photo-project": "/api/drive/photo-projects"
 });
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export async function renameNativeDriveAsset(family, item, filename) {
   if (!Object.hasOwn(ROOTS, family) || !UUID.test(String(item?.id || ""))) {
     throw Error("Fichier Hydria Drive inconnu.");
