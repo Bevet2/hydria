@@ -35,7 +35,8 @@ for (const entry of assets) {
   const start=entry.original;
   const named="renamed-" + entry.family + entry.ext;
   assert.equal((await renamedAsset(entry,"not-a-uuid",named,start,1)).status,400);
-  assert.equal((await renamedAsset(entry,"11111111-1111-4111-8111-111111111111",named,start,1)).status,404);
+  const absent = await renamedAsset(entry,"11111111-1111-4111-8111-111111111111",named,start,1);
+  assert.equal(absent.status,404,"Missing "+entry.family+": "+(await absent.text()));
   for (const invalid of ["../escape" + entry.ext, "evil/name" + entry.ext,
     "switch.exe", "bad\u0000name" + entry.ext, "name.", "  "]) {
     assert.equal((await renamedAsset(entry,item.id,invalid,start,1)).status,400,
