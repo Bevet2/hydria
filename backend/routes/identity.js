@@ -1,8 +1,9 @@
 import { Router } from "express";
 import { db } from "../db/sqlite.js";
 import { IdentitySessionStore } from "../services/identity/identitySessionStore.js";
+import { IDENTITY_COOKIE_NAME } from "../services/identity/identityCookie.js";
 
-const COOKIE_NAME = "hydria_identity_session";
+const COOKIE_NAME = IDENTITY_COOKIE_NAME;
 
 function sessionToken(req) {
   const header = req.get("cookie") || "";

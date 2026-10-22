@@ -9,6 +9,9 @@ of random 256-bit session tokens. Issuing a new password revokes all old
 sessions for that user. Session verification never trusts a client-provided
 `userId`; shared browser cookies are `HttpOnly`, `SameSite=Strict`, and `Secure`
 in production. Login is rate-limited in each server process.
+The same-origin `/crm-api` proxy strips the Hydria identity cookie before
+forwarding to CRM and blocks any upstream attempt to overwrite that cookie,
+while retaining CRM's own authentication cookies.
 
 The HTTP session endpoints are available under the **existing** Hydria access
 gate (production still requires Basic authentication and an HTTPS origin):

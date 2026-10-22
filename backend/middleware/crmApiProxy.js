@@ -1,6 +1,7 @@
 import http from "node:http";
 import https from "node:https";
 import config from "../config/hydria.config.js";
+import { IDENTITY_COOKIE_NAME } from "../services/identity/identityCookie.js";
 
 // Headers describing a single transport hop must not leak across proxies.
 // Connection can nominate additional hop-by-hop headers, so parse its tokens too.
@@ -49,6 +50,14 @@ export function createCrmApiProxy({
     if (/^Basic\s+/i.test(String(headers.authorization || ""))) {
       delete headers.authorization;
     }
+    // The CRM shares this site's /crm-api origin but must never receive the
+    // OS identity cookie. Forward its *own* cookies without the Hydria token.
+    if (headers.cookie) {
+      const crmCookies = String(headers.cookie).split(";").map((part) => part.trim())
+        .filter((part) => part && part.split("=", 1)[0] !== IDENTITY_COOKIE_NAME);
+      if (crmCookies.length) headers.cookie = crmCookies.join("; ");
+      else delete headers.cookie;
+    }
     headers["x-forwarded-host"] = origin?.host || req.headers.host || "";
     headers["x-forwarded-proto"] = origin?.protocol.replace(/:$/, "") || req.protocol || "http";
     headers["x-forwarded-for"] = req.socket?.remoteAddress || "";
@@ -70,6 +79,13 @@ export function createCrmApiProxy({
       }
       res.status(upstream.statusCode || 502);
       for (const [name, value] of Object.entries(stripHopHeaders(upstream.headers))) {
+        if (name.toLowerCase() === "set-cookie") {
+          const cookies = (Array.isArray(value) ? value : [value]).filter((cookie) =>
+            String(cookie).split("=", 1)[0].trim() !== IDENTITY_COOKIE_NAME
+          );
+          if (cookies.length) res.setHeader(name, cookies);
+          continue;
+        }
         res.setHeader(name, value);
       }
       upstream.on("error", () => {
