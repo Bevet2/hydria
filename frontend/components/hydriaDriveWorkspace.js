@@ -5,10 +5,11 @@ import { designFileUrl, listDesigns } from "../services/driveDesignClient.js";
 import { photoProjectFileUrl, listPhotoProjects } from "../services/drivePhotoProjectClient.js";
 import { renameNativeDriveAsset } from "../services/driveAssetRenameClient.js";
 import { searchNativeDriveAssets } from "../services/driveAssetSearch.js";
+import { changeNativeDriveTrash } from "../services/driveAssetTrashClient.js";
 // This is deliberately not a separate file store or a cloud-sync service.
 const SORTS = new Set(["recent", "name", "kind"]);
 const KINDS = new Set(["all", "document", "dataset", "presentation", "dashboard", "workflow", "design", "project", "code", "pdf", "image", "photo-project", "other"]);
-let view = { query: "", kind: "all", sort: "recent" };
+let view = { query: "", kind: "all", sort: "recent", trashed: false };
 
 function kindOf(item) {
   return String(item?.objectKind || item?.kind || "other").trim().toLowerCase() || "other";
@@ -131,7 +132,21 @@ export function renderHydriaDriveWorkspace(container, {
     sort.append(opt);
   }
   sort.value = view.sort;
-  controls.append(search, filter, sort);
+  const trashToggle = node("button", "hydria-drive-trash-toggle", "Corbeille");
+  trashToggle.type = "button";
+  trashToggle.setAttribute("aria-pressed", String(view.trashed));
+  trashToggle.setAttribute("aria-label", "Afficher la corbeille Drive");
+  trashToggle.addEventListener("click", () => {
+    view.trashed = !view.trashed;
+    view.kind = "all";
+    filter.value = "all";
+    trashToggle.textContent = view.trashed ? "Retour aux fichiers" : "Corbeille";
+    trashToggle.setAttribute("aria-pressed", String(view.trashed));
+    trashToggle.setAttribute("aria-label", view.trashed ? "Afficher les fichiers actifs" : "Afficher la corbeille Drive");
+    paintResults();
+    updateTotal();
+  });
+  controls.append(search, filter, sort, trashToggle);
 
   const summary = node("p", "hydria-drive-results");
   const renameNotice = node("p", "hydria-drive-rename-notice");
@@ -194,7 +209,69 @@ export function renderHydriaDriveWorkspace(container, {
     return button;
   }
 
+  // Native trash is not a permanent delete: retain every revision and binary.
+  // Explicitly confirm trashing to avoid accidental clicks while navigating.
+  async function reloadNativeFamily(family) {
+    const loaders = {
+      pdf: loadSavedPdfs,
+      image: loadSavedImages,
+      design: loadSavedDesigns,
+      "photo-project": loadSavedPhotoProjects
+    };
+    if (!Object.hasOwn(loaders, family)) throw Error("Type de fichier inconnu");
+    await loaders[family]();
+  }
+  function nativeTrashControl(row, item, family) {
+    const restore = view.trashed;
+    const button = node("button", "hydria-artcraft-button hydria-drive-trash-action",
+      restore ? "Restaurer" : "Corbeille");
+    button.type = "button";
+    button.setAttribute("aria-label",
+      (restore ? "Restaurer " : "Mettre à la corbeille ") + item.filename);
+    const perform = async () => {
+      button.disabled = true;
+      try {
+        await changeNativeDriveTrash(family, item, restore ? "restore" : "trash");
+        if (!root.isConnected) return;
+        searchNativeDriveAssets.invalidate();
+        renameNotice.textContent = restore
+          ? "Fichier restauré : " + item.filename
+          : "Fichier placé dans la corbeille : " + item.filename;
+        await reloadNativeFamily(family);
+      } catch (error) {
+        if (!root.isConnected) return;
+        button.disabled = false;
+        renameNotice.textContent = String(error?.message || error);
+      }
+    };
+    button.addEventListener("click", () => {
+      if (restore) { void perform(); return; }
+      if (row.querySelector(".hydria-drive-trash-confirm")) return;
+      const confirm = node("span", "hydria-drive-trash-confirm");
+      const yes = node("button", "hydria-artcraft-button", "Confirmer");
+      yes.type = "button";
+      const no = node("button", "hydria-artcraft-button", "Annuler");
+      no.type = "button";
+      const cancel = () => {
+        confirm.remove();
+        button.hidden = false;
+        button.focus();
+      };
+      no.addEventListener("click", cancel);
+      confirm.addEventListener("keydown", event => {
+        if (event.key === "Escape") { event.preventDefault(); cancel(); }
+      });
+      yes.addEventListener("click", () => { yes.disabled = true; void perform(); });
+      confirm.append(yes, no);
+      button.hidden = true;
+      row.append(confirm);
+      no.focus();
+    });
+    return button;
+  }
+
   let savedPdfs = [];
+  let trashedPdfs = [];
   const pdfGroup = node("section", "hydria-drive-pdf-group");
   pdfGroup.setAttribute("aria-label", "PDF enregistrés dans Hydria Drive");
   const pdfHeading = node("h3", "", "PDF enregistrés");
@@ -205,10 +282,11 @@ export function renderHydriaDriveWorkspace(container, {
     pdfList.replaceChildren();
     if (pdfGroup.hidden) return 0;
     const q = String(view.query).toLocaleLowerCase().trim();
-    const filtered = savedPdfs.filter(item => String(item.filename || "").toLocaleLowerCase().includes(q));
+    const filtered = (view.trashed ? trashedPdfs : savedPdfs).filter(item => String(item.filename || "").toLocaleLowerCase().includes(q));
     filtered.sort((a,b) => view.sort === "name"
       ? String(a.filename).localeCompare(String(b.filename), "fr")
       : String(b.updated_at || b.created_at).localeCompare(String(a.updated_at || a.created_at)));
+    pdfHeading.textContent = view.trashed ? "PDF dans la corbeille" : "PDF enregistrés";
     if (!filtered.length) {
       pdfList.append(node("p", "hydria-pdf-saved-empty", "Aucun PDF ne correspond à cette recherche."));
       return 0;
@@ -222,14 +300,17 @@ export function renderHydriaDriveWorkspace(container, {
       download.href = storedPdfUrl(item.id);
       download.setAttribute("download", String(item.filename || "document.pdf"));
       const version = node("small", "", "Version " + Number(item.revision || 1));
-      row.append(name, version, nativeRenameControl(row, item, "pdf"), open, download);
+      if (view.trashed) row.append(name, version, nativeTrashControl(row, item, "pdf"));
+      else row.append(name, version, nativeRenameControl(row, item, "pdf"), open, download, nativeTrashControl(row, item, "pdf"));
       pdfList.append(row);
     }
     return filtered.length;
   }
   async function loadSavedPdfs() {
     try {
-      savedPdfs = await listDrivePdfs();
+      [savedPdfs, trashedPdfs] = await Promise.all([
+        listDrivePdfs(), listDrivePdfs({trashed:true})
+      ]);
       if (!root.isConnected) return;
       paintResults();
       updateTotal();
@@ -240,6 +321,7 @@ export function renderHydriaDriveWorkspace(container, {
     }
   }
   let savedImages = [];
+  let trashedImages = [];
   const imageGroup = node("section", "hydria-drive-pdf-group hydria-drive-image-group");
   imageGroup.setAttribute("aria-label", "Images enregistrées dans Hydria Drive");
   const imageTitle = node("h3", "", "Images enregistrées");
@@ -250,10 +332,11 @@ export function renderHydriaDriveWorkspace(container, {
     imageList.replaceChildren();
     if (imageGroup.hidden) return 0;
     const q = String(view.query).toLocaleLowerCase().trim();
-    const filtered = savedImages.filter(item => String(item.filename || "").toLocaleLowerCase().includes(q));
+    const filtered = (view.trashed ? trashedImages : savedImages).filter(item => String(item.filename || "").toLocaleLowerCase().includes(q));
     filtered.sort((a,b) => view.sort === "name"
       ? String(a.filename).localeCompare(String(b.filename), "fr")
       : String(b.created_at).localeCompare(String(a.created_at)));
+    imageTitle.textContent = view.trashed ? "Images dans la corbeille" : "Images enregistrées";
     if (!filtered.length) {
       imageList.append(node("p", "hydria-pdf-saved-empty", "Aucune image ne correspond à cette recherche."));
       return 0;
@@ -261,7 +344,7 @@ export function renderHydriaDriveWorkspace(container, {
     for (const item of filtered) {
       const row = node("div", "hydria-drive-image-row");
       const thumb = node("img", "hydria-drive-image-thumb");
-      thumb.src = imageAssetUrl(item.id, "preview");
+      if (!view.trashed) thumb.src = imageAssetUrl(item.id, "preview");
       thumb.alt = "";
       thumb.loading = "lazy";
       const name = node("strong", "", String(item.filename || "image.png"));
@@ -272,14 +355,17 @@ export function renderHydriaDriveWorkspace(container, {
       download.href = imageAssetUrl(item.id);
       download.setAttribute("download", String(item.filename || "image.png"));
       const revision = node("small", "hydria-drive-image-revision", "Version " + Number(item.revision || 1));
-      row.append(thumb, name, revision, nativeRenameControl(row, item, "image"), download, open);
+      if (view.trashed) row.append(name, revision, nativeTrashControl(row, item, "image"));
+      else row.append(thumb, name, revision, nativeRenameControl(row, item, "image"), download, open, nativeTrashControl(row, item, "image"));
       imageList.append(row);
     }
     return filtered.length;
   }
   async function loadSavedImages() {
     try {
-      savedImages = await listDriveImages();
+      [savedImages, trashedImages] = await Promise.all([
+        listDriveImages(), listDriveImages({trashed:true})
+      ]);
       if (!root.isConnected) return;
       paintResults();
       updateTotal();
@@ -290,6 +376,7 @@ export function renderHydriaDriveWorkspace(container, {
     }
   }
   let savedDesigns = [];
+  let trashedDesigns = [];
   const designGroup = node("section", "hydria-drive-pdf-group hydria-drive-design-group");
   designGroup.setAttribute("aria-label", "Projets FigCraft dans Hydria Drive");
   const designTitle = node("h3", "", "Projets FigCraft (.figcraft)");
@@ -300,11 +387,12 @@ export function renderHydriaDriveWorkspace(container, {
     designList.replaceChildren();
     if (designGroup.hidden) return 0;
     const q = String(view.query).toLocaleLowerCase().trim();
-    const filtered = savedDesigns.filter(x =>
+    const filtered = (view.trashed ? trashedDesigns : savedDesigns).filter(x =>
       String(x.filename || "").toLocaleLowerCase().includes(q));
     filtered.sort((a, b) => view.sort === "name"
       ? String(a.filename).localeCompare(String(b.filename), "fr")
       : String(b.updated_at || b.created_at).localeCompare(String(a.updated_at || a.created_at)));
+    designTitle.textContent = view.trashed ? "FigCraft dans la corbeille" : "Projets FigCraft (.figcraft)";
     if (!filtered.length) {
       designList.append(node("p", "hydria-pdf-saved-empty",
         "Aucun projet FigCraft ne correspond à cette recherche."));
@@ -321,14 +409,17 @@ export function renderHydriaDriveWorkspace(container, {
       const download = node("a", "hydria-artcraft-button", "Télécharger");
       download.href = designFileUrl(item.id);
       download.setAttribute("download", item.filename || "design.figcraft");
-      row.append(nativeRenameControl(row, item, "design"), download, open);
+      if (view.trashed) row.append(nativeTrashControl(row, item, "design"));
+      else row.append(nativeRenameControl(row, item, "design"), download, open, nativeTrashControl(row, item, "design"));
       designList.append(row);
     }
     return filtered.length;
   }
   async function loadSavedDesigns() {
     try {
-      savedDesigns = await listDesigns();
+      [savedDesigns, trashedDesigns] = await Promise.all([
+        listDesigns(), listDesigns({trashed:true})
+      ]);
       if (!root.isConnected) return;
       paintResults();
       updateTotal();
@@ -339,6 +430,7 @@ export function renderHydriaDriveWorkspace(container, {
     }
   }
   let savedPhotoProjects = [];
+  let trashedPhotoProjects = [];
   const photoProjectGroup = node("section", "hydria-drive-pdf-group hydria-drive-photo-project-group");
   photoProjectGroup.setAttribute("aria-label", "Projets PhotoCraft dans Hydria Drive");
   const photoProjectTitle = node("h3", "", "Projets PhotoCraft (.pcraft)");
@@ -349,11 +441,12 @@ export function renderHydriaDriveWorkspace(container, {
     photoProjectList.replaceChildren();
     if (photoProjectGroup.hidden) return 0;
     const q = String(view.query).toLocaleLowerCase().trim();
-    const filtered = savedPhotoProjects.filter(x =>
+    const filtered = (view.trashed ? trashedPhotoProjects : savedPhotoProjects).filter(x =>
       String(x.filename || "").toLocaleLowerCase().includes(q));
     filtered.sort((a, b) => view.sort === "name"
       ? String(a.filename).localeCompare(String(b.filename), "fr")
       : String(b.updated_at || b.created_at).localeCompare(String(a.updated_at || a.created_at)));
+    photoProjectTitle.textContent = view.trashed ? "PhotoCraft dans la corbeille" : "Projets PhotoCraft (.pcraft)";
     if (!filtered.length) {
       photoProjectList.append(node("p", "hydria-pdf-saved-empty",
         "Aucun projet PhotoCraft ne correspond à cette recherche."));
@@ -370,14 +463,17 @@ export function renderHydriaDriveWorkspace(container, {
       const download = node("a", "hydria-artcraft-button", "Télécharger");
       download.href = photoProjectFileUrl(item.id);
       download.setAttribute("download", item.filename || "image.pcraft");
-      row.append(nativeRenameControl(row, item, "photo-project"), download, open);
+      if (view.trashed) row.append(nativeTrashControl(row, item, "photo-project"));
+      else row.append(nativeRenameControl(row, item, "photo-project"), download, open, nativeTrashControl(row, item, "photo-project"));
       photoProjectList.append(row);
     }
     return filtered.length;
   }
   async function loadSavedPhotoProjects() {
     try {
-      savedPhotoProjects = await listPhotoProjects();
+      [savedPhotoProjects, trashedPhotoProjects] = await Promise.all([
+        listPhotoProjects(), listPhotoProjects({trashed:true})
+      ]);
       if (!root.isConnected) return;
       paintResults();
       updateTotal();
@@ -388,14 +484,17 @@ export function renderHydriaDriveWorkspace(container, {
     }
   }
   function updateTotal() {
-    total.textContent = String(workObjects.length + savedPdfs.length +
-      savedImages.length + savedDesigns.length + savedPhotoProjects.length) + " éléments";
+    const count = view.trashed
+      ? trashedPdfs.length + trashedImages.length + trashedDesigns.length + trashedPhotoProjects.length
+      : workObjects.length + savedPdfs.length + savedImages.length + savedDesigns.length + savedPhotoProjects.length;
+    total.textContent = String(count) + " éléments";
   }
   const list = node("div", "hydria-drive-list");
   list.setAttribute("role", "list");
 
   function paintResults() {
-    const filtered = filterDriveObjects(workObjects, view);
+    quick.hidden = view.trashed;
+    const filtered = view.trashed ? [] : filterDriveObjects(workObjects, view);
     const pdfCount = paintSavedPdfs();
     const imageCount = paintSavedImages();
     const designCount = paintSavedDesigns();
@@ -405,7 +504,7 @@ export function renderHydriaDriveWorkspace(container, {
     list.replaceChildren();
     if (!filtered.length && !pdfCount && !imageCount && !designCount && !photoProjectCount) {
       list.append(node("p", "hydria-drive-empty",
-        workObjects.length
+        view.trashed ? "Aucun fichier dans la corbeille." : workObjects.length
           ? "Aucun élément ne correspond à cette recherche."
           : "Aucun document ni projet pour le moment. Créez votre premier fichier ci-dessus."));
       return;
