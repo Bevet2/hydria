@@ -39,6 +39,8 @@ jobs:
           cache-dependency-path: backend/package-lock.json
       - name: Install backend dependencies
         run: npm ci --prefix backend --no-audit --no-fund
+      - name: Audit workspace maturity claims and universal suite coverage
+        run: npm run gate:capabilities --prefix backend
       - name: Audit security and data integrity regressions
         run: node backend/scripts/auditSecurityGate.mjs
       - name: Workspace action approval HTTP regression

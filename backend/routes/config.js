@@ -17,7 +17,7 @@ import { RuntimePermissions } from "../src/runtime/runtime.permissions.js";
 import { HydriaRuntimeAdapter } from "../src/runtime/HydriaRuntimeAdapter.js";
 import ToolRegistry from "../src/tools/ToolRegistry.js";
 import ApiRegistryService from "../src/api-registry/api-registry.service.js";
-import { listPublicWorkspaceFamilies } from "../src/workspaces/workspaceRegistry.js";
+import { listPublicWorkspaceFamilies, listProductCapabilityCoverage } from "../src/workspaces/workspaceRegistry.js";
 
 const router = Router();
 const publicKnowledgeStore = new JsonKnowledgeStore({
@@ -154,6 +154,11 @@ const publicAgentRegistry = new AgentRegistry({
   toolRegistry: publicToolRegistry
 });
 const publicApiRegistryService = new ApiRegistryService();
+
+// Public roadmap metadata only: no user objects, account details or secrets.
+router.get("/capability-catalog", (_req, res) => {
+  res.json({ success: true, catalog: listProductCapabilityCoverage() });
+});
 
 router.get("/public", (req, res) => {
   res.json({
