@@ -107,6 +107,8 @@ jobs:
         run: npm run gate:work-object-library --prefix backend
       - name: Prevent cross-user project and work-object listing
         run: npm run gate:project-isolation --prefix backend
+      - name: Credential-backed identity session and operator provisioning
+        run: npm run gate:identity-sessions --prefix backend
       - name: Collaboration and formulas
         run: npm run gate:collaboration-formulas --prefix backend
       - name: Hydria interactions API

@@ -5,6 +5,14 @@ import { createCrmApiProxy } from "../middleware/crmApiProxy.js";
 
 const upstream = http.createServer(async (req, res) => {
   if (req.url === "/api/hang") return; // Deliberate hanging upstream.
+  if (req.url === "/api/cookie-collision") {
+    res.writeHead(200, { "Set-Cookie": [
+      "hydria_identity_session=forged-by-crm; Path=/; HttpOnly",
+      "crm_auth=legitimate; Path=/; HttpOnly"
+    ] });
+    res.end("ok");
+    return;
+  }
   if (req.url === "/api/disconnect") {
     req.socket.destroy();
     return;
@@ -58,6 +66,20 @@ try {
   assert.equal(basicResponse.headers["x-forwarded-proto"], "https");
   assert.notEqual(basicResponse.headers["x-forwarded-for"], "10.0.0.1");
   assert.equal(basicResponse.headers.forwarded, undefined);
+
+  const mixedCookies = await fetch(base + "/crm-api/session", {
+    headers: { cookie: "crm_auth=crm-secret; hydria_identity_session=hydria-opaque-secret; ui_theme=dark" }
+  });
+  assert.equal(mixedCookies.status, 200);
+  const forwardedCookies = (await mixedCookies.json()).headers.cookie;
+  assert.equal(forwardedCookies, "crm_auth=crm-secret; ui_theme=dark",
+    "The Hydria identity cookie must never cross the CRM proxy, while CRM cookies remain intact");
+  const collision = await fetch(base + "/crm-api/cookie-collision");
+  assert.equal(collision.status, 200);
+  assert.doesNotMatch(collision.headers.get("set-cookie") || "", /hydria_identity_session=/,
+    "The CRM must not be allowed to overwrite an OS identity cookie");
+  assert.match(collision.headers.get("set-cookie") || "", /crm_auth=legitimate/,
+    "Filtering OS identity cookies must preserve CRM's own session cookies");
 
   const body = '{"lead":"crm-pilot","amount":120}';
   const bearer = await fetch(base + "/crm-api/leads", {
