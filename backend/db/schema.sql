@@ -5,6 +5,28 @@ CREATE TABLE IF NOT EXISTS users (
   updated_at TEXT NOT NULL
 );
 
+-- User profiles are not credentials. Passwords are operator-provisioned and
+-- never implicitly assigned when a legacy display-name profile is created.
+CREATE TABLE IF NOT EXISTS hydria_user_credentials (
+  user_id INTEGER PRIMARY KEY,
+  password_salt TEXT NOT NULL,
+  password_hash TEXT NOT NULL,
+  updated_at INTEGER NOT NULL,
+  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS hydria_identity_sessions (
+  token_hash TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_hydria_identity_sessions_user
+  ON hydria_identity_sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_hydria_identity_sessions_expires
+  ON hydria_identity_sessions(expires_at);
+
 CREATE TABLE IF NOT EXISTS conversations (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER NOT NULL,

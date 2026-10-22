@@ -11,6 +11,7 @@ import logger from "./utils/logger.js";
 import healthRouter from "./routes/health.js";
 import configRouter from "./routes/config.js";
 import usersRouter from "./routes/users.js";
+import createIdentityRouter from "./routes/identity.js";
 import conversationsRouter from "./routes/conversations.js";
 import preferencesRouter from "./routes/preferences.js";
 import memoryRouter from "./routes/memory.js";
@@ -48,6 +49,9 @@ app.use(express.json({ limit: "10mb" }));
 app.use("/api/health", healthRouter);
 app.use("/api/config", configRouter);
 app.use("/api/users", usersRouter);
+// Credential-backed sessions are an identity foundation, not yet a global
+// multi-user authorization switch. Existing workspace APIs remain legacy.
+app.use("/api/identity", createIdentityRouter({ production: osProduction.production }));
 app.use("/api/conversations", conversationsRouter);
 app.use("/api/preferences", preferencesRouter);
 app.use("/api/memory", memoryRouter);
