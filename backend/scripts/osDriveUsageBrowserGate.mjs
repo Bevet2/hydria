@@ -1,0 +1,34 @@
+import assert from "node:assert/strict";
+import { chromium } from "playwright";
+const origin=process.env.HYDRIA_VISUAL_BASE_URL || "http://127.0.0.1:3001";
+const title="usage-ui-fixture.pdf";
+const pdf=Buffer.from("%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\nstartxref\n0\n%%EOF\n","ascii");
+const form=new FormData(); form.append("file",new Blob([pdf]),title);
+const created=await fetch(origin+"/api/drive/pdf-assets",{method:"POST",body:form});
+assert.equal(created.status,201);
+const file=await created.json();
+const u=()=>fetch(origin+"/api/drive/usage").then(r=>r.json());
+const current=(await u()).total;
+const browser=await chromium.launch({headless:true,args:["--no-sandbox"]});
+const page=await browser.newPage({viewport:{width:1280,height:900}});
+const errors=[];page.on("pageerror",e=>errors.push(e.message));
+try {
+  await page.goto(origin+"/workspace/drive",{waitUntil:"domcontentloaded"});
+  await page.waitForFunction(()=>document.documentElement.dataset.hydriaBoot==="ready");
+  const usagePanel=page.getByRole("region",{name:"Stockage des fichiers natifs Drive"});
+  await usagePanel.waitFor({state:"visible",timeout:20000});
+  await page.waitForFunction(n=>document.querySelector(".hydria-drive-usage-summary")?.textContent.includes(n+" fichiers actifs"),current.activeFiles,{timeout:20000});
+  const lines=await usagePanel.locator(".hydria-drive-usage-family").count();
+  assert.equal(lines,4);
+  const row=page.locator(".hydria-drive-pdf-row").filter({hasText:title});
+  await row.waitFor({state:"visible",timeout:20000});
+  await row.getByRole("button",{name:"Mettre à la corbeille "+title}).click();
+  const request=page.waitForResponse(r=>r.url().endsWith("/"+file.id+"/trash")&&r.status()===200);
+  await row.getByRole("button",{name:"Confirmer"}).click();
+  await request;
+  const trashed=(await u()).total;
+  assert.equal(trashed.activeFiles,current.activeFiles-1);
+  await page.waitForFunction(n=>document.querySelector(".hydria-drive-usage-summary")?.textContent.includes(n+" à la corbeille"),trashed.trashedFiles,{timeout:20000});
+  assert.deepEqual(errors,[]);
+  console.log("Drive storage UI passed: totals shown, four families, refreshed after trash.");
+} finally { await browser.close(); }
