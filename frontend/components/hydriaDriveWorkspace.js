@@ -4,6 +4,7 @@ import { listDriveImages, imageAssetUrl } from "../services/driveImageClient.js"
 import { designFileUrl, listDesigns } from "../services/driveDesignClient.js";
 import { photoProjectFileUrl, listPhotoProjects } from "../services/drivePhotoProjectClient.js";
 import { renameNativeDriveAsset } from "../services/driveAssetRenameClient.js";
+import { searchNativeDriveAssets } from "../services/driveAssetSearch.js";
 // This is deliberately not a separate file store or a cloud-sync service.
 const SORTS = new Set(["recent", "name", "kind"]);
 const KINDS = new Set(["all", "document", "dataset", "presentation", "dashboard", "workflow", "design", "project", "code", "pdf", "image", "photo-project", "other"]);
@@ -174,6 +175,7 @@ export function renderHydriaDriveWorkspace(container, {
           if (!root.isConnected) return;
           item.filename = updated.filename;
           item.updated_at = updated.updated_at;
+          searchNativeDriveAssets.invalidate();
           renameNotice.textContent = "Fichier renommé : " + updated.filename;
           paintResults();
         } catch (error) {

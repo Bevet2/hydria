@@ -58,4 +58,37 @@ const unavailable = createDriveAssetSearch({loaders:Object.fromEntries(
 assert.deepEqual(await unavailable("quarterly"),[],"Complete outage doesn't throw into the palette");
 assert.deepEqual(filterDriveAssetSearch([{assetFamily:"pdf",id:assets.pdf,title:"Test.pdf"}],"test").length,1);
 assert.deepEqual(filterDriveAssetSearch([{assetFamily:"pdf",id:assets.pdf,title:"Test.pdf"}],"te"),[]);
+// A renamed file must be immediately discoverable under its new name.
+// A pending old listing must not overwrite the cache after invalidation.
+let filename = "before-rename.pdf";
+const mutable = createDriveAssetSearch({loaders:{
+  pdf:async()=>[{id:assets.pdf,filename}],
+  image:async()=>[],design:async()=>[],"photo-project":async()=>[]
+}});
+assert.equal((await mutable("before-rename")).length,1);
+filename="after-rename.pdf";
+assert.equal((await mutable("after-rename")).length,0,"Cached list is intentionally stale before invalidation");
+mutable.invalidate();
+assert.equal((await mutable("after-rename")).length,1,"Invalidate must refresh renamed filename");
+assert.equal((await mutable("before-rename")).length,0,"Old filename must disappear");
+
+let finishOld;
+const oldBlocked = new Promise(resolve=>{finishOld=resolve});
+let pdfLoads = 0;
+const racing = createDriveAssetSearch({loaders:{
+  pdf:async()=>{
+    const call=++pdfLoads;
+    if(call===1){await oldBlocked;return [{id:assets.pdf,filename:"old-pending.pdf"}];}
+    return [{id:assets.pdf,filename:"new-saved.pdf"}];
+  },
+  image:async()=>[],design:async()=>[],"photo-project":async()=>[]
+}});
+const pendingOld=racing("old-pending");
+racing.invalidate();
+assert.equal((await racing("new-saved")).length,1);
+finishOld();
+await pendingOld;
+assert.equal((await racing("new-saved")).length,1,
+  "An obsolete async request must never replace the freshly cached results");
+
 console.log("Hydria universal Drive asset search, cache, failure isolation and safe routes passed.");
