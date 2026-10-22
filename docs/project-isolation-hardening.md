@@ -13,7 +13,7 @@ Le contrôle `npm run gate:project-isolation --prefix backend` reproduit des pro
 
 ## Limites de sécurité — ne pas déclarer le mode multi-utilisateur prêt
 
-- `userId` vient toujours de données fournies par le client sur plusieurs routes. Le serveur n'a **pas encore de session utilisateur fiable** qui atteste cet identifiant.
+- `userId` vient toujours de données fournies par le client sur plusieurs routes **historiques**. Une session vérifiée et de nouvelles routes `/mine` existent désormais (voir `docs/identity-session-foundation.md`), mais les anciennes routes ne sont pas encore migrées.
 - Certaines consultations non scindées (`userId` réellement absent) restent accessibles au propriétaire du **pilote privé** pour compatibilité. Ce mode ne doit pas être exposé comme un service multi-utilisateur.
 - Les chemins `GET /api/work-objects/:id`, assets natifs de Drive, liens partagés, conversation/chat, agents et CRM nécessitent une revue d'autorisation systématique.
-- La prochaine étape est la création d'identités, sessions et organisations serveur, puis le remplacement de tous les identifiants clients par le principal authentifié, avec tests HTTP de lecture/écriture croisée.
+- La prochaine étape est de remplacer les identifiants clients sur les routes existantes de lecture/écriture, les assets et les autres espaces par le compte authentifié, avec tests HTTP de bout en bout.

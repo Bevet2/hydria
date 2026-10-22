@@ -1177,10 +1177,19 @@ export class WorkObjectService {
       .map((item) => compactWorkObject(item));
   }
 
-  get(workObjectId, { includeContent = false, entryPath = "" } = {}) {
+  get(workObjectId, { includeContent = false, entryPath = "", actorUserId } = {}) {
+    // An explicitly scoped lookup must never fall back to the private-pilot
+    // unscoped access path, including for null, zero and malformed IDs.
+    if (actorUserId !== undefined && (actorUserId == null || invalidExplicitActorId(actorUserId))) {
+      throw new AppError("Invalid verified actor identity", 403);
+    }
     const workObject = this.store.get(String(workObjectId || ""));
     if (!workObject) {
       return null;
+    }
+
+    if (actorUserId !== undefined) {
+      this.assertAccess(workObject, { actorUserId }, "viewer");
     }
 
     if (!includeContent && !entryPath) {

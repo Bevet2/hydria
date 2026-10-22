@@ -21,7 +21,7 @@
     "gate:capabilities": "node scripts/productCapabilityCatalogGate.mjs",
     "gate:work-object-library": "node scripts/workObjectLibraryGate.mjs",
     "gate:project-isolation": "node scripts/osProjectIsolationGate.mjs",
-    "gate:identity-sessions": "node scripts/osSessionIdentityGate.mjs && node scripts/osProvisionIdentityGate.mjs && node scripts/osIdentityServerGate.mjs",
+    "gate:identity-sessions": "node scripts/osSessionIdentityGate.mjs && node scripts/osProvisionIdentityGate.mjs && node scripts/osIdentityServerGate.mjs && node scripts/osVerifiedResourceGate.mjs",
     "gate:collaboration-formulas": "node scripts/collaborationFormulaGate.mjs",
     "gate:crm-core": "node scripts/crmCoreIntegrationGate.mjs",
     "gate:hydria-interactions": "node scripts/hydriaInteractionsClientGate.mjs",
