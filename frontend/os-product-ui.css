@@ -782,3 +782,41 @@ body { overscroll-behavior-y:none; }
     transform:none !important;transition:none !important;
   }
 }
+
+/* Native Drive rename — inline, keyboard-accessible editing without a modal. */
+.hydria-drive-rename-form {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  min-width: 0;
+  max-width: 100%;
+}
+.hydria-drive-rename-input {
+  min-width: 10rem;
+  width: min(17rem, 100%);
+  flex: 1 1 10rem;
+  border: 1px solid var(--os-border, #c5ccd7);
+  border-radius: 0.45rem;
+  padding: 0.45rem 0.6rem;
+  font: inherit;
+  color: inherit;
+  background: var(--os-surface, #fff);
+}
+.hydria-drive-rename-error {
+  flex-basis: 100%;
+  color: var(--os-danger, #b42318);
+  font-size: 0.8rem;
+}
+.hydria-drive-rename-notice:not(:empty) {
+  padding: 0.55rem 0.75rem;
+  margin: 0.5rem 0;
+  border-radius: 0.45rem;
+  border: 1px solid var(--os-border, #c5ccd7);
+}
+.hydria-drive-rename-form button:focus-visible,
+.hydria-drive-rename-input:focus-visible,
+.hydria-drive-rename:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
