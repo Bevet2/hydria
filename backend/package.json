@@ -18,6 +18,7 @@
     "test:visual-workspace:list": "node scripts/visual-workspace-smoke.mjs --list",
     "eval:realworld": "node scripts/realworldBenchmarkEval.mjs",
     "gate:workspace": "node scripts/workspaceToolIntegrationGate.mjs",
+    "gate:capabilities": "node scripts/productCapabilityCatalogGate.mjs",
     "gate:work-object-library": "node scripts/workObjectLibraryGate.mjs",
     "gate:collaboration-formulas": "node scripts/collaborationFormulaGate.mjs",
     "gate:crm-core": "node scripts/crmCoreIntegrationGate.mjs",

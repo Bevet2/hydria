@@ -1,4 +1,6 @@
 import { normalizePromptText } from "../core/promptNormalization.js";
+import { getWorkspaceDelivery } from "./productCapabilityCatalog.js";
+export { listProductCapabilityCoverage } from "./productCapabilityCatalog.js";
 
 function createWorkspaceFamily(id, definition = {}) {
   return {
@@ -18,7 +20,8 @@ function createWorkspaceFamily(id, definition = {}) {
     capabilityFamilies: definition.capabilityFamilies || [],
     keywords: definition.keywords || [],
     scope: definition.scope || "project",
-    implemented: definition.implemented !== false
+    // Delivery status is reviewed independently from this routing registry.
+    delivery: getWorkspaceDelivery(id)
   };
 }
 
@@ -710,6 +713,7 @@ function familyFromObjectKind(objectKind = "", entryPath = "") {
 export function listWorkspaceFamilies() {
   return WORKSPACE_REGISTRY.map((family) => ({
     ...family,
+    delivery: structuredClone(family.delivery),
     keywords: [...family.keywords],
     shapes: [...family.shapes],
     objectKinds: [...family.objectKinds],
@@ -721,6 +725,7 @@ export function listWorkspaceFamilies() {
 export function listPublicWorkspaceFamilies() {
   return WORKSPACE_REGISTRY.map(({ keywords, ...family }) => ({
     ...family,
+    delivery: structuredClone(family.delivery),
     shapes: [...family.shapes],
     objectKinds: [...family.objectKinds],
     defaultSurfaces: [...family.defaultSurfaces],
