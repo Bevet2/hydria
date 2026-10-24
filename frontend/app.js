@@ -5,6 +5,7 @@ import { renderHydriaLibraryExplorer } from "./components/workspaceLibraryExplor
 import { renderHydriaDriveWorkspace } from "./components/hydriaDriveWorkspace.js";
 import { renderPdfCraftWorkbench } from "./components/pdfCraftWorkbench.js";
 import { renderArtCraftWorkspace } from "./components/artCraftWorkspaces.js";
+import { renderOfficeSuiteWorkbench } from "./components/officeSuiteWorkbench.js";
 import { renderRunDetails } from "./components/detailsPanel.js";
 import {
   applyWorkspaceBlockEdit,
@@ -412,7 +413,7 @@ async function activateWorkspacePage(page = null, { historyMode = "push" } = {})
     }
 
     if (page.slug === "chat" || page.slug === "drive" || page.slug === "pdf" ||
-        page.slug === "photo" || page.slug === "fig") {
+        page.slug === "photo" || page.slug === "fig" || page.slug === "office-engines") {
       await flushPendingWorkObjectChanges();
       clearCurrentWorkObjectState();
       renderWorkspace();
@@ -6754,7 +6755,7 @@ function renderWorkspaceSwitcher(hasVisibleWorkspace = false) {
   container.appendChild(overview);
 
   const workspaceGroups = [
-    { label: "Bureau & collaboration", slugs: ["chat", "drive", "docs", "sheets", "slides", "dashboard", "knowledge", "forms", "projects"] },
+    { label: "Bureau & collaboration", slugs: ["chat", "drive", "docs", "sheets", "slides", "office-engines", "dashboard", "knowledge", "forms", "projects"] },
     { label: "Création & médias", slugs: ["photo", "fig", "pdf", "whiteboard", "video", "audio", "3d", "sites"] },
     { label: "Entreprise & données", slugs: ["crm", "erp", "qa", "gis", "integrations"] },
     { label: "Développement & automatisation", slugs: ["automation", "flows", "app-builder", "code"] }
@@ -17040,6 +17041,10 @@ function renderWorkspaceLauncher(hasVisibleWorkspace = false) {
     renderCrmWorkspaceEmbed(container, { userId: state.currentUserId });
     return;
   }
+  if (activePage?.slug === "office-engines") {
+    void renderOfficeSuiteWorkbench(container);
+    return;
+  }
   if (activePage?.slug === "drive") {
     renderHydriaDriveWorkspace(container, {
       workObjects: state.workObjects,
@@ -17137,7 +17142,7 @@ function renderWorkspace() {
       : state.currentWorkObject;
   const project = state.currentWorkspace?.project || null;
   const hasVisibleWorkspace = Boolean(workObject);
-  const hasEmbeddedPage = ["crm", "chat", "drive", "pdf", "photo", "fig"].includes(activePage?.slug);
+  const hasEmbeddedPage = ["crm", "chat", "drive", "pdf", "photo", "fig", "office-engines"].includes(activePage?.slug);
   const workspaceLens = currentWorkspaceLens();
   const workspaceFamilyId = currentWorkspaceFamilyId();
   const isDocumentCloneWorkspace = workspaceFamilyId === "document_knowledge";
