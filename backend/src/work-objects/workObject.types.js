@@ -35,7 +35,8 @@ const TEXT_EDITABLE_EXTENSIONS = new Set([
   ".csv",
   ".sql",
   ".xml",
-  ".svg"
+  ".svg",
+  ".geojson"
 ]);
 
 export function safeWorkObjectSlug(value = "hydria-object") {

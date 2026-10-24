@@ -159,7 +159,7 @@ router.post("/custom", asyncRoute(async (req, res) => {
     accessToken: z.string().min(1).optional(),
     externalAccountId: z.string().max(200).optional(),
     externalEmail: z.string().email().optional(),
-    metadata: z.record(z.unknown()).default({})
+    metadata: z.record(z.string(), z.unknown()).default({})
   }), req.body);
   const connection = await prisma.oAuthConnection.upsert({
     where: {

@@ -6,7 +6,7 @@ import jwt from "jsonwebtoken";
 import { z } from "zod";
 import { env } from "../config/env.js";
 import { prisma } from "../lib/prisma.js";
-import { asyncRoute, HttpError, parseBody } from "../lib/http.js";
+import { asyncRoute, HttpError, parseBody, parsePatchBody } from "../lib/http.js";
 import { hashToken } from "../lib/security.js";
 import { assertCrmRelations } from "../lib/tenantRelations.js";
 import { assertCanWrite, requireAuth } from "../middleware/auth.js";
@@ -44,7 +44,7 @@ const queueSchema = z.object({
   resolutionMinutes: z.coerce.number().int().min(15).max(129600).default(1440),
   escalationAfterMinutes: z.coerce.number().int().min(5).max(129600).default(720),
   routingStrategy: z.enum(["ROUND_ROBIN", "LEAST_OPEN"]).default("ROUND_ROBIN"),
-  businessHours: z.record(z.unknown()).optional().nullable(),
+  businessHours: z.record(z.string(), z.unknown()).optional().nullable(),
   holidays: z.array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)).max(100).optional().nullable(),
   pauseStatuses: z.array(z.enum(["OPEN", "IN_PROGRESS", "WAITING"])).max(3).optional().nullable(),
   escalationPolicy: z.array(z.object({
@@ -339,7 +339,7 @@ router.patch(
   "/queues/:queueId",
   asyncRoute(async (req, res) => {
     assertCanWrite(req);
-    const input = parseBody(queueSchema.partial(), req.body);
+    const input = parsePatchBody(queueSchema.partial(), req.body);
     const current = await prisma.supportQueue.findFirst({
       where: { id: String(req.params.queueId), organizationId: req.user!.organizationId }
     });
@@ -450,7 +450,7 @@ router.patch(
   "/:id",
   asyncRoute(async (req, res) => {
     assertCanWrite(req);
-    const input = parseBody(ticketSchema.partial(), req.body);
+    const input = parsePatchBody(ticketSchema.partial(), req.body);
     const current = await prisma.ticket.findFirst({
       where: { id: String(req.params.id), organizationId: req.user!.organizationId }
     });

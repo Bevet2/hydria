@@ -2,15 +2,15 @@ import { Prisma } from "@prisma/client";
 import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
-import { asyncRoute, HttpError, parseBody, parsePagination } from "../lib/http.js";
+import { asyncRoute, HttpError, parseBody, parsePatchBody, parsePagination } from "../lib/http.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 
 const router = Router();
 const automationAction = z.enum(["ASSIGN_OWNER", "CREATE_TASK", "SEND_EMAIL", "UPDATE_FIELD", "MOVE_DEAL_STAGE"]);
 const automationStep = z.object({
   action: automationAction,
-  configuration: z.record(z.unknown()),
-  conditions: z.record(z.unknown()).optional(),
+  configuration: z.record(z.string(), z.unknown()),
+  conditions: z.record(z.string(), z.unknown()).optional(),
   delayMinutes: z.coerce.number().int().min(0).max(525_600).default(0)
 });
 const ruleSchema = z.object({
@@ -18,8 +18,8 @@ const ruleSchema = z.object({
   description: z.string().max(1000).optional().nullable(),
   trigger: z.enum(["LEAD_CREATED", "LEAD_STATUS_CHANGED", "DEAL_CREATED", "DEAL_STAGE_CHANGED", "TASK_OVERDUE", "QUOTE_ACCEPTED"]),
   action: automationAction,
-  conditions: z.record(z.unknown()).default({}),
-  configuration: z.record(z.unknown()),
+  conditions: z.record(z.string(), z.unknown()).default({}),
+  configuration: z.record(z.string(), z.unknown()),
   steps: z.array(automationStep).min(1).max(20).optional(),
   active: z.boolean().default(true),
   priority: z.coerce.number().int().min(1).max(1000).default(100)
@@ -52,7 +52,7 @@ router.post("/", asyncRoute(async (req, res) => {
 }));
 
 router.patch("/:id", asyncRoute(async (req, res) => {
-  const input = parseBody(ruleSchema.partial(), req.body);
+  const input = parsePatchBody(ruleSchema.partial(), req.body);
   const current = await prisma.automationRule.findFirst({
     where: { id: String(req.params.id), organizationId: req.user!.organizationId }
   });

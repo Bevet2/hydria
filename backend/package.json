@@ -19,6 +19,7 @@
     "eval:realworld": "node scripts/realworldBenchmarkEval.mjs",
     "gate:workspace": "node scripts/workspaceToolIntegrationGate.mjs",
     "gate:capabilities": "node scripts/productCapabilityCatalogGate.mjs",
+    "gate:suite-expansion": "node scripts/osSuiteExpansionGate.mjs && node scripts/osMediaTimelineGate.mjs && node scripts/osSpatialStudioGate.mjs",
     "gate:work-object-library": "node scripts/workObjectLibraryGate.mjs",
     "gate:project-isolation": "node scripts/osProjectIsolationGate.mjs",
     "gate:identity-sessions": "node scripts/osSessionIdentityGate.mjs && node scripts/osProvisionIdentityGate.mjs && node scripts/osIdentityServerGate.mjs && node scripts/osVerifiedResourceGate.mjs",

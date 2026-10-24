@@ -1,11 +1,11 @@
 # Hydria OS — catalogue de capacités et niveaux de livraison
 
-**Revue initiale : 22 octobre 2026.** Ce document fait partie du chantier P0 de la feuille de route Hydria. Il distingue les capacités présentes, les surfaces de travail disponibles et les suites concurrentes que nous voulons couvrir, sans comptabiliser une page comme une application achevée.
+**Revue initiale : 22 octobre 2026. Mise à jour : 24 octobre 2026.** Ce document fait partie du chantier P0 de la feuille de route Hydria. Il distingue les capacités présentes, les surfaces de travail disponibles et les suites concurrentes que nous voulons couvrir, sans comptabiliser une page comme une application achevée.
 
 ## Source de vérité
 
-- `backend/src/workspaces/productCapabilityCatalog.js` : inventaire de **26 familles** (24 familles de routage et deux familles ArtCraft) et **39 capacités** couvrant Microsoft/Google, création Adobe, vidéo/voix, CRM, BI, automatisation, développement, ERP, etc.
-- `frontend/components/workspaceSurfaceRegistry.js` : **15 pages dédiées** réellement adressables dans Hydria OS.
+- `backend/src/workspaces/productCapabilityCatalog.js` : inventaire de **28 familles** (26 familles de routage et deux familles ArtCraft) et **39 capacités** couvrant Microsoft/Google, création Adobe, vidéo/voix, CRM, BI, automatisation, développement, ERP, etc.
+- `frontend/components/workspaceSurfaceRegistry.js` : **26 routes** accessibles dans Hydria OS. Onze sont de nouveaux ateliers, plusieurs encore au stade `prototype`.
 - `backend/src/workspaces/workspaceRegistry.js` : routage métier. Sa propriété historique `implemented` a été retirée parce qu'elle valait `true` par défaut même en l'absence d'éditeur dédié. Chaque famille est désormais assortie d'un objet `delivery` auditable.
 - `GET /api/config/capability-catalog` : représentation JSON publique, en lecture seule, des capacités ciblées, de leur niveau revu, des routes associées, des chemins de preuves et de la prochaine lacune à traiter.
 
@@ -23,7 +23,7 @@ Cette API présente **la feuille de route du logiciel**, jamais les projets, les
 | `production` | Vérification sur le déploiement cible, restauration, supervision, ACL et support | Une parité universelle |
 | `parity_targeted` | Évaluation comparative reproductible sur un périmètre d'usages défini | La couverture de toutes les fonctions du concurrent |
 
-Au 22/10/2026, **aucune famille n'est certifiée `production`** dans ce catalogue. Ce n'est pas un jugement négatif sur les parcours déjà fonctionnels : les preuves de déploiement, l'isolation multi-utilisateur et les comparatifs de parité restent à produire.
+Au 24/10/2026, **aucune famille n'est certifiée `production`** dans ce catalogue. Ce n'est pas un jugement négatif sur les parcours déjà fonctionnels : les preuves de déploiement, l'isolation multi-utilisateur et les comparatifs de parité restent à produire.
 
 > Une référence à un fichier de test indique qu'un contrôle est disponible, **pas** qu'il vient de réussir ni qu'il valide une suite complète. La revue et la CI sont deux opérations distinctes.
 
@@ -31,11 +31,12 @@ Au 22/10/2026, **aucune famille n'est certifiée `production`** dans ce catalogu
 
 ```bash
 npm run gate:capabilities --prefix backend
+npm run gate:suite-expansion --prefix backend
 ```
 
 Le gate contrôle que :
 
-1. Les 24 familles backend et les deux familles ArtCraft sont toutes présentes, sans doublon.
+1. Les 26 familles backend et les deux familles ArtCraft sont toutes présentes, sans doublon.
 2. Chaque page a une et une seule famille propriétaire ; aucune route mentionnée n'est inventée.
 3. Chaque capacité est liée à une famille et à une ou plusieurs suites cibles.
 4. Tous les chemins de preuve référencés existent dans ce dépôt et ne s'échappent pas de sa racine.

@@ -26,7 +26,8 @@ test("core CRM workspaces render without browser errors or overflow", async ({ p
   if (await firstContact.count()) {
     await firstContact.click();
     await expect(page.getByRole("button", { name: "Edit" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Task" })).toBeVisible();
+    const taskPanel = page.getByRole("heading", { name: "Tasks", exact: true }).locator("..");
+    await expect(taskPanel.getByRole("button", { name: "Task", exact: true })).toBeVisible();
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
     await page.screenshot({
       path: testInfo.outputPath("record-detail.png"),

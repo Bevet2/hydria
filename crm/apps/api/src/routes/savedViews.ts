@@ -2,7 +2,7 @@ import { Prisma } from "@prisma/client";
 import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
-import { asyncRoute, HttpError, parseBody } from "../lib/http.js";
+import { asyncRoute, HttpError, parseBody, parsePatchBody } from "../lib/http.js";
 import { assertCanWrite, requireAuth } from "../middleware/auth.js";
 
 const router = Router();
@@ -10,7 +10,7 @@ const resourceSchema = z.enum(["CONTACTS", "COMPANIES", "LEADS", "DEALS", "TASKS
 const viewSchema = z.object({
   resource: resourceSchema,
   name: z.string().trim().min(1).max(80),
-  filters: z.record(z.unknown()),
+  filters: z.record(z.string(), z.unknown()),
   isDefault: z.boolean().default(false)
 });
 
@@ -67,7 +67,7 @@ router.patch(
   "/:id",
   asyncRoute(async (req, res) => {
     assertCanWrite(req);
-    const input = parseBody(viewSchema.partial(), req.body);
+    const input = parsePatchBody(viewSchema.partial(), req.body);
     const current = await prisma.savedView.findFirst({
       where: {
         id: String(req.params.id),

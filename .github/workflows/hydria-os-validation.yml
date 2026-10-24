@@ -41,6 +41,8 @@ jobs:
         run: npm ci --prefix backend --no-audit --no-fund
       - name: Audit workspace maturity claims and universal suite coverage
         run: npm run gate:capabilities --prefix backend
+      - name: Validate new suite routes, project templates and media timelines
+        run: npm run gate:suite-expansion --prefix backend
       - name: Audit security and data integrity regressions
         run: node backend/scripts/auditSecurityGate.mjs
       - name: Workspace action approval HTTP regression
@@ -302,6 +304,8 @@ jobs:
         run: node --check frontend/components/osProductChrome.js
       - name: Product UI desktop and mobile acceptance
         run: node backend/scripts/osProductUiGate.mjs
+      - name: New Video and Audio Studio browser journeys
+        run: node backend/scripts/osSuiteBrowserGate.mjs
       - name: Mobile editing and action confirmation
         run: node backend/scripts/osAuditUxGate.mjs
       - name: Upload product UI screenshots

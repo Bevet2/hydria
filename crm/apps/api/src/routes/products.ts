@@ -3,7 +3,7 @@ import { Router } from "express";
 import PDFDocument from "pdfkit";
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
-import { asyncRoute, HttpError, parseBody } from "../lib/http.js";
+import { asyncRoute, HttpError, parseBody, parsePatchBody } from "../lib/http.js";
 import { assertCanWrite, requireAuth, requireRole } from "../middleware/auth.js";
 import { recordActivity } from "../services/activity.js";
 import { triggerAutomations } from "../services/automations.js";
@@ -64,7 +64,7 @@ router.patch(
   "/:id",
   requireRole("ADMIN", "MANAGER"),
   asyncRoute(async (req, res) => {
-    const input = parseBody(productSchema.partial(), req.body);
+    const input = parsePatchBody(productSchema.partial(), req.body);
     const current = await prisma.product.findFirst({
       where: { id: String(req.params.id), organizationId: req.user!.organizationId }
     });

@@ -11,15 +11,15 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const families = registry.listPublicWorkspaceFamilies();
 
 // A registry entry is a product intention, not evidence of an implemented app.
-assert.equal(families.length, 24);
+assert.equal(families.length, 26);
 assert.equal(families.some((family) => Object.hasOwn(family, "implemented")), false);
 assert.equal(typeof registry.listProductCapabilityCoverage, "function");
 
 const catalog = registry.listProductCapabilityCoverage();
 assert.equal(Array.isArray(catalog.families), true);
 assert.equal(Array.isArray(catalog.capabilities), true);
-assert.equal(catalog.families.length, 26); // 24 backend families + the two ArtCraft routes
-assert.equal(new Set(catalog.families.map((item) => item.id)).size, 26);
+assert.equal(catalog.families.length, 28); // 26 backend families + the two ArtCraft routes
+assert.equal(new Set(catalog.families.map((item) => item.id)).size, 28);
 assert.deepEqual(
   new Set(catalog.families.map((entry) => entry.id)),
   new Set([...families.map((entry) => entry.id), "artcraft_photo", "artcraft_fig"])
@@ -60,7 +60,7 @@ const videoGeneration = catalog.capabilities.find((item) => item.id === "video_g
 const videoTimeline = catalog.capabilities.find((item) => item.id === "video_timeline");
 const voiceSynthesis = catalog.capabilities.find((item) => item.id === "voice_synthesis");
 assert.equal(videoGeneration.maturity, "idea");
-assert.equal(videoTimeline.maturity, "idea");
+assert.equal(videoTimeline.maturity, "prototype");
 assert.equal(voiceSynthesis.maturity, "idea");
 assert.equal(videoGeneration.workspaceFamilyId, "media");
 assert.equal(catalog.families.some((item) => item.maturity === "production"), false);
@@ -106,7 +106,7 @@ try {
   const publicResponse = await fetch(`http://127.0.0.1:${server.address().port}/api/config/public`);
   assert.equal(publicResponse.status, 200);
   const publicConfig = await publicResponse.json();
-  assert.equal(publicConfig.config.agentic.workspaces.length, 24);
+  assert.equal(publicConfig.config.agentic.workspaces.length, 26);
   assert.equal(publicConfig.config.agentic.workspaces.every((item) => item.delivery?.maturity), true);
 } finally {
   await new Promise((done) => server.close(done));

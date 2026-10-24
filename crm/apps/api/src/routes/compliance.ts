@@ -26,7 +26,7 @@ router.post("/consents", asyncRoute(async (req, res) => {
     status: z.enum(["GRANTED", "WITHDRAWN"]),
     source: z.string().max(200).optional(),
     legalBasis: z.string().max(200).optional(),
-    proof: z.record(z.unknown()).optional()
+    proof: z.record(z.string(), z.unknown()).optional()
   }), req.body);
   if (input.contactId && !await prisma.contact.findFirst({ where: { id: input.contactId, organizationId: req.user!.organizationId } })) throw new HttpError("Contact not found", 404);
   if (input.leadId && !await prisma.lead.findFirst({ where: { id: input.leadId, organizationId: req.user!.organizationId } })) throw new HttpError("Lead not found", 404);

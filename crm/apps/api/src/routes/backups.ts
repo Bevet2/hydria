@@ -30,7 +30,7 @@ const snapshotSchema = z.object({
     invoicePrefix: z.string().optional()
   }),
   generatedAt: z.string(),
-  data: z.record(z.array(z.record(z.unknown()))),
+  data: z.record(z.string(), z.array(z.record(z.string(), z.unknown()))),
   attachments: z.array(
     z.object({
       id: z.string().uuid(),
@@ -90,7 +90,7 @@ router.put(
       cron: z.string().regex(/^([0-5]?\d)\s+([01]?\d|2[0-3])\s+\*\s+\*\s+\*$/),
       target: z.enum(["LOCAL", "HTTPS"]),
       endpoint: z.string().url().optional(),
-      headers: z.record(z.string()).optional()
+      headers: z.record(z.string(), z.string()).optional()
     }).parse(req.body);
     if (input.target === "HTTPS" && !input.endpoint?.startsWith("https://")) {
       throw new HttpError("Remote backups require an HTTPS endpoint", 400);

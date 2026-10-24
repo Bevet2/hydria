@@ -25,7 +25,7 @@
     "db:generate": "npm run db:generate -w @northstar/api",
     "db:migrate": "dotenv -e .env -- npm run db:migrate -w @northstar/api",
     "db:seed": "dotenv -e .env -- npm run db:seed -w @northstar/api",
-    "gate:audit": "node --import tsx apps/api/scripts/auditSecurityGate.ts",
+    "gate:audit": "node --import tsx apps/api/scripts/auditSecurityGate.ts && node --import tsx apps/api/scripts/patchBodyGate.ts",
     "gate:audit-isolation": "dotenv -e .env -- node --import tsx apps/api/scripts/auditIsolationGate.ts"
   },
   "devDependencies": {

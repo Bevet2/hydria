@@ -586,6 +586,32 @@ export const WORKSPACE_REGISTRY = [
       "relations",
       "semantic"
     ]
+  }),
+  createWorkspaceFamily("cad_3d", {
+    label: "3D & CAD",
+    description: "Scènes, géométrie, propriétés des objets et préparation des modèles.",
+    preferredShape: "design",
+    shapes: ["design", "project"],
+    objectKinds: ["design", "project"],
+    defaultSurfaces: ["design", "edit", "structure"],
+    defaultSurface: "design",
+    runtimeMode: "interactive",
+    continuityMode: "object_first",
+    capabilityFamilies: ["cad", "3d", "geometry"],
+    keywords: ["3d", "cad", "cao", "blender", "autocad", "mesh", "model", "architecture"]
+  }),
+  createWorkspaceFamily("geospatial", {
+    label: "Geospatial & GIS",
+    description: "Données géographiques, géométries, projections et contrôles SIG.",
+    preferredShape: "dataset",
+    shapes: ["dataset", "project", "dashboard"],
+    objectKinds: ["dataset", "project", "dashboard"],
+    defaultSurfaces: ["data", "edit", "structure"],
+    defaultSurface: "data",
+    runtimeMode: "interactive",
+    continuityMode: "object_first",
+    capabilityFamilies: ["gis", "geospatial", "data"],
+    keywords: ["gis", "sig", "geojson", "geospatial", "cadastre", "map", "qgis", "arcgis"]
   })
 ];
 

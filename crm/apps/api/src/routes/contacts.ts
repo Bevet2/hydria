@@ -7,7 +7,7 @@ import { stringify as stringifyCsv } from "csv-stringify/sync";
 import { z } from "zod";
 import { env } from "../config/env.js";
 import { prisma } from "../lib/prisma.js";
-import { asyncRoute, HttpError, parseBody, parsePagination } from "../lib/http.js";
+import { asyncRoute, HttpError, parseBody, parsePatchBody, parsePagination } from "../lib/http.js";
 import { assertCrmRelations } from "../lib/tenantRelations.js";
 import { assertCanWrite, requireAuth } from "../middleware/auth.js";
 import { recordActivity } from "../services/activity.js";
@@ -432,7 +432,7 @@ router.patch(
   "/:id",
   asyncRoute(async (req, res) => {
     assertCanWrite(req);
-    const input = parseBody(contactSchema.partial(), req.body);
+    const input = parsePatchBody(contactSchema.partial(), req.body);
     const current = await prisma.contact.findFirst({
       where: { id: String(req.params.id), organizationId: req.user!.organizationId }
     });

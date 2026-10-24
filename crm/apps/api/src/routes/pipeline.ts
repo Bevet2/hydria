@@ -4,7 +4,7 @@ import path from "node:path";
 import { z } from "zod";
 import { env } from "../config/env.js";
 import { prisma } from "../lib/prisma.js";
-import { asyncRoute, HttpError, parseBody } from "../lib/http.js";
+import { asyncRoute, HttpError, parseBody, parsePatchBody } from "../lib/http.js";
 import { assertCrmRelations } from "../lib/tenantRelations.js";
 import { assertCanWrite, requireAuth, requireRole } from "../middleware/auth.js";
 import { recordActivity } from "../services/activity.js";
@@ -154,7 +154,7 @@ router.patch(
   "/stages/:id",
   requireRole("ADMIN", "MANAGER"),
   asyncRoute(async (req, res) => {
-    const input = parseBody(stageFields.partial(), req.body);
+    const input = parsePatchBody(stageFields.partial(), req.body);
     if (input.isWon && input.isLost) {
       throw new HttpError("A pipeline stage cannot be both won and lost", 400);
     }
@@ -245,7 +245,7 @@ router.patch(
   "/deals/:id",
   asyncRoute(async (req, res) => {
     assertCanWrite(req);
-    const input = parseBody(dealSchema.partial(), req.body);
+    const input = parsePatchBody(dealSchema.partial(), req.body);
     const current = await prisma.deal.findFirst({
       where: { id: String(req.params.id), organizationId: req.user!.organizationId }
     });
