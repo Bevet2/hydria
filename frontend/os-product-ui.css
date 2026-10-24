@@ -870,7 +870,7 @@ body.os-sidebar-collapsed .workspace-nav-section-title {display:none;}
 body.os-sidebar-collapsed .sidebar .workspace-nav-section {border-top:1px solid var(--os-border);padding-top:7px;margin-top:7px;}
 
 /* Media editor: editable shot / cue timeline, distinct from a rendered export. */
-.hydria-media-editor {display:flex;flex-direction:column;gap:18px;min-width:0;color:var(--text);}
+.hydria-media-editor {display:flex;flex-direction:column;gap:18px;min-width:0;color:var(--text);padding-top:46px;}
 .hydria-media-toolbar {display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;
   border-bottom:1px solid var(--line);padding:0 0 13px;}
 .hydria-media-header {display:flex;flex-direction:column;gap:4px;}
@@ -900,7 +900,7 @@ body.os-sidebar-collapsed .sidebar .workspace-nav-section {border-top:1px solid 
 @media (pointer:coarse){.hydria-media-form input,.hydria-media-form textarea{font-size:16px;}}
 
 /* Shared technical editor layout for geometry and geospatial prototypes. */
-.hydria-spatial-editor{display:flex;flex-direction:column;gap:15px;color:var(--text);min-width:0;}
+.hydria-spatial-editor{display:flex;flex-direction:column;gap:15px;color:var(--text);min-width:0;padding-top:46px;}
 .hydria-spatial-heading{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;}
 .hydria-spatial-heading strong{font-size:15px;font-weight:720;letter-spacing:-.02em;}
 .hydria-spatial-columns{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(235px,.75fr);gap:15px;min-width:0;}

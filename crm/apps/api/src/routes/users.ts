@@ -55,7 +55,7 @@ router.post(
     const input = parseBody(
       z.object({
         name: z.string().min(1).max(100),
-        permissionPolicy: z.record(z.unknown()).default({})
+        permissionPolicy: z.record(z.string(), z.unknown()).default({})
       }),
       req.body
     );
@@ -77,7 +77,7 @@ router.patch(
     const input = parseBody(
       z.object({
         name: z.string().min(1).max(100).optional(),
-        permissionPolicy: z.record(z.unknown()).optional()
+        permissionPolicy: z.record(z.string(), z.unknown()).optional()
       }),
       req.body
     );
@@ -103,7 +103,7 @@ router.patch(
     const input = parseBody(
       z.object({
         teamId: z.string().uuid().optional().nullable(),
-        permissionPolicy: z.record(z.unknown()).optional().nullable()
+        permissionPolicy: z.record(z.string(), z.unknown()).optional().nullable()
       }),
       req.body
     );

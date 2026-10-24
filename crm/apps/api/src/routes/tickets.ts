@@ -44,7 +44,7 @@ const queueSchema = z.object({
   resolutionMinutes: z.coerce.number().int().min(15).max(129600).default(1440),
   escalationAfterMinutes: z.coerce.number().int().min(5).max(129600).default(720),
   routingStrategy: z.enum(["ROUND_ROBIN", "LEAST_OPEN"]).default("ROUND_ROBIN"),
-  businessHours: z.record(z.unknown()).optional().nullable(),
+  businessHours: z.record(z.string(), z.unknown()).optional().nullable(),
   holidays: z.array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)).max(100).optional().nullable(),
   pauseStatuses: z.array(z.enum(["OPEN", "IN_PROGRESS", "WAITING"])).max(3).optional().nullable(),
   escalationPolicy: z.array(z.object({

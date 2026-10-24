@@ -10,7 +10,7 @@ const resourceSchema = z.enum(["CONTACTS", "COMPANIES", "LEADS", "DEALS", "TASKS
 const viewSchema = z.object({
   resource: resourceSchema,
   name: z.string().trim().min(1).max(80),
-  filters: z.record(z.unknown()),
+  filters: z.record(z.string(), z.unknown()),
   isDefault: z.boolean().default(false)
 });
 

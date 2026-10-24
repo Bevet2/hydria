@@ -172,7 +172,7 @@ router.post("/saved", requireRole("ADMIN", "MANAGER"), asyncRoute(async (req, re
     resource: z.enum(["DEALS", "LEADS", "TASKS"]),
     metric: z.enum(["COUNT", "VALUE"]),
     groupBy: z.enum(["STATUS", "OWNER", "STAGE", "SOURCE", "CAMPAIGN"]).optional().nullable(),
-    filters: z.record(z.unknown()).default({})
+    filters: z.record(z.string(), z.unknown()).default({})
   }), req.body);
   const report = await prisma.customReport.create({
     data: { ...input, filters: input.filters as Prisma.InputJsonValue, organizationId: req.user!.organizationId, createdById: req.user!.id }

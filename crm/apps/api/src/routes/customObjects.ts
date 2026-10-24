@@ -23,7 +23,7 @@ const definitionSchema = z.object({
 const recordSchema = z.object({
   displayName: z.string().min(1).max(200),
   ownerId: z.string().uuid().optional().nullable(),
-  values: z.record(z.unknown()).default({})
+  values: z.record(z.string(), z.unknown()).default({})
 });
 
 router.use(requireAuth);
