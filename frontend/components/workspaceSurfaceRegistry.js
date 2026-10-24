@@ -135,6 +135,50 @@ export const WORKSPACE_PAGES = Object.freeze([
     title: "Code Studio",
     description: "Inspect and edit project code in a focused development page.",
     hint: "Open a code workspace"
+  },
+  {
+    slug: "projects", kind: "workflow", family: "project_management", label: "Projects",
+    title: "Hydria Projects", description: "Planifiez les tâches, jalons et dépendances de vos projets.", hint: "Créer un plan de projet"
+  },
+  {
+    slug: "knowledge", kind: "document", family: "document_knowledge", label: "Knowledge",
+    title: "Hydria Knowledge", description: "Centralisez les procédures, notes et bases de connaissance.", hint: "Créer une page de connaissance"
+  },
+  {
+    slug: "forms", kind: "project", family: "app_builder", label: "Forms",
+    title: "Hydria Forms", description: "Créez un formulaire personnalisable dans App Builder.", hint: "Créer un formulaire"
+  },
+  {
+    slug: "video", kind: "video", family: "media", label: "Video Studio",
+    title: "Hydria Video Studio", description: "Construisez un storyboard et une timeline vidéo sauvegardés dans Hydria.", hint: "Créer un projet vidéo"
+  },
+  {
+    slug: "audio", kind: "audio", family: "audio", label: "Audio Studio",
+    title: "Hydria Audio Studio", description: "Préparez les voix, segments et pistes audio sur une timeline.", hint: "Créer un projet audio"
+  },
+  {
+    slug: "3d", kind: "design", family: "cad_3d", label: "3D / CAD",
+    title: "Hydria 3D Studio", description: "Organisez un projet de modélisation et ses objets géométriques.", hint: "Créer une scène 3D"
+  },
+  {
+    slug: "gis", kind: "dataset", family: "geospatial", label: "GIS",
+    title: "Hydria GIS", description: "Préparez et contrôlez vos objets et coordonnées géographiques.", hint: "Créer un jeu géospatial"
+  },
+  {
+    slug: "erp", kind: "dataset", family: "operations", label: "ERP",
+    title: "Hydria ERP", description: "Suivez achats, stocks et opérations, liés aux données Hydria.", hint: "Créer un registre de stock"
+  },
+  {
+    slug: "sites", kind: "project", family: "web_cms", label: "Sites",
+    title: "Hydria Sites", description: "Créez et prévisualisez un site dans votre espace de code.", hint: "Créer un site"
+  },
+  {
+    slug: "integrations", kind: "workflow", family: "integration_api", label: "Integrations",
+    title: "Hydria Integrations", description: "Modélisez vos connecteurs, API et synchronisations.", hint: "Créer une intégration"
+  },
+  {
+    slug: "qa", kind: "dataset", family: "testing_qa", label: "QA",
+    title: "Hydria QA", description: "Suivez cas de test, résultats et anomalies.", hint: "Créer un registre de tests"
   }
 ]);
 
@@ -164,7 +208,9 @@ export const WORKSPACE_FAMILY_LABELS = Object.freeze({
   media: "Media",
   audio: "Audio",
   integration_api: "Integrations & API",
-  knowledge_graph: "Knowledge Graph"
+  knowledge_graph: "Knowledge Graph",
+  cad_3d: "3D & CAD",
+  geospatial: "Geospatial & GIS"
 });
 
 export const WORKSPACE_OBJECT_KIND_LABELS = Object.freeze({
@@ -250,6 +296,11 @@ export function resolveWorkspacePageForWorkObject(
       workObject.environmentPlan?.workspaceFamilyId ||
       ""
   ).toLowerCase();
+  const preferredSlug = String(workObject.metadata?.workspacePageSlug || "").trim().toLowerCase();
+  const preferredPage = workspacePageFromSlug(preferredSlug);
+  if (preferredPage && preferredPage.family === family && preferredPage.kind === kind) {
+    return preferredPage;
+  }
   const fileText = [
     ...files,
     workObject.primaryFile,
@@ -268,6 +319,15 @@ export function resolveWorkspacePageForWorkObject(
   if (kind === "dashboard") {
     return workspacePageFromSlug("dashboard");
   }
+  if (kind === "video") return workspacePageFromSlug("video");
+  if (kind === "audio") return workspacePageFromSlug("audio");
+  if (family === "cad_3d") return workspacePageFromSlug("3d");
+  if (family === "geospatial") return workspacePageFromSlug("gis");
+  if (family === "operations") return workspacePageFromSlug("erp");
+  if (family === "project_management") return workspacePageFromSlug("projects");
+  if (family === "testing_qa") return workspacePageFromSlug("qa");
+  if (family === "web_cms") return workspacePageFromSlug("sites");
+  if (family === "integration_api") return workspacePageFromSlug("integrations");
   if (family === "crm_sales") {
     return workspacePageFromSlug("crm");
   }

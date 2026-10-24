@@ -17,7 +17,18 @@ const icons = {
   builder:'<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M8 9v12M6 6h.01M9 6h.01"/>',
   whiteboard:'<rect x="3" y="3" width="18" height="18" rx="2"/><path d="m7 15 4-4 3 3 3-5M7 18h10"/>',
   code:'<path d="m8 7-5 5 5 5M16 7l5 5-5 5M14 4l-4 16"/>',
-  search:'<circle cx="11" cy="11" r="7"/><path d="m16 16 4 4"/>'
+  search:'<circle cx="11" cy="11" r="7"/><path d="m16 16 4 4"/>',
+  projects:'<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 5V3h8v2M7 11l2 2 4-4M7 17h10"/>',
+  knowledge:'<path d="M4 4h8a4 4 0 0 1 4 4v13H8a4 4 0 0 0-4-4V4zM16 8a4 4 0 0 1 4-4v13a4 4 0 0 0-4 4"/>',
+  forms:'<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h9M8 12h9M8 16h6"/>',
+  video:'<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m10 9 5 3-5 3V9zM3 9h3M18 9h3"/>',
+  audio:'<path d="M12 3v18M7 8v8M17 6v12M3 11v2M21 10v4"/>',
+  '3d':'<path d="m12 2 9 5v10l-9 5-9-5V7l9-5zM3 7l9 5 9-5M12 12v10"/>',
+  gis:'<path d="m3 5 6-2 6 2 6-2v16l-6 2-6-2-6 2V5zM9 3v16M15 5v16"/>',
+  erp:'<path d="M3 20V8l6-4 5 4V3h7v17H3zM7 12h2M7 16h2M15 12h2M15 16h2"/>',
+  sites:'<rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 9h20M6 6.5h.01M9 6.5h.01M12 6.5h.01"/>',
+  integrations:'<rect x="3" y="9" width="6" height="6" rx="1"/><rect x="15" y="3" width="6" height="6" rx="1"/><rect x="15" y="15" width="6" height="6" rx="1"/><path d="M9 12h3M12 12V6h3M12 12v6h3"/>',
+  qa:'<path d="M4 4h16v16H4zM8 10l2 2 5-5M8 17h8"/>'
 };
 const pages=['home','chat','drive','docs','sheets','slides','dashboard','crm','automation','flows','builder','whiteboard','code','pdf'];
 const nav=document.getElementById("workspace-switcher");

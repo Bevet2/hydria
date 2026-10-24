@@ -307,12 +307,16 @@ async function createBlankWorkspace(kind, familyId, label) {
     throw new Error("No active user");
   }
   await ensureConversationForWorkspace();
+  const page = currentWorkspacePage();
   const payload = await apiClient.createWorkObject({
     kind,
     title: ({ document: "Nouveau document", dataset: "Nouveau tableur", presentation: "Nouvelle présentation", dashboard: "Nouveau tableau de bord", workflow: "Nouveau flux", design: "Nouveau tableau blanc" })[kind] || `Nouveau ${label || kind}`,
     userId: state.currentUserId,
     conversationId: state.currentConversationId,
-    workspaceFamilyId: familyId || ""
+    workspaceFamilyId: familyId || "",
+    metadata: page?.family === familyId && page?.kind === kind
+      ? { workspacePageSlug: page.slug }
+      : {}
   });
   const workObject = payload.workObject;
   if (!workObject?.id) {
@@ -734,6 +738,15 @@ function updateCanvasPreviewInline(nextContent = "") {
 }
 
 function updateWorkflowContentInline(nextContent = "") {
+  syncEditorDraft(String(nextContent || ""), {
+    forceEditMode: false,
+    refreshWorkspace: false,
+    suppressPreviewRefresh: true,
+    skipWorkspaceRefreshOnSave: true
+  });
+}
+
+function updateMediaTimelineInline(nextContent = "") {
   syncEditorDraft(String(nextContent || ""), {
     forceEditMode: false,
     refreshWorkspace: false,
@@ -6740,6 +6753,25 @@ function renderWorkspaceSwitcher(hasVisibleWorkspace = false) {
   });
   container.appendChild(overview);
 
+  const workspaceGroups = [
+    { label: "Bureau & collaboration", slugs: ["chat", "drive", "docs", "sheets", "slides", "dashboard", "knowledge", "forms", "projects"] },
+    { label: "Création & médias", slugs: ["photo", "fig", "pdf", "whiteboard", "video", "audio", "3d", "sites"] },
+    { label: "Entreprise & données", slugs: ["crm", "erp", "qa", "gis", "integrations"] },
+    { label: "Développement & automatisation", slugs: ["automation", "flows", "app-builder", "code"] }
+  ];
+  const groupContainers = new Map();
+  for (const group of workspaceGroups) {
+    const section = document.createElement("section");
+    section.className = "workspace-nav-section";
+    section.setAttribute("aria-label", group.label);
+    const heading = document.createElement("h3");
+    heading.className = "workspace-nav-section-title";
+    heading.textContent = group.label;
+    section.appendChild(heading);
+    container.appendChild(section);
+    for (const slug of group.slugs) groupContainers.set(slug, section);
+  }
+
   items.forEach((item) => {
     const count = item.slug === "drive"
       ? state.workObjects.length
@@ -6761,7 +6793,7 @@ function renderWorkspaceSwitcher(hasVisibleWorkspace = false) {
     chip.addEventListener("click", () => {
       activateWorkspacePage(item).catch(handleError);
     });
-    container.appendChild(chip);
+    (groupContainers.get(item.slug) || container).appendChild(chip);
   });
   const searchChip = document.createElement("button");
   searchChip.type = "button";
@@ -8096,6 +8128,8 @@ function refreshPreviewPane() {
     },
     onDocumentInlineEdit: updateDocumentPreviewInline,
     onCanvasContentChange: updateCanvasPreviewInline,
+    onMediaContentChange: updateMediaTimelineInline,
+    onSpatialContentChange: updateMediaTimelineInline,
     onProjectObjectSelect: (workObject) =>
       selectWorkObject(workObject.id, preferredOpenPath(workObject)).catch(handleError),
     onPresentationSlideFocus: focusPresentationSlide,

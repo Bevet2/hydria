@@ -1,5 +1,7 @@
 import { SPREADSHEET_NUMBER_FORMATS, SPREADSHEET_HORIZONTAL_ALIGNMENTS, SPREADSHEET_VERTICAL_ALIGNMENTS, SPREADSHEET_BORDER_EDGES, SPREADSHEET_BORDER_STYLE_CSS, SPREADSHEET_BORDER_STYLE_LABELS, SPREADSHEET_CONDITIONAL_FORMAT_TYPES, SPREADSHEET_CONDITIONAL_FORMAT_TYPE_LABELS, SPREADSHEET_CONDITIONAL_FORMAT_PRESETS, SPREADSHEET_TABLE_STYLES, SPREADSHEET_TABLE_TOTAL_FUNCTIONS, SPREADSHEET_TABLE_TOTAL_LABELS, SPREADSHEET_TABLE_TOTAL_SUBTOTAL_CODES, SPREADSHEET_BUILTIN_FORMULA_NAMES, SPREADSHEET_FORMULA_NAME_ALIASES, SPREADSHEET_FORMULA_CATEGORIES, SPREADSHEET_FORMULA_DEFINITIONS, SPREADSHEET_FORMULA_HELP } from "./spreadsheetDefinitions.js";
 import { renderHydriaFlowManager } from "./workspaceFlowManager.js";
+import { renderMediaTimelineWorkbench } from "./mediaTimelineWorkbench.js";
+import { renderCadWorkbench, renderGeoWorkbench } from "./spatialStudioWorkbench.js";
 import {
   WORKSPACE_DOCS_HIGHLIGHT_COLOR_OPTIONS,
   WORKSPACE_DOCS_TEXT_COLOR_OPTIONS,
@@ -30464,7 +30466,9 @@ export function renderWorkspacePreview(
     onDesignBlockFocus = null,
     onDesignBlockMove = null,
     onDesignBlockPositionChange = null,
-    onDesignBlockResize = null
+    onDesignBlockResize = null,
+    onMediaContentChange = null,
+    onSpatialContentChange = null
   } = {}
 ) {
   if (!workObject || !filePath) {
@@ -30652,16 +30656,23 @@ export function renderWorkspacePreview(
   }
 
   if (resolvedSurfaceId === "audio") {
-    renderAudioExperiencePreview(container, contentToRender);
+    if (!renderMediaTimelineWorkbench(container, contentToRender, { onContentChange: onMediaContentChange })) {
+      renderAudioExperiencePreview(container, contentToRender);
+    }
     return;
   }
 
   if (resolvedSurfaceId === "video") {
-    renderVideoExperiencePreview(container, contentToRender);
+    if (!renderMediaTimelineWorkbench(container, contentToRender, { onContentChange: onMediaContentChange })) {
+      renderVideoExperiencePreview(container, contentToRender);
+    }
     return;
   }
 
   if (resolvedSurfaceId === "data") {
+    if (workspaceFamilyId === "geospatial" && renderGeoWorkbench(container, contentToRender, {
+      onContentChange: onSpatialContentChange
+    })) return;
     renderDataPreview(container, normalizedPath, contentToRender, {
       workObject,
       onGridEdit: onDataGridEdit,
@@ -30718,6 +30729,9 @@ export function renderWorkspacePreview(
   }
 
   if (resolvedSurfaceId === "design") {
+    if (workspaceFamilyId === "cad_3d" && renderCadWorkbench(container, contentToRender, {
+      onContentChange: onSpatialContentChange
+    })) return;
     renderDesignExperiencePreview(container, contentToRender, {
       activeFrameId: selectedStructuredItemId,
       activeBlockId: selectedStructuredSubItemId,
@@ -30891,11 +30905,15 @@ export function renderWorkspacePreview(
       return;
     }
     if (objectKind === "audio") {
-      renderAudioExperiencePreview(container, contentToRender);
+      if (!renderMediaTimelineWorkbench(container, contentToRender, { onContentChange: onMediaContentChange })) {
+        renderAudioExperiencePreview(container, contentToRender);
+      }
       return;
     }
     if (objectKind === "video") {
-      renderVideoExperiencePreview(container, contentToRender);
+      if (!renderMediaTimelineWorkbench(container, contentToRender, { onContentChange: onMediaContentChange })) {
+        renderVideoExperiencePreview(container, contentToRender);
+      }
       return;
     }
     renderDataPreview(container, normalizedPath, contentToRender, {

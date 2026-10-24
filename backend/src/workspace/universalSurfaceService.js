@@ -13,7 +13,7 @@ function getExtension(filePath = "") {
 const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"]);
 const AUDIO_EXTENSIONS = new Set([".mp3", ".wav", ".ogg", ".m4a"]);
 const VIDEO_EXTENSIONS = new Set([".mp4", ".webm", ".mov"]);
-const DATA_EXTENSIONS = new Set([".json", ".csv", ".tsv", ".xlsx"]);
+const DATA_EXTENSIONS = new Set([".json", ".csv", ".tsv", ".xlsx", ".geojson"]);
 const DOCUMENT_EXTENSIONS = new Set([".md", ".markdown", ".txt", ".html", ".pdf"]);
 const CODE_EXTENSIONS = new Set([
   ".js",

@@ -86,6 +86,9 @@ function guessContentType(filePath = "") {
   if (normalized.endsWith(".json")) {
     return "application/json";
   }
+  if (normalized.endsWith(".geojson")) {
+    return "application/geo+json";
+  }
   if (normalized.endsWith(".js") || normalized.endsWith(".mjs") || normalized.endsWith(".cjs")) {
     return "text/javascript";
   }
@@ -238,9 +241,103 @@ function summarizeGeneratedObject({ title = "", kind = "document", format = "" }
   return `Objet ${kind} ${title || "Hydria"} pret a modifier (source ${String(format || "md").toUpperCase()}).`;
 }
 
-function buildBlankWorkspaceFiles(kind = "document", title = "Hydria Workspace", workspaceFamilyId = "") {
+function buildBlankWorkspaceFiles(kind = "document", title = "Hydria Workspace", workspaceFamilyId = "", workspacePageSlug = "") {
   const safeTitle = String(title || "Hydria Workspace").trim() || "Hydria Workspace";
   const headline = safeTitle.replace(/[#\\n]+/g, "").trim();
+
+  const jsonFile = (primaryPath, model) => ({
+    sourceFormat: "json", primaryPath,
+    files: [{ path: primaryPath, content: JSON.stringify(model, null, 2) }]
+  });
+
+  if (kind === "video" && workspaceFamilyId === "media") {
+    return jsonFile("timeline.json", {
+      kind: "hydria-video-timeline", version: 1, title: headline,
+      resolution: "1920x1080", fps: 30,
+      clips: [
+        { id: "clip-1", title: "Ouverture", durationSeconds: 5, script: "Présenter le sujet", visual: "Plan d'ouverture", voiceover: "" }
+      ]
+    });
+  }
+  if (kind === "audio" && workspaceFamilyId === "audio") {
+    return jsonFile("session.json", {
+      kind: "hydria-audio-timeline", version: 1, title: headline,
+      sampleRate: 48000,
+      clips: [
+        { id: "clip-1", title: "Introduction", durationSeconds: 6, script: "Texte de la narration", voiceover: "Voix principale" }
+      ]
+    });
+  }
+  if (kind === "design" && workspaceFamilyId === "cad_3d") {
+    return jsonFile("scene.json", {
+      kind: "hydria-cad-scene", version: 1, title: headline, units: "m",
+      objects: [{ id: "object-1", type: "box", name: "Volume initial", position: [0, 0, 0], size: [4, 3, 3] }],
+      frames: [{ id: "frame-1", name: "Plan de travail", blocks: [{ id: "block-1", label: "Volume initial", x: 90, y: 90, w: 200, h: 130 }] }]
+    });
+  }
+  if (kind === "dataset" && workspaceFamilyId === "geospatial") {
+    return jsonFile("features.geojson", {
+      type: "FeatureCollection", name: headline, crs: { type: "name", properties: { name: "EPSG:4326" } },
+      features: [{ type: "Feature", properties: { name: "Point de départ" }, geometry: { type: "Point", coordinates: [2.3522, 48.8566] } }]
+    });
+  }
+  if (kind === "workflow" && workspaceFamilyId === "project_management") {
+    return jsonFile("workflow.json", {
+      title: headline, objective: "Organiser les tâches et jalons du projet", trigger: "manual",
+      stages: [
+        { id: "task-1", label: "À faire", owner: "Équipe", note: "Définir le périmètre" },
+        { id: "task-2", label: "En cours", owner: "Équipe", note: "Travaux prioritaires" },
+        { id: "task-3", label: "Terminé", owner: "Équipe", note: "Valider les livrables" }
+      ],
+      links: [{ id: "link-1", from: "task-1", to: "task-2" }, { id: "link-2", from: "task-2", to: "task-3" }],
+      automations: []
+    });
+  }
+  if (kind === "workflow" && workspaceFamilyId === "integration_api") {
+    return jsonFile("workflow.json", {
+      title: headline, objective: "Définir les données et permissions d'une intégration", trigger: "manual",
+      stages: [
+        { id: "source-1", label: "Source API", owner: "Intégration", note: "Définir endpoint et méthode, sans identifiants en clair" },
+        { id: "transform-1", label: "Mapper les champs", owner: "Hydria", note: "Définir le schéma cible" },
+        { id: "target-1", label: "Destination", owner: "Hydria", note: "Confirmer avant les écritures externes" }
+      ],
+      links: [{ id: "link-1", from: "source-1", to: "transform-1" }, { id: "link-2", from: "transform-1", to: "target-1" }],
+      automations: []
+    });
+  }
+  if (kind === "project" && workspaceFamilyId === "web_cms") {
+    return {
+      sourceFormat: "html", primaryPath: "index.html", files: [
+        { path: "index.html", content: `<!doctype html>\n<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${headline.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</title><link rel="stylesheet" href="styles.css"></head><body><main><p>Hydria Sites</p><h1>Votre nouveau site</h1><p>Modifiez ce contenu dans Code Studio puis prévisualisez.</p><a href="#contact">Nous contacter</a><section id="contact"><h2>Contact</h2><p>Personnalisez cette section.</p></section></main></body></html>` },
+        { path: "styles.css", content: "body{margin:0;font:16px/1.6 system-ui,sans-serif;background:#f8fafc;color:#111827}main{max-width:900px;margin:10vh auto;padding:32px}h1{font-size:clamp(2rem,5vw,4rem);line-height:1.1}a{color:#2563eb}section{margin-top:6rem}" }
+      ]
+    };
+  }
+  if (kind === "project" && workspaceFamilyId === "app_builder" && workspacePageSlug === "forms") {
+    return {
+      sourceFormat: "html", primaryPath: "index.html", files: [
+        { path: "index.html", content: `<!doctype html>\n<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Formulaire Hydria</title><style>body{font:16px/1.5 system-ui;background:#f7f8fb;color:#1f2937;margin:0;padding:3rem 1rem}form{max-width:520px;margin:auto;background:white;padding:2rem;border:1px solid #e2e8f0;border-radius:12px}label{display:block;margin:1rem 0}input,textarea{display:block;width:100%;box-sizing:border-box;padding:.75rem;border:1px solid #94a3b8;border-radius:6px;font:inherit}button{background:#2563eb;color:white;border:0;padding:.8rem 1.2rem;border-radius:6px}</style></head><body><form><h1>Votre formulaire</h1><p>Aperçu local — réponses non collectées.</p><label>Nom<input name="name" required maxlength="100"></label><label>Message<textarea name="message" required maxlength="2000"></textarea></label><button type="submit">Tester le formulaire</button><output role="status"></output></form><script>document.querySelector('form').addEventListener('submit',event=>{event.preventDefault();document.querySelector('output').textContent='Aperçu validé. Aucune donnée transmise.'})</script></body></html>` }
+      ]
+    };
+  }
+
+  if (kind === "dataset" && ["operations", "testing_qa"].includes(workspaceFamilyId)) {
+    const columns = workspaceFamilyId === "operations"
+      ? ["Référence", "Article", "Stock", "Seuil", "Emplacement"]
+      : ["ID", "Scénario", "Résultat", "Priorité", "Anomalie"];
+    const rows = workspaceFamilyId === "operations"
+      ? [["SKU-001", "Produit exemple", "25", "10", "Entrepôt A"]]
+      : [["QA-001", "Ouverture du workspace", "À tester", "Haute", ""]];
+    return jsonFile("table.csv", {
+      kind: "hydria-sheet", version: 1, activeSheetId: "sheet-1", namedRanges: [],
+      sheets: [{ id: "sheet-1", name: "Registre", columns, rows: [columns, ...rows],
+        columnWidths: {}, rowHeights: {}, merges: [], cellFormats: {}, cellNotes: {},
+        dataValidations: {}, conditionalFormats: [], tables: [], pivotTables: [],
+        charts: [], sparklines: [], slicers: [], filterQuery: "", filterColumnIndex: -1,
+        tableFilters: {}, sort: null, hidden: false, protected: false, protectedRanges: [],
+        zoomLevel: 1, showGridlines: true, frozenRows: 1, frozenColumns: 0 }]
+    });
+  }
 
   if (kind === "dataset") {
     return {
@@ -1098,7 +1195,8 @@ export class WorkObjectService {
     const { files, primaryPath, sourceFormat } = buildBlankWorkspaceFiles(
       kind,
       safeTitle,
-      workspaceFamilyId
+      workspaceFamilyId,
+      metadata?.workspacePageSlug || ""
     );
     files.forEach((file) => {
       const targetPath = safeResolveWithin(workspacePath, file.path);

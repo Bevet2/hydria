@@ -300,6 +300,7 @@ button.secondary-button:hover,button.ghost-button:hover{background:#f1f5f9;}
   body.os-sidebar-collapsed .sidebar .os-sidebar-toggle{margin:5px auto 0;}
   body.os-sidebar-collapsed .sidebar .brand-panel{margin-bottom:16px;}
   body.os-sidebar-collapsed .workspace-switcher-chip{justify-content:center;padding:7px !important;}
+  body.os-sidebar-collapsed .workspace-nav-section-title{display:none;}
   body.os-sidebar-collapsed .sidebar .workspace-search-chip{margin-top:12px !important;}
 }
 body[data-os-theme="dark"] {
@@ -859,3 +860,64 @@ body { overscroll-behavior-y:none; }
 }
 .hydria-drive-usage-family small { opacity: .8; overflow-wrap: anywhere; }
 .hydria-drive-usage-help { font-size: .8rem; opacity: .7; margin: .75rem 0 0; }
+
+/* Canonical suite navigation: one shell, grouped domain tools. */
+.sidebar .workspace-nav-section {display:flex;flex-direction:column;gap:2px;min-width:0;margin-top:13px;}
+.sidebar .workspace-nav-section:first-of-type {margin-top:10px;}
+.sidebar .workspace-nav-section-title {font-size:10px;line-height:1.5;font-weight:750;letter-spacing:.035em;
+  color:var(--muted);margin:0 9px 4px;}
+body.os-sidebar-collapsed .workspace-nav-section-title {display:none;}
+body.os-sidebar-collapsed .sidebar .workspace-nav-section {border-top:1px solid var(--os-border);padding-top:7px;margin-top:7px;}
+
+/* Media editor: editable shot / cue timeline, distinct from a rendered export. */
+.hydria-media-editor {display:flex;flex-direction:column;gap:18px;min-width:0;color:var(--text);}
+.hydria-media-toolbar {display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;
+  border-bottom:1px solid var(--line);padding:0 0 13px;}
+.hydria-media-header {display:flex;flex-direction:column;gap:4px;}
+.hydria-media-header strong{font-size:16px;font-weight:720;letter-spacing:-.02em;}
+.hydria-media-columns {display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,.9fr);gap:18px;min-width:0;}
+.hydria-media-track,.hydria-media-inspector {min-width:0;border:1px solid var(--line);border-radius:9px;
+  background:var(--bg-panel);padding:16px;}
+.hydria-media-track h3,.hydria-media-inspector h3{margin:0 0 14px;font-size:13px;font-weight:720;}
+.hydria-media-clip {display:flex;gap:8px;align-items:center;min-width:0;border-top:1px solid var(--line);
+  padding:7px 0;}
+.hydria-media-select{flex:1;text-align:left;min-width:0;overflow-wrap:anywhere;border:1px solid transparent;
+  border-radius:5px;background:transparent;color:var(--text);padding:7px 9px;}
+.hydria-media-select.is-active{background:var(--accent-soft);border-color:var(--accent);font-weight:650;}
+.hydria-media-duration {flex-shrink:0;color:var(--muted);font-variant-numeric:tabular-nums;}
+.hydria-media-actions {display:flex;gap:4px;}
+.hydria-media-actions button {min-width:29px;min-height:29px;border:1px solid var(--line);border-radius:5px;
+  background:var(--bg-panel);color:var(--text);}
+.hydria-media-actions button:disabled {opacity:.4;cursor:default;}
+.hydria-media-form {display:flex;flex-direction:column;gap:11px;}
+.hydria-media-form label {display:flex;flex-direction:column;gap:5px;color:var(--muted);font-size:11px;font-weight:650;}
+.hydria-media-form input,.hydria-media-form textarea {display:block;width:100%;box-sizing:border-box;border:1px solid var(--line);
+  border-radius:6px;background:var(--bg-elevated);color:var(--text);padding:8px 10px;font-size:13px;min-height:34px;}
+.hydria-media-form textarea {min-height:65px;resize:vertical;}
+.hydria-media-form-actions {display:flex;flex-wrap:wrap;gap:8px;margin-top:4px;}
+.hydria-media-status{font-size:11px;line-height:1.5;margin:0;}
+@media (max-width:960px){.hydria-media-columns{grid-template-columns:minmax(0,1fr);}}
+@media (pointer:coarse){.hydria-media-form input,.hydria-media-form textarea{font-size:16px;}}
+
+/* Shared technical editor layout for geometry and geospatial prototypes. */
+.hydria-spatial-editor{display:flex;flex-direction:column;gap:15px;color:var(--text);min-width:0;}
+.hydria-spatial-heading{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;}
+.hydria-spatial-heading strong{font-size:15px;font-weight:720;letter-spacing:-.02em;}
+.hydria-spatial-columns{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(235px,.75fr);gap:15px;min-width:0;}
+.hydria-spatial-viewport,.hydria-spatial-inspector{min-width:0;background:var(--bg-panel);
+  border:1px solid var(--line);border-radius:8px;padding:12px;}
+.hydria-spatial-viewport svg{display:block;max-width:100%;width:100%;height:auto;aspect-ratio:800/460;border-radius:5px;}
+.hydria-spatial-note{font-size:11px;line-height:1.5;margin:10px 0 0;}
+.hydria-spatial-inspector{max-height:650px;overflow:auto;}
+.hydria-spatial-inspector h3{font-size:12px;font-weight:700;margin:4px 0 12px;}
+.hydria-spatial-form{display:flex;flex-direction:column;gap:9px;}
+.hydria-spatial-form label{display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--muted);font-weight:650;}
+.hydria-spatial-form input{width:100%;box-sizing:border-box;min-height:34px;border:1px solid var(--line);
+  border-radius:6px;padding:7px 9px;background:var(--bg-elevated);color:var(--text);}
+.hydria-spatial-list{padding:0;margin:4px 0;list-style:none;}
+.hydria-spatial-list li{display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding:8px 0;border-top:1px solid var(--line);overflow-wrap:anywhere;font-size:11px;}
+.hydria-spatial-list button{flex-shrink:0;min-height:28px;padding:4px 8px;}
+.hydria-spatial-status{font-size:11px;min-height:1em;}
+@media(max-width:960px){.hydria-spatial-columns{grid-template-columns:minmax(0,1fr);}}
+@media(pointer:coarse){.hydria-spatial-form input{font-size:16px;}}
