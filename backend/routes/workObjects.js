@@ -92,6 +92,55 @@ router.get("/mine/:workObjectId", requireAccount, (req, res, next) => {
   }
 });
 
+function verifiedRevision(req) {
+  const revision = req.body?.expectedRevision;
+  if (!Number.isSafeInteger(revision) || revision < 1) {
+    throw new AppError("A positive integer expectedRevision is required", 400);
+  }
+  return revision;
+}
+
+router.patch("/mine/:workObjectId", requireAccount, (req, res, next) => {
+  try {
+    const title = req.body?.title;
+    if (typeof title !== "string" || !title.trim() || title.trim().length > 200) {
+      throw new AppError("title must contain 1 to 200 characters", 400);
+    }
+    const workObject = workObjectService.updateMetadata({
+      workObjectId: req.params.workObjectId,
+      title: title.trim(),
+      actor: `user:${req.hydriaIdentity.id}`,
+      actorUserId: req.hydriaIdentity.id,
+      expectedRevision: verifiedRevision(req)
+    });
+    if (!workObject) throw new AppError("Work object not found", 404);
+    res.setHeader("Cache-Control", "no-store");
+    res.json({ success: true, workObject });
+  } catch (error) {
+    next(error);
+  }
+});
+
+function verifiedTrashTransition(method) {
+  return (req, res, next) => {
+    try {
+      const workObject = workObjectService[method]({
+        workObjectId: req.params.workObjectId,
+        actorUserId: req.hydriaIdentity.id,
+        expectedRevision: verifiedRevision(req)
+      });
+      if (!workObject) throw new AppError("Work object not found", 404);
+      res.setHeader("Cache-Control", "no-store");
+      res.json({ success: true, workObject });
+    } catch (error) {
+      next(error);
+    }
+  };
+}
+
+router.post("/mine/:workObjectId/trash", requireAccount, verifiedTrashTransition("trash"));
+router.post("/mine/:workObjectId/restore", requireAccount, verifiedTrashTransition("restoreFromTrash"));
+
 router.get("/", (req, res) => {
   const userId = req.query.userId ? Number(req.query.userId) : null;
   const conversationId = req.query.conversationId ? Number(req.query.conversationId) : null;

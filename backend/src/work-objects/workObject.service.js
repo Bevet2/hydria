@@ -1341,27 +1341,37 @@ export class WorkObjectService {
     return compactWorkObject(updated);
   }
 
-  trash({ workObjectId = "", actorUserId = null } = {}) {
+  trash({ workObjectId = "", actorUserId = null, expectedRevision } = {}) {
     const current = this.store.get(String(workObjectId || ""));
     if (!current) return null;
     this.assertAccess(current, { actorUserId }, "editor");
+    if (current.status === "trashed") {
+      throw new AppError("Work object is already in the trash", 409);
+    }
     return this.updateMetadata({
       workObjectId: current.id,
       status: "trashed",
       metadata: { trashedAt: new Date().toISOString(), previousStatus: current.status },
-      actor: `user:${actorUserId || "unknown"}`
+      actor: `user:${actorUserId || "unknown"}`,
+      actorUserId: actorUserId ?? undefined,
+      expectedRevision
     });
   }
 
-  restoreFromTrash({ workObjectId = "", actorUserId = null } = {}) {
+  restoreFromTrash({ workObjectId = "", actorUserId = null, expectedRevision } = {}) {
     const current = this.store.get(String(workObjectId || ""));
     if (!current) return null;
     this.assertAccess(current, { actorUserId }, "editor");
+    if (current.status !== "trashed") {
+      throw new AppError("Work object is not in the trash", 409);
+    }
     return this.updateMetadata({
       workObjectId: current.id,
       status: current.metadata?.previousStatus || "ready",
       metadata: { trashedAt: null },
-      actor: `user:${actorUserId || "unknown"}`
+      actor: `user:${actorUserId || "unknown"}`,
+      actorUserId: actorUserId ?? undefined,
+      expectedRevision
     });
   }
 
@@ -1455,11 +1465,25 @@ export class WorkObjectService {
     title = "",
     status = "",
     metadata = null,
-    actor = "user"
+    actor = "user",
+    actorUserId,
+    expectedRevision
   } = {}) {
     const current = this.store.get(String(workObjectId || ""));
     if (!current) {
       return null;
+    }
+
+    if (actorUserId !== undefined) {
+      if (actorUserId == null || invalidExplicitActorId(actorUserId)) {
+        throw new AppError("Invalid verified actor identity", 403);
+      }
+      this.assertAccess(current, { actorUserId }, "editor");
+    }
+    if (expectedRevision !== undefined && Number(expectedRevision) !== Number(current.revision || 1)) {
+      throw new AppError("Work object changed; reload before editing", 409, {
+        currentRevision: Number(current.revision || 1)
+      });
     }
 
     const nextTitle = String(title ?? current.title ?? "").trim() || current.title || "Untitled";

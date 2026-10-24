@@ -156,7 +156,82 @@ try {
   assert.ok((await (await request("/api/work-objects/mine/search?q=payroll", alice)).json()).results
     .some(result => result.id === secret.id));
 
-  console.log("Verified resource gate: session ownership, project isolation, shared documents, search and content enforced.");
+  // Mutation gate: a real cookie-authenticated editor can change only an
+  // authorized document and must not overwrite an intervening revision.
+  const mutate = (method, url, account, body = {}) => fetch(`${base}${url}`, {
+    method,
+    headers: {
+      "content-type": "application/json",
+      ...(account ? { cookie: account.cookie } : {})
+    },
+    body: JSON.stringify(body)
+  });
+  const scoped = (id) => `/api/work-objects/mine/${id}`;
+  const firstRevision = Number(objects.get(secret.id).revision);
+  const rename = { title: "Alice revised confidential plans", expectedRevision: firstRevision };
+
+  assert.equal((await mutate("PATCH", scoped(secret.id), null, rename)).status, 401);
+  assert.equal((await mutate("PATCH", scoped(secret.id), bob, rename)).status, 403);
+  assert.equal((await mutate("PATCH", scoped(shared.id), bob, {
+    title: "Unauthorized viewer rename", expectedRevision: Number(objects.get(shared.id).revision)
+  })).status, 403);
+  assert.equal((await mutate("PATCH", scoped(secret.id), bob, {
+    ...rename, userId: alice.id
+  })).status, 403, "A client-supplied owner ID cannot authorize a mutation");
+  assert.equal((await mutate("PATCH", scoped(secret.id), alice, {
+    title: " ", expectedRevision: firstRevision
+  })).status, 400);
+  assert.equal((await mutate("PATCH", scoped(secret.id), alice, {
+    title: rename.title
+  })).status, 400, "A mutation needs a concurrency precondition");
+  assert.equal((await mutate("PATCH", scoped(secret.id), alice, {
+    ...rename, expectedRevision: firstRevision + 1
+  })).status, 409);
+
+  const changed = await mutate("PATCH", scoped(secret.id), alice, rename);
+  assert.equal(changed.status, 200);
+  assert.equal(changed.headers.get("cache-control"), "no-store");
+  const changedObject = (await changed.json()).workObject;
+  assert.equal(changedObject.title, rename.title);
+  assert.equal(changedObject.revision, firstRevision + 1);
+  assert.equal(objects.get(secret.id).title, rename.title);
+  assert.equal((await mutate("PATCH", scoped(secret.id), alice, rename)).status, 409,
+    "Retrying a stale rename must not silently overwrite newer data");
+
+  assert.equal((await mutate("POST", `${scoped(secret.id)}/trash`, bob, {
+    expectedRevision: changedObject.revision
+  })).status, 403);
+  assert.equal((await mutate("POST", `${scoped(secret.id)}/trash`, alice, {
+    expectedRevision: firstRevision
+  })).status, 409);
+  const trashed = await mutate("POST", `${scoped(secret.id)}/trash`, alice, {
+    expectedRevision: changedObject.revision
+  });
+  assert.equal(trashed.status, 200);
+  const trashedObject = (await trashed.json()).workObject;
+  assert.equal(trashedObject.status, "trashed");
+  assert.equal(trashedObject.revision, changedObject.revision + 1);
+  assert.equal((await mutate("POST", `${scoped(secret.id)}/trash`, alice, {
+    expectedRevision: trashedObject.revision
+  })).status, 409, "Trashing twice must not overwrite the original recovery status");
+  assert.equal((await mutate("POST", `${scoped(secret.id)}/restore`, bob, {
+    expectedRevision: trashedObject.revision
+  })).status, 403);
+  assert.equal((await mutate("POST", `${scoped(secret.id)}/restore`, alice, {
+    expectedRevision: changedObject.revision
+  })).status, 409);
+  const restored = await mutate("POST", `${scoped(secret.id)}/restore`, alice, {
+    expectedRevision: trashedObject.revision
+  });
+  assert.equal(restored.status, 200);
+  const restoredObject = (await restored.json()).workObject;
+  assert.equal(restoredObject.status, "ready");
+  assert.equal((await mutate("POST", `${scoped(secret.id)}/restore`, alice, {
+    expectedRevision: restoredObject.revision
+  })).status, 409, "Restoring an active document must not create an extra revision");
+  assert.equal(objects.get(secret.id).title, rename.title);
+
+  console.log("Verified resource gate: identity, isolated reads, authorized versioned rename/trash/restore enforced.");
 } finally {
   if (child) {
     child.kill("SIGTERM");
