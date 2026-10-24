@@ -43,6 +43,8 @@ jobs:
         run: npm run gate:capabilities --prefix backend
       - name: Validate new suite routes, project templates and media timelines
         run: npm run gate:suite-expansion --prefix backend
+      - name: Verify external Office engine contracts and fail-closed formats
+        run: npm run gate:office-engines --prefix backend
       - name: Audit security and data integrity regressions
         run: node backend/scripts/auditSecurityGate.mjs
       - name: Workspace action approval HTTP regression
