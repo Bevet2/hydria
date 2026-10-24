@@ -20,10 +20,10 @@ function family(maturity, routes = [], code = [], tests = [], nextGap = "") {
 // All 26 registry families and the two ArtCraft-specific frontend families.
 // 'functional' means a useful bounded journey, not a fully finished suite.
 export const FAMILY_DELIVERY = Object.freeze({
-  document_knowledge: family("functional", ["docs", "pdf", "knowledge"],
-    ["frontend/components/workspacePanel.js", "frontend/components/pdfCraftWorkbench.js"],
-    ["backend/scripts/osExportSmoke.mjs", "backend/scripts/osPdfCraftGate.mjs"],
-    "Complex DOCX/PDF fidelity, unified Drive lifecycle and permissions"),
+  document_knowledge: family("functional", ["docs", "pdf", "knowledge", "office-engines"],
+    ["frontend/components/workspacePanel.js", "frontend/components/pdfCraftWorkbench.js", "frontend/components/officeSuiteWorkbench.js", "backend/services/office/officeEngines.js"],
+    ["backend/scripts/osExportSmoke.mjs", "backend/scripts/osPdfCraftGate.mjs", "backend/scripts/osOfficeEngineGate.mjs"],
+    "Complex DOCX/PDF fidelity, unified Drive lifecycle, per-user permissions and tested native binaries"),
   data_spreadsheet: family("functional", ["sheets"],
     ["frontend/components/workspacePanel.js", "frontend/components/spreadsheetDefinitions.js"],
     ["backend/scripts/collaborationFormulaGate.mjs"],

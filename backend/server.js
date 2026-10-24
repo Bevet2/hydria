@@ -31,6 +31,7 @@ import flowsRouter from "./routes/flows.js";
 import flowPublicationsRouter from "./routes/flowPublications.js";
 import flowSourcesRouter from "./routes/flowSources.js";
 import hydriaApiRouter from "./routes/hydriaApi.js";
+import officeEnginesRouter from "./routes/officeEngines.js";
 
 // Fail closed before touching persistent data if production credentials or HTTPS origin are absent.
 const osProduction = productionSettings();
@@ -71,6 +72,7 @@ app.use("/api/canvas", canvasRouter);
 app.use("/api/flows", flowsRouter);
 app.use("/api/flow-publications", flowPublicationsRouter);
 app.use("/api/flow-sources", flowSourcesRouter);
+app.use("/api/office-engines", officeEnginesRouter);
 
 app.get("/favicon.ico", (req, res) => {
   res.sendFile(path.join(config.paths.frontendDir, "favicon.svg"));
