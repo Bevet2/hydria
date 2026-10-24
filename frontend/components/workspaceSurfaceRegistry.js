@@ -47,6 +47,15 @@ export const WORKSPACE_PAGES = Object.freeze([
     hint: "Créer une présentation"
   },
   {
+    slug: "office-engines",
+    kind: "virtual",
+    family: "document_knowledge",
+    label: "Office Engines",
+    title: "Hydria Office Engines",
+    description: "Convertissez vos documents avec WordCraft, GridCraft, DeckCraft et GenOffice. ElyOffice reste un compagnon desktop.",
+    hint: "Ouvrir les moteurs Office"
+  },
+  {
     slug: "dashboard",
     kind: "dashboard",
     family: "analytics_dashboard",
