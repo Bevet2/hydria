@@ -2,7 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { encryptSecret, randomToken } from "../lib/security.js";
-import { asyncRoute, HttpError, parseBody } from "../lib/http.js";
+import { asyncRoute, HttpError, parseBody, parsePatchBody } from "../lib/http.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { enqueueBackgroundJob } from "../services/backgroundJobs.js";
 
@@ -39,7 +39,7 @@ router.post("/", asyncRoute(async (req, res) => {
 }));
 
 router.patch("/:id", asyncRoute(async (req, res) => {
-  const input = parseBody(schema.partial(), req.body);
+  const input = parsePatchBody(schema.partial(), req.body);
   const current = await prisma.webhookEndpoint.findFirst({
     where: { id: String(req.params.id), organizationId: req.user!.organizationId }
   });

@@ -2,7 +2,7 @@ import { Prisma } from "@prisma/client";
 import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
-import { asyncRoute, HttpError, parseBody, parsePagination } from "../lib/http.js";
+import { asyncRoute, HttpError, parseBody, parsePatchBody, parsePagination } from "../lib/http.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 
 const router = Router();
@@ -52,7 +52,7 @@ router.post("/", asyncRoute(async (req, res) => {
 }));
 
 router.patch("/:id", asyncRoute(async (req, res) => {
-  const input = parseBody(ruleSchema.partial(), req.body);
+  const input = parsePatchBody(ruleSchema.partial(), req.body);
   const current = await prisma.automationRule.findFirst({
     where: { id: String(req.params.id), organizationId: req.user!.organizationId }
   });

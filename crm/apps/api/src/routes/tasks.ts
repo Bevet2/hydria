@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
-import { asyncRoute, HttpError, parseBody } from "../lib/http.js";
+import { asyncRoute, HttpError, parseBody, parsePatchBody } from "../lib/http.js";
 import { assertCrmRelations } from "../lib/tenantRelations.js";
 import { assertCanWrite, requireAuth } from "../middleware/auth.js";
 import { recordActivity } from "../services/activity.js";
@@ -152,7 +152,7 @@ router.patch(
   "/:id",
   asyncRoute(async (req, res) => {
     assertCanWrite(req);
-    const input = parseBody(taskSchema.partial(), req.body);
+    const input = parsePatchBody(taskSchema.partial(), req.body);
     const current = await prisma.task.findFirst({
       where: { id: String(req.params.id), organizationId: req.user!.organizationId }
     });

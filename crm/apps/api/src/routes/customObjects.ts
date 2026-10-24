@@ -2,7 +2,7 @@ import { Prisma } from "@prisma/client";
 import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
-import { asyncRoute, HttpError, parseBody } from "../lib/http.js";
+import { asyncRoute, HttpError, parseBody, parsePatchBody } from "../lib/http.js";
 import { assertCanWrite, requireAuth, requireRole } from "../middleware/auth.js";
 
 const router = Router();
@@ -61,7 +61,7 @@ router.post("/", requireRole("ADMIN", "MANAGER"), asyncRoute(async (req, res) =>
 }));
 
 router.patch("/:definitionId", requireRole("ADMIN", "MANAGER"), asyncRoute(async (req, res) => {
-  const input = parseBody(definitionSchema.partial(), req.body);
+  const input = parsePatchBody(definitionSchema.partial(), req.body);
   const current = await prisma.customObjectDefinition.findFirst({
     where: { id: String(req.params.definitionId), organizationId: req.user!.organizationId }
   });
@@ -132,7 +132,7 @@ router.post("/:definitionId/records", asyncRoute(async (req, res) => {
 
 router.patch("/:definitionId/records/:recordId", asyncRoute(async (req, res) => {
   assertCanWrite(req);
-  const input = parseBody(recordSchema.partial(), req.body);
+  const input = parsePatchBody(recordSchema.partial(), req.body);
   const definition = await prisma.customObjectDefinition.findFirst({
     where: { id: String(req.params.definitionId), organizationId: req.user!.organizationId }
   });

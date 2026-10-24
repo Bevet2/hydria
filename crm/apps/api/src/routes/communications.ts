@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { asyncRoute, HttpError, parseBody, parsePagination } from "../lib/http.js";
+import { asyncRoute, HttpError, parseBody, parsePatchBody, parsePagination } from "../lib/http.js";
 import { prisma } from "../lib/prisma.js";
 import { assertCrmRelations } from "../lib/tenantRelations.js";
 import { assertCanWrite, requireAuth } from "../middleware/auth.js";
@@ -34,7 +34,7 @@ router.post("/templates", asyncRoute(async (req, res) => {
 
 router.patch("/templates/:id", asyncRoute(async (req, res) => {
   assertCanWrite(req);
-  const input = parseBody(z.object({
+  const input = parsePatchBody(z.object({
     name: z.string().min(1).max(120),
     subject: z.string().min(1).max(240),
     body: z.string().min(1).max(100_000),

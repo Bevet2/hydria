@@ -2,7 +2,7 @@ import { Prisma } from "@prisma/client";
 import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
-import { asyncRoute, HttpError, parseBody } from "../lib/http.js";
+import { asyncRoute, HttpError, parseBody, parsePatchBody } from "../lib/http.js";
 import { assertCanWrite, requireAuth } from "../middleware/auth.js";
 
 const router = Router();
@@ -67,7 +67,7 @@ router.patch(
   "/:id",
   asyncRoute(async (req, res) => {
     assertCanWrite(req);
-    const input = parseBody(viewSchema.partial(), req.body);
+    const input = parsePatchBody(viewSchema.partial(), req.body);
     const current = await prisma.savedView.findFirst({
       where: {
         id: String(req.params.id),

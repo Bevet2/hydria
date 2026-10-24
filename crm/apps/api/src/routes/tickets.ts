@@ -6,7 +6,7 @@ import jwt from "jsonwebtoken";
 import { z } from "zod";
 import { env } from "../config/env.js";
 import { prisma } from "../lib/prisma.js";
-import { asyncRoute, HttpError, parseBody } from "../lib/http.js";
+import { asyncRoute, HttpError, parseBody, parsePatchBody } from "../lib/http.js";
 import { hashToken } from "../lib/security.js";
 import { assertCrmRelations } from "../lib/tenantRelations.js";
 import { assertCanWrite, requireAuth } from "../middleware/auth.js";
@@ -339,7 +339,7 @@ router.patch(
   "/queues/:queueId",
   asyncRoute(async (req, res) => {
     assertCanWrite(req);
-    const input = parseBody(queueSchema.partial(), req.body);
+    const input = parsePatchBody(queueSchema.partial(), req.body);
     const current = await prisma.supportQueue.findFirst({
       where: { id: String(req.params.queueId), organizationId: req.user!.organizationId }
     });
@@ -450,7 +450,7 @@ router.patch(
   "/:id",
   asyncRoute(async (req, res) => {
     assertCanWrite(req);
-    const input = parseBody(ticketSchema.partial(), req.body);
+    const input = parsePatchBody(ticketSchema.partial(), req.body);
     const current = await prisma.ticket.findFirst({
       where: { id: String(req.params.id), organizationId: req.user!.organizationId }
     });
